@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.a2alab/
+traces/
+.pytest_cache/
+.ruff_cache/
+dist/
+.sf/
+.sfdx/
