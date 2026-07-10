@@ -11,12 +11,26 @@ question, protocols compared side by side with the raw wire payloads visible.
   Anthropic **Managed Agents (beta)** (default) and the self-hosted
   **Claude Agent SDK** (`CLAUDE_BACKEND=sdk`).
 - **Agentforce:** `src/platforms/agentforce/` — GA Agent API client + MCP/A2A
-  shims. Org metadata (Apex invocable + test, credentials) in `salesforce/`,
-  deployed via the Salesforce DX MCP server (`.mcp.json`).
+  shims. The agent itself is authored in **Agent Script** (ADR D14): the
+  authoring bundle in `salesforce/.../aiAuthoringBundles/` is the source of
+  truth, published with `sf agent validate|publish|activate`. Account answers
+  are grounded in real CRM records via an Apex action
+  (`A2ALabGetAccountSummary` — Account + open Opportunities + Cases).
 - **Bridge:** `src/bridge/` — Agentforce's REST callout fans out to any
   target/protocol per `config/targets.yaml`; no Salesforce redeploy to switch.
-- **Lab console:** `src/console/` (:8200) — per-conversation hop sequence,
-  protocol badges, raw request/response, SSE live tail.
+- **Lab console:** `src/console/` (:8200) — an experiment workspace: pick a
+  scenario or protocol cell, chat with it multi-turn (**Run** tab, markdown
+  replies, each turn's live call-path diagram + raw wire hops beneath), or
+  study it before running (**Details** tab: planned path, step-by-step
+  narrative, live A2A agent cards, deep links to the real agent assets in
+  Agentforce Studio and the Claude platform console).
+
+The two live scenarios are deliberately complementary, not recursive:
+**Claude → Agentforce** has Claude consult the Agentforce agent mid-answer
+for CRM truth (Path B), while **Agentforce → Claude** delegates outside-in
+work — Agentforce keeps the CRM view and asks Claude for external market
+research (clearly labeled synthetic demo intel), with the call-back tool
+explicitly off so the loop stays one-way.
 
 ## Architecture
 
@@ -50,7 +64,7 @@ flowchart LR
             SHIMM["MCP shim :8021"]
             SHIMA["A2A shim :8023"]
         end
-        TRACES[("traces/*.jsonl<br/>raw wire payloads")]
+        TRACES[("trace sink (D13)<br/>jsonl | DynamoDB")]
         CONSOLE -.reads / tails.-> TRACES
     end
 
@@ -92,11 +106,14 @@ event stream and is executed **host-side** by `AgentforceClient`; the sandbox
 never sees Salesforce credentials. The via-shim cells (any MCP/A2A client →
 shim → Agent API) cover the same direction for protocol comparison.
 
-Every hop appends a `TraceEvent` with the raw wire bytes to
-`traces/YYYY-MM-DD.jsonl` (REST at handler level; MCP/A2A via the WireTap ASGI
-middleware, since the JSON-RPC envelopes live inside the frameworks). The
-console groups events by trace id, which rides `X-Trace-Id` on REST, a tool
-argument on MCP, and `metadata.trace_id` on A2A.
+Every hop records a `TraceEvent` with the raw wire bytes (REST at handler
+level; MCP/A2A via the WireTap ASGI middleware, since the JSON-RPC envelopes
+live inside the frameworks). Where events go is pluggable (ADR D13,
+`A2ALAB_TRACE_SINK`): JSONL files under `traces/` by default — what the
+console tails — and/or a DynamoDB table for cloud deploys, which is also the
+integration point for Data 360's zero-copy connector → TableauNext reporting
+(M10). The console groups events by trace id, which rides `X-Trace-Id` on
+REST, a tool argument on MCP, and `metadata.trace_id` on A2A.
 
 ## The A2A implementation
 
@@ -192,10 +209,12 @@ the raw payloads in the console) are open to anyone.
    additionally accepted because the SSE live tail uses `EventSource`, which
    cannot set headers. Only `/` (the static shell) is exempt; every API route
    requires the token.
-7. **Trace files** — `traces/*.jsonl` hold complete raw request/response
-   payloads by design. They are gitignored (as are `.env` and `.a2alab/`) and
-   never leave the lab host; the console is the only network reader, behind
-   the token.
+7. **Trace storage** — traces hold complete raw request/response payloads by
+   design. The default JSONL files (`traces/*.jsonl`) are gitignored (as are
+   `.env` and `.a2alab/`) and never leave the lab host; the console is the
+   only network reader, behind the token, and its Clear button deletes them.
+   The DynamoDB sink authenticates via the standard boto3 chain (task role on
+   AWS) and expires items via TTL (`A2ALAB_TRACE_TTL_DAYS`, default 14).
 
 ## Quick start (local loopback — no external accounts)
 
