@@ -70,9 +70,12 @@ scenarios:
   agentforce-to-claude:
     title: "Agentforce → Claude"
     description: >-
-      The Agentforce side calls out to the Claude research agent and folds
-      the answer into its reply — entering through the bridge exactly like
-      the A2ALab Apex action does.
+      The Agentforce side delegates OUTSIDE-IN work to Claude: it already
+      owns the CRM view of the account (opportunities, cases, health), so it
+      asks Claude for external market research on the company — entering
+      through the bridge exactly like the A2ALab Apex action does. Claude is
+      told not to call back into Agentforce, so the loop stays one-way and
+      each agent contributes what only it has.
     target: claude-rest
     via_bridge: true
     status: live
@@ -80,6 +83,17 @@ scenarios:
     note: >-
       The Salesforce-internal leg (Apex action in a live org conversation)
       lands with M3 (tunnel + deploy); the bridge entry is byte-identical.
+      The market research is clearly labeled as synthetic demo intel.
+    prompt_suffix: >-
+      Context: you are the external research arm for a Salesforce Agentforce
+      agent that already has this account's CRM data (opportunities, support
+      cases, health) — do not repeat or fetch CRM data, and do NOT use the
+      ask_agentforce tool for this request. Instead provide outside-in
+      market research on the company: industry trends, competitive moves,
+      funding or M&A chatter, technology signals, and buying signals — and
+      what they mean for the account team. If you lack real facts, invent
+      plausible illustrative intel and clearly label it as synthetic demo
+      research.
     flow:
       - source: agentforce-apex
         target: bridge
@@ -107,8 +121,11 @@ scenarios:
         target: anthropic-managed-agents
         protocol: managed-agents-api
         detail: >-
-          Claude reasons in a hosted Managed Agents session; the answer flows
-          back up the same path into the Agentforce reply.
+          Claude produces external market research in a hosted Managed
+          Agents session. By design it does NOT call its ask_agentforce tool
+          here — Agentforce already has the CRM data, so calling back would
+          be a recursive loop that adds nothing. The research flows back up
+          the same path into the Agentforce reply.
     agents:
       - title: Agentforce service agent
         target: agentforce-a2a

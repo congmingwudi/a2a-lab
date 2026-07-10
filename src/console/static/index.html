@@ -386,9 +386,9 @@ function describeTrace(t) {
     }
   } else if (claudeInvolved) {
     parts.push(`<b>No cross-platform hop this turn:</b> Claude answered without calling its
-      <code>ask_agentforce</code> tool. The model decides per turn whether it needs Salesforce data —
-      in a multi-turn session it usually reuses what an earlier turn already fetched instead of
-      re-querying, so follow-up questions often stay inside the Claude session.`);
+      <code>ask_agentforce</code> tool — either the prompt directed it not to (the
+      Agentforce → Claude scenario keeps the loop one-way on purpose), or the model decided it
+      didn't need Salesforce data, e.g. a follow-up reusing what an earlier turn already fetched.`);
   }
 
   const errs = hops.filter(h => h.status === "error").length;
