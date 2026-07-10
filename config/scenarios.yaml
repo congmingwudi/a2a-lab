@@ -1,0 +1,54 @@
+# Primary demo scenarios: end-to-end cross-platform call paths, shown as
+# cards at the top of the lab console. Each resolves to a target (from
+# targets.yaml) plus routing/prompt behavior. status: live | coming-soon.
+#
+# prompt_suffix is appended to the operator's prompt to make the
+# cross-platform hop deterministic in demos (the model still decides, but
+# reliably).
+
+scenarios:
+  claude-to-agentforce:
+    title: "Claude → Agentforce"
+    description: >-
+      You talk to the Claude research agent; mid-answer it consults the
+      Agentforce service agent through its ask_agentforce tool (Salesforce
+      Agent API) and folds the reply into its answer.
+    target: claude-rest
+    via_bridge: false
+    status: live
+    tags: [claude, managed-agents, agent-api]
+    prompt_suffix: >-
+      Consult the Salesforce Agentforce agent with your ask_agentforce tool
+      as part of answering, and say what it contributed.
+
+  agentforce-to-claude:
+    title: "Agentforce → Claude"
+    description: >-
+      The Agentforce side calls out to the Claude research agent and folds
+      the answer into its reply — entering through the bridge exactly like
+      the A2ALab Apex action does.
+    target: claude-rest
+    via_bridge: true
+    status: live
+    tags: [agentforce, bridge, claude]
+    note: >-
+      The Salesforce-internal leg (Apex action in a live org conversation)
+      lands with M3 (tunnel + deploy); the bridge entry is byte-identical.
+
+  chatgpt-to-agentforce:
+    title: "ChatGPT → Agentforce"
+    description: >-
+      An OpenAI-powered agent (hosted on AWS Bedrock AgentCore) consults the
+      Agentforce agent mid-answer.
+    status: coming-soon
+    tags: [openai, agentcore, agent-api]
+    note: Lands with M9 (platforms/openai + AgentCore deploy).
+
+  agentforce-to-chatgpt:
+    title: "Agentforce → ChatGPT"
+    description: >-
+      The Agentforce side calls out to the OpenAI-powered agent through the
+      bridge and folds its answer into the reply.
+    status: coming-soon
+    tags: [agentforce, bridge, openai]
+    note: Lands with M9 (platforms/openai + AgentCore deploy).
