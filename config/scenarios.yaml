@@ -5,6 +5,16 @@
 # prompt_suffix is appended to the operator's prompt to make the
 # cross-platform hop deterministic in demos (the model still decides, but
 # reliably).
+#
+# flow:   the planned call path, rendered as a sequence diagram + numbered
+#         steps in the console's scenario detail view BEFORE a run. Use the
+#         participant names the trace layer records (remote-caller,
+#         claude-researcher, anthropic-managed-agents, agentforce-client,
+#         client, bridge, agentforce-apex) so the planned diagram lines up
+#         with the live one that streams in after "Run".
+# agents: the agents at each end; `target` names an a2a target in
+#         targets.yaml — the console fetches that server's live
+#         /.well-known/agent-card.json on demand.
 
 scenarios:
   claude-to-agentforce:
@@ -20,6 +30,42 @@ scenarios:
     prompt_suffix: >-
       Consult the Salesforce Agentforce agent with your ask_agentforce tool
       as part of answering, and say what it contributed.
+    flow:
+      - source: remote-caller
+        target: claude-researcher
+        protocol: rest
+        detail: >-
+          You (the console) call the Claude research agent: REST POST /ask on
+          :8001. "remote-caller" is how the server-side trace records whoever
+          invoked it.
+      - source: claude-researcher
+        target: anthropic-managed-agents
+        protocol: managed-agents-api
+        detail: >-
+          The adapter drives a hosted Anthropic Managed Agents session — open
+          the event stream, send the message, collect the answer. The API key
+          stays on the lab host; the sandbox holds no credentials.
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          Mid-answer the model emits an ask_agentforce custom-tool call on
+          the event stream. The lab executes it host-side — OAuth
+          client-credentials, then session + message against the Salesforce
+          Agent API — and returns only the tool result to the sandbox.
+          Session create / message / delete each record their own hop.
+    agents:
+      - title: Claude research agent
+        target: claude-a2a
+        caption: >-
+          Native card — generated at startup by the lab's a2a-sdk server on
+          :8003 from the mounted adapter's name and description.
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          on :8023 generates this card and proxies inbound A2A to the GA
+          Agent API. Honest status: via-shim.
 
   agentforce-to-claude:
     title: "Agentforce → Claude"
@@ -34,6 +80,47 @@ scenarios:
     note: >-
       The Salesforce-internal leg (Apex action in a live org conversation)
       lands with M3 (tunnel + deploy); the bridge entry is byte-identical.
+    flow:
+      - source: agentforce-apex
+        target: bridge
+        protocol: rest
+        detail: >-
+          Entry: in production the Agentforce action's Apex invocable POSTs
+          through the Named Credential (X-Bridge-Token) and Cloudflare tunnel
+          to the bridge. The console reproduces the same byte-identical
+          POST /invoke/claude-rest.
+      - source: client
+        target: claude-rest
+        protocol: rest
+        detail: >-
+          The bridge resolves claude-rest in config/targets.yaml and forwards
+          over the configured protocol — switch this leg to MCP or A2A with a
+          yaml edit, no Salesforce redeploy. "client" is the bridge's
+          outbound protocol client.
+      - source: remote-caller
+        target: claude-researcher
+        protocol: rest
+        detail: >-
+          The same wire exchange, recorded server-side — the trace layer
+          captures every hop from both ends so the raw bytes can be compared.
+      - source: claude-researcher
+        target: anthropic-managed-agents
+        protocol: managed-agents-api
+        detail: >-
+          Claude reasons in a hosted Managed Agents session; the answer flows
+          back up the same path into the Agentforce reply.
+    agents:
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          on :8023 generates this card and proxies inbound A2A to the GA
+          Agent API. Honest status: via-shim.
+      - title: Claude research agent
+        target: claude-a2a
+        caption: >-
+          Native card — generated at startup by the lab's a2a-sdk server on
+          :8003 from the mounted adapter's name and description.
 
   chatgpt-to-agentforce:
     title: "ChatGPT → Agentforce"
@@ -43,6 +130,25 @@ scenarios:
     status: coming-soon
     tags: [openai, agentcore, agent-api]
     note: Lands with M9 (platforms/openai + AgentCore deploy).
+    flow:
+      - source: remote-caller
+        target: openai-researcher
+        protocol: rest
+        detail: >-
+          You call the OpenAI-powered research agent (REST :8011, hosted on
+          AWS Bedrock AgentCore).
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          Mid-answer the agent consults Agentforce through the same
+          host-side Agent API flow the Claude scenario uses.
+    agents:
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — the same lab-generated card the other scenarios show;
+          Agentforce publishes no A2A surface of its own.
 
   agentforce-to-chatgpt:
     title: "Agentforce → ChatGPT"
@@ -52,3 +158,22 @@ scenarios:
     status: coming-soon
     tags: [agentforce, bridge, openai]
     note: Lands with M9 (platforms/openai + AgentCore deploy).
+    flow:
+      - source: agentforce-apex
+        target: bridge
+        protocol: rest
+        detail: >-
+          Same entry as Agentforce → Claude: Apex invocable → Named
+          Credential → tunnel → bridge.
+      - source: client
+        target: openai-rest
+        protocol: rest
+        detail: >-
+          The bridge forwards to the OpenAI agent per config/targets.yaml —
+          the Salesforce side is untouched when this target lands.
+    agents:
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — the same lab-generated card the other scenarios show;
+          Agentforce publishes no A2A surface of its own.

@@ -5,53 +5,45 @@
     <botDialogs>
         <botSteps>
             <botMessages>
-                <message>Hi, I&apos;m an AI assistant. How can I help you?</message>
-                <messageIdentifier>b1714d41-2aa0-4e71-aec8-a5e1aab90f93</messageIdentifier>
+                <message>Hi, I&apos;m the A2ALab research assistant. Ask me about a customer account, a research question, or agent interoperability protocols.</message>
+                <messageIdentifier>d024feda-6823-4862-b074-213092ec5402</messageIdentifier>
             </botMessages>
-            <stepIdentifier>718c9663-c367-43e7-94c7-d3b13161b803</stepIdentifier>
+            <stepIdentifier>65ccd51e-ca37-4c0c-a646-54b32d443fbd</stepIdentifier>
             <type>Message</type>
         </botSteps>
         <botSteps>
-            <stepIdentifier>5d7960bd-3ee1-4120-92c2-ef899e277029</stepIdentifier>
+            <stepIdentifier>ec7fe3f9-4c02-46b2-b179-b8456e66a2b5</stepIdentifier>
             <type>Wait</type>
         </botSteps>
         <developerName>Welcome</developerName>
         <isPlaceholderDialog>false</isPlaceholderDialog>
-        <label>Hi! I&apos;m your helpful bot.</label>
+        <label>Welcome</label>
         <showInFooterMenu>false</showInFooterMenu>
     </botDialogs>
     <botDialogs>
         <botSteps>
             <botMessages>
                 <message>Sorry, it looks like something has gone wrong.</message>
-                <messageIdentifier>716886fd-f23d-4d00-a404-47cc5703b411</messageIdentifier>
+                <messageIdentifier>a84e5bed-c1c8-49aa-afdc-682c4b50cd5d</messageIdentifier>
             </botMessages>
-            <stepIdentifier>aaa3a9fd-1a2e-4365-9ab3-cc6cc25c2206</stepIdentifier>
+            <stepIdentifier>98932988-63f2-4b25-8a26-d3383c6a3eb6</stepIdentifier>
             <type>Message</type>
         </botSteps>
         <botSteps>
-            <stepIdentifier>fdcac8dd-7c18-44d0-95d9-938ca96152d7</stepIdentifier>
+            <stepIdentifier>5a01ad65-e4ca-462e-8bdb-a6354bdd784d</stepIdentifier>
             <type>Wait</type>
         </botSteps>
-        <developerName>Error_Handling</developerName>
+        <developerName>Rich_Content_Error_Handling</developerName>
         <isPlaceholderDialog>false</isPlaceholderDialog>
-        <label>Unfortunately, a system error occurred. Let us start again.</label>
+        <label>Error Handler</label>
         <showInFooterMenu>false</showInFooterMenu>
     </botDialogs>
     <botDialogs>
         <botSteps>
-            <botMessages>
-                <message>One moment while I connect you to the next available service representative.</message>
-                <messageIdentifier>e1db8e48-bf7e-4754-bac1-256e4d9b6b33</messageIdentifier>
-            </botMessages>
-            <stepIdentifier>a118c92c-da6a-4c82-b462-44fad1a2b666</stepIdentifier>
-            <type>Message</type>
-        </botSteps>
-        <botSteps>
             <conversationSystemMessage>
                 <type>Transfer</type>
             </conversationSystemMessage>
-            <stepIdentifier>8e4acce0-a36d-40b9-9816-a4e48dca860f</stepIdentifier>
+            <stepIdentifier>33906dcf-6854-43c7-83b7-ac58f3c520f3</stepIdentifier>
             <type>SystemMessage</type>
         </botSteps>
         <developerName>Transfer_To_Agent</developerName>
@@ -60,30 +52,41 @@
         <showInFooterMenu>false</showInFooterMenu>
     </botDialogs>
     <citationsEnabled>false</citationsEnabled>
-    <company>A2A Interop Lab</company>
     <conversationDefinitionPlanners>
-        <genAiPlannerName>A2ALab_Research_Assistant</genAiPlannerName>
+        <genAiPlannerName>A2ALab_Research_Assistant_Script_v1</genAiPlannerName>
     </conversationDefinitionPlanners>
+    <conversationSystemDialogs>
+        <dialog>Rich_Content_Error_Handling</dialog>
+        <type>ErrorHandling</type>
+    </conversationSystemDialogs>
     <conversationVariables>
         <dataType>Text</dataType>
-        <description>This variable may also be referred to as VerifiedCustomerId</description>
-        <developerName>VerifiedCustomerId</developerName>
+        <description>The agent instructions</description>
+        <developerName>AgentScriptInternal_agent_instructions</developerName>
         <includeInPrompt>false</includeInPrompt>
-        <label>VerifiedCustomerId</label>
+        <label>Agent Instructions</label>
         <visibility>Internal</visibility>
     </conversationVariables>
+    <conversationVariables>
+        <dataType>Text</dataType>
+        <description>The next topic to be visited</description>
+        <developerName>AgentScriptInternal_next_topic</developerName>
+        <includeInPrompt>false</includeInPrompt>
+        <label>Next Topic</label>
+        <visibility>Internal</visibility>
+    </conversationVariables>
+    <copilotPrimaryLanguage>en_US</copilotPrimaryLanguage>
     <defaultStdObjForContactIdFltrEnabled>false</defaultStdObjForContactIdFltrEnabled>
     <entryDialog>Welcome</entryDialog>
     <intentDisambiguationEnabled>false</intentDisambiguationEnabled>
     <intentV3Enabled>false</intentV3Enabled>
-    <isScriptCompatibleAgent>false</isScriptCompatibleAgent>
+    <isScriptCompatibleAgent>true</isScriptCompatibleAgent>
     <knowledgeActionEnabled>false</knowledgeActionEnabled>
     <knowledgeFallbackEnabled>false</knowledgeFallbackEnabled>
-    <role>Research assistant that answers research and general-knowledge questions concisely, in 2-4 sentences, for users of the A2A interop lab. If a question concerns Salesforce data it does not have, it says so.</role>
     <smallTalkEnabled>false</smallTalkEnabled>
     <staticPromptsEnabled>false</staticPromptsEnabled>
     <stopRecPrompts>false</stopRecPrompts>
     <stopWelcomePrompts>false</stopWelcomePrompts>
     <surfacesEnabled>false</surfacesEnabled>
-    <toneType>Neutral</toneType>
+    <toneType>Casual</toneType>
 </BotVersion>
