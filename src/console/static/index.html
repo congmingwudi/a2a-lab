@@ -19,8 +19,36 @@
   header h1 { font-size: 16px; margin: 0; letter-spacing: .5px; }
   header .live { font-size: 12px; color: var(--dim); }
   header .live.on::before { content: "●"; color: var(--rest); margin-right: 5px; }
-  main { display: grid; grid-template-columns: 340px 1fr; height: calc(100vh - 51px); }
-  #list { border-right: 1px solid var(--line); overflow-y: auto; }
+  main { display: grid; grid-template-columns: 360px 1fr; height: calc(100vh - 51px); }
+  #side { border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; }
+  .section-head { padding: 8px 14px; font-size: 11px; color: var(--dim); text-transform: uppercase;
+                  letter-spacing: .5px; border-bottom: 1px solid var(--line); background: var(--panel);
+                  position: sticky; top: 0; z-index: 1; }
+  #experiments { border-bottom: 1px solid var(--line); }
+  #experiments .controls { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  #experiments textarea { width: 100%; background: var(--panel2); color: var(--text);
+                          border: 1px solid var(--line); border-radius: 6px; padding: 8px;
+                          font: 12px/1.5 inherit; resize: vertical; min-height: 54px; }
+  #experiments textarea::placeholder { color: var(--dim); }
+  #experiments .controls .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  #experiments label { font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  button.run, button.runall { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+                              border-radius: 6px; padding: 3px 12px; font: 600 12px inherit; cursor: pointer; }
+  button.run:hover, button.runall:hover { border-color: var(--accent); color: var(--accent); }
+  button.runall { margin-left: auto; }
+  button:disabled { opacity: .45; cursor: default; }
+  .target { display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+            border-bottom: 1px solid var(--line); }
+  .target .tname { flex: 1; min-width: 0; }
+  .target .tname .nm { cursor: pointer; }
+  .target .tname .nm:hover { color: var(--accent); }
+  .target .tname .st { color: var(--dim); font-size: 11px; margin-left: 6px; }
+  .target .result { font-size: 11px; color: var(--dim); max-width: 110px; overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; }
+  .target .result.ok { color: var(--rest); }
+  .target .result.fail { color: #f85149; }
+  .target .spin { color: var(--accent); animation: pulse 1s infinite; font-size: 11px; }
+  @keyframes pulse { 50% { opacity: .3; } }
   .trace { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
   .trace:hover, .trace.sel { background: var(--panel); }
   .trace .tid { color: var(--dim); font-size: 11px; }
@@ -72,7 +100,21 @@
   <span id="live" class="live">connecting…</span>
 </header>
 <main>
-  <div id="list"></div>
+  <div id="side">
+    <div id="experiments">
+      <div class="section-head">Experiments</div>
+      <div class="controls">
+        <textarea id="prompt" placeholder="Your prompt — you're the end user (of the Claude researcher, or of the Agentforce agent). Empty = the default protocol question."></textarea>
+        <div class="row">
+          <label><input type="checkbox" id="keepSession"> keep session (multi-turn)</label>
+          <button class="runall" id="runAllBtn" onclick="runAll()">Run all</button>
+        </div>
+      </div>
+      <div id="targets"><div class="empty" style="padding:14px">Loading targets…</div></div>
+    </div>
+    <div class="section-head">Traces</div>
+    <div id="list"></div>
+  </div>
   <div id="detail"><div class="empty">Select a conversation — hops appear live as agents talk.</div></div>
 </main>
 <script>
@@ -245,6 +287,97 @@ window.toggle = (key, i) => {
   document.getElementById("hop-" + i).classList.toggle("open");
 };
 
+// ---- Experiment launcher ---------------------------------------------------
+// Each target from config/targets.yaml gets a Run button; "Run all" sweeps
+// every cell sequentially as the whole-solution health check. Runs mint the
+// trace_id client-side and select it immediately, so hops stream into the
+// diagram while the agents are still talking.
+
+let targets = [];                 // [{name, platform, protocol, status}]
+let runState = {};                // name -> {state: running|ok|fail, note}
+let runningAll = false;
+
+const newTraceId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "")
+  : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join(""));
+
+function renderTargets() {
+  const el = document.getElementById("targets");
+  if (!targets.length) { el.innerHTML = `<div class="empty" style="padding:14px">No targets configured.</div>`; return; }
+  el.innerHTML = targets.map(t => {
+    const r = runState[t.name];
+    const status = !r ? "" :
+      r.state === "running" ? `<span class="spin">running…</span>` :
+      `<span class="result ${r.state}" title="${esc(r.note || "")}">${esc(r.note || r.state)}</span>`;
+    return `
+    <div class="target">
+      <span class="badge ${t.protocol}">${t.protocol}</span>
+      <span class="tname">
+        <span class="nm" title="platform: ${esc(t.platform)}">${esc(t.name)}</span>
+        <span class="st">${esc(t.status)}</span>
+      </span>
+      ${status}
+      <button class="run" onclick="runTarget('${esc(t.name)}')"
+        ${r && r.state === "running" || runningAll ? "disabled" : ""}>Run</button>
+    </div>`;
+  }).join("");
+}
+
+async function loadTargets() {
+  const r = await fetch(apiUrl("/api/targets"));
+  const data = await r.json();
+  targets = data.targets;
+  renderTargets();
+}
+
+window.runTarget = async name => {
+  const trace_id = newTraceId();
+  const message = document.getElementById("prompt").value.trim();
+  const keep = document.getElementById("keepSession").checked;
+  runState[name] = { state: "running" };
+  renderTargets();
+
+  // Select the (empty) trace now — hops stream in live over SSE.
+  traces.unshift({ trace_id, started: Date.now() / 1000, hops: [], protocols: [] });
+  select(trace_id);
+
+  try {
+    const r = await fetch(apiUrl("/api/run"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: name,
+        message,
+        trace_id,
+        session_id: keep ? "ui-" + name : null,
+      }),
+    });
+    const data = await r.json();
+    runState[name] = data.ok
+      ? { state: "ok", note: `PASS · ${data.latency_ms} ms` }
+      : { state: "fail", note: data.error || "FAIL" };
+  } catch (e) {
+    runState[name] = { state: "fail", note: String(e) };
+  }
+  renderTargets();
+  return runState[name].state === "ok";
+};
+
+window.runAll = async () => {
+  if (runningAll) return;
+  runningAll = true;
+  const btn = document.getElementById("runAllBtn");
+  btn.disabled = true;
+  let pass = 0;
+  for (const t of targets) {                 // sequential: kind to org limits
+    if (await runTarget(t.name)) pass++;
+  }
+  btn.textContent = `Run all — ${pass}/${targets.length} PASS`;
+  setTimeout(() => { btn.textContent = "Run all"; }, 8000);
+  runningAll = false;
+  btn.disabled = false;
+  renderTargets();
+};
+
 // When the console runs behind the tunnel with A2ALAB_TOKEN set, the token
 // arrives as ?token=... on the page URL and must ride along on API calls
 // (EventSource can't set headers, hence query param).
@@ -279,6 +412,7 @@ function connectStream() {
 }
 
 load().then(connectStream);
+loadTargets();
 </script>
 </body>
 </html>
