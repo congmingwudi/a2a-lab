@@ -107,6 +107,8 @@
         <textarea id="prompt" placeholder="Your prompt — you're the end user (of the Claude researcher, or of the Agentforce agent). Empty = the default protocol question."></textarea>
         <div class="row">
           <label><input type="checkbox" id="keepSession"> keep session (multi-turn)</label>
+          <label title="Route through the bridge like the Agentforce Apex action does — the trace then shows the full loop: caller → bridge → agent → (Agentforce) → back">
+            <input type="checkbox" id="viaBridge"> via bridge (Path A shape)</label>
           <button class="runall" id="runAllBtn" onclick="runAll()">Run all</button>
         </div>
       </div>
@@ -349,6 +351,7 @@ window.runTarget = async name => {
         message,
         trace_id,
         session_id: keep ? "ui-" + name : null,
+        via_bridge: document.getElementById("viaBridge").checked,
       }),
     });
     const data = await r.json();

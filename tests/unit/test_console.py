@@ -115,3 +115,23 @@ def test_run_defaults_and_errors(tmp_path, monkeypatch):
     assert client.post("/api/run", json={"target": "nope"}).status_code == 404
     # missing target -> 400
     assert client.post("/api/run", json={}).status_code == 400
+
+
+def test_run_via_bridge(tmp_path, monkeypatch):
+    import console.app as console_app
+
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    calls = {}
+
+    async def fake_bridge(req, target):
+        calls["req"], calls["target"] = req, target
+        return {"ok": True, "trace_id": req.trace_id, "text": "via bridge", "via_bridge": True}
+
+    monkeypatch.setattr(console_app, "run_via_bridge", fake_bridge)
+    client = TestClient(app)
+    data = client.post(
+        "/api/run",
+        json={"target": "claude-rest", "message": "hi", "trace_id": "t-b", "via_bridge": True},
+    ).json()
+    assert data == {"ok": True, "trace_id": "t-b", "text": "via bridge", "via_bridge": True}
+    assert calls["target"] == "claude-rest" and calls["req"].trace_id == "t-b"
