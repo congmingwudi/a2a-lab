@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from interop.clients.base import RemoteAgentClient
+from interop.clients.base import RemoteAgentClient, auth_headers
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 
@@ -33,14 +33,7 @@ class RestClient(RemoteAgentClient):
         self._client = httpx.AsyncClient(timeout=timeout)
 
     def _headers(self, trace_id: str) -> dict[str, str]:
-        headers = {"x-trace-id": trace_id}
-        token = self.auth.get("bearer_token")
-        if token:
-            headers["authorization"] = f"Bearer {token}"
-        header_name = self.auth.get("header_name")
-        if header_name and self.auth.get("header_value"):
-            headers[header_name] = self.auth["header_value"]
-        return headers
+        return {"x-trace-id": trace_id, **auth_headers(self.auth)}
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         req.trace_id = req.trace_id or new_trace_id()

@@ -28,8 +28,10 @@ class FakeRegistry(Registry):
             }
         )
         self.fake_client = FakeClient()
+        self.client_for_calls = 0
 
     def client_for(self, name):
+        self.client_for_calls += 1
         return self.fake_client
 
 
@@ -67,6 +69,17 @@ def test_unknown_target_404(bridge, monkeypatch):
     monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
     client, _ = bridge
     assert client.post("/invoke/nope", json={"message": "hi"}).status_code == 404
+
+
+def test_client_cached_across_requests(bridge, monkeypatch):
+    """One long-lived client per target — a per-request client would discard
+    AgentforceClient's OAuth/session caches and orphan prod-org sessions."""
+    monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
+    client, registry = bridge
+    client.post("/invoke/claude-rest", json={"message": "one", "session_id": "s1"})
+    client.post("/invoke/claude-rest", json={"message": "two", "session_id": "s1"})
+    assert registry.client_for_calls == 1
+    assert len(registry.fake_client.requests) == 2
 
 
 def test_auth_enforced_when_token_set(bridge, monkeypatch):

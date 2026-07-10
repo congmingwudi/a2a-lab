@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import time
 
-import uvicorn
 from fastapi import FastAPI, Request
 
 from interop.adapter import AgentAdapter
@@ -75,7 +74,3 @@ def create_rest_app(adapter: AgentAdapter) -> FastAPI:
         return payload
 
     return app
-
-
-def serve_rest(adapter: AgentAdapter, port: int, host: str = "0.0.0.0") -> None:
-    uvicorn.run(create_rest_app(adapter), host=host, port=port, log_level="info")

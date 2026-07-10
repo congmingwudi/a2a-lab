@@ -32,6 +32,20 @@ from platforms.claude.core import RESEARCH_SYSTEM_PROMPT
 ANSWER_TIMEOUT_S = float(os.environ.get("CLAUDE_ANSWER_TIMEOUT_S", "40"))
 AGENTFORCE_TOOL = "mcp__a2alab__ask_agentforce"
 
+# One process-lifetime client so the OAuth token survives across tool calls
+# (a per-call client would re-authenticate and leak its connection pool on
+# every mid-answer Agentforce question).
+_agentforce_client = None
+
+
+def _get_agentforce_client():
+    global _agentforce_client
+    if _agentforce_client is None:
+        from platforms.agentforce.client import AgentforceClient
+
+        _agentforce_client = AgentforceClient.from_env()
+    return _agentforce_client
+
 
 def _build_agentforce_tool():
     @tool(
@@ -42,10 +56,9 @@ def _build_agentforce_tool():
         {"question": str},
     )
     async def ask_agentforce(args: dict) -> dict:
-        from platforms.agentforce.client import AgentforceClient
-
-        client = AgentforceClient.from_env()
-        resp = await client.ask(AgentRequest(message=str(args["question"])))
+        resp = await _get_agentforce_client().ask(
+            AgentRequest(message=str(args["question"]))
+        )
         return {"content": [{"type": "text", "text": resp.text}]}
 
     return ask_agentforce

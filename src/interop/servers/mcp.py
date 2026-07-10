@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 
-import uvicorn
 from mcp.server.fastmcp import FastMCP
 
 from interop.adapter import AgentAdapter
@@ -52,9 +51,3 @@ def create_mcp_app(adapter: AgentAdapter):
     mcp = create_mcp_server(adapter)
     app = mcp.streamable_http_app()
     return WireTapMiddleware(app, protocol="mcp", service=adapter.name)
-
-
-def serve_mcp(adapter: AgentAdapter, port: int, host: str = "0.0.0.0") -> None:
-    mcp = create_mcp_server(adapter, host=host, port=port)
-    app = WireTapMiddleware(mcp.streamable_http_app(), protocol="mcp", service=adapter.name)
-    uvicorn.run(app, host=host, port=port, log_level="info")

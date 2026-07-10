@@ -131,41 +131,56 @@ class AgentforceClient(RemoteAgentClient):
             r.raise_for_status()
             return r.json()["sessionId"]
 
-    async def _get_session(self, req: AgentRequest, trace_id: str) -> dict[str, Any]:
-        key = req.session_id or "__oneshot__"
-        if key not in self._sessions or key == "__oneshot__":
+    async def ensure_session(self, lab_session_id: str, trace_id: str) -> dict[str, Any]:
+        """Get-or-create the cached Agentforce session for a lab session_id."""
+        if lab_session_id not in self._sessions:
             sf_session_id = await self.start_session(trace_id)
-            self._sessions[key] = {"id": sf_session_id, "seq": 0}
-        return self._sessions[key]
+            self._sessions[lab_session_id] = {"id": sf_session_id, "seq": 0}
+        return self._sessions[lab_session_id]
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         trace_id = req.trace_id or new_trace_id()
         start = time.perf_counter()
-        session = await self._get_session(req, trace_id)
-        session["seq"] += 1
-        body = {
-            "message": {
-                "sequenceId": session["seq"],
-                "type": "Text",
-                "text": req.message,
+        # Session-less asks are one-shot: create -> message -> DELETE, so
+        # each request leaves nothing running on the (production) org.
+        oneshot = not req.session_id
+        if oneshot:
+            session: dict[str, Any] = {"id": await self.start_session(trace_id), "seq": 0}
+        else:
+            session = await self.ensure_session(req.session_id, trace_id)
+        try:
+            session["seq"] += 1
+            body = {
+                "message": {
+                    "sequenceId": session["seq"],
+                    "type": "Text",
+                    "text": req.message,
+                }
             }
-        }
-        with Hop(
-            trace_id,
-            source="agentforce-client",
-            target="agentforce",
-            protocol="agentforce-api",
-            transport_detail=f"POST /sessions/{session['id']}/messages",
-            request_payload=body,
-        ) as hop:
-            r = await self._http.post(
-                f"{self.api_base}/sessions/{session['id']}/messages",
-                json=body,
-                headers=await self._headers(),
-            )
-            hop.response_payload = r.text
-            r.raise_for_status()
-            data = r.json()
+            with Hop(
+                trace_id,
+                source="agentforce-client",
+                target="agentforce",
+                protocol="agentforce-api",
+                transport_detail=f"POST /sessions/{session['id']}/messages",
+                request_payload=body,
+            ) as hop:
+                r = await self._http.post(
+                    f"{self.api_base}/sessions/{session['id']}/messages",
+                    json=body,
+                    headers=await self._headers(),
+                )
+                hop.response_payload = r.text
+                r.raise_for_status()
+                data = r.json()
+        finally:
+            if oneshot:
+                try:
+                    await self._delete_session(session["id"], trace_id)
+                except Exception:
+                    # The Hop already recorded the failed DELETE; don't let
+                    # cleanup mask the answer (or the original error).
+                    pass
 
         texts = [
             m.get("message", "")
@@ -179,26 +194,35 @@ class AgentforceClient(RemoteAgentClient):
             raw=data,
         )
 
-    async def end_session(self, lab_session_id: str | None, trace_id: str | None = None) -> None:
-        key = lab_session_id or "__oneshot__"
-        session = self._sessions.pop(key, None)
-        if not session:
-            return
-        trace_id = trace_id or new_trace_id()
+    async def _delete_session(self, sf_session_id: str, trace_id: str) -> None:
         with Hop(
             trace_id,
             source="agentforce-client",
             target="agentforce",
             protocol="agentforce-api",
-            transport_detail=f"DELETE /sessions/{session['id']}",
+            transport_detail=f"DELETE /sessions/{sf_session_id}",
             request_payload=None,
         ) as hop:
             headers = await self._headers()
             headers["x-session-end-reason"] = "UserRequest"
             r = await self._http.delete(
-                f"{self.api_base}/sessions/{session['id']}", headers=headers
+                f"{self.api_base}/sessions/{sf_session_id}", headers=headers
             )
             hop.response_payload = r.text
+            r.raise_for_status()
+
+    async def end_session(self, lab_session_id: str | None, trace_id: str | None = None) -> None:
+        session = self._sessions.pop(lab_session_id, None) if lab_session_id else None
+        if not session:
+            return
+        await self._delete_session(session["id"], trace_id or new_trace_id())
 
     async def aclose(self) -> None:
+        # End every cached session before closing — cached sessions are live
+        # objects on a real org, not just client state.
+        for lab_session_id in list(self._sessions):
+            try:
+                await self.end_session(lab_session_id)
+            except Exception:
+                pass  # recorded by the Hop; closing must not raise
         await self._http.aclose()

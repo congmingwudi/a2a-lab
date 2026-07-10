@@ -18,6 +18,7 @@ we call the AgentforceClient host-side and send back user.custom_tool_result
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -32,6 +33,10 @@ from interop.trace import Hop
 STATE_FILE = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "managed.json"
 AGENT_ID_ENV = "CLAUDE_MANAGED_AGENT_ID"
 ENV_ID_ENV = "CLAUDE_MANAGED_ENV_ID"
+
+# Same self-cap as the SDK backend: the agent must answer inside the bridge
+# clients' 45s budget, which sits inside Apex's 110s callout budget.
+ANSWER_TIMEOUT_S = float(os.environ.get("CLAUDE_ANSWER_TIMEOUT_S", "40"))
 
 AGENTFORCE_TOOL_NAME = "ask_agentforce"
 
@@ -108,6 +113,44 @@ class ManagedBackend:
             ],
         )
 
+    async def _converse(self, session_id: str, req: AgentRequest, trace_id: str) -> tuple[list[str], list[str]]:
+        texts: list[str] = []
+        events_seen: list[str] = []
+
+        # Stream-first: open the stream before sending the kickoff so no
+        # early events are missed.
+        stream = await self._client.beta.sessions.events.stream(session_id=session_id)
+        try:
+            await self._client.beta.sessions.events.send(
+                session_id=session_id,
+                events=[
+                    {
+                        "type": "user.message",
+                        "content": [{"type": "text", "text": req.message}],
+                    }
+                ],
+            )
+            async for event in stream:
+                etype = getattr(event, "type", "")
+                events_seen.append(etype)
+                if etype == "agent.message":
+                    for block in getattr(event, "content", []) or []:
+                        if getattr(block, "type", "") == "text":
+                            texts.append(block.text)
+                elif etype == "agent.custom_tool_use":
+                    await self._handle_custom_tool(session_id, event, trace_id)
+                elif etype == "session.status_idle":
+                    stop = getattr(event, "stop_reason", None)
+                    if getattr(stop, "type", None) != "requires_action":
+                        break
+                elif etype == "session.status_terminated":
+                    break
+                elif etype == "session.error":
+                    raise RuntimeError(f"managed session error: {event}")
+        finally:
+            await stream.close()
+        return texts, events_seen
+
     async def answer(self, req: AgentRequest) -> AgentResponse:
         trace_id = req.trace_id or new_trace_id()
         start = time.perf_counter()
@@ -120,42 +163,9 @@ class ManagedBackend:
             request_payload={"message": req.message, "session_id": req.session_id},
         ) as hop:
             session_id = await self._get_or_create_session(req.session_id)
-            texts: list[str] = []
-            events_seen: list[str] = []
-
-            # Stream-first: open the stream before sending the kickoff so no
-            # early events are missed.
-            stream = await self._client.beta.sessions.events.stream(session_id=session_id)
-            try:
-                await self._client.beta.sessions.events.send(
-                    session_id=session_id,
-                    events=[
-                        {
-                            "type": "user.message",
-                            "content": [{"type": "text", "text": req.message}],
-                        }
-                    ],
-                )
-                async for event in stream:
-                    etype = getattr(event, "type", "")
-                    events_seen.append(etype)
-                    if etype == "agent.message":
-                        for block in getattr(event, "content", []) or []:
-                            if getattr(block, "type", "") == "text":
-                                texts.append(block.text)
-                    elif etype == "agent.custom_tool_use":
-                        await self._handle_custom_tool(session_id, event, trace_id)
-                    elif etype == "session.status_idle":
-                        stop = getattr(event, "stop_reason", None)
-                        if getattr(stop, "type", None) != "requires_action":
-                            break
-                    elif etype == "session.status_terminated":
-                        break
-                    elif etype == "session.error":
-                        raise RuntimeError(f"managed session error: {event}")
-            finally:
-                await stream.close()
-
+            texts, events_seen = await asyncio.wait_for(
+                self._converse(session_id, req, trace_id), ANSWER_TIMEOUT_S
+            )
             hop.response_payload = {"events": events_seen, "text": "\n".join(texts)}
 
         return AgentResponse(

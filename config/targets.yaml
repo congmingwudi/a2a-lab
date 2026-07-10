@@ -9,6 +9,8 @@
 #
 # ${VAR} values expand from the environment (.env).
 
+# Our own servers (claude-*, shims) enforce A2ALAB_TOKEN when set, so every
+# client hop to them sends it; unset (local dev) both sides skip auth.
 targets:
   # ---- Claude research agent (hosted by us; backend = managed|sdk via CLAUDE_BACKEND)
   claude-rest:
@@ -16,16 +18,19 @@ targets:
     protocol: rest
     endpoint: http://localhost:8001
     status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
   claude-mcp:
     platform: claude
     protocol: mcp
     endpoint: http://localhost:8002/mcp
     status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
   claude-a2a:
     platform: claude
     protocol: a2a
     endpoint: http://localhost:8003
     status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
   # ---- Agentforce (hosted by Salesforce)
   agentforce-rest:
@@ -37,11 +42,13 @@ targets:
     protocol: mcp
     endpoint: http://localhost:8021/mcp
     status: via-shim
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
   agentforce-a2a:
     platform: agentforce
     protocol: a2a
     endpoint: http://localhost:8023
     status: via-shim
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
   # ---- OpenAI agent (M9 — same shape as claude-*, ports 8011/8012/8013)
   # openai-rest: {platform: openai, protocol: rest, endpoint: http://localhost:8011, status: native}

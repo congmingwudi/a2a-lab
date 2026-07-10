@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import math
 import statistics
 import sys
 import time
@@ -29,13 +30,24 @@ QUESTION = (
 )
 
 
+def _p95(latencies: list[int]) -> int:
+    # Nearest-rank percentile: the tail outlier must survive small run counts.
+    return sorted(latencies)[min(len(latencies) - 1, math.ceil(len(latencies) * 0.95) - 1)]
+
+
 async def run_cell(registry: Registry, name: str, runs: int) -> dict:
     target = registry.get(name)
     latencies: list[int] = []
     snippet = ""
     error = ""
     for _ in range(runs):
-        client = registry.client_for(name)
+        # An unconfigured target (e.g. missing SF_* env vars) must FAIL its
+        # own cell, not crash the whole run.
+        try:
+            client = registry.client_for(name)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            break
         try:
             start = time.perf_counter()
             resp = await client.ask(AgentRequest(message=QUESTION, trace_id=new_trace_id()))
@@ -54,7 +66,7 @@ async def run_cell(registry: Registry, name: str, runs: int) -> dict:
         "status": target.status,
         "ok": ok,
         "p50": int(statistics.median(latencies)) if latencies else None,
-        "p95": int(sorted(latencies)[max(0, int(len(latencies) * 0.95) - 1)]) if latencies else None,
+        "p95": _p95(latencies) if latencies else None,
         "snippet": snippet,
         "error": error[:200],
     }

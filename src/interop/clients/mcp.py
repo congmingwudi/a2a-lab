@@ -8,10 +8,12 @@ import json
 import time
 from typing import Any
 
+from datetime import timedelta
+
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from interop.clients.base import RemoteAgentClient
+from interop.clients.base import RemoteAgentClient, auth_headers
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 
@@ -38,10 +40,7 @@ class McpClient(RemoteAgentClient):
         self.timeout = timeout
 
     def _headers(self) -> dict[str, str] | None:
-        token = self.auth.get("bearer_token")
-        if token:
-            return {"authorization": f"Bearer {token}"}
-        return None
+        return auth_headers(self.auth) or None
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         req.trace_id = req.trace_id or new_trace_id()
@@ -59,14 +58,24 @@ class McpClient(RemoteAgentClient):
             transport_detail=f"tools/call ask @ {self.endpoint}",
             request_payload={"jsonrpc-method": "tools/call", "name": "ask", "arguments": arguments},
         ) as hop:
-            async with streamablehttp_client(self.endpoint, headers=self._headers()) as (
+            # Pass the configured timeout at every layer — the library
+            # defaults (30s connect / 300s sse read) would otherwise govern
+            # and a hung agent holds the caller far past its budget.
+            async with streamablehttp_client(
+                self.endpoint,
+                headers=self._headers(),
+                timeout=self.timeout,
+                sse_read_timeout=self.timeout,
+            ) as (
                 read,
                 write,
                 _get_session_id,
             ):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    result = await session.call_tool("ask", arguments)
+                    result = await session.call_tool(
+                        "ask", arguments, read_timeout_seconds=timedelta(seconds=self.timeout)
+                    )
             text_parts = [c.text for c in result.content if getattr(c, "type", "") == "text"]
             raw_text = "\n".join(text_parts)
             hop.response_payload = raw_text
@@ -76,7 +85,9 @@ class McpClient(RemoteAgentClient):
         try:
             data = json.loads(raw_text)
             resp = AgentResponse.from_dict(data)
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # Non-lab agents may return plain text or JSON that isn't an
+            # AgentResponse dict (a bare number/list raises TypeError).
             resp = AgentResponse(text=raw_text)
         resp.latency_ms = int((time.perf_counter() - start) * 1000)
         return resp
