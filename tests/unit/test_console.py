@@ -117,6 +117,50 @@ def test_run_defaults_and_errors(tmp_path, monkeypatch):
     assert client.post("/api/run", json={}).status_code == 400
 
 
+def test_scenarios_listed(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    data = client.get("/api/scenarios").json()["scenarios"]
+    names = {s["name"]: s for s in data}
+    assert "claude-to-agentforce" in names and names["claude-to-agentforce"]["status"] == "live"
+    assert names["chatgpt-to-agentforce"]["status"] == "coming-soon"
+    assert names["agentforce-to-claude"]["via_bridge"] is True
+
+
+def test_run_scenario_resolves_target_and_suffix(tmp_path, monkeypatch):
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    data = client.post(
+        "/api/run", json={"scenario": "claude-to-agentforce", "message": "What can you do?"}
+    ).json()
+    assert data["ok"] is True
+    req = registry.fake_client.requests[0]
+    assert req.message.startswith("What can you do?")
+    assert "ask_agentforce" in req.message  # prompt_suffix appended
+    # coming-soon scenario refuses to run
+    assert client.post("/api/run", json={"scenario": "chatgpt-to-agentforce"}).status_code == 409
+    # unknown scenario
+    assert client.post("/api/run", json={"scenario": "nope"}).status_code == 404
+
+
+def test_run_scenario_via_bridge(tmp_path, monkeypatch):
+    import console.app as console_app
+
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    calls = {}
+
+    async def fake_bridge(req, target):
+        calls["target"] = target
+        return {"ok": True, "trace_id": req.trace_id, "text": "loop", "via_bridge": True}
+
+    monkeypatch.setattr(console_app, "run_via_bridge", fake_bridge)
+    client = TestClient(app)
+    data = client.post("/api/run", json={"scenario": "agentforce-to-claude", "message": "hi"}).json()
+    assert data["ok"] is True and data["via_bridge"] is True
+    assert calls["target"] == "claude-rest"
+
+
 def test_run_via_bridge(tmp_path, monkeypatch):
     import console.app as console_app
 

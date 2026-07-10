@@ -3,11 +3,12 @@ launching experiments.
 
     uv run python -m console --port 8200
 
-- GET  /            single-page UI (plain HTML/JS, no build step)
-- GET  /api/traces  traces grouped by trace_id, newest first
-- GET  /api/stream  SSE live tail of new TraceEvents (file-watcher)
-- GET  /api/targets runnable targets from config/targets.yaml
-- POST /api/run     run one experiment cell (custom prompt, live trace)
+- GET  /              single-page UI (plain HTML/JS, no build step)
+- GET  /api/traces    traces grouped by trace_id, newest first
+- GET  /api/stream    SSE live tail of new TraceEvents (file-watcher)
+- GET  /api/targets   runnable targets from config/targets.yaml
+- GET  /api/scenarios primary demo scenarios from config/scenarios.yaml
+- POST /api/run       run a scenario or one cell (custom prompt, live trace)
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 import httpx
+import yaml
 
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, new_trace_id
@@ -29,6 +31,15 @@ from interop.registry import Registry
 from interop.trace import DEFAULT_TRACE_DIR, TRACE_DIR_ENV
 
 STATIC_DIR = Path(__file__).parent / "static"
+SCENARIOS_PATH = Path("config/scenarios.yaml")
+
+
+def load_scenarios(path: str | Path = SCENARIOS_PATH) -> dict[str, dict]:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    raw = yaml.safe_load(p.read_text()) or {}
+    return raw.get("scenarios") or {}
 
 # Same default utterance as scripts/matrix.py — a prompt every platform can
 # attempt, so "Run all" doubles as the everything-is-up verification sweep.
@@ -139,25 +150,48 @@ def create_console_app(registry: Registry | None = None):
             "default_question": DEFAULT_QUESTION,
         }
 
+    @app.get("/api/scenarios")
+    async def scenarios():
+        return {
+            "scenarios": [
+                {"name": name, **spec} for name, spec in load_scenarios().items()
+            ]
+        }
+
     @app.post("/api/run")
     async def run(request: Request):
         body = await request.json()
-        name = body.get("target")
+        message = (body.get("message") or "").strip() or DEFAULT_QUESTION
+        via_bridge = bool(body.get("via_bridge"))
+
+        scenario_name = body.get("scenario")
+        if scenario_name:
+            spec = load_scenarios().get(scenario_name)
+            if not spec:
+                raise HTTPException(status_code=404, detail=f"unknown scenario '{scenario_name}'")
+            if spec.get("status") != "live":
+                raise HTTPException(status_code=409, detail=f"scenario '{scenario_name}' is not live yet")
+            name = spec["target"]
+            via_bridge = bool(spec.get("via_bridge"))
+            if spec.get("prompt_suffix"):
+                message = f"{message}\n\n{spec['prompt_suffix']}"
+        else:
+            name = body.get("target")
         if not name:
-            raise HTTPException(status_code=400, detail="missing 'target'")
+            raise HTTPException(status_code=400, detail="missing 'target' or 'scenario'")
         try:
             get_registry().get(name)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
         req = AgentRequest(
-            message=(body.get("message") or "").strip() or DEFAULT_QUESTION,
+            message=message,
             # Client-minted trace_id so the UI can select the trace and watch
             # hops stream in while the run is still in flight.
             trace_id=body.get("trace_id") or new_trace_id(),
             session_id=body.get("session_id") or None,
         )
         try:
-            if body.get("via_bridge"):
+            if via_bridge:
                 return await run_via_bridge(req, name)
             client = get_client(name)
             resp = await client.ask(req)
