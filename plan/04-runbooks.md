@@ -44,12 +44,14 @@ available. Raw `sf` CLI equivalents are noted as fallback.
      minimal profile + Agentforce permission set; API-only if available).
    - Record Consumer Key/Secret → `SF_CLIENT_ID` / `SF_CLIENT_SECRET` in
      `.env`; `SF_MY_DOMAIN` = the org's My Domain host.
-3. **Build the agent** (Agent Builder — no MCP/CLI surface for this yet):
-   New agent, type **Service** (Agent API refuses "Agentforce (Default)"),
-   name `A2ALab Research Assistant`, topic for research-question handling.
-   Publish + activate. Record the agent Id (18-char, from the URL or the
-   MCP data tools: `SELECT Id, DeveloperName FROM BotDefinition`) →
-   `SF_AGENT_ID`.
+3. **Build the agent** (Agent Script — D14): edit the authoring bundle at
+   `salesforce/force-app/main/default/aiAuthoringBundles/A2ALab_Research_Assistant_Script/`,
+   then `sf agent validate authoring-bundle -n A2ALab_Research_Assistant_Script -o a2alab-prod`,
+   `sf agent publish authoring-bundle -n ... -o a2alab-prod`, and
+   `sf agent activate --api-name A2ALab_Research_Assistant_Script -o a2alab-prod`.
+   Record the agent Id (`SELECT Id, DeveloperName FROM BotDefinition`) →
+   `SF_AGENT_ID`. The agent user needs the `A2ALab_Agent_Actions`
+   permission set (Apex action + object read access).
 4. **Go/no-go gate:** `uv run python scripts/sf_smoke.py` — token, session,
    round-trip, delete. If this fails on licensing, stop and resolve before
    any further Salesforce work.
@@ -102,3 +104,29 @@ available. Raw `sf` CLI equivalents are noted as fallback.
    AgentCore Identity.
 3. Repoint the `A2ALab_Bridge` Named Credential URL from the tunnel to the
    AgentCore endpoint; rerun the matrix with the tunnel off.
+
+## 6. DynamoDB trace table (D13 / M10 prep)
+
+Create once per AWS account (region = the AgentCore deploy region):
+
+```sh
+aws dynamodb create-table \
+  --table-name a2alab-traces \
+  --attribute-definitions \
+      AttributeName=trace_id,AttributeType=S \
+      AttributeName=sk,AttributeType=S \
+      AttributeName=day,AttributeType=S \
+  --key-schema AttributeName=trace_id,KeyType=HASH AttributeName=sk,KeyType=RANGE \
+  --global-secondary-indexes 'IndexName=day-index,KeySchema=[{AttributeName=day,KeyType=HASH},{AttributeName=sk,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+  --billing-mode PAY_PER_REQUEST
+aws dynamodb update-time-to-live --table-name a2alab-traces \
+  --time-to-live-specification Enabled=true,AttributeName=expires_at
+```
+
+Enable in any lab process: `uv sync --extra aws`, then
+`A2ALAB_TRACE_SINK=jsonl,dynamodb` (tee: console keeps reading files while
+the table fills) or `dynamodb` alone in containers. Credentials via the
+standard boto3 chain (task role on AWS, `AWS_PROFILE` locally).
+
+M10 (later phase): point Data 360's zero-copy AWS DynamoDB connector at this
+table for TableauNext reporting — see plan/00-decisions.md §M10.

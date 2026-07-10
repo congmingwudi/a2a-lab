@@ -52,9 +52,7 @@ def test_traces_grouped_and_sorted(tmp_path, monkeypatch):
         {"trace_id": "t2", "ts": 200.0, "hop_seq": 0, "protocol": "mcp"},
         {"trace_id": "t1", "ts": 101.0, "hop_seq": 1, "protocol": "a2a"},
     ]
-    (trace_dir / "2026-07-09.jsonl").write_text(
-        "\n".join(json.dumps(e) for e in events) + "\n"
-    )
+    (trace_dir / "2026-07-09.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n")
     app = make_app(trace_dir, monkeypatch)
     client = TestClient(app)
     data = client.get("/api/traces").json()["traces"]
@@ -77,10 +75,18 @@ def test_targets_listed(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
     data = client.get("/api/targets").json()
-    assert data["targets"] == [
-        {"name": "claude-rest", "platform": "claude", "protocol": "rest", "status": "native"}
-    ]
-    assert "MCP" in data["default_question"]
+    (target,) = data["targets"]
+    assert {k: target[k] for k in ("name", "platform", "protocol", "status")} == {
+        "name": "claude-rest",
+        "platform": "claude",
+        "protocol": "rest",
+        "status": "native",
+    }
+    # component deep links to the real agent assets (Details tab)
+    assert [c["kind"] for c in target["components"]] == ["claude"]
+    from console.app import DEFAULT_QUESTION
+
+    assert data["default_question"] == DEFAULT_QUESTION
 
 
 def test_run_experiment(tmp_path, monkeypatch):
@@ -89,8 +95,12 @@ def test_run_experiment(tmp_path, monkeypatch):
     client = TestClient(app)
     r = client.post(
         "/api/run",
-        json={"target": "claude-rest", "message": "hi", "trace_id": "ui-trace-1",
-              "session_id": "ui-claude-rest"},
+        json={
+            "target": "claude-rest",
+            "message": "hi",
+            "trace_id": "ui-trace-1",
+            "session_id": "ui-claude-rest",
+        },
     )
     data = r.json()
     assert data["ok"] is True
@@ -106,8 +116,10 @@ def test_run_defaults_and_errors(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, registry)
     client = TestClient(app)
     # empty message -> default question
+    from console.app import DEFAULT_QUESTION
+
     data = client.post("/api/run", json={"target": "claude-rest", "message": "  "}).json()
-    assert data["ok"] and "MCP" in registry.fake_client.requests[0].message
+    assert data["ok"] and registry.fake_client.requests[0].message == DEFAULT_QUESTION
     # client failure -> ok:false result, not a 500
     data = client.post("/api/run", json={"target": "claude-rest", "message": "boom"}).json()
     assert data["ok"] is False and "kaboom" in data["error"]
@@ -156,7 +168,9 @@ def test_run_scenario_via_bridge(tmp_path, monkeypatch):
 
     monkeypatch.setattr(console_app, "run_via_bridge", fake_bridge)
     client = TestClient(app)
-    data = client.post("/api/run", json={"scenario": "agentforce-to-claude", "message": "hi"}).json()
+    data = client.post(
+        "/api/run", json={"scenario": "agentforce-to-claude", "message": "hi"}
+    ).json()
     assert data["ok"] is True and data["via_bridge"] is True
     assert calls["target"] == "claude-rest"
 
