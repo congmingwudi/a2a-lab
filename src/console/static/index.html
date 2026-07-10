@@ -119,8 +119,13 @@ window.toggle = (key, i) => {
   document.getElementById("hop-" + i).classList.toggle("open");
 };
 
+// When the console runs behind the tunnel with A2ALAB_TOKEN set, the token
+// arrives as ?token=... on the page URL and must ride along on API calls
+// (EventSource can't set headers, hence query param).
+const apiUrl = path => path + window.location.search;
+
 async function load() {
-  const r = await fetch("/api/traces");
+  const r = await fetch(apiUrl("/api/traces"));
   const data = await r.json();
   traces = data.traces;
   renderList();
@@ -129,7 +134,7 @@ async function load() {
 
 function connectStream() {
   const live = document.getElementById("live");
-  const es = new EventSource("/api/stream");
+  const es = new EventSource(apiUrl("/api/stream"));
   es.addEventListener("hello", () => { live.textContent = "live"; live.classList.add("on"); });
   es.onmessage = ev => {
     const hop = JSON.parse(ev.data);

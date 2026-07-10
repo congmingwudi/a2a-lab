@@ -17,27 +17,44 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-TRACE_DIR = Path(os.environ.get("A2ALAB_TRACE_DIR", "traces"))
+from interop.trace import DEFAULT_TRACE_DIR, TRACE_DIR_ENV
+
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _trace_dir() -> Path:
+    # Resolved per call, not at import: main() loads .env after this module
+    # is imported, and the recorders resolve the same env var lazily too —
+    # reader and writers must agree on the directory.
+    return Path(os.environ.get(TRACE_DIR_ENV, DEFAULT_TRACE_DIR))
+
+
+def _parse_lines(data: bytes) -> list[dict]:
+    """JSONL records split on \\n bytes only — str.splitlines() would also
+    split on U+2028/U+2029 inside payloads and shred the record."""
+    events: list[dict] = []
+    for raw in data.split(b"\n"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            events.append(json.loads(raw))
+        except json.JSONDecodeError:
+            continue
+    return events
 
 
 def _read_events() -> list[dict]:
     events: list[dict] = []
-    if not TRACE_DIR.exists():
+    trace_dir = _trace_dir()
+    if not trace_dir.exists():
         return events
-    for path in sorted(TRACE_DIR.glob("*.jsonl")):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
+    for path in sorted(trace_dir.glob("*.jsonl")):
+        events.extend(_parse_lines(path.read_bytes()))
     return events
 
 
-def create_console_app() -> FastAPI:
+def create_console_app():
     app = FastAPI(title="A2A lab console")
 
     @app.get("/", response_class=HTMLResponse)
@@ -69,28 +86,35 @@ def create_console_app() -> FastAPI:
         """SSE live tail: watch the trace dir and push new lines as they land."""
 
         async def gen():
-            # Track per-file offsets, starting at current EOF.
+            # Track per-file byte offsets, starting at current EOF. All I/O
+            # is binary so offsets stay byte-accurate with multibyte payloads,
+            # and only complete lines (ending in \n) are consumed — a record
+            # mid-append waits for the next poll instead of being emitted as
+            # a truncated JSON fragment.
             offsets: dict[Path, int] = {}
-            if TRACE_DIR.exists():
-                for path in TRACE_DIR.glob("*.jsonl"):
+            trace_dir = _trace_dir()
+            if trace_dir.exists():
+                for path in trace_dir.glob("*.jsonl"):
                     offsets[path] = path.stat().st_size
             yield "event: hello\ndata: {}\n\n"
             while True:
                 await asyncio.sleep(0.5)
-                if not TRACE_DIR.exists():
+                trace_dir = _trace_dir()
+                if not trace_dir.exists():
                     continue
-                for path in sorted(TRACE_DIR.glob("*.jsonl")):
+                for path in sorted(trace_dir.glob("*.jsonl")):
                     prev = offsets.get(path, 0)
-                    size = path.stat().st_size
-                    if size > prev:
-                        with path.open("r", encoding="utf-8") as f:
-                            f.seek(prev)
-                            chunk = f.read(size - prev)
-                        offsets[path] = prev + len(chunk.encode("utf-8"))
-                        for line in chunk.splitlines():
-                            line = line.strip()
-                            if line:
-                                yield f"data: {line}\n\n"
+                    if path.stat().st_size <= prev:
+                        continue
+                    with path.open("rb") as f:
+                        f.seek(prev)
+                        chunk = f.read()
+                    last_newline = chunk.rfind(b"\n")
+                    if last_newline == -1:
+                        continue  # partial line — pick it up next poll
+                    offsets[path] = prev + last_newline + 1
+                    for event in _parse_lines(chunk[: last_newline + 1]):
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(
             gen(),
@@ -98,7 +122,13 @@ def create_console_app() -> FastAPI:
             headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
         )
 
-    return app
+    # The console is tunnel-exposed and its API returns every raw wire
+    # payload — including production-org responses. Only the static index
+    # stays open; /api/* requires the lab token (query param allowed because
+    # EventSource can't set headers). No-op while A2ALAB_TOKEN is unset.
+    from interop.servers.auth import TokenAuthMiddleware
+
+    return TokenAuthMiddleware(app, allow_query_param=True, exempt_paths=("/",))
 
 
 def main() -> None:

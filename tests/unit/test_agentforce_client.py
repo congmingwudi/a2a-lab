@@ -75,10 +75,12 @@ async def test_session_reuse_and_sequence(client, fake_api):
     assert "sf-sess-1" in fake_api.messages[1]["path"]
 
 
-async def test_oneshot_sessions_not_reused(client, fake_api):
+async def test_oneshot_sessions_not_reused_and_deleted(client, fake_api):
     await client.ask(AgentRequest(message="q1"))
     await client.ask(AgentRequest(message="q2"))
     assert fake_api.session_calls == 2
+    # One-shot sessions must not accumulate on the org: create -> message -> DELETE.
+    assert fake_api.deleted == ["sf-sess-1", "sf-sess-2"]
 
 
 async def test_token_cached(client, fake_api):
@@ -93,6 +95,13 @@ async def test_end_session(client, fake_api):
     assert fake_api.deleted == ["sf-sess-1"]
 
 
+async def test_aclose_ends_cached_sessions(client, fake_api):
+    await client.ask(AgentRequest(message="q1", session_id="lab-1"))
+    await client.ask(AgentRequest(message="q2", session_id="lab-2"))
+    await client.aclose()
+    assert sorted(fake_api.deleted) == ["sf-sess-1", "sf-sess-2"]
+
+
 async def test_traces_recorded(client, fake_api, isolated_traces):
     await client.ask(AgentRequest(message="q", trace_id="trace-x"))
     lines = [
@@ -103,8 +112,8 @@ async def test_traces_recorded(client, fake_api, isolated_traces):
     protocols = {e["protocol"] for e in lines}
     assert protocols == {"agentforce-api"}
     assert all(e["trace_id"] == "trace-x" for e in lines)
-    # session create + message = 2 hops
-    assert len(lines) == 2
+    # oneshot: session create + message + delete = 3 hops
+    assert len(lines) == 3
 
 
 def test_from_env_missing(monkeypatch):

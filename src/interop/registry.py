@@ -6,6 +6,7 @@ directory under src/platforms/ plus one entry in targets.yaml."""
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,11 +27,16 @@ class Target:
     options: dict[str, Any] = field(default_factory=dict)
 
 
+_ENV_REF = re.compile(r"\$\{(\w+)\}")
+
+
 def _expand_env(value: Any) -> Any:
     """Expand ${VAR} references in strings so targets.yaml can point at
-    .env-provided endpoints and secrets without duplicating them."""
+    .env-provided endpoints and secrets without duplicating them. Unset vars
+    expand to "" (falsy) — a literal "${A2ALAB_TOKEN}" leaking into an auth
+    header would look configured while authenticating nothing."""
     if isinstance(value, str):
-        return os.path.expandvars(value)
+        return _ENV_REF.sub(lambda m: os.environ.get(m.group(1), ""), value)
     if isinstance(value, dict):
         return {k: _expand_env(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -67,20 +73,25 @@ class Registry:
         return self.targets[name]
 
     def client_for(self, name: str):
-        """Instantiate the RemoteAgentClient for a target."""
+        """Instantiate the RemoteAgentClient for a target. Callers own the
+        client's lifetime — hold one per target (they cache tokens, sessions,
+        and connections), don't build one per request."""
         target = self.get(name)
+        kwargs: dict[str, Any] = {"auth": target.auth, "target_name": name}
+        if target.options.get("timeout"):
+            kwargs["timeout"] = float(target.options["timeout"])
         if target.protocol == "rest":
             from interop.clients.rest import RestClient
 
-            return RestClient(target.endpoint, auth=target.auth, target_name=name)
+            return RestClient(target.endpoint, **kwargs)
         if target.protocol == "mcp":
             from interop.clients.mcp import McpClient
 
-            return McpClient(target.endpoint, auth=target.auth, target_name=name)
+            return McpClient(target.endpoint, **kwargs)
         if target.protocol == "a2a":
             from interop.clients.a2a import A2AClient
 
-            return A2AClient(target.endpoint, auth=target.auth, target_name=name)
+            return A2AClient(target.endpoint, **kwargs)
         if target.protocol == "agentforce-api":
             from platforms.agentforce.client import AgentforceClient
 

@@ -8,6 +8,10 @@
 tunnel: a2a-lab
 credentials-file: ~/.cloudflared/a2a-lab.json
 
+# SECURITY: every hostname below is public internet. The bridge requires
+# BRIDGE_TOKEN; everything else requires A2ALAB_TOKEN — set BOTH in .env
+# before running this tunnel, or these endpoints (and the raw payloads in
+# the console) are open to anyone.
 ingress:
   - hostname: bridge.lab.agenticthings.com
     service: http://localhost:8100

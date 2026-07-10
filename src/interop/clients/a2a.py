@@ -13,11 +13,14 @@ import httpx
 from a2a.client import ClientConfig, create_client
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
 
-from interop.clients.base import RemoteAgentClient
+from interop.clients.base import RemoteAgentClient, auth_headers
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 
-DEFAULT_TIMEOUT = 60.0
+# Same budget as the other protocol clients — the timeout chain must be
+# uniform (Apex 110s -> bridge clients 45s -> agent self-cap 40s) or the
+# matrix's cross-protocol timeout measurements aren't comparable.
+DEFAULT_TIMEOUT = 45.0
 
 
 def _texts_from_parts(parts) -> list[str]:
@@ -57,10 +60,7 @@ class A2AClient(RemoteAgentClient):
         message.metadata.update({"trace_id": req.trace_id})
         request = SendMessageRequest(message=message)
 
-        headers = {}
-        token = self.auth.get("bearer_token")
-        if token:
-            headers["authorization"] = f"Bearer {token}"
+        headers = auth_headers(self.auth)
 
         start = time.perf_counter()
         with Hop(

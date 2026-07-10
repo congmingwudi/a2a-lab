@@ -25,11 +25,18 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--backend", choices=["managed", "sdk"], default=None)
+    parser.add_argument(
+        "--public-url",
+        default=None,
+        help="a2a only: URL the AgentCard advertises (per server — a shared "
+        "A2A_PUBLIC_URL env would make every card on this machine advertise "
+        "the same URL)",
+    )
     args = parser.parse_args()
 
     adapter = make_adapter(args.backend)
     port = args.port or DEFAULT_PORTS[args.protocol]
-    serve(adapter, args.protocol, port=port, host=args.host)
+    serve(adapter, args.protocol, port=port, host=args.host, public_url=args.public_url)
 
 
 if __name__ == "__main__":

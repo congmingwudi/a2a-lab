@@ -9,9 +9,7 @@ one text artifact.
 
 from __future__ import annotations
 
-import os
 
-import uvicorn
 from fastapi import FastAPI
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -123,11 +121,3 @@ def create_a2a_app(adapter: AgentAdapter, public_url: str = "http://localhost/")
         jsonrpc_routes=create_jsonrpc_routes(handler, rpc_url="/"),
     )
     return WireTapMiddleware(app, protocol="a2a", service=adapter.name)
-
-
-def serve_a2a(adapter: AgentAdapter, port: int, host: str = "0.0.0.0") -> None:
-    # The AgentCard must advertise a URL clients can actually reach —
-    # A2A_PUBLIC_URL wins (e.g. the tunnel hostname), else localhost.
-    advertised_host = "localhost" if host in ("0.0.0.0", "::") else host
-    public_url = os.environ.get("A2A_PUBLIC_URL", f"http://{advertised_host}:{port}/")
-    uvicorn.run(create_a2a_app(adapter, public_url), host=host, port=port, log_level="info")

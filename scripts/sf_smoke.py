@@ -49,9 +49,19 @@ async def main() -> None:
 
     print("2) session create ...", end=" ", flush=True)
     try:
-        req = AgentRequest(message="Hello — connectivity smoke test.", trace_id=trace_id)
-        print("OK (lazy)")
-        print("3) message round-trip ...", end=" ", flush=True)
+        await client.ensure_session("smoke", trace_id)
+        print("OK")
+    except Exception as exc:
+        print(f"FAIL\n   {exc}")
+        sys.exit(1)
+
+    print("3) message round-trip ...", end=" ", flush=True)
+    try:
+        req = AgentRequest(
+            message="Hello — connectivity smoke test.",
+            session_id="smoke",
+            trace_id=trace_id,
+        )
         resp = await client.ask(req)
         print("OK")
         print(f"   agent said: {resp.text[:200]!r} ({resp.latency_ms} ms)")
@@ -61,7 +71,7 @@ async def main() -> None:
 
     print("4) session delete ...", end=" ", flush=True)
     try:
-        await client.end_session(None, trace_id)
+        await client.end_session("smoke", trace_id)
         print("OK")
     except Exception as exc:
         print(f"WARN (non-fatal): {exc}")
