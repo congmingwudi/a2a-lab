@@ -1,0 +1,54 @@
+# Target registry: every remote agent the lab can call, resolved by the
+# bridge, the shims, custom tools, and scripts/matrix.py.
+#
+# status legend (be honest — this feeds plan/02-matrix.md):
+#   native       the platform speaks this protocol itself
+#   via-bridge   Path A: Agentforce REST callout -> bridge -> this protocol
+#   via-shim     Path B: this protocol -> shim -> Agentforce Agent API
+#   blocked-beta the native path exists but is gated (documented, not run)
+#
+# ${VAR} values expand from the environment (.env).
+
+# Our own servers (claude-*, shims) enforce A2ALAB_TOKEN when set, so every
+# client hop to them sends it; unset (local dev) both sides skip auth.
+targets:
+  # ---- Claude research agent (hosted by us; backend = managed|sdk via CLAUDE_BACKEND)
+  claude-rest:
+    platform: claude
+    protocol: rest
+    endpoint: http://localhost:8001
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  claude-mcp:
+    platform: claude
+    protocol: mcp
+    endpoint: http://localhost:8002/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  claude-a2a:
+    platform: claude
+    protocol: a2a
+    endpoint: http://localhost:8003
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  # ---- Agentforce (hosted by Salesforce)
+  agentforce-rest:
+    platform: agentforce
+    protocol: agentforce-api   # GA Agent API — the native cell
+    status: native
+  agentforce-mcp:
+    platform: agentforce
+    protocol: mcp
+    endpoint: http://localhost:8021/mcp
+    status: via-shim
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  agentforce-a2a:
+    platform: agentforce
+    protocol: a2a
+    endpoint: http://localhost:8023
+    status: via-shim
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  # ---- OpenAI agent (M9 — same shape as claude-*, ports 8011/8012/8013)
+  # openai-rest: {platform: openai, protocol: rest, endpoint: http://localhost:8011, status: native}
