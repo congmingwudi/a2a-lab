@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenAiPlugin xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <canEscalate>false</canEscalate>
+    <description>This topic is selected when users ask about the A2A interop lab&apos;s scope, capabilities, or limitations, including scenarios where Salesforce data is unavailable.</description>
+    <developerName>p_16jKB000000wu9P_Lab_scope_and_limitations</developerName>
+    <genAiFunctions>
+        <functionName>EmployeeCopilot__AnswerQuestionsWithKnowledge</functionName>
+    </genAiFunctions>
+    <genAiPluginInstructions>
+        <description>If the user asks a question requiring unavailable Salesforce data, inform them that the data is not accessible.</description>
+        <developerName>instruction_1</developerName>
+        <language xsi:nil="true"/>
+        <masterLabel>instruction_1</masterLabel>
+        <sortOrder>0</sortOrder>
+    </genAiPluginInstructions>
+    <genAiPluginInstructions>
+        <description>If the user asks about lab capabilities, explain the scope of the A2A interop lab.</description>
+        <developerName>instruction_0</developerName>
+        <language xsi:nil="true"/>
+        <masterLabel>instruction_0</masterLabel>
+        <sortOrder>0</sortOrder>
+    </genAiPluginInstructions>
+    <language>en_US</language>
+    <localDeveloperName>p_16jKB000000wu9P_Lab_scope_and_limitations</localDeveloperName>
+    <masterLabel>Lab scope and limitations</masterLabel>
+    <pluginType>Topic</pluginType>
+    <scope>Your job is to only clarify the scope and limitations of the A2A interop lab, including stating when Salesforce data is unavailable for a query. You aren&apos;t able to retrieve or provide Salesforce-specific data.</scope>
+</GenAiPlugin>
