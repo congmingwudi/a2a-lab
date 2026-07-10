@@ -21,6 +21,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
+import httpx
+
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, new_trace_id
 from interop.registry import Registry
@@ -34,6 +36,31 @@ DEFAULT_QUESTION = (
     "In two sentences: what is the difference between the MCP and A2A "
     "protocols for agent interoperability?"
 )
+
+
+async def run_via_bridge(req: AgentRequest, target: str) -> dict:
+    """Route a run through the bridge (Path A shape) so the trace shows the
+    full loop: caller -> bridge -> target agent [-> Agentforce] -> back."""
+    bridge_url = os.environ.get("A2ALAB_BRIDGE_URL", "http://localhost:8100")
+    headers = {"x-trace-id": req.trace_id}
+    if os.environ.get("BRIDGE_TOKEN"):
+        headers["x-bridge-token"] = os.environ["BRIDGE_TOKEN"]
+    async with httpx.AsyncClient(timeout=120.0) as http:
+        r = await http.post(
+            f"{bridge_url}/invoke/{target}",
+            json={"message": req.message, "session_id": req.session_id},
+            headers=headers,
+        )
+        r.raise_for_status()
+        data = r.json()
+    return {
+        "ok": True,
+        "trace_id": req.trace_id,
+        "text": data.get("text", ""),
+        "latency_ms": (data.get("bridge") or {}).get("total_ms"),
+        "session_id": data.get("session_id"),
+        "via_bridge": True,
+    }
 
 
 def _trace_dir() -> Path:
@@ -130,6 +157,8 @@ def create_console_app(registry: Registry | None = None):
             session_id=body.get("session_id") or None,
         )
         try:
+            if body.get("via_bridge"):
+                return await run_via_bridge(req, name)
             client = get_client(name)
             resp = await client.ask(req)
             return {
