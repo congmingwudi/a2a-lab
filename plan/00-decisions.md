@@ -158,3 +158,96 @@ The script keeps the same grounding behavior (get_account_summary →
 A2ALabGetAccountSummary Apex) and reuses the same agent user + permission
 set (A2ALab_Agent_Actions). Verified live post-switch: direct Agent API and
 the full Claude → Agentforce scenario both answer from CRM records.
+
+## 2026-07-11 — D15: Experiments must enter through the real platform agent
+**At user request**: every experiment's call path starts by invoking the
+designated agent on its own platform exactly as a true API caller or human
+would — it is then that platform's job to initiate the cross-platform hop
+(through the bridge where needed). The console may never simulate a
+platform's leg. Audit result: Claude → Agentforce already complied;
+**Agentforce → Claude did not** (the console POSTed straight to the bridge,
+faking the Salesforce entry) and was re-architected as a true collaboration:
+the console now drives the GA Agent API (target `agentforce-rest`), the
+agent answers the account question from its own CRM via
+`get_account_summary`, then delegates outside-in market research to Claude
+via a new `ask_external_researcher` action (Apex `A2ALabInvokeRemoteAgent`
+→ Named Credential → tunnel → bridge → `claude-rest`), replying in two
+attributed sections ("From our CRM" / "External market research"). Wired
+live: External/Named Credential + updated `A2ALab_Agent_Actions` permset
+(class access + credential principal access) deployed; `BridgeToken` set on
+`A2ALabPrincipal` via Connect API; agent republished as **version 2**.
+Interim transport: a TryCloudflare quick tunnel (no Cloudflare login
+needed) fronts the bridge — its hostname changes per restart and lives in
+the Named Credential URL; M6's named tunnel replaces it with
+`bridge.lab.agenticthings.com`. Trace note: the Salesforce-internal legs
+mint their own trace id (Apex generates one per callout), so a scenario run
+produces two correlated-by-time traces — the Agent API turn and the Apex →
+bridge → Claude leg. Measured e2e: 35.9s wall for the full collaboration
+(Agent API turn incl. both actions), within the ~60s action budget.
+Metadata gotchas recorded: NamedCredential Metadata API shape has no
+calloutOptions wrapper (allowMergeFieldsInBody/Header +
+generateAuthorizationHeader are top-level) and HttpHeader parameters
+require sequenceNumber.
+
+## 2026-07-12 — D16: Two delegation patterns — sync (proven) + async (what CMA is for)
+**At user request**, the Agentforce → Claude path splits into two experiments:
+- **Sync** (`agentforce-to-claude`, unchanged mechanics, retitled): one-turn
+  collaboration inside the action-timeout chain (~60s action → Apex 110s →
+  bridge 45s). Kept deliberately as the protocol proof + response-time
+  measurement; the chain is also why synchronous research can't go deep.
+- **Async** (`account-brief-async`, new): the architecture Anthropic
+  positions Managed Agents for — long-running, scheduled, stateful work.
+  An Anthropic **scheduled deployment** (platform-native cron, daily,
+  `scripts/setup_brief_agent.py`, ids in `.a2alab/brief.json`) fires a
+  research session on a dedicated managed agent ("A2ALab Account
+  Intelligence Researcher", `CLAUDE_BRIEF_MODEL` default sonnet-tier —
+  quality over latency since no timeout budget applies). The session does
+  multi-source web research (news, competitor moves, government/regulatory,
+  geopolitics — each web_search/web_fetch recorded as a trace hop), then
+  delivers via a `save_account_brief` custom tool executed HOST-SIDE
+  (`src/briefs/`): (1) insert `A2ALab_Account_Brief__c` — long-text
+  `Brief__c` linked to the Account, `Brief_Date__c`, `Source__c`,
+  `Research_Session_Id__c`; (2) log a completed Task on the Account
+  crediting the Claude managed agent; (3) fire the `A2ALab_Brief_Alert`
+  in-app custom notification (best-effort). Salesforce credentials stay
+  host-side (same boundary as ask_agentforce).
+  **Consumption path**: `Brief__c` is the corpus Data 360 vector-indexes
+  (M10) so the Agentforce agent grounds account answers and sales plays in
+  the freshest research at retrieval time instead of researching
+  mid-conversation.
+  **Servicing**: cron-fired sessions idle at the custom tool until the lab
+  host's `python -m briefs --watch` (in run_local.sh) picks up the
+  deployment run — nothing is lost if the host was down; the session waits.
+  Console "Run" fires the same job ad-hoc via a background task; /api/run
+  acks immediately and the hops stream into the turn's trace.
+  Ops notes: daily firings bill real multi-minute sessions — pause with
+  `client.beta.deployments.pause(<deployment_id>)`; in-app alert recipients
+  default to active System Administrators (`SF_ALERT_USERNAME` overrides).
+
+## 2026-07-12 — D17: Brief consumption surfaces in Salesforce + Apple demo account
+Follow-through on D16 — the brief must be *usable* where account teams live:
+- **Account record page** (`SDO_Account_Default`, the org default): new
+  "Account Briefs" tab with LWC `a2alabAccountBriefs` — latest brief
+  rendered from markdown in a scrollable pane (source, date, session id,
+  open-record link) with a past-briefs list beneath. The standard
+  Related List – Single component renders empty for custom related lists
+  not on the page layout, so the list lives in the LWC
+  (`lightning/uiRelatedListApi`).
+- **Brief record page**: new FlexiPage `A2ALab_Account_Brief_Record_Page`
+  (LWC `a2alabBriefViewer` main, details sidebar) activated as org default
+  via CustomObject actionOverrides (View → Flexipage, Large+Small) — every
+  entry path (past-briefs list, Task link, in-app alert) lands on a page
+  that shows the brief. Shared renderer in service module `a2alabMarkdown`.
+- **Task link**: the delivery Task's description now carries the Lightning
+  URL to the brief (record ids are not human-usable).
+- **Cite scrubbing**: web_search `<cite>` markers leaked into briefs —
+  scrubbed at delivery (BriefWriter), forbidden in the agent prompt (agent
+  v2), and stripped at render for legacy records.
+- **Apple Inc. demo account** (`001KB00000BLXHSYA5`, apple.com/AAPL, real
+  firmographics + 3 opportunities + 3 open cases): the async scenario and
+  the daily deployment now research **Apple Inc.**, so briefs carry real,
+  current intel (verified live: earnings catalysts, Apple v. OpenAI suit,
+  DMA ruling, tariff/Taiwan risk). Deployments are immutable — the Omega
+  deployment was archived and replaced (`depl_01C6Vv2bQJAhQjSK8NfTF8h4`).
+  Gotcha logged: values with spaces in `.env` must be quoted — run_local
+  workflows `source` it.

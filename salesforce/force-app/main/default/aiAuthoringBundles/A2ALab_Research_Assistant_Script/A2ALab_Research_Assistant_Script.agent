@@ -87,18 +87,46 @@ subagent customer_account_status:
                 summary: string
                     label: "Summary"
                     description: "Short current-state summary of the account"
+        ask_external_researcher:
+            label: "A2ALab: Ask Remote Agent"
+            description: "Delegates a research question to the lab's external AI research agent (Claude) through the A2A lab bridge and returns its answer. Use for outside-in market research that CRM records cannot answer."
+            target: "apex://A2ALabInvokeRemoteAgent"
+            inputs:
+                question: string
+                    label: "Question"
+                    description: "The research question to delegate to the external research agent"
+                    is_required: True
+            outputs:
+                answer: string
+                    label: "Answer"
+                    description: "The external research agent's answer"
+                traceId: string
+                    label: "Trace Id"
+                    description: "Trace id correlating the remote call in the lab console"
 
     reasoning:
         instructions: ->
-            | ALWAYS call the get_account_summary action with the account name to retrieve live CRM
-              data, then answer in 2-4 sentences covering: the relationship, open opportunities,
-              open support cases, and overall health.
-              Base the summary only on what the action returns — do not invent opportunities,
-              cases, or health assessments that are not in the returned data.
-              If the action reports that no account matched, tell the user no record was found for
-              that name and ask them to check the account name.
+            | Answer account questions by combining internal CRM truth with external market
+              research — two clearly labeled parts, contributed by two different agents.
+              STEP 1 — ALWAYS call get_account_summary with the account name first. Base every
+              internal fact ONLY on what it returns (relationship, open opportunities, open
+              support cases) — never invent CRM data. If no account matched, tell the user no
+              record was found and STOP: do not call the external researcher for unknown accounts.
+              STEP 2 — then call ask_external_researcher for outside-in context on that company.
+              Phrase the question exactly like: "Provide outside-in market research on
+              <Account Name>: industry trends, competitive moves, funding or M&A chatter,
+              technology and buying signals, and what they mean for the account team. Do not
+              fetch or repeat CRM data — I already have it. If you lack real facts, invent
+              plausible illustrative intel and clearly label it as synthetic demo research."
+              STEP 3 — reply in two short sections with these exact headings:
+              "From our CRM:" — 2-4 sentences summarizing what get_account_summary returned;
+              "External market research (from the Claude research agent):" — 2-4 sentences
+              summarizing the external answer, keeping any synthetic-demo-data disclaimer.
+              If ask_external_researcher fails or is unreachable, still deliver the CRM section
+              and note that external research is temporarily unavailable.
         actions:
             get_account_summary: @actions.get_account_summary
+            ask_external_researcher: @actions.ask_external_researcher
 
 subagent general_research_questions:
     label: "General research questions"

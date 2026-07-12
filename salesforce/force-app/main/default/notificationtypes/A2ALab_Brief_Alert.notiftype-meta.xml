@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomNotificationType xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customNotifTypeName>A2ALab_Brief_Alert</customNotifTypeName>
+    <masterLabel>A2ALab Brief Alert</masterLabel>
+    <desktop>true</desktop>
+    <mobile>true</mobile>
+</CustomNotificationType>
