@@ -18,19 +18,54 @@ question, protocols compared side by side with the raw wire payloads visible.
   (`A2ALabGetAccountSummary` — Account + open Opportunities + Cases).
 - **Bridge:** `src/bridge/` — Agentforce's REST callout fans out to any
   target/protocol per `config/targets.yaml`; no Salesforce redeploy to switch.
-- **Lab console:** `src/console/` (:8200) — an experiment workspace: pick a
-  scenario or protocol cell, chat with it multi-turn (**Run** tab, markdown
-  replies, each turn's live call-path diagram + raw wire hops beneath), or
-  study it before running (**Details** tab: planned path, step-by-step
-  narrative, live A2A agent cards, deep links to the real agent assets in
-  Agentforce Studio and the Claude platform console).
+- **Lab console:** `src/console/` (:8200) — an experiment workspace styled
+  after labs.agentforce.com (navy hero, gradient wordmark, experiment
+  tiles with per-scenario call-path strips). The landing page explains the
+  lab and its business cases; the sidebar has top-level accordions for
+  Experiments, Protocol calls (single hops, with a plain "via bridge"
+  toggle), and Traces. Pick a scenario, chat with it multi-turn (**Run**
+  tab — each turn's live call-path diagram + raw wire hops beneath;
+  platform-initiated legs are folded in by time correlation, errors are
+  quoted per failing hop and auto-expanded), or study it first (**Details**
+  tab: planned path, step-by-step narrative, live A2A agent cards, deep
+  links to the real agent assets).
+- **Salesforce consumption surface (D16):** the async pattern's briefs are
+  first-class CRM records — `A2ALab_Account_Brief__c` under the Account,
+  with an **Account Briefs** tab on the Account record page (LWC
+  `a2alabAccountBriefs`: latest brief rendered from markdown in a
+  scrollable pane + past-briefs list) and a dedicated brief record page
+  (LWC `a2alabBriefViewer`) set as the object's default view. Each delivery
+  also logs a completed Task on the Account (with a direct Lightning link
+  to the brief) and fires the `A2ALab_Brief_Alert` in-app notification.
+  Demo data: a real **Apple Inc.** account (apple.com, AAPL) with seeded
+  opportunities/cases — the daily brief researches Apple, so the content
+  is live real-world intel.
 
-The two live scenarios are deliberately complementary, not recursive:
-**Claude → Agentforce** has Claude consult the Agentforce agent mid-answer
-for CRM truth (Path B), while **Agentforce → Claude** delegates outside-in
-work — Agentforce keeps the CRM view and asks Claude for external market
-research (clearly labeled synthetic demo intel), with the call-back tool
-explicitly off so the loop stays one-way.
+**Every experiment enters through the real designated agent on its own
+platform, exactly as a human or API caller would** — it is then that
+platform's job to initiate the cross-platform hop. Three live scenarios:
+
+- **Claude → Agentforce** — Claude consults the Agentforce agent mid-answer
+  for CRM truth (Path B).
+- **Agentforce → Claude (sync)** — a true one-turn collaboration: you talk
+  to the Agentforce agent over the GA Agent API; it answers from its own
+  CRM records (Apex action over Account + Opportunities + Cases), then
+  delegates outside-in market research to Claude through the Named
+  Credential → tunnel → bridge, replying with both parts attributed
+  ("From our CRM" / "External market research"). This is the protocol
+  proof and the response-time measurement — the action-timeout chain is
+  exactly what caps synchronous research depth.
+- **Account Intelligence Brief (async, D16)** — the pattern Managed Agents
+  is designed for: an Anthropic **scheduled deployment** (daily cron) fires
+  a long-running research session (news, competitors, government
+  relations, geopolitics via web tools), which delivers through a
+  host-side custom tool into Salesforce — an `A2ALab_Account_Brief__c`
+  record (long-text `Brief__c` on the Account, the Data 360 vector-search
+  corpus that grounds the Agentforce agent's answers and sales plays, M10),
+  a logged activity, and an in-app alert, all credited to the Claude
+  managed agent. Provision once with `scripts/setup_brief_agent.py`;
+  `python -m briefs --watch` (part of run_local.sh) services cron-fired
+  sessions.
 
 ## Architecture
 
@@ -178,6 +213,21 @@ publishes these apps on the open internet and the tunnel edge itself does
 Either token **unset = auth skipped** — pass-through is for localhost dev
 only. Set both in `.env` before running `cloudflared`, or the endpoints (and
 the raw payloads in the console) are open to anyone.
+
+### Tokens — what is configured where
+
+| Secret | Lab host (this repo) | Salesforce org (a2alab-prod) | Anthropic |
+|---|---|---|---|
+| `BRIDGE_TOKEN` | `.env` — the bridge enforces it on every `/invoke` | Stored as parameter `BridgeToken` on Named Principal **A2ALabPrincipal** of External Credential **A2ALab_Bridge** (set via the Connect API `named-credentials/credential`, or Setup → Named Credentials → External Credentials — never in metadata or git). The Named Credential `A2ALab_Bridge` merges it into the `X-Bridge-Token` header at callout time; the bot user gets principal access via the `A2ALab_Agent_Actions` permission set | — |
+| `A2ALAB_TOKEN` | `.env` — enforced by servers/shims/console; clients send it per `config/targets.yaml` `auth:` blocks | — | — |
+| `ANTHROPIC_API_KEY` | `.env` — used host-side only; the managed sandbox never holds it | — | identifies the workspace the managed agent runs in |
+| `SF_CLIENT_ID` / `SF_CLIENT_SECRET` | `.env` — OAuth client-credentials for the Agent API (Path B + shims) | Consumer key/secret of the org's External Client App | — |
+
+The Named Credential URL currently points at an **interim TryCloudflare
+quick tunnel** (`*.trycloudflare.com`, hostname changes on every tunnel
+restart — redeploy `namedCredentials/` with the new hostname). It gets
+repointed to the stable `bridge.lab.agenticthings.com` when the M6 named
+tunnel lands, and to the AgentCore endpoint in M8.
 
 1. **Agentforce → Apex** — stays inside the org. The custom action runs as the
    org's integration user; access to the callout credential is granted via

@@ -50,3 +50,14 @@ host the agent, with a note that the platform itself lacks A2A).
   provisioning — measure vs. warm sdk backend. (to measure, M5/M6)
 - Real Agentforce action timeout: reported ~60s — measure with injected
   10/30/60/90s delays in M6.
+- Sync vs async delegation (D15/D16, measured): the sync collaboration turn
+  (Agent API + Apex CRM + bridge + Claude) lands in 27–36s — viable but the
+  timeout chain caps research depth; async managed sessions run 69–127s
+  unbounded and deliver into CRM records instead of a waiting response.
+  CLAUDE_ANSWER_TIMEOUT_S=40 was too tight once Claude's turn contained an
+  Agent API round trip (raised to 100; upstream chain still governs sync).
+- Salesforce Metadata API gotchas (D16/D17): new custom fields deploy with
+  NO field-level security for any profile (grant via permission set, assign
+  to the API run-as user); NamedCredential metadata has no calloutOptions
+  wrapper and HttpHeader params need sequenceNumber; scheduled deployments
+  are immutable (archive + recreate to change accounts/cron).

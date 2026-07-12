@@ -60,13 +60,23 @@ available. Raw `sf` CLI equivalents are noted as fallback.
    running local tests (prod requires ≥75% coverage; the MCP testing
    toolset runs `A2ALabInvokeRemoteAgentTest`). Fallback:
    `sf project deploy start -d salesforce/force-app -o a2alab-prod -l RunSpecifiedTests -t A2ALabInvokeRemoteAgentTest`.
-6. **Finish the credential** (Setup → Named Credentials → External
-   Credentials → A2ALab Bridge): create a Named Principal
-   (`A2ALabPrincipal`), add parameter `BridgeToken` = the `BRIDGE_TOKEN`
-   value, grant access to the integration user's permission set.
-7. **Attach the action** (Agent Builder): add the Apex action
-   `A2ALab: Ask Remote Agent` to the research topic; instruct the agent to
-   delegate open-ended research questions to it.
+6. **Finish the credential** — the principal (`A2ALabPrincipal`) deploys
+   with the External Credential metadata; set its `BridgeToken` parameter =
+   the `BRIDGE_TOKEN` value via the Connect API (no Setup clicking):
+   ```sh
+   sf api request rest /services/data/v62.0/named-credentials/credential \
+     --method POST --body @cred.json -o a2alab-prod
+   # cred.json: {"externalCredential":"A2ALab_Bridge","principalName":"A2ALabPrincipal",
+   #   "principalType":"NamedPrincipal","credentials":{"BridgeToken":{"value":"<BRIDGE_TOKEN>","encrypted":true}}}
+   # (PATCH instead of POST to rotate an existing value)
+   ```
+   Principal access for the bot user rides in the `A2ALab_Agent_Actions`
+   permission set (`externalCredentialPrincipalAccesses`).
+7. **The actions are declared in the Agent Script** (D14/D15): the
+   authoring bundle's `customer_account_status` subagent carries both
+   `get_account_summary` (Apex `A2ALabGetAccountSummary`) and
+   `ask_external_researcher` (Apex `A2ALabInvokeRemoteAgent`) — publish +
+   activate the bundle (step 3) and they're live; no Agent Builder step.
 
 ## 3. Cloudflare tunnel + DNS (M6)
 
@@ -130,3 +140,38 @@ standard boto3 chain (task role on AWS, `AWS_PROFILE` locally).
 
 M10 (later phase): point Data 360's zero-copy AWS DynamoDB connector at this
 table for TableauNext reporting — see plan/00-decisions.md §M10.
+
+## 7. Async account-brief pattern (D16)
+
+One-time setup (after §1 and §2 are done):
+
+1. **Deploy the Salesforce metadata** — custom object `A2ALab_Account_Brief__c`
+   (+ fields), `CustomNotificationType` `A2ALab_Brief_Alert`, and the updated
+   `A2ALab_Agent_Actions` permission set ship in `salesforce/force-app`.
+   Note: the REST delivery runs as the External Client App's run-as user —
+   verify with `/services/oauth2/userinfo`; if it is not an admin, assign
+   `A2ALab_Agent_Actions` to it.
+2. **Provision the Anthropic side:**
+   ```sh
+   uv run python scripts/setup_brief_agent.py     # agent + DAILY scheduled deployment
+   ```
+   Writes `.a2alab/brief.json`. Tune with `CLAUDE_BRIEF_MODEL`,
+   `A2ALAB_BRIEF_ACCOUNTS`, `A2ALAB_BRIEF_CRON`, `A2ALAB_BRIEF_TZ`.
+   **Cost:** each firing is a real multi-minute research session. Pause:
+   `Anthropic().beta.deployments.pause('<deployment_id>')`.
+3. **Keep the watcher running** — `scripts/run_local.sh` starts
+   `python -m briefs --watch` automatically when `.a2alab/brief.json` and
+   `SF_*` exist. Cron-fired sessions idle at the `save_account_brief` tool
+   until the watcher services them, so runs fired while the host was down
+   complete on the next poll.
+4. **Verify:**
+   ```sh
+   uv run python -m briefs --run-now "Omega, Inc."   # fires the job immediately
+   ```
+   Expect (a) web-research hops in the console trace, (b) a new
+   A2ALab Account Brief record on the account (long-text Brief__c), (c) a
+   completed Task on the Account, (d) the in-app bell alert (recipients:
+   `SF_ALERT_USERNAME` or active System Administrators).
+5. **Downstream (M10):** index `Brief__c` for vector search in Data 360 so
+   the Agentforce agent grounds account answers / sales plays in the
+   latest brief.

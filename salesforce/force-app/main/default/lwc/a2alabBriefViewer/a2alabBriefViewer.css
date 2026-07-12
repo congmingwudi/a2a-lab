@@ -1,0 +1,9 @@
+.brief-scroll {
+    max-height: 34rem;
+    overflow-y: auto;
+    background: var(--slds-g-color-neutral-base-100, #ffffff);
+    line-height: 1.6;
+}
+.brief-meta {
+    flex-wrap: wrap;
+}

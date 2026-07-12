@@ -136,7 +136,10 @@ def test_scenarios_listed(tmp_path, monkeypatch):
     names = {s["name"]: s for s in data}
     assert "claude-to-agentforce" in names and names["claude-to-agentforce"]["status"] == "live"
     assert names["chatgpt-to-agentforce"]["status"] == "coming-soon"
-    assert names["agentforce-to-claude"]["via_bridge"] is True
+    # D15: the experiment enters through the real Agentforce agent (Agent
+    # API); the org itself initiates the bridge hop, not the console.
+    assert names["agentforce-to-claude"]["target"] == "agentforce-rest"
+    assert names["agentforce-to-claude"]["via_bridge"] is False
 
 
 def test_run_scenario_resolves_target_and_suffix(tmp_path, monkeypatch):
@@ -156,7 +159,9 @@ def test_run_scenario_resolves_target_and_suffix(tmp_path, monkeypatch):
     assert client.post("/api/run", json={"scenario": "nope"}).status_code == 404
 
 
-def test_run_scenario_via_bridge(tmp_path, monkeypatch):
+def test_run_cell_via_bridge(tmp_path, monkeypatch):
+    """The via-bridge shape survives on protocol calls: a cell run with
+    via_bridge=true routes through the bridge exactly like the Apex action."""
     import console.app as console_app
 
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
@@ -169,7 +174,7 @@ def test_run_scenario_via_bridge(tmp_path, monkeypatch):
     monkeypatch.setattr(console_app, "run_via_bridge", fake_bridge)
     client = TestClient(app)
     data = client.post(
-        "/api/run", json={"scenario": "agentforce-to-claude", "message": "hi"}
+        "/api/run", json={"target": "claude-rest", "message": "hi", "via_bridge": True}
     ).json()
     assert data["ok"] is True and data["via_bridge"] is True
     assert calls["target"] == "claude-rest"
@@ -193,3 +198,22 @@ def test_run_via_bridge(tmp_path, monkeypatch):
     ).json()
     assert data == {"ok": True, "trace_id": "t-b", "text": "via bridge", "via_bridge": True}
     assert calls["target"] == "claude-rest" and calls["req"].trace_id == "t-b"
+
+
+def test_run_async_scenario_returns_immediately(tmp_path, monkeypatch):
+    """D16: async scenarios fire a background research run and ack at once."""
+    import briefs.runner as brief_runner
+
+    async def fake_run_brief(accounts, trace_id, extra_context=""):
+        return {"deliveries": [], "elapsed_s": 0.0, "web_lookups": 0,
+                "session_id": "sesn_x", "text": ""}
+
+    monkeypatch.setattr(brief_runner, "run_brief", fake_run_brief)
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    data = client.post(
+        "/api/run", json={"scenario": "account-brief-async", "message": "hi"}
+    ).json()
+    assert data["ok"] is True and data.get("async") is True
+    assert data["trace_id"]
+    assert "research started" in data["text"].lower()

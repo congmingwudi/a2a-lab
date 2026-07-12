@@ -152,6 +152,38 @@ def components_for(tags: set[str]) -> list[dict]:
                 "url": f"{ld}/lightning/setup/NamedCredential/home" if ld else None,
             }
         )
+    if "daily-brief" in tags:
+        comps.append(
+            {
+                "title": "Account Briefs — A2ALab_Account_Brief__c",
+                "kind": "agentforce",
+                "note": "Where the daily briefs land: long-text Brief__c on the "
+                "Account, plus the activity and in-app alert. The Data 360 "
+                "vector-search corpus for grounding the Agentforce agent (M10).",
+                "url": f"{ld}/lightning/o/A2ALab_Account_Brief__c/list" if ld else None,
+            }
+        )
+        brief_state = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "brief.json"
+        deployment_note = "Provision with scripts/setup_brief_agent.py."
+        if brief_state.exists():
+            try:
+                b = json.loads(brief_state.read_text())
+                deployment_note = (
+                    f"Deployment {b.get('deployment_id', '?')} — cron "
+                    f"'{b.get('cron', '?')}' {b.get('timezone', '')} on "
+                    f"{b.get('model', '?')} for: {b.get('accounts', '?')}."
+                )
+            except Exception:
+                pass
+        comps.append(
+            {
+                "title": "Scheduled deployment — A2ALab Daily Account Brief",
+                "kind": "managed-agents",
+                "note": deployment_note + " Sessions fired by the cron are serviced "
+                "by `python -m briefs --watch` on the lab host.",
+                "url": "https://platform.claude.com/workspaces/default/agents",
+            }
+        )
     return comps
 
 
@@ -208,6 +240,9 @@ def create_console_app(registry: Registry | None = None):
         clients.clear()
 
     app = FastAPI(title="A2A lab console", lifespan=lifespan)
+    # Async-scenario runs continue after /api/run returns; keep strong refs
+    # so the tasks aren't garbage-collected mid-research.
+    background_runs: set[asyncio.Task] = set()
 
     def get_registry() -> Registry:
         if state["registry"] is None:
@@ -288,6 +323,65 @@ def create_console_app(registry: Registry | None = None):
                 raise HTTPException(
                     status_code=409, detail=f"scenario '{scenario_name}' is not live yet"
                 )
+            if spec.get("mode") == "async":
+                # Fire-and-return: the research session runs for minutes in
+                # the background; its hops stream into this turn's trace via
+                # the client-minted trace_id. Any operator message beyond the
+                # default question rides along as extra guidance.
+                from briefs.runner import run_brief
+
+                trace_id = body.get("trace_id") or new_trace_id()
+                accounts = spec.get("account") or "Omega, Inc."
+                extra = "" if message == DEFAULT_QUESTION else message
+
+                async def _bg(trace_id=trace_id, accounts=accounts, extra=extra):
+                    try:
+                        result = await run_brief(accounts, trace_id, extra)
+                        print(
+                            f"[console] async brief done: {result['deliveries']} "
+                            f"({result['elapsed_s']}s, trace {trace_id})",
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        import traceback
+
+                        traceback.print_exc()
+                        from interop.trace import TraceEvent, get_recorder
+
+                        rec = get_recorder()
+                        rec.record(
+                            TraceEvent(
+                                trace_id=trace_id,
+                                source="brief-worker",
+                                target="brief-researcher",
+                                protocol="managed-agents-api",
+                                transport_detail="async brief run failed",
+                                request_payload_raw={"accounts": accounts},
+                                response_payload_raw={"error": f"{type(exc).__name__}: {exc}"},
+                                status="error",
+                                hop_seq=rec.next_hop_seq(trace_id),
+                            )
+                        )
+
+                task = asyncio.create_task(_bg())
+                background_runs.add(task)
+                task.add_done_callback(background_runs.discard)
+                return {
+                    "ok": True,
+                    "trace_id": trace_id,
+                    "text": (
+                        f"🛰️ **Async research started** for {accounts}.\n\n"
+                        "This is the long-running pattern — the managed session is "
+                        "researching news, competitors, government relations, and "
+                        "geopolitics right now. Watch the call path below stream in "
+                        "live (expect several minutes). When it finishes, the brief "
+                        "lands in Salesforce: an A2ALab Account Brief record on the "
+                        "account, a logged activity, and an in-app alert — all "
+                        "credited to the Claude managed agent."
+                    ),
+                    "latency_ms": None,
+                    "async": True,
+                }
             name = spec["target"]
             via_bridge = bool(spec.get("via_bridge"))
             if spec.get("prompt_suffix"):
