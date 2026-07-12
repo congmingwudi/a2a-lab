@@ -1,0 +1,32 @@
+<template>
+    <lightning-card title="Account Intelligence Brief" icon-name="standard:news">
+        <div class="slds-var-p-horizontal_medium slds-var-p-bottom_medium">
+            <template if:true={error}>
+                <div class="slds-text-color_error slds-var-p-vertical_small">{error}</div>
+            </template>
+
+            <template if:true={ready}>
+                <div class="slds-grid slds-grid_vertical-align-center slds-var-p-bottom_small brief-meta">
+                    <span class="slds-badge slds-badge_lightest">{briefDate}</span>
+                    <span class="slds-var-p-left_small slds-text-body_small slds-text-color_weak">{source}</span>
+                    <span class="slds-col_bump-left">
+                        <template if:true={accountUrl}>
+                            <lightning-formatted-url
+                                value={accountUrl}
+                                label={accountName}
+                                target="_self"
+                            ></lightning-formatted-url>
+                        </template>
+                    </span>
+                </div>
+                <div class="brief-scroll slds-box slds-box_small">
+                    <lightning-formatted-rich-text value={briefHtml}></lightning-formatted-rich-text>
+                </div>
+                <div class="slds-text-body_small slds-text-color_weak slds-var-p-top_x-small">
+                    Researched and written by a Claude managed agent (A2A interop lab) —
+                    Anthropic session {session}.
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>

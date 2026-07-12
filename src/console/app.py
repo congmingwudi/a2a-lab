@@ -1,10 +1,14 @@
-"""Lab console: a web viewer for the wire traces.
+"""Lab console: a web viewer for the wire traces, and the cockpit for
+launching experiments.
 
     uv run python -m console --port 8200
 
-- GET /            single-page UI (plain HTML/JS, no build step)
-- GET /api/traces  traces grouped by trace_id, newest first
-- GET /api/stream  SSE live tail of new TraceEvents (file-watcher)
+- GET  /              single-page UI (plain HTML/JS, no build step)
+- GET  /api/traces    traces grouped by trace_id, newest first
+- GET  /api/stream    SSE live tail of new TraceEvents (file-watcher)
+- GET  /api/targets   runnable targets from config/targets.yaml
+- GET  /api/scenarios primary demo scenarios from config/scenarios.yaml
+- POST /api/run       run a scenario or one cell (custom prompt, live trace)
 """
 
 from __future__ import annotations
@@ -12,14 +16,182 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
+import httpx
+import yaml
+
+from interop.clients.base import RemoteAgentClient
+from interop.models import AgentRequest, new_trace_id
+from interop.registry import Registry
 from interop.trace import DEFAULT_TRACE_DIR, TRACE_DIR_ENV
 
 STATIC_DIR = Path(__file__).parent / "static"
+SCENARIOS_PATH = Path("config/scenarios.yaml")
+
+
+def load_scenarios(path: str | Path = SCENARIOS_PATH) -> dict[str, dict]:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    raw = yaml.safe_load(p.read_text()) or {}
+    return raw.get("scenarios") or {}
+
+
+# Customer-shaped default for demos: the Agentforce agent's "Customer account
+# status" topic answers this from real CRM records via the A2ALab: Get Account
+# Summary action (accounts: Omega, Inc. / Acme Corp / Northwind Traders), and
+# the Claude→Agentforce scenario's prompt_suffix makes Claude consult
+# Agentforce for it. scripts/matrix.py keeps its own protocol-comparison
+# utterance — that sweep needs a question every platform can answer unaided.
+DEFAULT_QUESTION = (
+    "Tell me what you know about account Omega, Inc. — a short summary of their current state."
+)
+
+
+async def run_via_bridge(req: AgentRequest, target: str) -> dict:
+    """Route a run through the bridge (Path A shape) so the trace shows the
+    full loop: caller -> bridge -> target agent [-> Agentforce] -> back."""
+    bridge_url = os.environ.get("A2ALAB_BRIDGE_URL", "http://localhost:8100")
+    headers = {"x-trace-id": req.trace_id}
+    if os.environ.get("BRIDGE_TOKEN"):
+        headers["x-bridge-token"] = os.environ["BRIDGE_TOKEN"]
+    async with httpx.AsyncClient(timeout=120.0) as http:
+        r = await http.post(
+            f"{bridge_url}/invoke/{target}",
+            json={"message": req.message, "session_id": req.session_id},
+            headers=headers,
+        )
+        r.raise_for_status()
+        data = r.json()
+    return {
+        "ok": True,
+        "trace_id": req.trace_id,
+        "text": data.get("text", ""),
+        "latency_ms": (data.get("bridge") or {}).get("total_ms"),
+        "session_id": data.get("session_id"),
+        "via_bridge": True,
+    }
+
+
+# ---- Component links: the real agent assets behind each experiment --------
+# Deep links into the systems where each agent actually lives, shown in the
+# console's Details tab. Computed server-side from env so org domains and
+# agent ids never live in checked-in config.
+
+
+def _lightning_domain() -> str | None:
+    dom = os.environ.get("SF_MY_DOMAIN", "").replace("https://", "").rstrip("/")
+    if not dom:
+        return None
+    return "https://" + dom.replace(".my.salesforce.com", ".lightning.force.com")
+
+
+def _managed_agent_id() -> str | None:
+    aid = os.environ.get("CLAUDE_MANAGED_AGENT_ID")
+    if aid:
+        return aid
+    state = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "managed.json"
+    try:
+        return json.loads(state.read_text())["agent_id"]
+    except Exception:
+        return None
+
+
+def components_for(tags: set[str]) -> list[dict]:
+    """Component rows for a scenario's tags (or a target's platform mapped to
+    pseudo-tags). Each: {title, kind, note, url|None} — url None renders as
+    not-yet-available."""
+    comps: list[dict] = []
+    ld = _lightning_domain()
+    if {"claude", "managed-agents"} & tags:
+        comps.append(
+            {
+                "title": "Claude research agent — Managed Agents (beta)",
+                "kind": "claude",
+                "note": "Agent + environment configuration (model, prompt, the "
+                "ask_agentforce custom tool) in the Claude platform console.",
+                "url": os.environ.get(
+                    "CLAUDE_AGENT_CONSOLE_URL",
+                    "https://platform.claude.com/workspaces/default/agents",
+                ),
+            }
+        )
+    if {"agentforce", "agent-api"} & tags:
+        comps.append(
+            {
+                "title": "Agentforce agent — A2ALab Research Assistant",
+                "kind": "agentforce",
+                "note": "Open Agentforce Studio — topics, instructions, and the "
+                "A2ALab: Get Account Summary action live here.",
+                "url": f"{ld}/lightning/n/standard-AgentforceStudio?c__nav=agents"
+                if ld
+                else None,
+            }
+        )
+    if "openai" in tags:
+        comps.append(
+            {
+                "title": "OpenAI research agent — Bedrock AgentCore",
+                "kind": "openai",
+                "note": "Lands with M9 (platforms/openai + AgentCore deploy).",
+                "url": None,
+            }
+        )
+    if "bridge" in tags:
+        comps.append(
+            {
+                "title": "Bridge credential — A2ALab_Bridge",
+                "kind": "bridge",
+                "note": "Named/External Credential carrying X-Bridge-Token for the "
+                "Apex callout; the bridge itself is src/bridge (:8100).",
+                "url": f"{ld}/lightning/setup/NamedCredential/home" if ld else None,
+            }
+        )
+    if "daily-brief" in tags:
+        comps.append(
+            {
+                "title": "Account Briefs — A2ALab_Account_Brief__c",
+                "kind": "agentforce",
+                "note": "Where the daily briefs land: long-text Brief__c on the "
+                "Account, plus the activity and in-app alert. The Data 360 "
+                "vector-search corpus for grounding the Agentforce agent (M10).",
+                "url": f"{ld}/lightning/o/A2ALab_Account_Brief__c/list" if ld else None,
+            }
+        )
+        brief_state = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "brief.json"
+        deployment_note = "Provision with scripts/setup_brief_agent.py."
+        if brief_state.exists():
+            try:
+                b = json.loads(brief_state.read_text())
+                deployment_note = (
+                    f"Deployment {b.get('deployment_id', '?')} — cron "
+                    f"'{b.get('cron', '?')}' {b.get('timezone', '')} on "
+                    f"{b.get('model', '?')} for: {b.get('accounts', '?')}."
+                )
+            except Exception:
+                pass
+        comps.append(
+            {
+                "title": "Scheduled deployment — A2ALab Daily Account Brief",
+                "kind": "managed-agents",
+                "note": deployment_note + " Sessions fired by the cron are serviced "
+                "by `python -m briefs --watch` on the lab host.",
+                "url": "https://platform.claude.com/workspaces/default/agents",
+            }
+        )
+    return comps
+
+
+_PLATFORM_TAGS = {
+    "claude": {"claude", "managed-agents"},
+    "agentforce": {"agentforce"},
+    "openai": {"openai"},
+}
 
 
 def _trace_dir() -> Path:
@@ -54,12 +226,212 @@ def _read_events() -> list[dict]:
     return events
 
 
-def create_console_app():
-    app = FastAPI(title="A2A lab console")
+def create_console_app(registry: Registry | None = None):
+    state = {"registry": registry}
+    # One long-lived client per target (same rule as the bridge): they cache
+    # OAuth tokens, sessions, and connections across runs.
+    clients: dict[str, RemoteAgentClient] = {}
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        for client in clients.values():
+            await client.aclose()
+        clients.clear()
+
+    app = FastAPI(title="A2A lab console", lifespan=lifespan)
+    # Async-scenario runs continue after /api/run returns; keep strong refs
+    # so the tasks aren't garbage-collected mid-research.
+    background_runs: set[asyncio.Task] = set()
+
+    def get_registry() -> Registry:
+        if state["registry"] is None:
+            state["registry"] = Registry.load()
+        return state["registry"]
+
+    def get_client(name: str) -> RemoteAgentClient:
+        if name not in clients:
+            clients[name] = get_registry().client_for(name)
+        return clients[name]
 
     @app.get("/", response_class=HTMLResponse)
     async def index():
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    @app.get("/api/targets")
+    async def targets():
+        return {
+            "targets": [
+                {
+                    "name": t.name,
+                    "platform": t.platform,
+                    "protocol": t.protocol,
+                    "status": t.status,
+                    "components": components_for(_PLATFORM_TAGS.get(t.platform, set())),
+                }
+                for t in get_registry().targets.values()
+            ],
+            "default_question": DEFAULT_QUESTION,
+        }
+
+    @app.get("/api/scenarios")
+    async def scenarios():
+        return {
+            "scenarios": [
+                {"name": name, **spec, "components": components_for(set(spec.get("tags") or []))}
+                for name, spec in load_scenarios().items()
+            ]
+        }
+
+    @app.get("/api/agent-card/{target_name}")
+    async def agent_card(target_name: str):
+        """Fetch a target's live AgentCard, server-side. The browser can't
+        reach the A2A servers cross-origin, and the cards are generated at
+        runtime — there is no file to serve. The well-known path is
+        auth-exempt on our servers, so no token rides along."""
+        try:
+            target = get_registry().get(target_name)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        if target.protocol != "a2a" or not target.endpoint:
+            raise HTTPException(
+                status_code=409,
+                detail=f"target '{target_name}' has no A2A endpoint to serve an agent card",
+            )
+        url = target.endpoint.rstrip("/") + "/.well-known/agent-card.json"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as http:
+                r = await http.get(url)
+                r.raise_for_status()
+                card = r.json()
+        except Exception as exc:  # server down / not provisioned — a result, not a 500
+            return {"ok": False, "url": url, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True, "url": url, "card": card}
+
+    @app.post("/api/run")
+    async def run(request: Request):
+        body = await request.json()
+        message = (body.get("message") or "").strip() or DEFAULT_QUESTION
+        via_bridge = bool(body.get("via_bridge"))
+
+        scenario_name = body.get("scenario")
+        if scenario_name:
+            spec = load_scenarios().get(scenario_name)
+            if not spec:
+                raise HTTPException(status_code=404, detail=f"unknown scenario '{scenario_name}'")
+            if spec.get("status") != "live":
+                raise HTTPException(
+                    status_code=409, detail=f"scenario '{scenario_name}' is not live yet"
+                )
+            if spec.get("mode") == "async":
+                # Fire-and-return: the research session runs for minutes in
+                # the background; its hops stream into this turn's trace via
+                # the client-minted trace_id. Any operator message beyond the
+                # default question rides along as extra guidance.
+                from briefs.runner import run_brief
+
+                trace_id = body.get("trace_id") or new_trace_id()
+                accounts = spec.get("account") or "Omega, Inc."
+                extra = "" if message == DEFAULT_QUESTION else message
+
+                async def _bg(trace_id=trace_id, accounts=accounts, extra=extra):
+                    try:
+                        result = await run_brief(accounts, trace_id, extra)
+                        print(
+                            f"[console] async brief done: {result['deliveries']} "
+                            f"({result['elapsed_s']}s, trace {trace_id})",
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        import traceback
+
+                        traceback.print_exc()
+                        from interop.trace import TraceEvent, get_recorder
+
+                        rec = get_recorder()
+                        rec.record(
+                            TraceEvent(
+                                trace_id=trace_id,
+                                source="brief-worker",
+                                target="brief-researcher",
+                                protocol="managed-agents-api",
+                                transport_detail="async brief run failed",
+                                request_payload_raw={"accounts": accounts},
+                                response_payload_raw={"error": f"{type(exc).__name__}: {exc}"},
+                                status="error",
+                                hop_seq=rec.next_hop_seq(trace_id),
+                            )
+                        )
+
+                task = asyncio.create_task(_bg())
+                background_runs.add(task)
+                task.add_done_callback(background_runs.discard)
+                return {
+                    "ok": True,
+                    "trace_id": trace_id,
+                    "text": (
+                        f"🛰️ **Async research started** for {accounts}.\n\n"
+                        "This is the long-running pattern — the managed session is "
+                        "researching news, competitors, government relations, and "
+                        "geopolitics right now. Watch the call path below stream in "
+                        "live (expect several minutes). When it finishes, the brief "
+                        "lands in Salesforce: an A2ALab Account Brief record on the "
+                        "account, a logged activity, and an in-app alert — all "
+                        "credited to the Claude managed agent."
+                    ),
+                    "latency_ms": None,
+                    "async": True,
+                }
+            name = spec["target"]
+            via_bridge = bool(spec.get("via_bridge"))
+            if spec.get("prompt_suffix"):
+                message = f"{message}\n\n{spec['prompt_suffix']}"
+        else:
+            name = body.get("target")
+        if not name:
+            raise HTTPException(status_code=400, detail="missing 'target' or 'scenario'")
+        try:
+            get_registry().get(name)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        req = AgentRequest(
+            message=message,
+            # Client-minted trace_id so the UI can select the trace and watch
+            # hops stream in while the run is still in flight.
+            trace_id=body.get("trace_id") or new_trace_id(),
+            session_id=body.get("session_id") or None,
+        )
+        try:
+            if via_bridge:
+                return await run_via_bridge(req, name)
+            client = get_client(name)
+            resp = await client.ask(req)
+            return {
+                "ok": True,
+                "trace_id": req.trace_id,
+                "text": resp.text,
+                "latency_ms": resp.latency_ms,
+                "session_id": resp.session_id,
+            }
+        except Exception as exc:  # surface the failure as a result, not a 500
+            return {
+                "ok": False,
+                "trace_id": req.trace_id,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+    @app.delete("/api/traces")
+    async def clear_traces():
+        """Cockpit cleanup: delete the trace JSONL files. Traces live on disk
+        (traces/YYYY-MM-DD.jsonl, raw wire payloads per hop) — this removes
+        the files; new runs start fresh ones."""
+        trace_dir = _trace_dir()
+        removed = 0
+        if trace_dir.exists():
+            for path in trace_dir.glob("*.jsonl"):
+                path.unlink()
+                removed += 1
+        return {"ok": True, "removed": removed}
 
     @app.get("/api/traces")
     async def traces():
@@ -104,7 +476,15 @@ def create_console_app():
                     continue
                 for path in sorted(trace_dir.glob("*.jsonl")):
                     prev = offsets.get(path, 0)
-                    if path.stat().st_size <= prev:
+                    size = path.stat().st_size
+                    if size < prev:
+                        # File shrank — cleared via DELETE /api/traces and
+                        # recreated. Restart from the top or new hops would
+                        # be silently skipped until it regrew past the old
+                        # offset.
+                        prev = 0
+                        offsets[path] = 0
+                    if size <= prev:
                         continue
                     with path.open("rb") as f:
                         f.seek(prev)

@@ -3,8 +3,22 @@
 Every hop — inbound (a protocol server handling a request) and outbound
 (a RemoteAgentClient calling a remote agent) — records one TraceEvent
 carrying the *raw wire payloads* (JSON-RPC envelopes for MCP/A2A, HTTP
-bodies for REST, Agent API JSON for Agentforce). Events append to a JSONL
-file under traces/; the lab console tails that file over SSE.
+bodies for REST, Agent API JSON for Agentforce).
+
+Where events go is pluggable (ADR D13): TraceRecorder fans each event out
+to one or more TraceSinks, selected by A2ALAB_TRACE_SINK (comma-separated):
+
+- "jsonl" (default)   append to traces/YYYY-MM-DD.jsonl; the lab console
+                      tails these files over SSE. Local-dev only — on AWS
+                      the container filesystem is ephemeral and per-service.
+- "dynamodb"          put_item per event into a DynamoDB table
+                      (A2ALAB_TRACE_TABLE, default "a2alab-traces") — the
+                      durable store for cloud deploys, and the table Data
+                      360's zero-copy DynamoDB connector reads for
+                      TableauNext reporting (M10).
+
+"jsonl,dynamodb" tees to both: the console keeps working off files while
+DynamoDB fills for reporting.
 
 Correlation: a trace_id is minted at the edge and propagated on every hop
 (HTTP header X-Trace-Id for REST/bridge, message metadata for A2A,
@@ -23,6 +37,11 @@ from typing import Any
 
 TRACE_DIR_ENV = "A2ALAB_TRACE_DIR"
 DEFAULT_TRACE_DIR = "traces"
+TRACE_SINK_ENV = "A2ALAB_TRACE_SINK"
+TRACE_TABLE_ENV = "A2ALAB_TRACE_TABLE"
+DEFAULT_TRACE_TABLE = "a2alab-traces"
+TRACE_TTL_DAYS_ENV = "A2ALAB_TRACE_TTL_DAYS"
+DEFAULT_TRACE_TTL_DAYS = 14
 
 _MAX_PAYLOAD_CHARS = 100_000
 
@@ -55,18 +74,132 @@ class TraceEvent:
         return d
 
 
-class TraceRecorder:
-    """Appends TraceEvents to a JSONL file, one file per day. File-based on
-    purpose — no DB, easy to tail, easy to ship."""
+class TraceSink:
+    """One destination for trace events. Implementations must be safe to
+    call from multiple threads and must never raise into the request path —
+    recording a trace can't break the hop it describes."""
+
+    def emit(self, event_dict: dict[str, Any]) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
+
+
+class JsonlFileSink(TraceSink):
+    """Appends events to a JSONL file, one file per day. File-based on
+    purpose for local dev — no DB, easy to tail, easy to ship."""
 
     def __init__(self, trace_dir: str | Path | None = None):
         self.trace_dir = Path(trace_dir or os.environ.get(TRACE_DIR_ENV, DEFAULT_TRACE_DIR))
         self._lock = threading.Lock()
-        self._seq_by_trace: dict[str, int] = {}
 
     def _current_file(self) -> Path:
         self.trace_dir.mkdir(parents=True, exist_ok=True)
         return self.trace_dir / (time.strftime("%Y-%m-%d") + ".jsonl")
+
+    def emit(self, event_dict: dict[str, Any]) -> None:
+        line = json.dumps(event_dict, default=str, ensure_ascii=False)
+        with self._lock:
+            with self._current_file().open("a", encoding="utf-8") as f:
+                f.write(line + "\n")
+
+
+class DynamoDbSink(TraceSink):
+    """put_item per event into DynamoDB — the durable trace store for cloud
+    deploys, and the table Data 360's zero-copy DynamoDB connector reads.
+
+    Table shape (create once, see plan/04-runbooks.md §6):
+      PK  trace_id (S)
+      SK  sk       (S)  "<ts padded>#<hop_seq>" — hops sort chronologically
+      GSI day-index: PK day (S, "YYYY-MM-DD"), SK sk — "recent traces" query
+      TTL expires_at (N, epoch seconds; A2ALAB_TRACE_TTL_DAYS, default 14)
+
+    Payloads are stored as JSON strings: DynamoDB rejects floats and empty
+    strings inside documents, and Data 360 maps scalar attributes cleanly.
+    """
+
+    def __init__(
+        self, table_name: str | None = None, *, table: Any = None, ttl_days: float | None = None
+    ):
+        if table is not None:
+            self._table = table  # injected for tests
+        else:
+            try:
+                import boto3
+            except ImportError as exc:  # pragma: no cover
+                raise RuntimeError(
+                    "DynamoDbSink needs boto3 — install with `uv sync --extra aws`"
+                ) from exc
+            name = table_name or os.environ.get(TRACE_TABLE_ENV, DEFAULT_TRACE_TABLE)
+            self._table = boto3.resource("dynamodb").Table(name)
+        if ttl_days is None:
+            ttl_days = float(os.environ.get(TRACE_TTL_DAYS_ENV, DEFAULT_TRACE_TTL_DAYS))
+        self.ttl_days = ttl_days
+
+    def emit(self, event_dict: dict[str, Any]) -> None:
+        from decimal import Decimal
+
+        ts = float(event_dict.get("ts") or time.time())
+        seq = int(event_dict.get("hop_seq") or 0)
+        item = {
+            "trace_id": event_dict["trace_id"],
+            "sk": f"{ts:017.6f}#{seq:04d}",
+            "day": time.strftime("%Y-%m-%d", time.localtime(ts)),
+            "ts": Decimal(str(ts)),
+            "hop_seq": seq,
+            "source": event_dict.get("source") or "unknown",
+            "target": event_dict.get("target") or "unknown",
+            "protocol": event_dict.get("protocol") or "unknown",
+            "transport_detail": event_dict.get("transport_detail") or "-",
+            "status": event_dict.get("status") or "ok",
+            "request_payload_raw": json.dumps(
+                event_dict.get("request_payload_raw"), default=str, ensure_ascii=False
+            ),
+            "response_payload_raw": json.dumps(
+                event_dict.get("response_payload_raw"), default=str, ensure_ascii=False
+            ),
+            "expires_at": int(ts + self.ttl_days * 86400),
+        }
+        if event_dict.get("latency_ms") is not None:
+            item["latency_ms"] = int(event_dict["latency_ms"])
+        self._table.put_item(Item=item)
+
+
+def sinks_from_env() -> list[TraceSink]:
+    """Build the sink list from A2ALAB_TRACE_SINK (comma-separated;
+    default jsonl). Unknown names raise — a typo silently dropping traces
+    would defeat the lab's core requirement."""
+    names = [
+        n.strip().lower()
+        for n in (os.environ.get(TRACE_SINK_ENV) or "jsonl").split(",")
+        if n.strip()
+    ]
+    sinks: list[TraceSink] = []
+    for name in names:
+        if name == "jsonl":
+            sinks.append(JsonlFileSink())
+        elif name == "dynamodb":
+            sinks.append(DynamoDbSink())
+        else:
+            raise ValueError(f"unknown trace sink '{name}' in {TRACE_SINK_ENV}")
+    return sinks
+
+
+class TraceRecorder:
+    """Assigns hop sequence numbers and fans each TraceEvent out to the
+    configured sinks. A sink failure is contained (stderr warning) — tracing
+    must never break the hop it observes."""
+
+    def __init__(self, trace_dir: str | Path | None = None, sinks: list[TraceSink] | None = None):
+        # trace_dir kept as first positional arg for backward compatibility
+        # (tests build TraceRecorder(tmp_dir)); when given, it forces a
+        # single JSONL sink rooted there.
+        if sinks is not None:
+            self.sinks = sinks
+        elif trace_dir is not None:
+            self.sinks = [JsonlFileSink(trace_dir)]
+        else:
+            self.sinks = sinks_from_env()
+        self._lock = threading.Lock()
+        self._seq_by_trace: dict[str, int] = {}
 
     def next_hop_seq(self, trace_id: str) -> int:
         with self._lock:
@@ -75,10 +208,17 @@ class TraceRecorder:
             return seq
 
     def record(self, event: TraceEvent) -> TraceEvent:
-        line = json.dumps(event.to_dict(), default=str, ensure_ascii=False)
-        with self._lock:
-            with self._current_file().open("a", encoding="utf-8") as f:
-                f.write(line + "\n")
+        event_dict = event.to_dict()
+        for sink in self.sinks:
+            try:
+                sink.emit(event_dict)
+            except Exception as exc:  # noqa: BLE001 - see class docstring
+                import sys
+
+                print(
+                    f"[trace] {type(sink).__name__} failed: {type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
         return event
 
 

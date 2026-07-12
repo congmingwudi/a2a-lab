@@ -163,9 +163,17 @@ class ManagedBackend:
             request_payload={"message": req.message, "session_id": req.session_id},
         ) as hop:
             session_id = await self._get_or_create_session(req.session_id)
-            texts, events_seen = await asyncio.wait_for(
-                self._converse(session_id, req, trace_id), ANSWER_TIMEOUT_S
-            )
+            try:
+                texts, events_seen = await asyncio.wait_for(
+                    self._converse(session_id, req, trace_id), ANSWER_TIMEOUT_S
+                )
+            except TimeoutError:
+                raise TimeoutError(
+                    f"Claude answer exceeded CLAUDE_ANSWER_TIMEOUT_S={ANSWER_TIMEOUT_S:.0f}s "
+                    f"(managed session {session_id}). Cold-start session provisioning and "
+                    "mid-answer ask_agentforce round trips both count against this cap — "
+                    "raise CLAUDE_ANSWER_TIMEOUT_S in .env or use a faster CLAUDE_AGENT_MODEL."
+                ) from None
             hop.response_payload = {"events": events_seen, "text": "\n".join(texts)}
 
         return AgentResponse(

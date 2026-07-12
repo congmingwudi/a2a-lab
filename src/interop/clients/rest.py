@@ -50,7 +50,14 @@ class RestClient(RemoteAgentClient):
         ) as hop:
             r = await self._client.post(url, json=body, headers=self._headers(req.trace_id))
             hop.response_payload = r.text
-            r.raise_for_status()
+            if r.status_code >= 400:
+                # Surface the server's error body (our REST server sends a
+                # structured {"error": ...}) instead of a bare status line —
+                # this message is what the console shows the operator.
+                detail = r.text[:400] if r.text else "(empty body)"
+                raise RuntimeError(
+                    f"HTTP {r.status_code} from {url} — server said: {detail}"
+                )
             data = r.json()
         resp = AgentResponse.from_dict(data)
         resp.latency_ms = int((time.perf_counter() - start) * 1000)
