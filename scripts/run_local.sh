@@ -22,6 +22,14 @@ else
 fi
 run uv run python -m bridge --port 8100
 run uv run python -m console --port 8200
+if [[ -f .a2alab/brief.json && -n "${SF_CLIENT_ID:-}" ]]; then
+  # Async brief pattern (D16): service sessions fired by the Anthropic
+  # scheduled deployment (daily cron) — executes the Salesforce delivery
+  # tool host-side. Sessions fired while this wasn't running just wait.
+  run uv run python -m briefs --watch
+else
+  echo "(brief watcher skipped — run scripts/setup_brief_agent.py and set SF_* first)"
+fi
 
 echo
 echo "lab console:   http://localhost:8200"

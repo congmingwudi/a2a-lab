@@ -9,3 +9,7 @@ traces/
 dist/
 .sf/
 .sfdx/
+
+# sf CLI-managed skill bundles (installed by Salesforce DX tooling)
+.agents/
+skills-lock.json

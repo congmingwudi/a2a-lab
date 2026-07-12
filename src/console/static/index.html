@@ -5,69 +5,454 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A Interop Lab Console</title>
 <style>
+  /* Design system aligned with labs.agentforce.com: their dark palette
+     (#0b0b0b / #161616 / #292929), the labs hero — deep-navy radial
+     gradients with the teal→cyan→blue→lavender→purple wordmark gradient —
+     geometric headings + JetBrains/SF Mono, tinted pill badges, soft cards. */
   :root {
-    --bg: #0e1116; --panel: #161b22; --panel2: #1c2330; --line: #2b3648;
-    --text: #dbe4f0; --dim: #8b98ab; --accent: #58a6ff;
-    --rest: #3fb950; --mcp: #d29922; --a2a: #bc8cff;
-    --agentforce: #58a6ff; --managed: #ff7b72; --internal: #8b98ab;
+    --bg: #0b0b0b; --card: #161616; --card2: #1e1e1e; --elevated: #262626;
+    --code: #141414; --border: #292929; --border-hi: #3a3a3a;
+    --fg: #eeeeee; --muted: #8f8f8f; --primary: #cecece; --primary-fg: #0b0b0b;
+    --sidebar: #0d0d0d;
+    --rest: #00ab6d; --mcp: #ff9c3e; --a2a: #fd73d5; --agentforce-api: #00b0d6;
+    --managed-agents-api: #9e9e9e; --internal: #636363; --err: #f9423d;
+    /* labs.agentforce.com hero tokens */
+    --hero-sub: #8fc0e8; --hero-body: rgba(244, 249, 255, .9); --hero-link: #57a9f5;
+    --wordmark-grad: linear-gradient(100deg, #09decb 0%, #3fc7d8 22%, #7db9e8 48%, #a8a2ec 74%, #c99df0 100%);
+    --font-ui: "SF Pro Text", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", "Roboto", sans-serif;
+    --font-head: "ITC Avant Garde Std", "Avant Garde", "Century Gothic", "Futura", "URW Gothic", var(--font-ui);
+    --font-mono: "JetBrains Mono", "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-  header { display: flex; align-items: baseline; gap: 12px; padding: 14px 20px;
-           border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 2; }
-  header h1 { font-size: 16px; margin: 0; letter-spacing: .5px; }
-  header .live { font-size: 12px; color: var(--dim); }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-ui); }
+  code, pre, .mono { font-family: var(--font-mono); }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 12px 22px;
+           border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  header .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  header .brand:hover h1 { color: #fff; }
+  .brandmark { width: 20px; height: 20px; border-radius: 6px; flex: none;
+               background: linear-gradient(135deg, #09decb 0%, #3fc7d8 30%, #7db9e8 55%, #a8a2ec 78%, #c99df0 100%); }
+  header h1 { font-family: var(--font-head); font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .3px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .live { margin-left: auto; font-size: 12px; color: var(--muted); }
   header .live.on::before { content: "●"; color: var(--rest); margin-right: 5px; }
-  main { display: grid; grid-template-columns: 340px 1fr; height: calc(100vh - 51px); }
-  #list { border-right: 1px solid var(--line); overflow-y: auto; }
-  .trace { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
-  .trace:hover, .trace.sel { background: var(--panel); }
-  .trace .tid { color: var(--dim); font-size: 11px; }
-  .trace .meta { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
-  #detail { overflow-y: auto; padding: 16px 20px; }
-  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px;
-           font-weight: 600; color: #0e1116; }
-  .badge.rest { background: var(--rest); } .badge.mcp { background: var(--mcp); }
-  .badge.a2a { background: var(--a2a); } .badge.agentforce-api { background: var(--agentforce); }
-  .badge.managed-agents-api { background: var(--managed); }
-  .badge.internal { background: var(--internal); }
-  .hop { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-         margin-bottom: 12px; overflow: hidden; }
-  .hop-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; }
-  .hop-head .route { flex: 1; }
-  .hop-head .route b { color: var(--accent); }
-  .hop-head .lat { color: var(--dim); font-size: 12px; }
-  .hop-head .err { color: #f85149; font-weight: 700; }
-  .hop-body { display: none; border-top: 1px solid var(--line); }
+
+  main { display: grid; grid-template-columns: 380px 1fr; height: calc(100vh - 50px); }
+  #side { border-right: 1px solid var(--border); overflow-y: auto; background: var(--sidebar); }
+
+  /* --- sidebar accordion sections ------------------------------------- */
+  details.acc { border-bottom: 1px solid var(--border); }
+  details.acc > summary { padding: 13px 18px; font-size: 11px; font-weight: 600; color: var(--muted);
+                          text-transform: uppercase; letter-spacing: .8px; cursor: pointer;
+                          list-style: none; display: flex; align-items: center; gap: 8px;
+                          position: sticky; top: 0; background: var(--sidebar); z-index: 1; }
+  details.acc > summary::-webkit-details-marker { display: none; }
+  details.acc > summary::before { content: "▸"; font-size: 10px; transition: transform .15s ease; }
+  details.acc[open] > summary::before { transform: rotate(90deg); }
+  details.acc > summary:hover { color: var(--fg); }
+  details.acc > summary .count { margin-left: auto; font: 600 10.5px var(--font-mono); color: var(--muted);
+                                 background: var(--card2); border: 1px solid var(--border);
+                                 border-radius: 999px; padding: 0 8px; }
+  details.acc .acc-body { padding-bottom: 12px; }
+
+  /* pill badges, labs-style: tinted fill + rim in the accent color */
+  .badge { display: inline-block; padding: 1.5px 10px; border-radius: 999px; font: 600 11px var(--font-mono);
+           color: var(--tag, var(--muted));
+           background: color-mix(in srgb, var(--tag, var(--muted)) 10%, transparent);
+           border: 1px solid color-mix(in srgb, var(--tag, var(--muted)) 38%, transparent); }
+  .badge.rest { --tag: var(--rest); } .badge.mcp { --tag: var(--mcp); }
+  .badge.a2a { --tag: var(--a2a); } .badge.agentforce-api { --tag: var(--agentforce-api); }
+  .badge.managed-agents-api { --tag: var(--managed-agents-api); }
+  .badge.internal { --tag: var(--internal); }
+  .badge.agentforce { --tag: var(--agentforce-api); } .badge.claude { --tag: #cecece; }
+  .badge.openai { --tag: var(--rest); } .badge.bridge { --tag: var(--mcp); }
+  .badge.managed-agents { --tag: var(--managed-agents-api); }
+  .badge.agentcore { --tag: var(--mcp); } .badge.soon { --tag: var(--muted); }
+
+  button { font-family: var(--font-ui); cursor: pointer; }
+  button.primary { background: var(--primary); color: var(--primary-fg); border: none; border-radius: 8px;
+                   padding: 5px 14px; font-size: 12.5px; font-weight: 600; }
+  button.primary:hover { background: #fff; }
+  button.ghost, a.ghost { background: transparent; color: var(--fg); border: 1px solid var(--border);
+                 border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 600;
+                 text-decoration: none; display: inline-block; cursor: pointer; }
+  button.ghost:hover, a.ghost:hover { border-color: var(--border-hi); background: var(--card2); }
+  button:disabled { opacity: .4; cursor: default; }
+
+  /* scenario cards (sidebar) — click opens the experiment workspace */
+  .card { margin: 8px 14px; background: var(--card); border: 1px solid var(--border);
+          border-radius: 12px; padding: 13px 14px; transition: border-color .15s ease; cursor: pointer; }
+  .card:hover { border-color: var(--border-hi); }
+  .card.open { border-color: var(--primary); }
+  .card.soon { opacity: .55; }
+  .card .head { display: flex; align-items: center; gap: 8px; }
+  .card h3 { margin: 0; font-size: 13.5px; font-weight: 600; flex: 1; }
+  .card p { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .card .foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .card .status { font: 600 11px var(--font-mono); max-width: 130px;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .status.ok { color: var(--rest); } .card .status.fail { color: var(--err); }
+  .card .status.running { color: var(--fg); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* protocol-call rows (top-level accordion section) */
+  .cells-controls { padding: 0 18px 8px; }
+  .cells-controls label { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .cells-controls input[type=checkbox] { accent-color: var(--primary); }
+  .target { display: flex; align-items: center; gap: 8px; padding: 9px 18px; border-top: 1px solid var(--border); cursor: pointer; }
+  .target:hover { background: var(--card2); }
+  .target.open { box-shadow: inset 2px 0 0 var(--primary); }
+  .target .tname { flex: 1; min-width: 0; font-size: 12.5px; }
+  .target .tname .st { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .target .result { font: 600 11px var(--font-mono); color: var(--muted); max-width: 100px;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .target .result.ok { color: var(--rest); } .target .result.fail { color: var(--err); }
+  .target .spin { color: var(--fg); animation: pulse 1s infinite; font-size: 11px; }
+
+  /* trace list */
+  .traces-tools { display: flex; align-items: center; gap: 8px; padding: 2px 18px 8px; }
+  .traces-tools .hint { flex: 1; font-size: 11.5px; color: var(--muted); }
+  .trace { padding: 10px 18px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .trace:hover, .trace.sel { background: var(--card); }
+  .trace .tid { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+  .trace .meta { display: flex; gap: 5px; margin-top: 5px; flex-wrap: wrap; }
+
+  /* main canvas */
+  #detail { overflow-y: auto; padding: 18px 22px; }
+  #detail.landing-host { padding: 0; }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  .detail-head { margin-bottom: 14px; }
+  .detail-head .tid { color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
+
+  /* --- landing page ----------------------------------------------------- */
+  .hero { position: relative; overflow: hidden; padding: 56px 40px 44px;
+          border-bottom: 1px solid var(--border);
+          /* labs.agentforce.com hero scene gradients, verbatim */
+          background:
+            radial-gradient(70% 90% at 8% 100%, rgba(6, 78, 178, .75) 0%, transparent 60%),
+            radial-gradient(90% 80% at 78% 55%, rgba(10, 74, 158, .55) 0%, transparent 65%),
+            radial-gradient(60% 50% at 50% 0%, rgba(2, 8, 20, .9) 0%, transparent 70%),
+            linear-gradient(#030a18 0%, #041e42 55%, #032c62 100%); }
+  .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; filter: blur(26px);
+                 background:
+                   radial-gradient(46% 52% at 72% 30%, rgba(150, 205, 255, .28) 0%, rgba(70, 145, 255, .16) 42%, transparent 74%); }
+  .hero-inner { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; }
+  .kicker { font: 600 11px var(--font-mono); letter-spacing: 1.6px; text-transform: uppercase;
+            color: var(--hero-sub); margin-bottom: 14px; }
+  .wordmark { font-family: var(--font-head); font-weight: 700; font-size: clamp(30px, 4.4vw, 46px);
+              line-height: 1.08; letter-spacing: .2px; margin: 0 0 12px;
+              background: var(--wordmark-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero-sub { font-family: var(--font-head); color: var(--hero-sub); font-size: 16px; font-weight: 600;
+              margin: 0 0 14px; letter-spacing: .2px; }
+  .hero-body { color: var(--hero-body); font-size: 14.5px; line-height: 1.65; max-width: 640px; margin: 0 0 22px;
+               text-wrap: balance; }
+  .hero-ctas { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .hero-cta { color: #eaf4ff; font-family: var(--font-head); font-weight: 600; font-size: 13.5px;
+              background: linear-gradient(135deg, #092e5e 0%, #0f386b 50%, #1a4a86 100%);
+              border: 1px solid rgba(120, 172, 236, .45); border-radius: 10px; padding: 10px 20px;
+              box-shadow: 0 8px 28px rgba(12, 40, 96, .4); transition: box-shadow .2s, transform .2s ease-in-out; }
+  .hero-cta:hover { transform: scale(1.03); box-shadow: 0 12px 40px 4px rgba(12, 40, 96, .4);
+                    border-color: rgba(240, 248, 255, .7); }
+  .hero-link { background: none; border: none; padding: 0; color: var(--hero-link);
+               font-family: var(--font-head); font-weight: 600; font-size: 13px; }
+  .hero-link:hover { filter: brightness(1.2); }
+  .hero-badges { display: flex; gap: 6px; margin-top: 24px; flex-wrap: wrap; }
+
+  .archsvg-wrap { position: relative; z-index: 1; max-width: 980px; margin: 34px auto 0; overflow-x: auto; }
+  .archsvg { display: block; width: 100%; max-width: 760px; height: auto; margin: 0 auto; }
+  .archsvg text { font-family: var(--font-mono); }
+
+  .landing section { max-width: 1020px; margin: 0 auto; padding: 34px 40px 6px; }
+  .landing section:last-child { padding-bottom: 44px; }
+  .landing h2 { font-family: var(--font-head); font-size: 19px; font-weight: 600; letter-spacing: .2px; margin: 0 0 6px; }
+  .landing .lede { color: var(--muted); font-size: 13.5px; margin: 0 0 18px; max-width: 680px; line-height: 1.6; }
+
+  .intro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .intro-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .intro-card h3 { margin: 0 0 6px; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .intro-card h3 .dot { width: 8px; height: 8px; border-radius: 3px; flex: none;
+                        background: linear-gradient(135deg, var(--d1, #09decb), var(--d2, #7db9e8)); }
+  .intro-card p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+  .intro-card code { font-size: 11px; background: var(--code); border: 1px solid var(--border);
+                     padding: 1px 5px; border-radius: 5px; }
+
+  .usecases { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .usecase { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .usecase .kick { font: 600 10.5px var(--font-mono); letter-spacing: 1.2px; text-transform: uppercase;
+                   color: var(--hero-sub); margin-bottom: 8px; }
+  .usecase h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+  .usecase p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+
+  /* experiment tiles — labs.agentforce.com /docs/experiments card styling:
+     dark card, gradient banner, gradient rim lighting up on hover */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .tile { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+          overflow: hidden; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease; }
+  .tile::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+                  background: var(--wordmark-grad); opacity: 0; transition: opacity .2s ease;
+                  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                  -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+  .tile:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0, 0, 0, .45); }
+  .tile:hover::before { opacity: .75; }
+  .tile.soon { opacity: .6; }
+  .tile.soon:hover { transform: none; }
+  .tile-banner { min-height: 96px; display: flex; align-items: center; justify-content: center; padding: 16px 14px;
+                 border-bottom: 1px solid var(--border); }
+  .tile-body { padding: 14px 16px 15px; }
+  .tile-head { display: flex; align-items: center; gap: 8px; }
+  .tile-head h3 { margin: 0; font-family: var(--font-head); font-size: 15px; font-weight: 600; flex: 1; letter-spacing: .2px; }
+  .tile-body p { margin: 7px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+  .tile-foot { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+
+  /* compact call-path strip — the high-level diagram inside each tile banner */
+  .pathstrip { display: flex; align-items: center; justify-content: center; gap: 7px; flex-wrap: wrap; }
+  .pathstrip .pnode { font: 600 11px var(--font-mono); color: #f4f9ff; white-space: nowrap;
+                      background: rgba(255, 255, 255, .09); border: 1px solid rgba(143, 192, 232, .38);
+                      border-radius: 999px; padding: 3px 10px; }
+  .pathstrip .leg { display: inline-flex; flex-direction: column; align-items: center; gap: 0; line-height: 1; }
+  .pathstrip .leg i { font: 600 9px var(--font-mono); font-style: normal; color: var(--pc, var(--muted));
+                      margin-bottom: 1px; }
+  .pathstrip .leg .arr { color: var(--pc, var(--muted)); font-size: 13px; }
+
+  .cells-strip { display: flex; align-items: center; gap: 14px; background: var(--card);
+                 border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; flex-wrap: wrap; }
+  .cells-strip p { flex: 1; min-width: 240px; margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+
+  /* experiment workspace tab bar */
+  .tabbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tabbar h2 { margin: 0; font-family: var(--font-head); font-size: 16px; font-weight: 600; flex: 1; }
+  .tabs { display: flex; gap: 6px; margin: 0 0 8px; }
+  .tabbar .tabs { margin: 0; }
+  .tab { background: transparent; color: var(--muted); border: 1px solid var(--border);
+         border-radius: 999px; padding: 3px 12px; font-size: 11.5px; font-weight: 600; }
+  .tab:hover { color: var(--fg); border-color: var(--border-hi); }
+  .tab.on { color: var(--fg); background: var(--card2); border-color: var(--border-hi); }
+
+  /* chat (Run tab) */
+  .chat { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+          margin-bottom: 16px; overflow: hidden; }
+  .chat-head { display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+               border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted);
+               text-transform: uppercase; letter-spacing: .8px; font-weight: 600; }
+  .chat-head .spacer { flex: 1; }
+  .chat-head .sess { text-transform: none; letter-spacing: 0; font: 11px var(--font-mono); }
+  .turns { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+           max-height: 44vh; overflow-y: auto; }
+  .turns .hint { color: var(--muted); font-size: 12.5px; text-align: center; padding: 12px; }
+  .turn { max-width: 82%; padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.55;
+          white-space: pre-wrap; word-break: break-word; }
+  .turn.user { align-self: flex-end; background: var(--elevated); border: 1px solid var(--border-hi);
+               border-bottom-right-radius: 4px; cursor: pointer; }
+  .turn.user:hover { border-color: var(--primary); }
+  .turn.user.sel { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+  .turn.agent { align-self: flex-start; background: var(--card2); border: 1px solid var(--border);
+                border-bottom-left-radius: 4px; }
+  .turn.agent.err { border-color: color-mix(in srgb, var(--err) 55%, transparent); color: var(--err); }
+  .turn.agent.running { color: var(--muted); animation: pulse 1s infinite; }
+  .turn .tmeta { display: block; margin-top: 6px; font: 10.5px var(--font-mono); color: var(--muted); }
+  .turn.agent .md { white-space: normal; }
+  .turn.agent .md p { margin: 0 0 8px; }
+  .turn.agent .md p:last-child { margin-bottom: 0; }
+  .turn.agent .md ul, .turn.agent .md ol { margin: 4px 0 8px; padding-left: 20px; }
+  .turn.agent .md li { margin: 3px 0; }
+  .turn.agent .md h4, .turn.agent .md h5, .turn.agent .md h6 { margin: 10px 0 6px; font-size: 13px; }
+  .turn.agent .md code { background: var(--code); border: 1px solid var(--border);
+                         padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+  .turn.agent .md pre { margin: 6px 0 8px; }
+  .turn.agent .md pre code { background: none; border: none; padding: 0; }
+  .composer { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); align-items: flex-end; }
+  .composer textarea { flex: 1; background: var(--code); color: var(--fg); border: 1px solid var(--border);
+                       border-radius: 8px; padding: 9px 10px; font: 12.5px/1.5 var(--font-ui); resize: vertical; }
+  .composer textarea::placeholder { color: var(--muted); }
+  .composer textarea:focus { outline: none; border-color: var(--border-hi); }
+
+  /* call-path flow + narrative (shared by Run tab, Details tab, trace view) */
+  .flow { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+          margin-bottom: 16px; overflow: hidden; }
+  .flow h3 { margin: 0; padding: 11px 16px; font-size: 11px; color: var(--muted);
+             text-transform: uppercase; letter-spacing: .8px; border-bottom: 1px solid var(--border); }
+  .flow .desc { padding: 11px 16px; font-size: 13px; border-bottom: 1px solid var(--border); line-height: 1.6; }
+  .flow .desc .stat { color: var(--muted); font-size: 12px; }
+  .flow .desc code { font-size: 12px; background: var(--code); padding: 1px 5px; border-radius: 5px; }
+  .flow .svgwrap { overflow-x: auto; padding: 14px 16px; }
+  .flow svg { display: block; }
+  .flow text { font: 11px var(--font-mono); fill: var(--fg); }
+  .flow text.plabel { font-weight: 700; }
+  .flow text.alabel { fill: var(--muted); font-size: 10px; }
+  .flow .pbox { fill: var(--card2); stroke: var(--border); rx: 7; }
+  .flow .lifeline { stroke: var(--border); stroke-dasharray: 3 4; }
+
+  /* Details tab: numbered steps + agent cards */
+  .steps { margin: 0; padding: 8px 16px 14px 36px; }
+  .steps li { margin: 9px 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .steps li .who { color: var(--fg); font-family: var(--font-mono); font-size: 12px; margin-left: 6px; }
+  .agentrow { display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+              border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .agentrow .aname { font-weight: 600; font-size: 13px; }
+  .agentrow .atarget { color: var(--muted); font-family: var(--font-mono); font-size: 11px; flex: 1; }
+  .agentrow .caption { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .cardbox { padding: 0 16px 14px; }
+  .cardbox .curl { margin: 0 0 6px; color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+  .acard { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; }
+  .frow { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 7px 0;
+          border-bottom: 1px solid var(--border); font-size: 12.5px; }
+  .acard .frow:last-child { border-bottom: none; }
+  .flabel { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; padding-top: 2px; }
+  .fval { min-width: 0; overflow-wrap: anywhere; }
+  .fval p { margin: 3px 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .fmono { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+  .skill { margin: 2px 0 8px; }
+  .skill:last-child { margin-bottom: 2px; }
+
+  /* raw hop cards */
+  .hop { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+         margin-bottom: 10px; overflow: hidden; }
+  .hop.has-err { border-color: color-mix(in srgb, var(--err) 45%, transparent); }
+  pre.err-pre { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
+  .hop-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer; }
+  .hop-head:hover { background: var(--card2); }
+  .hop-head .route { flex: 1; font-size: 13px; }
+  .hop-head .route b { color: var(--fg); }
+  .hop-head .route .td { color: var(--muted); }
+  .hop-head .lat { color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
+  .hop-head .err { color: var(--err); font-weight: 700; font-size: 12px; }
+  .hop-body { display: none; border-top: 1px solid var(--border); }
   .hop.open .hop-body { display: grid; grid-template-columns: 1fr 1fr; }
-  .pane { padding: 10px 14px; min-width: 0; }
-  .pane + .pane { border-left: 1px solid var(--line); }
-  .pane h4 { margin: 0 0 6px; font-size: 11px; color: var(--dim); text-transform: uppercase; }
-  pre { background: var(--panel2); border-radius: 6px; padding: 10px; margin: 0;
+  .pane { padding: 10px 16px; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--border); }
+  .pane h4 { margin: 0 0 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  pre { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 0;
         overflow-x: auto; white-space: pre-wrap; word-break: break-word;
         font-size: 12px; max-height: 420px; overflow-y: auto; }
-  .empty { color: var(--dim); padding: 40px; text-align: center; }
-  .detail-head { margin-bottom: 14px; }
-  .detail-head .tid { color: var(--dim); font-size: 12px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>A2A Interop Lab</h1>
+  <div class="brand" onclick="goHome()" title="Back to the lab overview">
+    <span class="brandmark"></span>
+    <h1>A2A Interop Lab</h1>
+  </div>
+  <span class="sub">cross-platform agent-to-agent experiments · Agentforce × Claude × OpenAI</span>
   <span id="live" class="live">connecting…</span>
 </header>
 <main>
-  <div id="list"></div>
-  <div id="detail"><div class="empty">Select a conversation — hops appear live as agents talk.</div></div>
+  <div id="side">
+    <details class="acc" id="accExperiments" open>
+      <summary>Experiments <span class="count" id="expCount"></span></summary>
+      <div class="acc-body">
+        <div id="scenarios"></div>
+      </div>
+    </details>
+    <details class="acc" id="accCells" open>
+      <summary>Protocol calls <span class="count" id="cellCount"></span></summary>
+      <div class="acc-body">
+        <div class="cells-controls">
+          <label title="Route through the bridge like the Agentforce Apex action does — the trace then shows the full loop">
+            <input type="checkbox" id="viaBridge"> via bridge</label>
+        </div>
+        <div id="targets"></div>
+      </div>
+    </details>
+    <details class="acc" id="accTraces">
+      <summary>Traces <span class="count" id="traceCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">Past runs — every hop's raw wire payloads.</span>
+          <button class="ghost" id="clearBtn" onclick="clearTraces(event)"
+            title="Delete the trace files (traces/*.jsonl) — chat history stays until you reload">Clear</button>
+        </div>
+        <div id="list"></div>
+      </div>
+    </details>
+  </div>
+  <div id="detail"></div>
 </main>
 <script>
-let traces = [];        // [{trace_id, started, hops, protocols}]
-let selected = null;
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let traces = [];          // [{trace_id, started, hops, protocols}]
+let selected = null;      // trace_id shown in the trace section / trace view
 let openHops = new Set();
+let autoOpened = new Set(); // error hops auto-expanded once (then user-controlled)
+let scenarios = [];       // from /api/scenarios (incl. flow + agents)
+let targets = [];         // from /api/targets
+let runState = {};        // key -> {state: running|ok|fail, note}   (sidebar chips)
+let defaultQuestion = "";
+
+// Main-canvas view: null (landing) | {type:'experiment', kind:'scenario'|'cell', name}
+//                                  | {type:'trace'}
+let view = null;
+let activeTab = "run";    // 'run' | 'details' (experiment views)
+let mainKey = null;       // skeleton identity — rebuilt only when this changes
+
+// Per-experiment chat: key -> {session, turns:[{role, text, trace_id, latency_ms, error}],
+//                              running, selected (this experiment's shown trace)}
+let chats = {};
+let drafts = {};          // key -> composer draft (survives re-renders)
+// trace_id -> {start, end} wall-clock window of the console turn that owns it,
+// used to fold time-correlated legs (Apex mints its own trace id) into the
+// turn's call path.
+let turnWindows = {};
+
+// Details-tab agent card viewer
+let cardCache = {};       // target -> /api/agent-card response
+let openCards = new Set();
+let cardTab = {};         // target -> "fields" | "json"
 
 const fmtTime = ts => ts ? new Date(ts * 1000).toLocaleTimeString() : "";
 const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const expKey = (kind, name) => (kind === "scenario" ? "scn:" : "cell:") + name;
+
+// When the console runs behind the tunnel with A2ALAB_TOKEN set, the token
+// arrives as ?token=... on the page URL and must ride along on API calls
+// (EventSource can't set headers, hence query param).
+const apiUrl = path => path + window.location.search;
+
+const newTraceId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "")
+  : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join(""));
+
+// Minimal, safe markdown for agent replies: input is HTML-escaped FIRST, then
+// only our own tags are injected — bold/italic/inline code, fenced code
+// blocks, #-headers, bullet and numbered lists, paragraphs.
+function inlineMd(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<i>$2</i>");
+}
+
+function mdToHtml(src) {
+  const lines = esc(src).split(/\r?\n/);
+  const out = [];
+  let list = null, code = false, para = [];
+  const flushPara = () => { if (para.length) { out.push("<p>" + para.map(inlineMd).join("<br>") + "</p>"); para = []; } };
+  const closeList = () => { if (list) { out.push("</" + list + ">"); list = null; } };
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      flushPara(); closeList();
+      out.push(code ? "</code></pre>" : "<pre><code>");
+      code = !code; continue;
+    }
+    if (code) { out.push(line + "\n"); continue; }
+    const h = line.match(/^(#{1,4})\s+(.*)/);
+    const ul = line.match(/^\s*[-*]\s+(.*)/);
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)/);
+    if (h) { flushPara(); closeList(); const lvl = Math.min(h[1].length + 3, 6);
+      out.push(`<h${lvl}>` + inlineMd(h[2]) + `</h${lvl}>`); }
+    else if (ul) { flushPara(); if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; }
+      out.push("<li>" + inlineMd(ul[1]) + "</li>"); }
+    else if (ol) { flushPara(); if (list !== "ol") { closeList(); out.push("<ol>"); list = "ol"; }
+      out.push("<li>" + inlineMd(ol[1]) + "</li>"); }
+    else if (!line.trim()) { flushPara(); closeList(); }
+    else para.push(line);
+  }
+  flushPara(); closeList();
+  if (code) out.push("</code></pre>");
+  return out.join("");
+}
 
 function pretty(payload) {
   if (payload == null) return "—";
@@ -77,65 +462,913 @@ function pretty(payload) {
   return JSON.stringify(payload, null, 2);
 }
 
-function renderList() {
-  const el = document.getElementById("list");
-  el.innerHTML = traces.map(t => `
-    <div class="trace ${t.trace_id === selected ? "sel" : ""}" onclick="select('${t.trace_id}')">
-      <div>${fmtTime(t.started)} · ${t.hops.length} hop${t.hops.length === 1 ? "" : "s"}</div>
-      <div class="tid">${t.trace_id.slice(0, 16)}…</div>
-      <div class="meta">${t.protocols.map(p => `<span class="badge ${p}">${p}</span>`).join("")}</div>
-    </div>`).join("") || `<div class="empty">No traces yet.</div>`;
+// ---------------------------------------------------------------------------
+// Call-path diagram + narrative (shared)
+// ---------------------------------------------------------------------------
+const PROTO_COLOR = {
+  rest: "var(--rest)", mcp: "var(--mcp)", a2a: "var(--a2a)",
+  "agentforce-api": "var(--agentforce-api)", "managed-agents-api": "var(--managed-agents-api)",
+  internal: "var(--internal)",
+};
+
+function participantsOf(t) {
+  const seen = [];
+  for (const h of t.hops) {
+    for (const name of [h.source, h.target]) {
+      if (!seen.includes(name)) seen.push(name);
+    }
+  }
+  return seen;
 }
 
-function renderDetail() {
-  const el = document.getElementById("detail");
-  const t = traces.find(x => x.trace_id === selected);
-  if (!t) { el.innerHTML = `<div class="empty">Select a conversation.</div>`; return; }
-  el.innerHTML = `
-    <div class="detail-head">
-      <div class="tid">trace ${t.trace_id}</div>
+function describeTrace(t) {
+  const hops = t.hops;
+  const protos = new Set(hops.map(h => h.protocol));
+  const tgts = new Set(hops.map(h => h.target));
+  const parts = [];
+
+  // Entry over the Agent API = an Agentforce-first scenario: the later
+  // agentforce-api hops are the way IN, not Claude calling back (Path B).
+  const afEntry = hops[0] && hops[0].protocol === "agentforce-api";
+  if (afEntry) {
+    parts.push(`<b>Entry:</b> you talked to the <b>Agentforce agent</b> over the GA Agent API — it owns
+      the whole answer and orchestrates everything below.`);
+  }
+
+  const bridgeHop = hops.find(h => h.target === "bridge");
+  if (bridgeHop) {
+    const fromApex = bridgeHop.source === "agentforce-apex";
+    const outbound = hops.find(h => h.source === "client" || (h.source === "bridge" && h.target !== "bridge"));
+    parts.push(`<b>Via bridge:</b> ${fromApex
+      ? (afEntry ? "mid-answer, the agent's Apex action called out through its Named Credential to the bridge"
+                 : "the Agentforce side called out through its Named Credential to the bridge")
+      : "a caller invoked the bridge"}, which forwarded the request over <b>${
+      esc(outbound ? outbound.protocol : "?")}</b> to <b>${esc(outbound ? outbound.target : "the target agent")}</b> — protocol switching happens here, with no Salesforce redeploy.`);
+  } else if (tgts.has("agentforce-service-agent")) {
+    const entry = hops.find(h => h.target === "agentforce-service-agent");
+    parts.push(`<b>Via-shim cell:</b> a caller reached the Agentforce agent over <b>${esc(entry.protocol)}</b> through the lab's shim, which translated the request to the Salesforce Agent API (Agentforce exposes no GA ${esc(entry.protocol.toUpperCase())} inbound surface).`);
+  } else {
+    const entry = hops.find(h => ["remote-caller", "caller"].includes(h.source));
+    if (entry) {
+      parts.push(`<b>Direct cell:</b> a caller invoked <b>${esc(entry.target)}</b> over <b>${esc(entry.protocol)}</b>.`);
+    }
+  }
+
+  if (tgts.has("anthropic-managed-agents")) {
+    parts.push(`The Claude agent's reasoning ran on <b>Anthropic Managed Agents</b> (hosted session, SSE event stream).`);
+  } else if (tgts.has("claude-agent-sdk")) {
+    parts.push(`The Claude agent's reasoning ran on the self-hosted <b>Claude Agent SDK</b>.`);
+  }
+
+  const afHops = hops.filter(h => h.protocol === "agentforce-api");
+  const claudeInvolved = tgts.has("anthropic-managed-agents") || tgts.has("claude-agent-sdk");
+  if (afHops.length && !afEntry) {
+    const lifecycle = afHops.map(h => (h.transport_detail || "").split(" ")[0]).join(" → ");
+    if (claudeInvolved) {
+      parts.push(`<b>Cross-platform consult:</b> mid-answer, Claude called its <code>ask_agentforce</code> tool, which drove the Salesforce <b>Agent API</b> (${esc(lifecycle)}) and folded the Agentforce agent's reply into Claude's answer.`);
+    } else {
+      parts.push(`The Salesforce <b>Agent API</b> handled the conversation (${esc(lifecycle)}).`);
+    }
+  } else if (claudeInvolved && !afEntry && !hops.some(h => h.status === "error")) {
+    parts.push(`<b>No cross-platform hop this turn:</b> Claude answered without calling its
+      <code>ask_agentforce</code> tool — either the prompt directed it not to (the
+      Agentforce → Claude scenario keeps the loop one-way on purpose), or the model decided it
+      didn't need Salesforce data, e.g. a follow-up reusing what an earlier turn already fetched.`);
+  }
+
+  // Errors get context, not just a count: name the failing hop and quote
+  // the recorded error (servers put {"error": ...} in the raw response).
+  const errHops = hops.filter(h => h.status === "error");
+  if (errHops.length) {
+    const detailOf = h => {
+      let raw = h.response_payload_raw;
+      if (raw == null) return "(no error detail recorded)";
+      if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { /* plain text */ } }
+      if (raw && typeof raw === "object") raw = raw.error || raw.detail || JSON.stringify(raw);
+      return String(raw);
+    };
+    parts.push(errHops.map(h =>
+      `<span style="color:var(--err)"><b>✗ ${esc(h.source)} → ${esc(h.target)}</b> (${esc(h.protocol)}${
+        h.latency_ms != null ? ` · after ${h.latency_ms} ms` : ""}) failed: ${
+        esc(detailOf(h).slice(0, 300))}</span>`).join("<br>") +
+      `<br><span class="stat">The failing hop${errHops.length > 1 ? "s are" : " is"} expanded below — the raw request/response panes have the full story.</span>`);
+  }
+
+  const ts = hops.map(h => h.ts).filter(Boolean);
+  const wall = ts.length ? Math.round((Math.max(...ts.map((x, i) => x + (hops[i].latency_ms || 0) / 1000)) - Math.min(...ts)) * 1000) : null;
+  const stat = `<span class="stat">${hops.length} hop${hops.length === 1 ? "" : "s"} · ${participantsOf(t).length} participants · protocols: ${[...protos].join(", ")}${wall != null ? ` · ~${wall} ms wall` : ""}</span>`;
+  return (parts.join(" ") || "Call path recorded from raw wire traces.") + "<br>" + stat;
+}
+
+function renderDiagram(t) {
+  const parts = participantsOf(t);
+  const COL = Math.max(150, Math.min(230, 900 / parts.length));
+  const TOP = 34, ROW = 34, BOXH = 24;
+  const width = parts.length * COL, height = TOP + t.hops.length * ROW + 16;
+  const x = name => parts.indexOf(name) * COL + COL / 2;
+
+  let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="call path diagram">`;
+  svg += `<defs>` + Object.entries(PROTO_COLOR).map(([p, c]) =>
+    `<marker id="arr-${p}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+       <path d="M0,0 L8,4 L0,8 z" fill="${c}"/></marker>`).join("") + `</defs>`;
+
+  for (const name of parts) {
+    const cx = x(name);
+    svg += `<line class="lifeline" x1="${cx}" y1="${TOP}" x2="${cx}" y2="${height - 6}"/>`;
+    const label = name.length > 24 ? name.slice(0, 23) + "…" : name;
+    const w = Math.min(COL - 10, label.length * 6.8 + 16);
+    svg += `<rect class="pbox" x="${cx - w / 2}" y="4" width="${w}" height="${BOXH}"/>`;
+    svg += `<text class="plabel" x="${cx}" y="${4 + BOXH / 2 + 4}" text-anchor="middle">${esc(label)}</text>`;
+  }
+
+  t.hops.forEach((h, i) => {
+    const y = TOP + i * ROW + 18;
+    const color = PROTO_COLOR[h.protocol] || "var(--muted)";
+    let x1 = x(h.source), x2 = x(h.target);
+    if (x1 === x2) x2 = x1 + 24; // self-call: short stub arrow
+    const dir = x2 > x1 ? 1 : -1;
+    svg += `<line x1="${x1}" y1="${y}" x2="${x2 - 4 * dir}" y2="${y}" stroke="${color}" stroke-width="1.6" marker-end="url(#arr-${h.protocol in PROTO_COLOR ? h.protocol : "internal"})" ${h.status === "error" ? 'stroke-dasharray="5 3"' : ""}/>`;
+    const mid = (x1 + x2) / 2;
+    const label = `${h.protocol}${h.latency_ms != null ? " · " + h.latency_ms + "ms" : ""}${h.status === "error" ? " · ERROR" : ""}`;
+    svg += `<text class="alabel" x="${mid}" y="${y - 5}" text-anchor="middle"${h.status === "error" ? ' fill="var(--err)"' : ""}>${esc(label)}</text>`;
+  });
+  return svg + `</svg>`;
+}
+
+// Salesforce-internal legs mint their own trace id (the Apex invocable
+// generates one per callout), so a scenario turn produces TWO traces: the
+// Agent API turn and the Apex -> bridge -> Claude leg. Fold legs whose
+// bridge-entry trace started inside the turn's wall-clock window into the
+// turn's call path — labeled per-hop, and only traces no console turn owns.
+function ownedTraceIds() {
+  const ids = new Set();
+  for (const c of Object.values(chats))
+    for (const turn of c.turns) if (turn.trace_id) ids.add(turn.trace_id);
+  return ids;
+}
+
+function mergedTurnTrace(t) {
+  if (!t) return t;
+  const w = turnWindows[t.trace_id];
+  const lo = (w ? w.start : t.started || 0) - 2;
+  const hi = ((w && w.end) || Date.now() / 1000) + 2;
+  const owned = ownedTraceIds();
+  const legs = traces.filter(x =>
+    x.trace_id !== t.trace_id && !owned.has(x.trace_id) &&
+    (x.started || 0) >= lo && (x.started || 0) <= hi &&
+    x.hops.length && (x.hops[0].target === "bridge" || x.hops[0].source === "agentforce-apex"));
+  if (!legs.length) return t;
+  const hops = [...t.hops, ...legs.flatMap(l => l.hops.map(h => ({ ...h, _leg: l.trace_id })))]
+    .sort((a, b) => (a.ts - b.ts) || ((a.hop_seq || 0) - (b.hop_seq || 0)));
+  const protocols = [...new Set(hops.map(h => h.protocol))];
+  return { ...t, hops, protocols, _legs: legs.length };
+}
+
+function traceSectionHtml(t, title) {
+  if (!t || !t.hops.length) {
+    return `<div class="flow"><h3>${esc(title)}</h3>
+      <div class="desc"><span class="stat">No hops yet — run a turn and the call path streams in live.</span></div></div>`;
+  }
+  return `
+    <div class="flow">
+      <h3>${esc(title)} <span style="text-transform:none;letter-spacing:0"> · trace ${esc(t.trace_id.slice(0, 12))}…${
+        t._legs ? ` + ${t._legs} platform-initiated leg${t._legs === 1 ? "" : "s"} (correlated by time — Apex mints its own trace id)` : ""}</span></h3>
+      <div class="desc">${describeTrace(t)}</div>
+      <div class="svgwrap">${renderDiagram(t)}</div>
     </div>` + t.hops.map((h, i) => {
       const key = t.trace_id + ":" + i;
+      // Errored hops start expanded (once per trace) — the error detail is
+      // in the raw panes and shouldn't hide behind a click.
+      if (h.status === "error" && !autoOpened.has(key)) { autoOpened.add(key); openHops.add(key); }
       return `
-      <div class="hop ${openHops.has(key) ? "open" : ""}" id="hop-${i}">
+      <div class="hop ${openHops.has(key) ? "open" : ""} ${h.status === "error" ? "has-err" : ""}" id="hop-${i}">
         <div class="hop-head" onclick="toggle('${key}', ${i})">
           <span class="badge ${h.protocol}">${h.protocol}</span>
           <span class="route">${esc(h.source)} → <b>${esc(h.target)}</b>
-            <span style="color:var(--dim)"> · ${esc(h.transport_detail || "")}</span></span>
+            <span class="td"> · ${esc(h.transport_detail || "")}</span></span>
+          ${h._leg ? `<span class="badge internal" title="Hop from the Salesforce-initiated leg — Apex minted its own trace id ${esc(h._leg)}">leg ${esc(h._leg.slice(0, 8))}…</span>` : ""}
           ${h.status === "error" ? `<span class="err">ERROR</span>` : ""}
           <span class="lat">${h.latency_ms != null ? h.latency_ms + " ms" : ""} · ${fmtTime(h.ts)}</span>
         </div>
         <div class="hop-body">
           <div class="pane"><h4>request (raw wire)</h4><pre>${esc(pretty(h.request_payload_raw))}</pre></div>
-          <div class="pane"><h4>response (raw wire)</h4><pre>${esc(pretty(h.response_payload_raw))}</pre></div>
+          <div class="pane"><h4>response (raw wire)</h4><pre${h.status === "error" ? ' class="err-pre"' : ""}>${esc(pretty(h.response_payload_raw))}</pre></div>
         </div>
       </div>`;
     }).join("");
 }
 
-window.select = tid => { selected = tid; renderList(); renderDetail(); };
 window.toggle = (key, i) => {
   openHops.has(key) ? openHops.delete(key) : openHops.add(key);
   document.getElementById("hop-" + i).classList.toggle("open");
 };
 
-// When the console runs behind the tunnel with A2ALAB_TOKEN set, the token
-// arrives as ?token=... on the page URL and must ride along on API calls
-// (EventSource can't set headers, hence query param).
-const apiUrl = path => path + window.location.search;
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
+function statusHtml(key, cls) {
+  const r = runState[key];
+  if (!r) return "";
+  if (r.state === "running") return `<span class="${cls} running">running…</span>`;
+  return `<span class="${cls} ${r.state}" title="${esc(r.note || "")}">${esc(r.note || r.state)}</span>`;
+}
 
+function renderScenarios() {
+  const el = document.getElementById("scenarios");
+  el.innerHTML = scenarios.map(s => {
+    const soon = s.status !== "live";
+    const isOpen = view && view.type === "experiment" && view.kind === "scenario" && view.name === s.name;
+    return `
+    <div class="card ${soon ? "soon" : ""} ${isOpen ? "open" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
+      <div class="head">
+        <h3>${esc(s.title || s.name)}</h3>
+        ${statusHtml("scn:" + s.name, "status")}
+      </div>
+      <p>${esc(s.description || "")}</p>
+      <div class="foot">${(s.tags || []).map(t => `<span class="badge ${t}">${esc(t)}</span>`).join("")}
+        ${soon ? `<span class="badge soon">coming soon</span>` : ""}</div>
+    </div>`;
+  }).join("");
+  const count = document.getElementById("expCount");
+  if (count) count.textContent = scenarios.length ? String(scenarios.length) : "";
+}
+
+function renderTargets() {
+  const el = document.getElementById("targets");
+  const count = document.getElementById("cellCount");
+  if (count) count.textContent = targets.length ? String(targets.length) : "";
+  if (!targets.length) { el.innerHTML = `<div class="empty" style="padding:14px">No targets configured.</div>`; return; }
+  el.innerHTML = targets.map(t => {
+    const r = runState["cell:" + t.name];
+    const isOpen = view && view.type === "experiment" && view.kind === "cell" && view.name === t.name;
+    return `
+    <div class="target ${isOpen ? "open" : ""}" onclick="openExperiment('cell', '${esc(t.name)}')">
+      <span class="badge ${t.protocol}">${t.protocol}</span>
+      <span class="tname mono">
+        <span title="platform: ${esc(t.platform)}">${esc(t.name)}</span>
+        <span class="st">${esc(t.status)}</span>
+      </span>
+      ${r && r.state === "running" ? `<span class="spin">running…</span>` : statusHtml("cell:" + t.name, "result")}
+    </div>`;
+  }).join("");
+}
+
+function renderList() {
+  const el = document.getElementById("list");
+  el.innerHTML = traces.map(t => `
+    <div class="trace ${t.trace_id === selected && view && view.type === "trace" ? "sel" : ""}" onclick="openTrace('${t.trace_id}')">
+      <div>${fmtTime(t.started)} · ${t.hops.length} hop${t.hops.length === 1 ? "" : "s"}</div>
+      <div class="tid">${t.trace_id.slice(0, 20)}…</div>
+      <div class="meta">${t.protocols.map(p => `<span class="badge ${p}">${p}</span>`).join("")}</div>
+    </div>`).join("") || `<div class="empty">No traces yet.</div>`;
+  const count = document.getElementById("traceCount");
+  if (count) count.textContent = traces.length ? String(traces.length) : "";
+}
+
+function renderSidebar() { renderScenarios(); renderTargets(); renderList(); }
+
+// Two-step clear (no native confirm() dialog): first click arms the button,
+// second click within 4s deletes traces/*.jsonl via the API.
+let clearArmed = null;
+window.clearTraces = async ev => {
+  if (ev) ev.stopPropagation();
+  const btn = document.getElementById("clearBtn");
+  if (!clearArmed) {
+    btn.textContent = "Really clear?";
+    clearArmed = setTimeout(() => { clearArmed = null; btn.textContent = "Clear"; }, 4000);
+    return;
+  }
+  clearTimeout(clearArmed); clearArmed = null;
+  btn.disabled = true;
+  try {
+    const r = await fetch(apiUrl("/api/traces"), { method: "DELETE" });
+    const data = await r.json();
+    btn.textContent = `Cleared ${data.removed} file${data.removed === 1 ? "" : "s"}`;
+  } catch (e) {
+    btn.textContent = "Clear failed";
+  }
+  setTimeout(() => { btn.textContent = "Clear"; btn.disabled = false; }, 3000);
+  traces = [];
+  selected = null;
+  openHops.clear();
+  if (view && view.type === "trace") view = null;
+  renderSidebar(); renderMain(true);
+};
+
+// ---------------------------------------------------------------------------
+// Landing page (main canvas, no experiment selected)
+// ---------------------------------------------------------------------------
+
+// Friendly display names for the compact tile diagrams; null = merge the
+// participant into its neighbor (internal plumbing, not a high-level actor).
+const FRIENDLY = {
+  "remote-caller": "You", "caller": "You", "client": null,
+  "bridge": "Bridge",
+  "claude-researcher": "Claude agent", "claude-rest": "Claude agent",
+  "claude-mcp": "Claude agent", "claude-a2a": "Claude agent",
+  "anthropic-managed-agents": "Managed Agents", "claude-agent-sdk": "Agent SDK",
+  "agentforce-apex": "Agentforce", "agentforce": "Agentforce",
+  // First-hop source in the Agentforce → Claude scenario (the console driving
+  // the Agent API); as a mid-path source it's ignored, so "You" is safe.
+  "agentforce-service-agent": "Agentforce", "agentforce-client": "You",
+  "openai-researcher": "OpenAI agent", "openai-rest": "OpenAI agent",
+  // Async brief pattern (D16)
+  "anthropic-scheduler": "Daily cron", "brief-researcher": "Claude researcher",
+  "brief-worker": "Brief worker", "salesforce-org": "Salesforce", "web": "Web",
+};
+
+// High-level call path as a strip of pills: You ─rest→ Claude agent ─…→ …
+function pathStripHtml(flow) {
+  const items = [];
+  let last = null;
+  for (const h of flow || []) {
+    const s = Object.hasOwn(FRIENDLY, h.source) ? FRIENDLY[h.source] : h.source;
+    const t = Object.hasOwn(FRIENDLY, h.target) ? FRIENDLY[h.target] : h.target;
+    if (last === null && s) { items.push({ node: s }); last = s; }
+    if (t && t !== last) { items.push({ proto: h.protocol, node: t }); last = t; }
+  }
+  if (!items.length) return "";
+  return `<div class="pathstrip">` + items.map(it =>
+    (it.proto ? `<span class="leg" style="--pc:${PROTO_COLOR[it.proto] || "var(--muted)"}">
+        <i>${esc(it.proto)}</i><span class="arr">⟶</span></span>` : "") +
+    `<span class="pnode">${esc(it.node)}</span>`).join("") + `</div>`;
+}
+
+// Banner gradients per tile — the labs wordmark colors over the hero navy.
+const TILE_GRADS = [
+  ["#09decb", "#3fc7d8"], ["#7db9e8", "#a8a2ec"], ["#3fc7d8", "#7db9e8"], ["#a8a2ec", "#c99df0"],
+];
+function tileBannerStyle(i) {
+  const [c1, c2] = TILE_GRADS[i % TILE_GRADS.length];
+  return `background:
+    radial-gradient(130% 140% at 12% 110%, ${c1}40 0%, transparent 62%),
+    radial-gradient(130% 140% at 88% -10%, ${c2}40 0%, transparent 62%),
+    linear-gradient(150deg, #041e42 0%, #030a18 100%);`;
+}
+
+// The two platforms + three protocols, drawn once for the hero.
+function archSvg() {
+  const lines = [
+    { y: 64, proto: "rest", label: "REST" },
+    { y: 92, proto: "mcp", label: "MCP" },
+    { y: 120, proto: "a2a", label: "A2A" },
+  ];
+  const box = (x, title, sub, sub2) => `
+    <rect x="${x}" y="40" width="184" height="104" rx="12" fill="rgba(255,255,255,.05)" stroke="rgba(143,192,232,.4)"/>
+    <text x="${x + 92}" y="78" text-anchor="middle" fill="#f4f9ff" font-size="13" font-weight="700">${title}</text>
+    <text x="${x + 92}" y="98" text-anchor="middle" fill="#8fc0e8" font-size="10.5">${sub}</text>
+    <text x="${x + 92}" y="114" text-anchor="middle" fill="#8fc0e8" font-size="10.5">${sub2}</text>`;
+  const defs = lines.map(l => `
+    <marker id="lnd-${l.proto}-e" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="var(--${l.proto})"/></marker>
+    <marker id="lnd-${l.proto}-s" viewBox="0 0 8 8" refX="1" refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto">
+      <path d="M8,0 L0,4 L8,8 z" fill="var(--${l.proto})"/></marker>`).join("");
+  const wires = lines.map(l => `
+    <line x1="222" y1="${l.y}" x2="538" y2="${l.y}" stroke="var(--${l.proto})" stroke-width="1.6"
+      marker-start="url(#lnd-${l.proto}-s)" marker-end="url(#lnd-${l.proto}-e)"/>
+    <text x="380" y="${l.y - 6}" text-anchor="middle" fill="var(--${l.proto})" font-size="10.5" font-weight="700">${l.label}</text>`).join("");
+  return `<svg class="archsvg" viewBox="0 0 760 196" role="img"
+      aria-label="Agentforce and Claude exchanging the same request over REST, MCP, and A2A">
+    <defs>${defs}</defs>
+    ${box(30, "Salesforce Agentforce", "service agent · Agent API", "Apex action → bridge")}
+    ${box(546, "Claude", "research agent", "Managed Agents / Agent SDK")}
+    ${wires}
+    <text x="380" y="172" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
+      same scenario over each protocol — every hop's raw wire payload recorded and compared</text>
+  </svg>`;
+}
+
+function tileHtml(s, i) {
+  const soon = s.status !== "live";
+  return `
+  <div class="tile ${soon ? "soon" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
+    <div class="tile-banner" style="${tileBannerStyle(i)}">${pathStripHtml(s.flow)}</div>
+    <div class="tile-body">
+      <div class="tile-head"><h3>${esc(s.title || s.name)}</h3>
+        ${soon ? `<span class="badge soon">coming soon</span>` : `<span class="badge rest">live</span>`}</div>
+      <p>${esc(s.description || "")}</p>
+      <div class="tile-foot">${(s.tags || []).map(t => `<span class="badge ${t}">${esc(t)}</span>`).join("")}</div>
+    </div>
+  </div>`;
+}
+
+function landingHtml() {
+  const live = scenarios.filter(s => s.status === "live");
+  return `
+  <div class="landing">
+    <section class="hero" style="max-width:none">
+      <div class="hero-inner">
+        <div class="kicker">Agent interoperability · experiments</div>
+        <h1 class="wordmark">A2A Interop Lab</h1>
+        <p class="hero-sub">Watch agent platforms talk to each other — on the wire.</p>
+        <p class="hero-body">Salesforce Agentforce and Claude answer the same questions by consulting
+          each other mid-conversation. Each direction runs over platform-native REST, MCP, and the
+          A2A protocol — the same scenario, protocols compared side by side, with every hop's raw
+          wire payload recorded so you can see exactly what each protocol puts on the wire.</p>
+        <div class="hero-ctas">
+          ${live.length ? `<button class="hero-cta" onclick="openExperiment('scenario', '${esc(live[0].name)}')">Run your first experiment →</button>` : ""}
+          <button class="hero-link" onclick="browseCells()">or make a single protocol call</button>
+        </div>
+        <div class="hero-badges">
+          <span class="badge rest">rest</span><span class="badge mcp">mcp</span><span class="badge a2a">a2a</span>
+          <span class="badge agentforce-api">agentforce-api</span>
+          <span class="badge managed-agents-api">managed-agents-api</span>
+        </div>
+      </div>
+      <div class="archsvg-wrap">${archSvg()}</div>
+    </section>
+
+    <section>
+      <h2>What this lab is for</h2>
+      <p class="lede">Enterprises don't run one agent platform — the CRM agent lives in Salesforce,
+        research and coding agents live elsewhere. This lab makes the connective tissue visible.</p>
+      <div class="intro-grid">
+        <div class="intro-card" style="--d1:#09decb;--d2:#3fc7d8">
+          <h3><span class="dot"></span>Compare the protocols</h3>
+          <p>The same question travels over <code>REST</code>, <code>MCP</code>, and <code>A2A</code>.
+             See where each protocol carries sessions and trace ids first-class — and where it smuggles
+             them as arguments.</p>
+        </div>
+        <div class="intro-card" style="--d1:#7db9e8;--d2:#a8a2ec">
+          <h3><span class="dot"></span>See the raw wire</h3>
+          <p>Every hop records its actual request and response bytes — JSON-RPC envelopes, A2A task
+             lifecycles, Agent API sessions. No reconstructions; open any trace and read the wire.</p>
+        </div>
+        <div class="intro-card" style="--d1:#a8a2ec;--d2:#c99df0">
+          <h3><span class="dot"></span>Honest statuses</h3>
+          <p>Each cell says who really speaks the protocol: <b>native</b>, <b>via-bridge</b>
+             (Agentforce's REST callout fanned out by the lab), or <b>via-shim</b> (the lab proxying
+             into the Agent API).</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Experiments</h2>
+      <p class="lede">Pick a scenario — chat with it multi-turn, watch the live call-path diagram
+        stream in beneath each reply, and expand any hop to the raw payloads.</p>
+      <div class="tiles">
+        ${scenarios.length ? scenarios.map(tileHtml).join("") : `<div class="empty">Loading experiments…</div>`}
+      </div>
+    </section>
+
+    <section>
+      <h2>Why agents call each other</h2>
+      <div class="usecases">
+        <div class="usecase">
+          <div class="kick">Claude → Agentforce</div>
+          <h3>CRM truth in every answer</h3>
+          <p>A general-purpose assistant fields the question, but account facts must come from the
+             system of record — not model memory. Mid-answer, Claude asks the Agentforce agent, which
+             reads the live Account, open Opportunities, and Cases via an Apex action. The customer
+             gets one answer, grounded in CRM; Salesforce credentials never leave the host.</p>
+        </div>
+        <div class="usecase">
+          <div class="kick">Agentforce → Claude</div>
+          <h3>Delegate the specialist work</h3>
+          <p>The service agent owns the customer conversation and the CRM view, but outside-in market
+             research isn't its job. It delegates to Claude through the bridge and folds the research
+             into its reply — and switching that leg from REST to MCP to A2A is a config edit, with
+             no Salesforce redeploy.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="cells-strip">
+        <p><b>Prefer a single hop?</b> Every cell of the protocol matrix runs on its own — Claude over
+          REST <span class="mono">:8001</span>, MCP <span class="mono">:8002</span>, A2A
+          <span class="mono">:8003</span>, or the Agentforce shims on <span class="mono">:8021/:8023</span> —
+          with live A2A agent cards on the A2A calls.</p>
+        <button class="ghost" onclick="browseCells()">Browse protocol calls</button>
+      </div>
+    </section>
+  </div>`;
+}
+
+window.goHome = () => { view = null; renderSidebar(); renderMain(); };
+
+window.browseCells = () => {
+  const acc = document.getElementById("accCells");
+  acc.open = true;
+  acc.scrollIntoView({ behavior: "smooth", block: "nearest" });
+};
+
+// ---------------------------------------------------------------------------
+// Experiment workspace (main canvas)
+// ---------------------------------------------------------------------------
+window.openExperiment = (kind, name, tab) => {
+  view = { type: "experiment", kind, name };
+  activeTab = tab || "run";
+  const key = expKey(kind, name);
+  if (!chats[key]) chats[key] = { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false };
+  if (drafts[key] === undefined) drafts[key] = defaultQuestion;
+  // Restore this experiment's own trace selection (fall back to its last
+  // turn) — switching experiments must not lose another one's call path.
+  const chat = chats[key];
+  if (!chat.selected) {
+    const lastUser = [...chat.turns].reverse().find(t => t.role === "user" && t.trace_id);
+    if (lastUser) chat.selected = lastUser.trace_id;
+  }
+  if (chat.selected) selected = chat.selected;
+  renderSidebar(); renderMain();
+};
+
+window.openTrace = tid => {
+  document.getElementById("accTraces").open = true;
+  view = { type: "trace" }; selected = tid; renderSidebar(); renderMain();
+};
+window.setTab = tab => { activeTab = tab; renderMain(); };
+window.selectTurn = tid => {
+  selected = tid;
+  if (view && view.type === "experiment") {
+    const chat = chats[expKey(view.kind, view.name)];
+    if (chat) chat.selected = tid;
+  }
+  renderMain();
+};
+
+window.resetChat = () => {
+  if (!view || view.type !== "experiment") return;
+  const key = expKey(view.kind, view.name);
+  chats[key] = { session: "ui-chat-" + view.name + "-" + Date.now(), turns: [], running: false };
+  renderMain(true);
+};
+
+function currentExperiment() {
+  if (!view || view.type !== "experiment") return null;
+  if (view.kind === "scenario") return scenarios.find(s => s.name === view.name);
+  return targets.find(t => t.name === view.name);
+}
+
+function chatTurnsHtml(chat) {
+  if (!chat.turns.length && !chat.running) {
+    return `<div class="hint">You're the end user of whichever agent this experiment starts from.
+      Every turn shares one session, so the agents keep context — the call path for each turn appears below.</div>`;
+  }
+  return chat.turns.map(turn => {
+    if (turn.role === "user") {
+      return `<div class="turn user ${turn.trace_id === selected ? "sel" : ""}"
+        onclick="selectTurn('${esc(turn.trace_id)}')" title="Show this turn's call path below">${esc(turn.text)}
+        <span class="tmeta">you · trace ${esc((turn.trace_id || "").slice(0, 12))}…</span></div>`;
+    }
+    if (turn.role === "running") {
+      return `<div class="turn agent running">agents are talking…</div>`;
+    }
+    const err = !!turn.error;
+    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text)}</div>`}
+      <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}</span></div>`;
+  }).join("");
+}
+
+async function sendTurn(kind, name, message) {
+  const key = expKey(kind, name);
+  const chat = chats[key];
+  if (!chat || chat.running) return false;
+
+  const trace_id = newTraceId();
+  chat.running = true;
+  chat.turns.push({ role: "user", text: message, trace_id });
+  chat.turns.push({ role: "running" });
+  runState[key] = { state: "running" };
+  selected = trace_id;
+  chat.selected = trace_id;
+  turnWindows[trace_id] = { start: Date.now() / 1000 };
+  traces.unshift({ trace_id, started: Date.now() / 1000, hops: [], protocols: [] });
+  renderSidebar(); renderMain();
+
+  const body = { trace_id, message, session_id: chat.session };
+  if (kind === "scenario") body.scenario = name;
+  else {
+    body.target = name;
+    body.via_bridge = document.getElementById("viaBridge")?.checked || false;
+  }
+
+  let result;
+  try {
+    const r = await fetch(apiUrl("/api/run"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    result = await r.json();
+  } catch (e) {
+    result = { ok: false, error: String(e) };
+  }
+
+  if (turnWindows[trace_id]) turnWindows[trace_id].end = Date.now() / 1000;
+  chat.turns.pop(); // remove the running placeholder
+  if (result.ok) {
+    chat.turns.push({ role: "agent", text: result.text || "(empty response)", latency_ms: result.latency_ms, trace_id });
+    runState[key] = { state: "ok", note: result.latency_ms != null
+      ? `PASS · ${result.latency_ms} ms` : (result.async ? "running async" : "PASS") };
+  } else {
+    chat.turns.push({ role: "agent", error: result.error || result.detail || "FAIL", trace_id });
+    runState[key] = { state: "fail", note: result.error || result.detail || "FAIL" };
+  }
+  chat.running = false;
+  renderSidebar(); renderMain();
+  // Backfill from disk: SSE is the live tail, but if the stream dropped
+  // mid-run (console restart, laptop sleep) its missed events are gone for
+  // good — the authoritative trace files are not.
+  refreshTraces();
+  return result.ok === true;
+}
+
+window.sendChat = () => {
+  if (!view || view.type !== "experiment") return;
+  const key = expKey(view.kind, view.name);
+  const input = document.getElementById("chatInput");
+  const message = (input ? input.value : "").trim() || defaultQuestion;
+  drafts[key] = "";
+  if (input) input.value = "";
+  sendTurn(view.kind, view.name, message);
+};
+
+window.chatKeydown = ev => {
+  if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); sendChat(); }
+};
+
+window.draftChanged = el => {
+  if (view && view.type === "experiment") drafts[expKey(view.kind, view.name)] = el.value;
+};
+
+// --- Details tab ------------------------------------------------------------
+window.setCardTab = (target, tab) => { cardTab[target] = tab; renderMain(true); };
+
+window.toggleCard = async target => {
+  if (openCards.has(target)) { openCards.delete(target); renderMain(true); return; }
+  openCards.add(target);
+  renderMain(true); // show "fetching…" immediately
+  if (!cardCache[target]) {
+    try {
+      const r = await fetch(apiUrl("/api/agent-card/" + encodeURIComponent(target)));
+      const data = await r.json();
+      cardCache[target] = r.ok ? data : { ok: false, url: target, error: data.detail || r.statusText };
+    } catch (e) {
+      cardCache[target] = { ok: false, url: target, error: String(e) };
+    }
+    renderMain(true);
+  }
+};
+
+// Human-readable view of an A2A AgentCard — the fields customers should be
+// able to read without parsing JSON. The JSON tab always has the raw truth.
+function cardFields(card) {
+  const iface = (card.supportedInterfaces || [])[0] || {};
+  const caps = Object.entries(card.capabilities || {}).filter(([, v]) => v === true).map(([k]) => k);
+  const row = (label, val) => val ? `<div class="frow"><span class="flabel">${label}</span><span class="fval">${val}</span></div>` : "";
+  const skills = (card.skills || []).map(sk => `
+    <div class="skill">
+      <div><b>${esc(sk.name || sk.id)}</b> <span class="fmono">${esc(sk.id || "")}</span></div>
+      ${sk.description ? `<p>${esc(sk.description)}</p>` : ""}
+      <div>${(sk.tags || []).map(tg => `<span class="badge internal">${esc(tg)}</span>`).join(" ")}</div>
+    </div>`).join("");
+  return `<div class="acard">
+    ${row("Name", `<b>${esc(card.name || "—")}</b>`)}
+    ${row("Description", `<p>${esc(card.description || "")}</p>`)}
+    ${row("Version", esc(card.version || ""))}
+    ${row("Endpoint", iface.url ? `<span class="fmono">${esc(iface.url)}</span>` : "")}
+    ${row("Binding", iface.protocolBinding
+      ? `${esc(iface.protocolBinding)} · A2A protocol v${esc(iface.protocolVersion || "?")}` : "")}
+    ${row("Capabilities", caps.map(cp => `<span class="badge a2a">${esc(cp)}</span>`).join(" "))}
+    ${row("Input modes", esc((card.defaultInputModes || []).join(", ")))}
+    ${row("Output modes", esc((card.defaultOutputModes || []).join(", ")))}
+    ${row("Skills", skills)}
+  </div>`;
+}
+
+function agentRow(a) {
+  const open = openCards.has(a.target);
+  const c = cardCache[a.target];
+  let body = "";
+  if (open) {
+    if (!c) {
+      body = `<div class="cardbox"><pre>fetching live agent card…</pre></div>`;
+    } else if (!c.ok) {
+      body = `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
+        <pre style="color:var(--err)">${esc(c.error)}
+
+Is that server running? scripts/run_local.sh starts the full stack.</pre></div>`;
+    } else {
+      const tab = cardTab[a.target] || "fields";
+      body = `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
+        <div class="tabs">
+          <button class="tab ${tab === "fields" ? "on" : ""}" onclick="setCardTab('${esc(a.target)}', 'fields')">Agent card</button>
+          <button class="tab ${tab === "json" ? "on" : ""}" onclick="setCardTab('${esc(a.target)}', 'json')">JSON</button>
+        </div>
+        ${tab === "fields" ? cardFields(c.card) : `<pre>${esc(JSON.stringify(c.card, null, 2))}</pre>`}</div>`;
+    }
+  }
+  return `
+    <div class="agentrow">
+      <span class="aname">${esc(a.title || a.target)}</span>
+      <span class="atarget mono">${esc(a.target)}</span>
+      <button class="ghost" onclick="toggleCard('${esc(a.target)}')">${open ? "Hide agent card" : "Show agent card"}</button>
+      ${a.caption ? `<p class="caption">${esc(a.caption)}</p>` : ""}
+    </div>${body}`;
+}
+
+// Components — deep links to the real agent assets behind the experiment
+// (Agent Builder in the org, the managed agent in the Anthropic Console, …).
+function componentsHtml(components) {
+  if (!components || !components.length) return "";
+  return `<div class="flow">
+    <h3>Components — the live agent assets</h3>
+    ${components.map(c => `
+    <div class="agentrow">
+      <span class="aname">${esc(c.title)}</span>
+      <span class="badge ${esc(c.kind)}">${esc(c.kind)}</span>
+      <span class="atarget"></span>
+      ${c.url
+        ? `<a class="ghost" href="${esc(c.url)}" target="_blank" rel="noopener">Open ↗</a>`
+        : `<span class="badge soon">not yet available</span>`}
+      ${c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
+    </div>`).join("")}
+  </div>`;
+}
+
+function detailsTabHtml() {
+  if (view.kind === "cell") {
+    const t = currentExperiment();
+    if (!t) return `<div class="empty">Unknown target.</div>`;
+    const agents = t.protocol === "a2a" ? [{ title: t.name, target: t.name, caption:
+      "Live AgentCard published by this A2A endpoint — generated at runtime by the server, not a file." }] : [];
+    return `
+      <div class="flow">
+        <h3>Protocol call</h3>
+        <div class="desc">One hop of the matrix: <b>${esc(t.name)}</b> — platform <b>${esc(t.platform)}</b>,
+          protocol <span class="badge ${esc(t.protocol)}">${esc(t.protocol)}</span>,
+          honest status <b>${esc(t.status)}</b> (see config/targets.yaml and plan/02-matrix.md).
+          <br><span class="stat">Tick "via bridge" in the Protocol calls panel before sending to route this
+          call through the bridge exactly like the Agentforce Apex action does.</span></div>
+      </div>
+      ${componentsHtml(t.components)}
+      ${agents.length ? `<div class="flow">
+        <h3>Agent card</h3>
+        <div class="desc"><span class="stat">A2A AgentCards are generated at runtime by each running server and
+          published at <code>/.well-known/agent-card.json</code>.</span></div>
+        ${agents.map(agentRow).join("")}
+      </div>` : ""}`;
+  }
+
+  const s = currentExperiment();
+  if (!s) return `<div class="empty">Unknown scenario.</div>`;
+  const flow = s.flow || [];
+  return `
+    <div class="flow">
+      <h3>Planned call path</h3>
+      <div class="desc">${esc(s.description || "")}
+        ${s.note ? `<br><span class="stat">${esc(s.note)}</span>` : ""}
+        <br><span class="stat">${flow.length} planned hop${flow.length === 1 ? "" : "s"} · protocols: ${
+          [...new Set(flow.map(h => h.protocol))].join(", ") || "—"}${s.status !== "live" ? " · coming soon" : ""}</span>
+      </div>
+      ${flow.length ? `<div class="svgwrap">${renderDiagram({ hops: flow })}</div>` : ""}
+    </div>
+    ${flow.length ? `<div class="flow">
+      <h3>What happens, step by step</h3>
+      <ol class="steps">${flow.map(h => `
+        <li><span class="badge ${esc(h.protocol)}">${esc(h.protocol)}</span>
+            <span class="who">${esc(h.source)} → ${esc(h.target)}</span><br>${esc(h.detail || "")}</li>`).join("")}
+      </ol>
+    </div>` : ""}
+    ${componentsHtml(s.components)}
+    ${(s.agents || []).length ? `<div class="flow">
+      <h3>Agent cards — the agents at each end</h3>
+      <div class="desc"><span class="stat">A2A AgentCards are generated at runtime by each running server
+        and published at <code>/.well-known/agent-card.json</code> — what you see below is fetched live
+        from the lab, not from a file.</span></div>
+      ${(s.agents || []).map(agentRow).join("")}
+    </div>` : ""}`;
+}
+
+// --- Main renderer -----------------------------------------------------------
+// The skeleton (tab bar, chat box with composer) is rebuilt only when the view
+// or tab changes; data areas (#chatTurns, #traceArea) re-render on every event
+// so typing in the composer survives SSE-driven updates mid-run.
+function renderMain(force) {
+  const el = document.getElementById("detail");
+  el.classList.toggle("landing-host", !view);
+
+  if (!view) {
+    // Landing rebuilds are cheap and its data (scenarios) arrives async —
+    // always re-render.
+    mainKey = "landing";
+    el.innerHTML = landingHtml();
+    return;
+  }
+
+  if (view.type === "trace") {
+    mainKey = "trace";
+    const t = traces.find(x => x.trace_id === selected);
+    el.innerHTML = t ? `
+      <div class="detail-head"><div class="tid">trace ${t.trace_id}</div></div>
+      ${traceSectionHtml(t, "Call path")}` :
+      `<div class="empty">Trace not found.</div>`;
+    return;
+  }
+
+  // experiment view
+  const key = expKey(view.kind, view.name);
+  const chat = chats[key];
+  const exp = currentExperiment();
+  const title = view.kind === "scenario" ? (exp && (exp.title || exp.name)) || view.name : view.name;
+  const soon = view.kind === "scenario" && exp && exp.status !== "live";
+  const skeletonKey = `exp:${key}:${activeTab}`;
+
+  if (mainKey !== skeletonKey || force) {
+    mainKey = skeletonKey;
+    el.innerHTML = `
+      <div class="tabbar">
+        <h2>${esc(title)}</h2>
+        <div class="tabs">
+          <button class="tab ${activeTab === "run" ? "on" : ""}" onclick="setTab('run')">Run</button>
+          <button class="tab ${activeTab === "details" ? "on" : ""}" onclick="setTab('details')">Details</button>
+        </div>
+      </div>
+      ${activeTab === "run" ? `
+        <div class="chat">
+          <div class="chat-head">Conversation
+            <span class="spacer"></span>
+            <span class="sess">session ${esc(chat.session.slice(-8))}</span>
+            <button class="ghost" onclick="resetChat()">New chat</button>
+          </div>
+          <div class="turns" id="chatTurns"></div>
+          <div class="composer">
+            <textarea id="chatInput" rows="3" ${soon ? "disabled" : ""}
+              placeholder="${soon ? "This experiment isn't runnable yet — see the Details tab." : "Message the agent — Enter to send, Shift+Enter for a new line."}"
+              oninput="draftChanged(this)" onkeydown="chatKeydown(event)"></textarea>
+            <button class="primary" id="sendBtn" onclick="sendChat()" ${soon ? "disabled" : ""}>Send</button>
+          </div>
+        </div>
+        <div id="traceArea"></div>` :
+      `<div id="detailsArea"></div>`}`;
+    const input = document.getElementById("chatInput");
+    if (input) input.value = drafts[key] || "";
+  }
+
+  if (activeTab === "run") {
+    const turnsEl = document.getElementById("chatTurns");
+    turnsEl.innerHTML = chatTurnsHtml(chat);
+    turnsEl.scrollTop = turnsEl.scrollHeight;
+    const sendBtn = document.getElementById("sendBtn");
+    if (sendBtn && !soon) sendBtn.disabled = chat.running;
+    const t = traces.find(x => x.trace_id === selected);
+    const owned = chat.turns.some(turn => turn.trace_id === selected);
+    document.getElementById("traceArea").innerHTML = owned || chat.running
+      ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn")
+      : `<div class="flow"><h3>Call path</h3><div class="desc"><span class="stat">Send a turn — its live
+          call path and raw wire traces appear here. Click any of your past turns to revisit its path.</span></div></div>`;
+  } else {
+    document.getElementById("detailsArea").innerHTML = detailsTabHtml();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap: traces, launchers, SSE live tail
+// ---------------------------------------------------------------------------
 async function load() {
   const r = await fetch(apiUrl("/api/traces"));
   const data = await r.json();
   traces = data.traces;
   renderList();
-  if (selected) renderDetail();
+  renderMain();
+}
+
+// Re-sync from the trace files (the source of truth) and merge with any
+// local placeholders for runs the server hasn't flushed yet.
+async function refreshTraces() {
+  try {
+    const r = await fetch(apiUrl("/api/traces"));
+    const data = await r.json();
+    const server = data.traces;
+    const known = new Set(server.map(t => t.trace_id));
+    for (const t of traces) if (!known.has(t.trace_id)) server.push(t);
+    server.sort((a, b) => (b.started || 0) - (a.started || 0));
+    traces = server;
+    renderList();
+    renderMain();
+  } catch { /* transient — SSE keeps flowing regardless */ }
+}
+
+async function loadLaunchers() {
+  const [sr, tr] = await Promise.all([fetch(apiUrl("/api/scenarios")), fetch(apiUrl("/api/targets"))]);
+  scenarios = (await sr.json()).scenarios;
+  const tdata = await tr.json();
+  targets = tdata.targets;
+  defaultQuestion = tdata.default_question || "";
+  renderSidebar();
 }
 
 function connectStream() {
   const live = document.getElementById("live");
   const es = new EventSource(apiUrl("/api/stream"));
-  es.addEventListener("hello", () => { live.textContent = "live"; live.classList.add("on"); });
+  es.addEventListener("hello", () => {
+    live.textContent = "live"; live.classList.add("on");
+    // Fires on reconnect too: the server tails from current EOF, so events
+    // written while disconnected never arrive via SSE — backfill from disk.
+    refreshTraces();
+  });
   es.onmessage = ev => {
     const hop = JSON.parse(ev.data);
     let t = traces.find(x => x.trace_id === hop.trace_id);
@@ -143,16 +1376,23 @@ function connectStream() {
       t = { trace_id: hop.trace_id, started: hop.ts, hops: [], protocols: [] };
       traces.unshift(t);
     }
+    // Dedup against hops already merged in by refreshTraces().
+    if (t.hops.some(h => h.hop_seq === hop.hop_seq && h.ts === hop.ts
+        && h.source === hop.source && h.target === hop.target)) { renderList(); return; }
     t.hops.push(hop);
     t.hops.sort((a, b) => (a.ts - b.ts) || (a.hop_seq - b.hop_seq));
     if (!t.protocols.includes(hop.protocol)) t.protocols.push(hop.protocol);
     renderList();
-    if (selected === hop.trace_id) renderDetail();
+    // Re-render experiment views on any hop, not just the selected trace's:
+    // platform-initiated legs arrive under their own trace id but belong in
+    // the currently shown turn's merged call path.
+    if (selected === hop.trace_id || (view && view.type === "experiment")) renderMain();
   };
   es.onerror = () => { live.textContent = "reconnecting…"; live.classList.remove("on"); };
 }
 
 load().then(connectStream);
+loadLaunchers().then(renderMain);
 </script>
 </body>
 </html>

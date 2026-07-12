@@ -1,0 +1,285 @@
+# Primary demo scenarios: end-to-end cross-platform call paths, shown as
+# cards at the top of the lab console. Each resolves to a target (from
+# targets.yaml) plus routing/prompt behavior. status: live | coming-soon.
+#
+# prompt_suffix is appended to the operator's prompt to make the
+# cross-platform hop deterministic in demos (the model still decides, but
+# reliably).
+#
+# flow:   the planned call path, rendered as a sequence diagram + numbered
+#         steps in the console's scenario detail view BEFORE a run. Use the
+#         participant names the trace layer records (remote-caller,
+#         claude-researcher, anthropic-managed-agents, agentforce-client,
+#         client, bridge, agentforce-apex) so the planned diagram lines up
+#         with the live one that streams in after "Run".
+# agents: the agents at each end; `target` names an a2a target in
+#         targets.yaml — the console fetches that server's live
+#         /.well-known/agent-card.json on demand.
+
+scenarios:
+  claude-to-agentforce:
+    title: "Claude → Agentforce"
+    description: >-
+      You talk to the Claude research agent; mid-answer it consults the
+      Agentforce service agent through its ask_agentforce tool (Salesforce
+      Agent API) and folds the reply into its answer.
+    target: claude-rest
+    via_bridge: false
+    status: live
+    tags: [claude, managed-agents, agent-api]
+    prompt_suffix: >-
+      Consult the Salesforce Agentforce agent with your ask_agentforce tool
+      as part of answering, and say what it contributed.
+    flow:
+      - source: remote-caller
+        target: claude-researcher
+        protocol: rest
+        detail: >-
+          You (the console) call the Claude research agent: REST POST /ask on
+          :8001. "remote-caller" is how the server-side trace records whoever
+          invoked it.
+      - source: claude-researcher
+        target: anthropic-managed-agents
+        protocol: managed-agents-api
+        detail: >-
+          The adapter drives a hosted Anthropic Managed Agents session — open
+          the event stream, send the message, collect the answer. The API key
+          stays on the lab host; the sandbox holds no credentials.
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          Mid-answer the model emits an ask_agentforce custom-tool call on
+          the event stream. The lab executes it host-side — OAuth
+          client-credentials, then session + message against the Salesforce
+          Agent API — and returns only the tool result to the sandbox.
+          Session create / message / delete each record their own hop.
+    agents:
+      - title: Claude research agent
+        target: claude-a2a
+        caption: >-
+          Native card — generated at startup by the lab's a2a-sdk server on
+          :8003 from the mounted adapter's name and description.
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          on :8023 generates this card and proxies inbound A2A to the GA
+          Agent API. Honest status: via-shim.
+
+  agentforce-to-claude:
+    title: "Agentforce → Claude (sync)"
+    description: >-
+      The SYNCHRONOUS delegation pattern: you talk to the Agentforce service
+      agent, which answers the account question from its OWN Salesforce data
+      (Apex action over Account, open Opportunities, Cases), then delegates
+      outside-in market research to the Claude agent through the lab bridge
+      — and replies with both, each contribution clearly attributed, inside
+      one conversation turn. This proves the A2A wire path and measures the
+      response-time budget (Agentforce action ~60s → Apex 110s → bridge 45s),
+      which is exactly what caps how deep synchronous research can go — the
+      async experiment below is the escape from that cap.
+    target: agentforce-rest
+    via_bridge: false
+    status: live
+    tags: [agentforce, agent-api, bridge, claude]
+    note: >-
+      The Salesforce-internal legs mint their own trace id (the Apex
+      invocable generates one per callout), so the Apex → bridge → Claude
+      hops arrive under a second trace. The console folds that leg into the
+      turn's call path automatically (hops tagged "leg …", correlated by
+      time window); it also appears standalone in the Traces panel. The
+      market research is clearly labeled as synthetic demo intel.
+    flow:
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          You talk to the Agentforce agent over the GA Agent API (session +
+          message). Its "Customer account status" topic owns the whole
+          answer and orchestrates the collaboration.
+      - source: agentforce
+        target: agentforce-apex
+        protocol: internal
+        detail: >-
+          STEP 1 — internal truth: the agent calls its A2ALab: Get Account
+          Summary action (Apex SOQL over Account + open Opportunities +
+          open Cases). CRM data never leaves the org.
+      - source: agentforce-apex
+        target: bridge
+        protocol: rest
+        detail: >-
+          STEP 2 — external delegation: the agent's A2ALab: Ask Remote Agent
+          action POSTs through the Named Credential (X-Bridge-Token) and
+          Cloudflare tunnel to the lab bridge, asking only for outside-in
+          market research — it explicitly tells the researcher not to fetch
+          CRM data it already has.
+      - source: client
+        target: claude-rest
+        protocol: rest
+        detail: >-
+          The bridge resolves claude-rest in config/targets.yaml and forwards
+          over the configured protocol — switch this leg to MCP or A2A with a
+          yaml edit, no Salesforce redeploy.
+      - source: claude-researcher
+        target: anthropic-managed-agents
+        protocol: managed-agents-api
+        detail: >-
+          Claude produces the market research in a hosted Managed Agents
+          session and does NOT call its ask_agentforce tool back — a
+          recursive loop would add nothing. The research returns up the same
+          path, and the Agentforce agent folds it into a reply with two
+          labeled sections: "From our CRM" and "External market research".
+    agents:
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          on :8023 generates this card and proxies inbound A2A to the GA
+          Agent API. Honest status: via-shim.
+      - title: Claude research agent
+        target: claude-a2a
+        caption: >-
+          Native card — generated at startup by the lab's a2a-sdk server on
+          :8003 from the mounted adapter's name and description.
+
+  account-brief-async:
+    title: "Account Intelligence Brief (async)"
+    description: >-
+      The ASYNCHRONOUS pattern — what Claude Managed Agents is actually
+      designed for. A scheduled deployment (Anthropic's platform-native
+      cron) fires a LONG-RUNNING research session daily: the managed agent
+      spends minutes doing multi-source web research on the account — news,
+      competitor moves, government & regulatory developments, geopolitics —
+      then delivers the aggregated brief INTO Salesforce: a long-text record
+      on the account, an activity crediting the Claude managed agent, and an
+      in-app alert. Nothing waits on a 60-second action timeout, because
+      nothing is waiting at all. "Run" here fires the same daily job
+      ad-hoc; the reply is an acknowledgment and the call path streams in
+      live as the research runs (expect minutes, not seconds).
+    mode: async
+    account: "Apple Inc."
+    status: live
+    tags: [claude, managed-agents, agentforce, daily-brief]
+    note: >-
+      Why this architecture: the brief lands in A2ALab_Account_Brief__c
+      (long-text Brief__c) precisely so Data 360 can index it for VECTOR
+      SEARCH (M10) — the Agentforce agent then retrieves the freshest,
+      most relevant research at answer time to ground account questions and
+      generate sales plays, instead of doing (or waiting on) research
+      mid-conversation. The sync experiment above is the same delegation
+      compressed into one turn; this one is the architectural decision to
+      move deep research out of the conversation entirely: schedule it,
+      let it run long, store the result where the CRM agent's retrieval
+      layer can find it, and notify humans in-channel when it lands.
+    flow:
+      - source: anthropic-scheduler
+        target: brief-researcher
+        protocol: managed-agents-api
+        detail: >-
+          Daily cron: an Anthropic SCHEDULED DEPLOYMENT (the platform's
+          native scheduler) fires a managed session with the research
+          kickoff — no lab-host scheduler involved. The console's Run button
+          triggers the same job ad-hoc; `python -m briefs --watch` services
+          the cron-fired sessions.
+      - source: brief-researcher
+        target: web
+        protocol: internal
+        detail: >-
+          LONG-RUNNING multi-source research in the managed sandbox:
+          repeated web_search / web_fetch calls across news, competitor,
+          regulatory/government-relations, and geopolitical angles. Each
+          lookup appears as a hop here; this phase runs for minutes — the
+          whole point of the async pattern is that it's allowed to.
+      - source: brief-researcher
+        target: brief-worker
+        protocol: managed-agents-api
+        detail: >-
+          Delivery: the agent calls its save_account_brief custom tool
+          exactly once. The tool surfaces on the event stream and is
+          executed HOST-SIDE by the lab's brief worker — Salesforce
+          credentials never enter the Anthropic sandbox (same security
+          model as ask_agentforce in the sync scenarios).
+      - source: brief-worker
+        target: salesforce-org
+        protocol: rest
+        detail: >-
+          The worker inserts an A2ALab_Account_Brief__c record — the full
+          markdown brief in the long-text Brief__c field, linked to the
+          Account, stamped with Brief_Date__c, Source__c ("Claude managed
+          agent") and the Anthropic Research_Session_Id__c for
+          traceability. This is the field Data 360 vector-indexes so the
+          Agentforce agent can ground account answers and sales plays in
+          the latest research.
+      - source: brief-worker
+        target: salesforce-org
+        protocol: rest
+        detail: >-
+          Awareness: a completed Task (activity) is logged on the Account —
+          "Daily account brief available … provided by a Claude managed
+          agent" — and the A2ALab_Brief_Alert custom notification fires an
+          in-app (bell) alert linking straight to the new brief record.
+    agents:
+      - title: Agentforce service agent (downstream consumer)
+        target: agentforce-a2a
+        caption: >-
+          Not called during the run — it CONSUMES the result: with the
+          Brief__c corpus vector-indexed in Data 360, this agent answers
+          account questions and drafts sales plays grounded in the latest
+          brief. Shim card shown for reference; honest status via-shim.
+
+  chatgpt-to-agentforce:
+    title: "ChatGPT → Agentforce"
+    description: >-
+      An OpenAI-powered agent (hosted on AWS Bedrock AgentCore) consults the
+      Agentforce agent mid-answer.
+    status: coming-soon
+    tags: [openai, agentcore, agent-api]
+    note: Lands with M9 (platforms/openai + AgentCore deploy).
+    flow:
+      - source: remote-caller
+        target: openai-researcher
+        protocol: rest
+        detail: >-
+          You call the OpenAI-powered research agent (REST :8011, hosted on
+          AWS Bedrock AgentCore).
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          Mid-answer the agent consults Agentforce through the same
+          host-side Agent API flow the Claude scenario uses.
+    agents:
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — the same lab-generated card the other scenarios show;
+          Agentforce publishes no A2A surface of its own.
+
+  agentforce-to-chatgpt:
+    title: "Agentforce → ChatGPT"
+    description: >-
+      The Agentforce side calls out to the OpenAI-powered agent through the
+      bridge and folds its answer into the reply.
+    status: coming-soon
+    tags: [agentforce, bridge, openai]
+    note: Lands with M9 (platforms/openai + AgentCore deploy).
+    flow:
+      - source: agentforce-apex
+        target: bridge
+        protocol: rest
+        detail: >-
+          Same entry as Agentforce → Claude: Apex invocable → Named
+          Credential → tunnel → bridge.
+      - source: client
+        target: openai-rest
+        protocol: rest
+        detail: >-
+          The bridge forwards to the OpenAI agent per config/targets.yaml —
+          the Salesforce side is untouched when this target lands.
+    agents:
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — the same lab-generated card the other scenarios show;
+          Agentforce publishes no A2A surface of its own.

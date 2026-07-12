@@ -1,0 +1,72 @@
+<template>
+    <lightning-card title="Latest Account Intelligence Brief" icon-name="standard:news">
+        <div class="slds-var-p-horizontal_medium slds-var-p-bottom_medium">
+            <template if:true={error}>
+                <div class="slds-text-color_error slds-var-p-vertical_small">{error}</div>
+            </template>
+
+            <template if:true={hasBriefs}>
+                <div class="slds-grid slds-grid_vertical-align-center slds-var-p-bottom_small brief-meta">
+                    <span class="slds-badge slds-badge_lightest">{latest.date}</span>
+                    <span class="slds-var-p-left_small slds-text-body_small slds-text-color_weak">
+                        {latest.source}
+                    </span>
+                    <span class="slds-col_bump-left">
+                        <lightning-formatted-url
+                            value={latest.url}
+                            label="Open brief record"
+                            target="_self"
+                        ></lightning-formatted-url>
+                    </span>
+                </div>
+                <div class="brief-scroll slds-box slds-box_small">
+                    <lightning-formatted-rich-text value={latestHtml}></lightning-formatted-rich-text>
+                </div>
+                <div class="slds-text-body_small slds-text-color_weak slds-var-p-top_x-small">
+                    Researched and written by a Claude managed agent (A2A interop lab) —
+                    Anthropic session {latest.session}.
+                </div>
+
+                <template if:true={hasPast}>
+                    <h2 class="slds-text-heading_small slds-var-p-top_medium slds-var-p-bottom_x-small">
+                        Past briefs
+                    </h2>
+                    <table class="slds-table slds-table_bordered slds-table_fixed-layout">
+                        <thead>
+                            <tr class="slds-line-height_reset">
+                                <th scope="col"><div class="slds-truncate">Brief</div></th>
+                                <th scope="col"><div class="slds-truncate">Date</div></th>
+                                <th scope="col"><div class="slds-truncate">Source</div></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template for:each={pastBriefs} for:item="b">
+                                <tr key={b.id} class="slds-hint-parent">
+                                    <td>
+                                        <lightning-formatted-url
+                                            value={b.url}
+                                            label={b.name}
+                                            target="_self"
+                                        ></lightning-formatted-url>
+                                    </td>
+                                    <td><div class="slds-truncate">{b.date}</div></td>
+                                    <td><div class="slds-truncate">{b.source}</div></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </template>
+            </template>
+
+            <template if:true={showEmpty}>
+                <div class="slds-illustration slds-var-p-vertical_medium slds-text-align_center">
+                    <p class="slds-text-body_regular slds-text-color_weak">
+                        No account briefs yet. The Claude managed agent's daily research job
+                        will file the first one here — or fire it ad-hoc from the A2A lab
+                        console ("Account Intelligence Brief (async)").
+                    </p>
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>

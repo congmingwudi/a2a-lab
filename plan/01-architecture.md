@@ -66,8 +66,11 @@ native×native A2A cell (M10).
 
 Budget chain: Agentforce action ~60s (reported — **measure in M6**) → Apex
 `setTimeout(110000)` → bridge client timeout 45s → Claude backend
-(`CLAUDE_ANSWER_TIMEOUT_S=40` on sdk; managed measured separately — session
-container provisioning may dominate; if managed first-turn p95 blows the
-budget, Path A pins `CLAUDE_BACKEND=sdk` while Path B and direct cells keep
+(`CLAUDE_ANSWER_TIMEOUT_S=100`; the tighter bridge/action chain upstream
+governs Path A regardless — the Claude-side cap needs headroom because the
+Claude → Agentforce scenario runs an Agent API round trip INSIDE Claude's
+turn, plus managed-session cold start; 40s proved too tight in practice and
+500'd that scenario. If managed first-turn p95 blows the Path A budget,
+Path A pins `CLAUDE_BACKEND=sdk` while Path B and direct calls keep
 exercising managed). Speed levers: Haiku-tier `CLAUDE_AGENT_MODEL`, concise
 system prompt, warm long-running servers.
