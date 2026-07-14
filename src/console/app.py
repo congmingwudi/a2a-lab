@@ -102,10 +102,30 @@ def _managed_agent_id() -> str | None:
         return None
 
 
+SHOTS_DIR = STATIC_DIR / "components"
+
+
+def _shots(*slugs: str) -> dict:
+    """Screenshot fields for a component: the UI shows every image whose
+    file exists under static/components/, plus a drop-it-here hint for any
+    missing ones. Public demo users see the screenshots instead of needing
+    logins to each platform; the Open link stays for the operator."""
+    return {
+        "shots": [
+            f"/static/components/{slug}.png"
+            for slug in slugs
+            if (SHOTS_DIR / f"{slug}.png").exists()
+        ],
+        "missing_shots": [
+            slug for slug in slugs if not (SHOTS_DIR / f"{slug}.png").exists()
+        ],
+    }
+
+
 def components_for(tags: set[str]) -> list[dict]:
     """Component rows for a scenario's tags (or a target's platform mapped to
-    pseudo-tags). Each: {title, kind, note, url|None} — url None renders as
-    not-yet-available."""
+    pseudo-tags). Each: {title, kind, note, url|None, shot|None, shot_slug}
+    — url None renders as not-yet-available."""
     comps: list[dict] = []
     ld = _lightning_domain()
     if {"claude", "managed-agents"} & tags:
@@ -119,6 +139,12 @@ def components_for(tags: set[str]) -> list[dict]:
                     "CLAUDE_AGENT_CONSOLE_URL",
                     "https://platform.claude.com/workspaces/default/agents",
                 ),
+                **_shots(
+                    "claude-managed-agents",
+                    "claude-managed-agent-async"
+                    if "daily-brief" in tags
+                    else "claude-managed-agent-sync",
+                ),
             }
         )
     if {"agentforce", "agent-api"} & tags:
@@ -131,6 +157,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "url": f"{ld}/lightning/n/standard-AgentforceStudio?c__nav=agents"
                 if ld
                 else None,
+                **_shots("agentforce-studio"),
             }
         )
     if "openai" in tags:
@@ -140,6 +167,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "kind": "openai",
                 "note": "Lands with M9 (platforms/openai + AgentCore deploy).",
                 "url": None,
+                **_shots("openai-agentcore"),
             }
         )
     if "bridge" in tags:
@@ -150,6 +178,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "note": "Named/External Credential carrying X-Bridge-Token for the "
                 "Apex callout; the bridge itself is src/bridge (:8100).",
                 "url": f"{ld}/lightning/setup/NamedCredential/home" if ld else None,
+                **_shots("bridge-credential"),
             }
         )
     if "daily-brief" in tags:
@@ -161,6 +190,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "Account, plus the activity and in-app alert. The Data 360 "
                 "vector-search corpus for grounding the Agentforce agent (M10).",
                 "url": f"{ld}/lightning/o/A2ALab_Account_Brief__c/list" if ld else None,
+                **_shots("account-briefs"),
             }
         )
         brief_state = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "brief.json"
@@ -182,6 +212,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "note": deployment_note + " Sessions fired by the cron are serviced "
                 "by `python -m briefs --watch` on the lab host.",
                 "url": "https://platform.claude.com/workspaces/default/agents",
+                **_shots("scheduled-deployment"),
             }
         )
     return comps
@@ -240,6 +271,11 @@ def create_console_app(registry: Registry | None = None):
         clients.clear()
 
     app = FastAPI(title="A2A lab console", lifespan=lifespan)
+    # Component screenshots etc. — /static/* still requires the lab token
+    # (the UI appends ?token=, same as the API calls).
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     # Async-scenario runs continue after /api/run returns; keep strong refs
     # so the tasks aren't garbage-collected mid-research.
     background_runs: set[asyncio.Task] = set()
