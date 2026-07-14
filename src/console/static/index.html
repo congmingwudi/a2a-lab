@@ -80,11 +80,19 @@
   button.ghost:hover, a.ghost:hover { border-color: var(--border-hi); background: var(--card2); }
   button:disabled { opacity: .4; cursor: default; }
 
-  /* scenario cards (sidebar) — click opens the experiment workspace */
-  .card { margin: 8px 14px; background: var(--card); border: 1px solid var(--border);
-          border-radius: 12px; padding: 13px 14px; transition: border-color .15s ease; cursor: pointer; }
-  .card:hover { border-color: var(--border-hi); }
-  .card.open { border-color: var(--primary); }
+  /* scenario cards (sidebar) — labs experiments-tile outline: the wordmark
+     gradient as a rim, brightening on hover and fully lit when open */
+  .card { position: relative; margin: 8px 14px; background: var(--card); border: 1px solid transparent;
+          border-radius: 12px; padding: 13px 14px; cursor: pointer;
+          transition: transform .15s ease, box-shadow .15s ease; }
+  .card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+                  background: var(--wordmark-grad); opacity: .32; transition: opacity .2s ease;
+                  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                  -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+  .card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, .35); }
+  .card:hover::before { opacity: .65; }
+  .card.open::before { opacity: 1; }
   .card.soon { opacity: .55; }
   .card .head { display: flex; align-items: center; gap: 8px; }
   .card h3 { margin: 0; font-size: 13.5px; font-weight: 600; flex: 1; }
@@ -293,6 +301,15 @@
   .agentrow .aname { font-weight: 600; font-size: 13px; }
   .agentrow .atarget { color: var(--muted); font-family: var(--font-mono); font-size: 11px; flex: 1; }
   .agentrow .caption { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .comp-row { cursor: pointer; }
+  .comp-row:hover { background: var(--card2); }
+  .comp-row .caret { color: var(--muted); font-size: 11px; width: 12px; flex: none; }
+  .compshot { padding: 4px 16px 16px; }
+  .compshot img { max-width: 100%; border: 1px solid var(--border); border-radius: 10px; display: block; }
+  .compshot img + img { margin-top: 10px; }
+  .compshot-missing { color: var(--muted); font-size: 12px; background: var(--code);
+                      border: 1px dashed var(--border); border-radius: 8px; padding: 12px; line-height: 1.6; }
+  .compshot-missing code { background: var(--bg); padding: 1px 5px; border-radius: 5px; font-size: 11px; }
   .cardbox { padding: 0 16px 14px; }
   .cardbox .curl { margin: 0 0 6px; color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
   .acard { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; }
@@ -400,6 +417,7 @@ let turnWindows = {};
 // Details-tab agent card viewer
 let cardCache = {};       // target -> /api/agent-card response
 let openCards = new Set();
+let openComps = new Set();    // expanded component rows (screenshots)
 let cardTab = {};         // target -> "fields" | "json"
 
 const fmtTime = ts => ts ? new Date(ts * 1000).toLocaleTimeString() : "";
@@ -684,7 +702,7 @@ function renderScenarios() {
         <h3>${esc(s.title || s.name)}</h3>
         ${statusHtml("scn:" + s.name, "status")}
       </div>
-      <p>${esc(s.description || "")}</p>
+      <p>${esc(s.summary || s.description || "")}</p>
       <div class="foot">${(s.tags || []).map(t => `<span class="badge ${t}">${esc(t)}</span>`).join("")}
         ${soon ? `<span class="badge soon">coming soon</span>` : ""}</div>
     </div>`;
@@ -846,7 +864,7 @@ function tileHtml(s, i) {
     <div class="tile-body">
       <div class="tile-head"><h3>${esc(s.title || s.name)}</h3>
         ${soon ? `<span class="badge soon">coming soon</span>` : `<span class="badge rest">live</span>`}</div>
-      <p>${esc(s.description || "")}</p>
+      <p>${esc(s.summary || s.description || "")}</p>
       <div class="tile-foot">${(s.tags || []).map(t => `<span class="badge ${t}">${esc(t)}</span>`).join("")}</div>
     </div>
   </div>`;
@@ -1175,18 +1193,39 @@ function componentsHtml(components) {
   if (!components || !components.length) return "";
   return `<div class="flow">
     <h3>Components — the live agent assets</h3>
-    ${components.map(c => `
-    <div class="agentrow">
+    <div class="desc"><span class="stat">Click a component to see inside its platform — no login needed.
+      "Open ↗" jumps to the live config page (operator login required).</span></div>
+    ${components.map(c => {
+      const key = "comp:" + c.title;
+      const open = openComps.has(key);
+      const shots = c.shots || [];
+      const missing = c.missing_shots || [];
+      return `
+    <div class="agentrow comp-row" onclick="toggleComp('${esc(key)}')" title="Show what this looks like inside its platform">
+      <span class="caret">${open ? "▾" : "▸"}</span>
       <span class="aname">${esc(c.title)}</span>
       <span class="badge ${esc(c.kind)}">${esc(c.kind)}</span>
       <span class="atarget"></span>
       ${c.url
-        ? `<a class="ghost" href="${esc(c.url)}" target="_blank" rel="noopener">Open ↗</a>`
+        ? `<a class="ghost" href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Open ↗</a>`
         : `<span class="badge soon">not yet available</span>`}
       ${c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
-    </div>`).join("")}
+    </div>
+    ${open ? `<div class="compshot">
+        ${shots.map(u => `<img src="${esc(apiUrl(u))}" alt="${esc(c.title)}" loading="lazy">`).join("")}
+        ${!shots.length ? `<div class="compshot-missing">No screenshot yet — drop
+            ${(missing.length ? missing : ["component"]).map(sl =>
+              `<code>src/console/static/components/${esc(sl)}.png</code>`).join(" and ")}
+            and reopen this tab.</div>` : ""}
+      </div>` : ""}`;
+    }).join("")}
   </div>`;
 }
+
+window.toggleComp = key => {
+  openComps.has(key) ? openComps.delete(key) : openComps.add(key);
+  renderMain(true);
+};
 
 function detailsTabHtml() {
   if (view.kind === "cell") {
@@ -1203,13 +1242,13 @@ function detailsTabHtml() {
           <br><span class="stat">Tick "via bridge" in the Protocol calls panel before sending to route this
           call through the bridge exactly like the Agentforce Apex action does.</span></div>
       </div>
-      ${componentsHtml(t.components)}
       ${agents.length ? `<div class="flow">
         <h3>Agent card</h3>
         <div class="desc"><span class="stat">A2A AgentCards are generated at runtime by each running server and
           published at <code>/.well-known/agent-card.json</code>.</span></div>
         ${agents.map(agentRow).join("")}
-      </div>` : ""}`;
+      </div>` : ""}
+      ${componentsHtml(t.components)}`;
   }
 
   const s = currentExperiment();
@@ -1232,14 +1271,14 @@ function detailsTabHtml() {
             <span class="who">${esc(h.source)} → ${esc(h.target)}</span><br>${esc(h.detail || "")}</li>`).join("")}
       </ol>
     </div>` : ""}
-    ${componentsHtml(s.components)}
     ${(s.agents || []).length ? `<div class="flow">
       <h3>Agent cards — the agents at each end</h3>
       <div class="desc"><span class="stat">A2A AgentCards are generated at runtime by each running server
         and published at <code>/.well-known/agent-card.json</code> — what you see below is fetched live
         from the lab, not from a file.</span></div>
       ${(s.agents || []).map(agentRow).join("")}
-    </div>` : ""}`;
+    </div>` : ""}
+    ${componentsHtml(s.components)}`;
 }
 
 // --- Main renderer -----------------------------------------------------------
