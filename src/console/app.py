@@ -102,10 +102,28 @@ def _managed_agent_id() -> str | None:
         return None
 
 
+SHOTS_DIR = STATIC_DIR / "components"
+
+
+def _shots(*slugs: str) -> dict:
+    """Screenshot fields for a component: the UI shows every image whose
+    file exists under static/components/, plus a drop-it-here hint for any
+    missing ones. Public demo users see the screenshots instead of needing
+    logins to each platform; the Open link stays for the operator."""
+    return {
+        "shots": [
+            f"/static/components/{slug}.png"
+            for slug in slugs
+            if (SHOTS_DIR / f"{slug}.png").exists()
+        ],
+        "missing_shots": [slug for slug in slugs if not (SHOTS_DIR / f"{slug}.png").exists()],
+    }
+
+
 def components_for(tags: set[str]) -> list[dict]:
     """Component rows for a scenario's tags (or a target's platform mapped to
-    pseudo-tags). Each: {title, kind, note, url|None} — url None renders as
-    not-yet-available."""
+    pseudo-tags). Each: {title, kind, note, url|None, shot|None, shot_slug}
+    — url None renders as not-yet-available."""
     comps: list[dict] = []
     ld = _lightning_domain()
     if {"claude", "managed-agents"} & tags:
@@ -119,6 +137,12 @@ def components_for(tags: set[str]) -> list[dict]:
                     "CLAUDE_AGENT_CONSOLE_URL",
                     "https://platform.claude.com/workspaces/default/agents",
                 ),
+                **_shots(
+                    "claude-managed-agents",
+                    "claude-managed-agent-async"
+                    if "daily-brief" in tags
+                    else "claude-managed-agent-sync",
+                ),
             }
         )
     if {"agentforce", "agent-api"} & tags:
@@ -128,9 +152,8 @@ def components_for(tags: set[str]) -> list[dict]:
                 "kind": "agentforce",
                 "note": "Open Agentforce Studio — topics, instructions, and the "
                 "A2ALab: Get Account Summary action live here.",
-                "url": f"{ld}/lightning/n/standard-AgentforceStudio?c__nav=agents"
-                if ld
-                else None,
+                "url": f"{ld}/lightning/n/standard-AgentforceStudio?c__nav=agents" if ld else None,
+                **_shots("agentforce-studio"),
             }
         )
     if "openai" in tags:
@@ -140,6 +163,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "kind": "openai",
                 "note": "Lands with M9 (platforms/openai + AgentCore deploy).",
                 "url": None,
+                **_shots("openai-agentcore"),
             }
         )
     if "bridge" in tags:
@@ -150,6 +174,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "note": "Named/External Credential carrying X-Bridge-Token for the "
                 "Apex callout; the bridge itself is src/bridge (:8100).",
                 "url": f"{ld}/lightning/setup/NamedCredential/home" if ld else None,
+                **_shots("bridge-credential"),
             }
         )
     if "daily-brief" in tags:
@@ -161,6 +186,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "Account, plus the activity and in-app alert. The Data 360 "
                 "vector-search corpus for grounding the Agentforce agent (M10).",
                 "url": f"{ld}/lightning/o/A2ALab_Account_Brief__c/list" if ld else None,
+                **_shots("account-briefs"),
             }
         )
         brief_state = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "brief.json"
@@ -182,6 +208,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "note": deployment_note + " Sessions fired by the cron are serviced "
                 "by `python -m briefs --watch` on the lab host.",
                 "url": "https://platform.claude.com/workspaces/default/agents",
+                **_shots("scheduled-deployment"),
             }
         )
     return comps
@@ -240,6 +267,11 @@ def create_console_app(registry: Registry | None = None):
         clients.clear()
 
     app = FastAPI(title="A2A lab console", lifespan=lifespan)
+    # Component screenshots etc. — /static/* still requires the lab token
+    # (the UI appends ?token=, same as the API calls).
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     # Async-scenario runs continue after /api/run returns; keep strong refs
     # so the tasks aren't garbage-collected mid-research.
     background_runs: set[asyncio.Task] = set()
@@ -501,6 +533,112 @@ def create_console_app(registry: Registry | None = None):
             media_type="text/event-stream",
             headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
         )
+
+    # ---- Observability (M11.3): each platform's interior view -------------
+    # Reads only the local obs store (harvest-and-cache, D18) — the console
+    # never proxies platform APIs live. POST /api/obs/harvest triggers the
+    # same pull as scripts/obs_harvest.py.
+
+    def _obs_store():
+        from observability import ObsStore
+
+        return ObsStore()
+
+    # The honest capability matrix (plan/05-observability.md) — rendered
+    # live in the coverage panel next to what was actually harvested.
+    OBS_CAPABILITIES = {
+        "anthropic": {
+            "label": "Claude Managed Agents",
+            "can": [
+                "list sessions (paginated)",
+                "full per-session event history",
+                "thinking + tool events",
+                "token usage per model request",
+            ],
+            "cannot": [
+                "time-range session filter",
+                "org-wide usage/cost API",
+                "events outlive session deletion",
+            ],
+        },
+        "salesforce": {
+            "label": "Salesforce Agentforce",
+            "can": [
+                "SQL over sessions/interactions/steps (STDM DMOs)",
+                "Einstein GenAI gateway prompt/response logs",
+                "OTel per-session export (72h, beta)",
+            ],
+            "cannot": [
+                "anything until Data Cloud Session Tracing is enabled",
+                "dashboards API (Agent Analytics is UI-only)",
+            ],
+        },
+        "openai": {
+            "label": "OpenAI",
+            "can": [
+                "org usage/cost metrics (admin key)",
+                "fetch stored responses by known id (30-day TTL)",
+            ],
+            "cannot": [
+                "read/list traces (dashboard is ingestion-only)",
+                "list responses — ids must be captured at emit time",
+            ],
+        },
+    }
+
+    @app.get("/api/obs/summary")
+    async def obs_summary():
+        store = _obs_store()
+        try:
+            data = store.summary()
+        finally:
+            store.close()
+        data["capabilities"] = OBS_CAPABILITIES
+        return data
+
+    @app.get("/api/obs/sessions")
+    async def obs_sessions(platform: str | None = None):
+        store = _obs_store()
+        try:
+            return {"sessions": store.list_sessions(platform)}
+        finally:
+            store.close()
+
+    @app.get("/api/obs/events")
+    async def obs_events(platform: str, session_id: str):
+        store = _obs_store()
+        try:
+            return {
+                "events": store.list_events(platform, session_id),
+                "lab_traces": store.lab_traces_for(session_id),
+            }
+        finally:
+            store.close()
+
+    @app.post("/api/obs/harvest")
+    async def obs_harvest(platform: str | None = None):
+        from observability.anthropic_source import AnthropicSource
+        from observability.openai_source import OpenAISource
+        from observability.salesforce_source import SalesforceSource
+
+        sources = {
+            "anthropic": AnthropicSource,
+            "salesforce": SalesforceSource,
+            "openai": OpenAISource,
+        }
+        wanted = [platform] if platform else list(sources)
+        if any(w not in sources for w in wanted):
+            return {"ok": False, "error": f"unknown platform '{platform}'"}
+
+        def run():
+            store = _obs_store()
+            try:
+                return [sources[name]().harvest(store).__dict__ for name in wanted]
+            finally:
+                store.close()
+
+        results = await asyncio.get_event_loop().run_in_executor(None, run)
+        return {"ok": True, "results": results}
 
     # The console is tunnel-exposed and its API returns every raw wire
     # payload — including production-org responses. Only the static index

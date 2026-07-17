@@ -31,6 +31,11 @@ from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 
 STATE_FILE = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "managed.json"
+# M11.1: every CMA session id this backend creates is appended here so the
+# observability harvester can correlate lab traces with platform-interior
+# session logs even across process restarts (the in-memory map dies with
+# the process; CMA events die with the session — persist the join key).
+CMA_SESSIONS_FILE = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "cma_sessions.json"
 AGENT_ID_ENV = "CLAUDE_MANAGED_AGENT_ID"
 ENV_ID_ENV = "CLAUDE_MANAGED_ENV_ID"
 
@@ -77,6 +82,27 @@ class ManagedBackend:
             self._agentforce_client = AgentforceClient.from_env()
         return self._agentforce_client
 
+    def _persist_session_ref(self, cma_session_id: str, lab_session_id: str | None) -> None:
+        """Append the lab↔CMA session join key to CMA_SESSIONS_FILE (M11.1).
+        Best-effort — correlation bookkeeping must never break the hop."""
+        try:
+            records = []
+            if CMA_SESSIONS_FILE.exists():
+                records = json.loads(CMA_SESSIONS_FILE.read_text() or "[]")
+            records.append(
+                {
+                    "cma_session_id": cma_session_id,
+                    "lab_session_id": lab_session_id,
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                }
+            )
+            CMA_SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            CMA_SESSIONS_FILE.write_text(json.dumps(records, indent=1))
+        except Exception as exc:  # noqa: BLE001 - bookkeeping only
+            import sys
+
+            print(f"[managed] session-ref persist failed: {exc}", file=sys.stderr)
+
     async def _get_or_create_session(self, lab_session_id: str | None) -> str:
         agent_id, env_id = self._ids or load_managed_ids()
         self._ids = (agent_id, env_id)
@@ -89,6 +115,7 @@ class ManagedBackend:
         )
         if lab_session_id:
             self._sessions[lab_session_id] = session.id
+        self._persist_session_ref(session.id, lab_session_id)
         return session.id
 
     async def _handle_custom_tool(self, session_id: str, event: Any, trace_id: str) -> None:
@@ -96,9 +123,7 @@ class ManagedBackend:
         if event.name == AGENTFORCE_TOOL_NAME:
             question = str(tool_input.get("question", ""))
             client = self._get_agentforce_client()
-            resp = await client.ask(
-                AgentRequest(message=question, trace_id=trace_id)
-            )
+            resp = await client.ask(AgentRequest(message=question, trace_id=trace_id))
             result_text = resp.text
         else:
             result_text = f"Unknown tool: {event.name}"
@@ -113,7 +138,9 @@ class ManagedBackend:
             ],
         )
 
-    async def _converse(self, session_id: str, req: AgentRequest, trace_id: str) -> tuple[list[str], list[str]]:
+    async def _converse(
+        self, session_id: str, req: AgentRequest, trace_id: str
+    ) -> tuple[list[str], list[str]]:
         texts: list[str] = []
         events_seen: list[str] = []
 
@@ -163,6 +190,7 @@ class ManagedBackend:
             request_payload={"message": req.message, "session_id": req.session_id},
         ) as hop:
             session_id = await self._get_or_create_session(req.session_id)
+            hop.platform_ref = session_id  # M11.1: join key to CMA session logs
             try:
                 texts, events_seen = await asyncio.wait_for(
                     self._converse(session_id, req, trace_id), ANSWER_TIMEOUT_S

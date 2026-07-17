@@ -78,16 +78,25 @@ available. Raw `sf` CLI equivalents are noted as fallback.
    `ask_external_researcher` (Apex `A2ALabInvokeRemoteAgent`) — publish +
    activate the bundle (step 3) and they're live; no Agent Builder step.
 
-## 3. Cloudflare tunnel + DNS (M6)
+## 3. Cloudflare tunnel + DNS (M6, revised for free plan — D20)
 
-1. In the Cloudflare Enterprise account: create subdomain zone
-   `lab.agenticthings.com`; at GoDaddy add the two NS records delegating
-   `lab` (GoDaddy stays primary for the apex).
-2. `cloudflared tunnel login && cloudflared tunnel create a2a-lab`
-3. Route DNS per hostname in deploy/tunnel/config.yml:
-   `cloudflared tunnel route dns a2a-lab bridge.lab.agenticthings.com` (etc.)
-4. Run: `cloudflared tunnel --config deploy/tunnel/config.yml run a2a-lab`
-5. **Verify:** `curl https://bridge.lab.agenticthings.com/healthz`
+1. Create a free Cloudflare account → **Add a site** → `agenticthings.com`
+   → Free plan. Review the DNS records Cloudflare auto-imports (MX etc.)
+   before proceeding.
+   *(Why whole-zone: subdomain-only NS delegation of `lab.agenticthings.com`
+   is an Enterprise feature and partial/CNAME setup is Business — on Free,
+   the entire zone's DNS moves to Cloudflare. Hostnames are single-level
+   `<svc>-lab.agenticthings.com` because free Universal SSL covers only
+   `*.agenticthings.com` — a two-level `bridge.lab.…` fails the TLS
+   handshake at the edge without paid Advanced Certificate Manager.)*
+2. At GoDaddy (stays registrar): replace the domain's nameservers with the
+   two Cloudflare assigns; wait until the Cloudflare zone shows **Active**.
+3. `cloudflared tunnel login` (authorize the `agenticthings.com` zone) &&
+   `cloudflared tunnel create a2a-lab`
+4. Route DNS per hostname in deploy/tunnel/config.yml:
+   `cloudflared tunnel route dns a2a-lab bridge-lab.agenticthings.com` (etc.)
+5. Run: `cloudflared tunnel --config deploy/tunnel/config.yml run a2a-lab`
+6. **Verify:** `curl https://bridge-lab.agenticthings.com/healthz`
 
 ## 4. Path A end-to-end (M6)
 

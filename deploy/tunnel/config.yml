@@ -1,28 +1,31 @@
 # cloudflared named-tunnel ingress for the lab (M6).
-# Prereqs (plan/04-runbooks.md §Network): subdomain zone lab.agenticthings.com
-# on the Cloudflare Enterprise account, NS-delegated from GoDaddy;
+# Prereqs (plan/04-runbooks.md §3, D20): agenticthings.com zone on the free
+# Cloudflare account (whole-zone DNS, GoDaddy stays registrar);
 # `cloudflared tunnel create a2a-lab` and DNS routes per hostname.
 #
 #   cloudflared tunnel --config deploy/tunnel/config.yml run a2a-lab
 
 tunnel: a2a-lab
 credentials-file: ~/.cloudflared/a2a-lab.json
+# QUIC/UDP egress is blocked on this network — pin the fallback explicitly
+# or cloudflared loops on QUIC handshake timeouts.
+protocol: http2
 
 # SECURITY: every hostname below is public internet. The bridge requires
 # BRIDGE_TOKEN; everything else requires A2ALAB_TOKEN — set BOTH in .env
 # before running this tunnel, or these endpoints (and the raw payloads in
 # the console) are open to anyone.
 ingress:
-  - hostname: bridge.lab.agenticthings.com
+  - hostname: bridge-lab.agenticthings.com
     service: http://localhost:8100
-  - hostname: console.lab.agenticthings.com
+  - hostname: console-lab.agenticthings.com
     service: http://localhost:8200
   # Direct exposure of the Claude agent's protocol servers (handy for
   # testing a cloud->local hop without the bridge):
-  - hostname: claude-rest.lab.agenticthings.com
+  - hostname: claude-rest-lab.agenticthings.com
     service: http://localhost:8001
-  - hostname: claude-mcp.lab.agenticthings.com
+  - hostname: claude-mcp-lab.agenticthings.com
     service: http://localhost:8002
-  - hostname: claude-a2a.lab.agenticthings.com
+  - hostname: claude-a2a-lab.agenticthings.com
     service: http://localhost:8003
   - service: http_status:404
