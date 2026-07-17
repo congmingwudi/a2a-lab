@@ -61,3 +61,13 @@ host the agent, with a note that the platform itself lacks A2A).
   to the API run-as user); NamedCredential metadata has no calloutOptions
   wrapper and HttpHeader params need sequenceNumber; scheduled deployments
   are immutable (archive + recreate to change accounts/cron).
+- Observability harvest (M11, first live run 2026-07-17): CMA delivered 50
+  sessions / 1043 events (thinking, tool_use, per-request token usage —
+  2.09M tokens aggregated locally; no platform-side aggregation API).
+  Salesforce STDM is in a half-provisioned state worth naming: the
+  `ssot__AiAgentSession__dlm` DMO *entity* exists (invalid columns get clean
+  parse errors) but any valid query dies with UNKNOWN_EXCEPTION — DMO shells
+  ship with Data Cloud licensing, the query runtime only materializes once
+  Session Tracing/audit collection is enabled in Setup. OpenAI: nothing to
+  pull by design (traces write-only). The coverage panel renders these three
+  states verbatim.

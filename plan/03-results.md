@@ -51,3 +51,28 @@ Takeaway: the sync pattern fits the action-timeout chain only because research
 is capped shallow; the async pattern runs 1–2+ min unbounded and delivers into
 CRM instead of a waiting HTTP response. Managed-session cold start ~5–10s is
 noise for async, but material inside the sync budget.
+
+## Observability harvest + analyst first run (M11) — measured 2026-07-17
+
+- STDM enablement→queryable: DMO query runtime went live within ~10 min of
+  flipping the Setup toggles; first traced sessions appeared in
+  `ssot__AiAgentSession__dlm` **~5 min after the Agent API session ran**
+  (ingestion lag, poll-measured at 3-min intervals).
+- Join key confirmed: the Agent API `sessionId` **is** STDM's
+  `ssot__Id__c` — 3/3 harvested STDM sessions matched the ids in the day's
+  wire traces exactly. `platform_ref` now stamps it at emit time on both
+  platforms (managed backend + AgentforceClient).
+- Field-name drift (real org vs docs): a2alab-prod uses
+  `ssot__StartTimestamp__c`/`ssot__EndTimestamp__c`, not the documented
+  `*Dttm` variants — harvester discovers columns via `SELECT FIELDS(ALL)`
+  instead of hardcoding.
+- Harvest volumes (first full pull): CMA 50 sessions / 1,043 events
+  (2.09M tokens aggregated locally — no platform-side usage API);
+  Salesforce 3 sessions / 9 interaction events (message/step child DMOs
+  still empty at harvest time); OpenAI n/a by design.
+- Analyst first run (Sonnet 5, read-only SQL tool): 15 queries →
+  findings brief. Its top finding (platform_ref NULL on all 319 historic
+  hops) was a real instrumentation gap, fixed same-day; it also correctly
+  separated timeout errors (~45,010 ms, bridge cap) from fast auth-style
+  failures, and flagged >45s "ok" hops that turned out to be direct client
+  calls that legitimately bypass the bridge cap.

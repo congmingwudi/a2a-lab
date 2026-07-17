@@ -70,8 +70,10 @@ def test_trace_dir_arg_forces_single_jsonl_sink(tmp_path):
 
 
 def test_sinks_from_env_default_and_list(monkeypatch):
+    # Default is jsonl + sqlite (D19): JSONL as raw archive, lab.db as the
+    # console's query path.
     monkeypatch.delenv("A2ALAB_TRACE_SINK", raising=False)
-    assert [type(s) for s in sinks_from_env()] == [JsonlFileSink]
+    assert [type(s).__name__ for s in sinks_from_env()] == ["JsonlFileSink", "SqliteSink"]
 
     fake_table = FakeTable()
     monkeypatch.setattr(

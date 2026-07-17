@@ -19,6 +19,8 @@
 scenarios:
   claude-to-agentforce:
     title: "Claude → Agentforce"
+    summary: >-
+      Claude Managed Agent calls an Agentforce Agent via A2A protocol.
     description: >-
       You talk to the Claude research agent; mid-answer it consults the
       Agentforce service agent through its ask_agentforce tool (Salesforce
@@ -69,9 +71,11 @@ scenarios:
 
   agentforce-to-claude:
     title: "Agentforce → Claude (sync)"
+    summary: >-
+      Agentforce Agent calls a Claude Managed Agent via A2A protocol and waits for a response.
     description: >-
       The SYNCHRONOUS delegation pattern: you talk to the Agentforce service
-      agent, which answers the account question from its OWN Salesforce data
+      agent, which answers the account question from its own Salesforce data
       (Apex action over Account, open Opportunities, Cases), then delegates
       outside-in market research to the Claude agent through the lab bridge
       — and replies with both, each contribution clearly attributed, inside
@@ -145,14 +149,17 @@ scenarios:
 
   account-brief-async:
     title: "Account Intelligence Brief (async)"
+    summary: >-
+      A scheduled Claude Managed Agent runs long running tasks and updates
+      Salesforce daily.
     description: >-
       The ASYNCHRONOUS pattern — what Claude Managed Agents is actually
       designed for. A scheduled deployment (Anthropic's platform-native
       cron) fires a LONG-RUNNING research session daily: the managed agent
       spends minutes doing multi-source web research on the account — news,
       competitor moves, government & regulatory developments, geopolitics —
-      then delivers the aggregated brief INTO Salesforce: a long-text record
-      on the account, an activity crediting the Claude managed agent, and an
+      then delivers the aggregated brief into Salesforce: in an A2ALab Account Brief record, 
+      an activity crediting the Claude Managed Agent, and an
       in-app alert. Nothing waits on a 60-second action timeout, because
       nothing is waiting at all. "Run" here fires the same daily job
       ad-hoc; the reply is an acknowledgment and the call path streams in
@@ -230,6 +237,8 @@ scenarios:
 
   chatgpt-to-agentforce:
     title: "ChatGPT → Agentforce"
+    summary: >-
+      An OpenAI agent calls the Agentforce Agent mid-answer.
     description: >-
       An OpenAI-powered agent (hosted on AWS Bedrock AgentCore) consults the
       Agentforce agent mid-answer.
@@ -258,6 +267,8 @@ scenarios:
 
   agentforce-to-chatgpt:
     title: "Agentforce → ChatGPT"
+    summary: >-
+      Agentforce Agent delegates research to an OpenAI agent via the bridge.
     description: >-
       The Agentforce side calls out to the OpenAI-powered agent through the
       bridge and folds its answer into the reply.

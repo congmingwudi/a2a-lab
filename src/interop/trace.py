@@ -8,17 +8,27 @@ bodies for REST, Agent API JSON for Agentforce).
 Where events go is pluggable (ADR D13): TraceRecorder fans each event out
 to one or more TraceSinks, selected by A2ALAB_TRACE_SINK (comma-separated):
 
-- "jsonl" (default)   append to traces/YYYY-MM-DD.jsonl; the lab console
-                      tails these files over SSE. Local-dev only — on AWS
-                      the container filesystem is ephemeral and per-service.
+- "jsonl"             append to traces/YYYY-MM-DD.jsonl — the append-only
+                      raw archive. Local-dev only — on AWS the container
+                      filesystem is ephemeral and per-service.
+- "sqlite"            insert into traces/lab.db (table trace_events) — the
+                      console's query path (ADR D19: timeline bucketing,
+                      platform filters, joins against the harvested
+                      observability tables live in the same file).
 - "dynamodb"          put_item per event into a DynamoDB table
                       (A2ALAB_TRACE_TABLE, default "a2alab-traces") — the
                       durable store for cloud deploys, and the table Data
                       360's zero-copy DynamoDB connector reads for
                       TableauNext reporting (M10).
 
-"jsonl,dynamodb" tees to both: the console keeps working off files while
-DynamoDB fills for reporting.
+Default is "jsonl,sqlite" (D19). JSONL can rebuild the DB at any time via
+scripts/trace_import.py.
+
+Correlation to *platform-interior* logs (M11): platform_ref carries the
+native execution id of the remote platform a hop touched — the CMA session
+id on managed-backend hops, the Agent API session id on Agentforce hops —
+recorded at emit time so the join to harvested platform logs is never
+reconstructed after the fact.
 
 Correlation: a trace_id is minted at the edge and propagated on every hop
 (HTTP header X-Trace-Id for REST/bridge, message metadata for A2A,
@@ -42,6 +52,7 @@ TRACE_TABLE_ENV = "A2ALAB_TRACE_TABLE"
 DEFAULT_TRACE_TABLE = "a2alab-traces"
 TRACE_TTL_DAYS_ENV = "A2ALAB_TRACE_TTL_DAYS"
 DEFAULT_TRACE_TTL_DAYS = 14
+DEFAULT_DB_NAME = "lab.db"
 
 _MAX_PAYLOAD_CHARS = 100_000
 
@@ -66,6 +77,9 @@ class TraceEvent:
     latency_ms: int | None = None
     hop_seq: int = 0
     ts: float = field(default_factory=time.time)
+    # Native execution id on the platform this hop touched (M11.1): CMA
+    # session id, Agentforce Agent API session id, OpenAI response id.
+    platform_ref: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -100,6 +114,82 @@ class JsonlFileSink(TraceSink):
         with self._lock:
             with self._current_file().open("a", encoding="utf-8") as f:
                 f.write(line + "\n")
+
+
+class SqliteSink(TraceSink):
+    """Inserts events into traces/lab.db — the console's query backend
+    (ADR D19). The observability harvest tables (src/observability/store.py)
+    live in the same file so lab-trace ⋈ platform-log joins are plain SQL.
+    JSONL remains the append-only raw archive."""
+
+    SCHEMA = """
+    CREATE TABLE IF NOT EXISTS trace_events (
+        trace_id            TEXT NOT NULL,
+        hop_seq             INTEGER NOT NULL,
+        ts                  REAL NOT NULL,
+        source              TEXT,
+        target              TEXT,
+        protocol            TEXT,
+        transport_detail    TEXT,
+        status              TEXT,
+        latency_ms          INTEGER,
+        platform_ref        TEXT,
+        request_payload_raw  TEXT,
+        response_payload_raw TEXT,
+        PRIMARY KEY (trace_id, hop_seq, ts)
+    );
+    CREATE INDEX IF NOT EXISTS idx_trace_events_ts ON trace_events (ts);
+    CREATE INDEX IF NOT EXISTS idx_trace_events_platform_ref
+        ON trace_events (platform_ref);
+    """
+
+    def __init__(self, db_path: str | Path | None = None):
+        self.db_path = Path(
+            db_path or Path(os.environ.get(TRACE_DIR_ENV, DEFAULT_TRACE_DIR)) / DEFAULT_DB_NAME
+        )
+        self._lock = threading.Lock()
+        self._conn = None
+
+    def _connect(self):
+        import sqlite3
+
+        if self._conn is None:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.executescript(self.SCHEMA)
+            self._conn.commit()
+        return self._conn
+
+    def emit(self, event_dict: dict[str, Any]) -> None:
+        with self._lock:
+            conn = self._connect()
+            conn.execute(
+                """INSERT OR REPLACE INTO trace_events
+                   (trace_id, hop_seq, ts, source, target, protocol,
+                    transport_detail, status, latency_ms, platform_ref,
+                    request_payload_raw, response_payload_raw)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    event_dict["trace_id"],
+                    int(event_dict.get("hop_seq") or 0),
+                    float(event_dict.get("ts") or time.time()),
+                    event_dict.get("source"),
+                    event_dict.get("target"),
+                    event_dict.get("protocol"),
+                    event_dict.get("transport_detail"),
+                    event_dict.get("status"),
+                    event_dict.get("latency_ms"),
+                    event_dict.get("platform_ref"),
+                    json.dumps(
+                        event_dict.get("request_payload_raw"), default=str, ensure_ascii=False
+                    ),
+                    json.dumps(
+                        event_dict.get("response_payload_raw"), default=str, ensure_ascii=False
+                    ),
+                ),
+            )
+            conn.commit()
 
 
 class DynamoDbSink(TraceSink):
@@ -160,6 +250,8 @@ class DynamoDbSink(TraceSink):
         }
         if event_dict.get("latency_ms") is not None:
             item["latency_ms"] = int(event_dict["latency_ms"])
+        if event_dict.get("platform_ref"):
+            item["platform_ref"] = event_dict["platform_ref"]
         self._table.put_item(Item=item)
 
 
@@ -169,13 +261,15 @@ def sinks_from_env() -> list[TraceSink]:
     would defeat the lab's core requirement."""
     names = [
         n.strip().lower()
-        for n in (os.environ.get(TRACE_SINK_ENV) or "jsonl").split(",")
+        for n in (os.environ.get(TRACE_SINK_ENV) or "jsonl,sqlite").split(",")
         if n.strip()
     ]
     sinks: list[TraceSink] = []
     for name in names:
         if name == "jsonl":
             sinks.append(JsonlFileSink())
+        elif name == "sqlite":
+            sinks.append(SqliteSink())
         elif name == "dynamodb":
             sinks.append(DynamoDbSink())
         else:
@@ -273,6 +367,9 @@ class Hop:
         )
         self._start = None
         self.response_payload: Any = None
+        # Set by the caller once the platform-native execution id is known
+        # (e.g. the CMA session id) — lands on the event at exit (M11.1).
+        self.platform_ref: str | None = None
 
     def __enter__(self) -> "Hop":
         self._start = time.perf_counter()
@@ -281,6 +378,7 @@ class Hop:
     def __exit__(self, exc_type, exc, tb) -> None:
         self.event.latency_ms = int((time.perf_counter() - self._start) * 1000)
         self.event.response_payload_raw = self.response_payload
+        self.event.platform_ref = self.platform_ref
         if exc is not None:
             self.event.status = "error"
             if self.response_payload is None:
