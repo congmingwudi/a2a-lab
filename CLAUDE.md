@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A2A Interop Lab: cross-platform agent-to-agent experiments between Salesforce Agentforce and Claude (OpenAI later), with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`.
+A2A Interop Lab: cross-platform agent-to-agent experiments between Salesforce Agentforce and Claude (OpenAI later), with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`.
 
 ## Commands
 
@@ -19,6 +19,8 @@ uv run ruff check . && uv run ruff format .        # lint / format (line-length 
 scripts/run_local.sh                 # full local stack (Claude servers, shims, bridge, console)
 uv run python scripts/matrix.py      # run every runnable protocol cell → appends plan/03-results.md
 uv run python scripts/sf_smoke.py    # Agentforce go/no-go (needs SF_* in .env)
+uv run python scripts/obs_harvest.py # pull platform execution logs → traces/lab.db (M11)
+uv run python scripts/trace_import.py # rebuild lab.db trace tables from the JSONL archive
 uv run python scripts/setup_managed_agent.py       # once: provisions the Managed Agents agent
 ```
 

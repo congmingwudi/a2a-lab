@@ -129,7 +129,9 @@ class AgentforceClient(RemoteAgentClient):
             )
             hop.response_payload = r.text
             r.raise_for_status()
-            return r.json()["sessionId"]
+            sf_session_id = r.json()["sessionId"]
+            hop.platform_ref = sf_session_id  # M11.1: join key to STDM session logs
+            return sf_session_id
 
     async def ensure_session(self, lab_session_id: str, trace_id: str) -> dict[str, Any]:
         """Get-or-create the cached Agentforce session for a lab session_id."""
@@ -165,6 +167,7 @@ class AgentforceClient(RemoteAgentClient):
                 transport_detail=f"POST /sessions/{session['id']}/messages",
                 request_payload=body,
             ) as hop:
+                hop.platform_ref = session["id"]  # M11.1: join key to STDM session logs
                 r = await self._http.post(
                     f"{self.api_base}/sessions/{session['id']}/messages",
                     json=body,
@@ -203,6 +206,7 @@ class AgentforceClient(RemoteAgentClient):
             transport_detail=f"DELETE /sessions/{sf_session_id}",
             request_payload=None,
         ) as hop:
+            hop.platform_ref = sf_session_id
             headers = await self._headers()
             headers["x-session-end-reason"] = "UserRequest"
             r = await self._http.delete(
