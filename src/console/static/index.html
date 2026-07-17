@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A Interop Lab Console</title>
+<!-- Apply the saved theme before first paint so light-mode users see no dark flash. -->
+<script>try { var t = localStorage.getItem("a2a-theme"); document.documentElement.setAttribute("data-theme", t || "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }</script>
 <style>
   /* Design system aligned with labs.agentforce.com: their dark palette
      (#0b0b0b / #161616 / #292929), the labs hero — deep-navy radial
@@ -12,8 +14,9 @@
   :root {
     --bg: #0b0b0b; --card: #161616; --card2: #1e1e1e; --elevated: #262626;
     --code: #141414; --border: #292929; --border-hi: #3a3a3a;
-    --fg: #eeeeee; --muted: #8f8f8f; --primary: #cecece; --primary-fg: #0b0b0b;
-    --sidebar: #0d0d0d;
+    --fg: #eeeeee; --fg-hi: #ffffff; --muted: #8f8f8f;
+    --primary: #cecece; --primary-fg: #0b0b0b; --primary-hi: #ffffff;
+    --sidebar: #0d0d0d; --shadow: rgba(0, 0, 0, .35); --shadow-lg: rgba(0, 0, 0, .45);
     --rest: #00ab6d; --mcp: #ff9c3e; --a2a: #fd73d5; --agentforce-api: #00b0d6;
     --managed-agents-api: #9e9e9e; --internal: #636363; --err: #f9423d;
     /* labs.agentforce.com hero tokens */
@@ -23,6 +26,18 @@
     --font-head: "ITC Avant Garde Std", "Avant Garde", "Century Gothic", "Futura", "URW Gothic", var(--font-ui);
     --font-mono: "JetBrains Mono", "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
   }
+  /* Light mode — a mirror of the dark palette: the neutral ramp inverts
+     (near-black surfaces → near-white, light text → dark), while the protocol
+     accents, the wordmark gradient, and the deep-navy hero scene are shared
+     across both themes (they already read on light and dark). */
+  :root[data-theme="light"] {
+    --bg: #ffffff; --card: #f6f6f6; --card2: #eeeeee; --elevated: #e4e4e4;
+    --code: #f2f2f2; --border: #e2e2e2; --border-hi: #cfcfcf;
+    --fg: #1a1a1a; --fg-hi: #000000; --muted: #6b6b6b;
+    --primary: #1a1a1a; --primary-fg: #ffffff; --primary-hi: #000000;
+    --sidebar: #fafafa; --shadow: rgba(15, 23, 42, .12); --shadow-lg: rgba(15, 23, 42, .18);
+    --managed-agents-api: #6f6f6f; --internal: #8a8a8a;
+  }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-ui); }
   code, pre, .mono { font-family: var(--font-mono); }
@@ -30,13 +45,22 @@
   header { display: flex; align-items: center; gap: 10px; padding: 12px 22px;
            border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 2; }
   header .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-  header .brand:hover h1 { color: #fff; }
+  header .brand:hover h1 { color: var(--fg-hi); }
   .brandmark { width: 20px; height: 20px; border-radius: 6px; flex: none;
                background: linear-gradient(135deg, #09decb 0%, #3fc7d8 30%, #7db9e8 55%, #a8a2ec 78%, #c99df0 100%); }
   header h1 { font-family: var(--font-head); font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .3px; }
   header .sub { color: var(--muted); font-size: 12px; }
   header .live { margin-left: auto; font-size: 12px; color: var(--muted); }
   header .live.on::before { content: "●"; color: var(--rest); margin-right: 5px; }
+
+  /* theme switch — small segmented toggle in the top-right settings area */
+  .theme-switch { display: inline-flex; align-items: center; gap: 2px; margin-left: 16px;
+                  padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); }
+  .theme-switch .tbtn { display: inline-flex; align-items: center; justify-content: center;
+                        width: 26px; height: 22px; padding: 0; line-height: 1; font-size: 12.5px;
+                        background: transparent; border: none; border-radius: 999px; color: var(--muted); }
+  .theme-switch .tbtn:hover { color: var(--fg); }
+  .theme-switch .tbtn.on { background: var(--elevated); color: var(--fg); }
 
   main { display: grid; grid-template-columns: 380px 1fr; height: calc(100vh - 50px); }
   #side { border-right: 1px solid var(--border); overflow-y: auto; background: var(--sidebar); }
@@ -73,7 +97,7 @@
   button { font-family: var(--font-ui); cursor: pointer; }
   button.primary { background: var(--primary); color: var(--primary-fg); border: none; border-radius: 8px;
                    padding: 5px 14px; font-size: 12.5px; font-weight: 600; }
-  button.primary:hover { background: #fff; }
+  button.primary:hover { background: var(--primary-hi); }
   button.ghost, a.ghost { background: transparent; color: var(--fg); border: 1px solid var(--border);
                  border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 600;
                  text-decoration: none; display: inline-block; cursor: pointer; }
@@ -90,7 +114,7 @@
                   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
                   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
                   -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
-  .card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, .35); }
+  .card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px var(--shadow); }
   .card:hover::before { opacity: .65; }
   .card.open::before { opacity: 1; }
   .card.soon { opacity: .55; }
@@ -130,7 +154,7 @@
   #detail { overflow-y: auto; padding: 18px 22px; }
   #detail.landing-host { padding: 0; }
   .empty { color: var(--muted); padding: 40px; text-align: center; }
-  .detail-head { margin-bottom: 14px; }
+  .detail-head { margin-bottom: 14px; display: flex; align-items: center; gap: 12px; }
   .detail-head .tid { color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
 
   /* --- landing page ----------------------------------------------------- */
@@ -202,7 +226,7 @@
                   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
                   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
                   -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
-  .tile:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0, 0, 0, .45); }
+  .tile:hover { transform: translateY(-2px); box-shadow: 0 12px 32px var(--shadow-lg); }
   .tile:hover::before { opacity: .75; }
   .tile.soon { opacity: .6; }
   .tile.soon:hover { transform: none; }
@@ -343,6 +367,51 @@
   pre { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 0;
         overflow-x: auto; white-space: pre-wrap; word-break: break-word;
         font-size: 12px; max-height: 420px; overflow-y: auto; }
+
+  /* Observability (M11.3) */
+  .obs-plat { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px;
+              cursor: pointer; border: 1px solid transparent; }
+  .obs-plat:hover { background: var(--card2); }
+  .obs-plat.open { border-color: var(--border); background: var(--card); }
+  .obs-plat .pname { flex: 1; font-size: 13px; }
+  .obs-plat .pnums { color: var(--muted); font-size: 11.5px; font-family: var(--font-mono); }
+  .obs-status { font-size: 10px; padding: 2px 7px; border-radius: 999px; text-transform: uppercase;
+                letter-spacing: .5px; border: 1px solid var(--border); color: var(--muted); }
+  .obs-status.ok { color: var(--rest); border-color: color-mix(in srgb, var(--rest) 45%, transparent); }
+  .obs-status.blocked { color: var(--mcp); border-color: color-mix(in srgb, var(--mcp) 45%, transparent); }
+  .obs-status.error { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
+  .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .obs-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .obs-card h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .obs-card .nums { display: flex; gap: 16px; margin: 6px 0 10px; }
+  .obs-card .num { font-family: var(--font-mono); }
+  .obs-card .num b { font-size: 18px; font-weight: 600; display: block; }
+  .obs-card .num span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .obs-card ul { margin: 4px 0; padding-left: 16px; font-size: 12px; color: var(--muted); }
+  .obs-card ul.cap-can li::marker { color: var(--rest); }
+  .obs-card ul.cap-not li::marker { color: var(--err); }
+  .obs-card .hdetail { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+  table.obs-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.obs-tbl th { text-align: left; color: var(--muted); font-size: 10.5px; text-transform: uppercase;
+                     letter-spacing: .6px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  table.obs-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.obs-tbl tr.rowlink { cursor: pointer; }
+  table.obs-tbl tr.rowlink:hover td { background: var(--card2); }
+  .obs-ev { border-left: 2px solid var(--border); padding: 6px 0 6px 12px; margin: 0 0 4px; }
+  .obs-ev .et { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+  .obs-ev .es { font-size: 12.5px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+  .obs-ev.think { border-left-color: var(--a2a); }
+  .obs-ev.msg { border-left-color: var(--rest); }
+  .obs-ev.tool { border-left-color: var(--mcp); }
+  .obs-ev.usage { border-left-color: var(--agentforce-api); }
+
+  /* in-canvas navigation (back + breadcrumbs) */
+  .crumbs { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 12.5px; }
+  .crumbs .sep { color: var(--muted); }
+  .crumb { color: var(--muted); cursor: pointer; }
+  .crumb:hover { color: var(--fg); text-decoration: underline; }
+  .crumb.here { color: var(--fg); cursor: default; font-weight: 600; }
+  .crumb.here:hover { text-decoration: none; }
 </style>
 </head>
 <body>
@@ -353,6 +422,10 @@
   </div>
   <span class="sub">cross-platform agent-to-agent experiments · Agentforce × Claude × OpenAI</span>
   <span id="live" class="live">connecting…</span>
+  <div class="theme-switch" role="group" aria-label="Theme">
+    <button class="tbtn" id="themeLight" onclick="setTheme('light')" title="Light mode" aria-label="Switch to light mode">☀</button>
+    <button class="tbtn" id="themeDark" onclick="setTheme('dark')" title="Dark mode" aria-label="Switch to dark mode">☾</button>
+  </div>
 </header>
 <main>
   <div id="side">
@@ -362,7 +435,19 @@
         <div id="scenarios"></div>
       </div>
     </details>
-    <details class="acc" id="accCells" open>
+    <details class="acc" id="accObs">
+      <summary>Observability <span class="count" id="obsCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">Each platform's own record of the agents' runs.</span>
+          <button class="ghost" id="harvestBtn" onclick="harvestObs(event)"
+            title="Pull fresh execution logs from each platform's API into the local store">Harvest</button>
+        </div>
+        <div class="hint" id="obsMsg" style="display:none; padding: 0 12px 8px"></div>
+        <div id="obsSide"></div>
+      </div>
+    </details>
+    <details class="acc" id="accCells">
       <summary>Protocol calls <span class="count" id="cellCount"></span></summary>
       <div class="acc-body">
         <div class="cells-controls">
@@ -743,7 +828,266 @@ function renderList() {
   if (count) count.textContent = traces.length ? String(traces.length) : "";
 }
 
-function renderSidebar() { renderScenarios(); renderTargets(); renderList(); }
+// ---------------------------------------------------------------------------
+// Observability (M11.3) — each platform's interior view of the lab's runs,
+// read from the local harvest store (never a live platform proxy).
+// ---------------------------------------------------------------------------
+let obs = { summary: null, sessions: [], events: null, harvesting: false };
+
+const fmtTokens = n => !n ? "0" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
+const fmtAgo = ts => {
+  if (!ts) return "never";
+  const s = Math.max(0, (Date.now() / 1000) - ts);
+  return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago";
+};
+
+// ---------------------------------------------------------------------------
+// In-canvas navigation: a view-history stack so drill-downs (observability
+// levels, trace views) can go back up without hunting through the sidebar.
+// ---------------------------------------------------------------------------
+let navStack = [];
+
+function pushNav() {
+  if (!view) return;
+  const snap = { view: { ...view }, selected };
+  const top = navStack[navStack.length - 1];
+  if (top && JSON.stringify(top) === JSON.stringify(snap)) return;
+  navStack.push(snap);
+  if (navStack.length > 50) navStack.shift();
+}
+
+window.goBack = () => {
+  const prev = navStack.pop();
+  if (!prev) { view = null; renderSidebar(); renderMain(true); return; }
+  view = prev.view; selected = prev.selected;
+  if (view.type === "obs" && view.session) {
+    fetchObsEvents(view.platform, view.session);
+  }
+  renderSidebar(); renderMain(true);
+};
+
+function backBtnHtml() {
+  return navStack.length
+    ? `<button class="ghost" onclick="goBack()" title="Back to the previous view">‹ Back</button>` : "";
+}
+
+function obsMsg(text, isErr) {
+  const el = document.getElementById("obsMsg");
+  if (!el) return;
+  el.style.display = text ? "" : "none";
+  el.textContent = text || "";
+  el.style.color = isErr ? "var(--err)" : "";
+}
+
+async function loadObs() {
+  try {
+    const [sr, lr] = await Promise.all([fetch(apiUrl("/api/obs/summary")), fetch(apiUrl("/api/obs/sessions"))]);
+    if (sr.status === 404 || lr.status === 404) {
+      obsMsg("Console server predates the Observability API — restart scripts/run_local.sh.", true);
+      return;
+    }
+    obs.summary = await sr.json();
+    obs.sessions = (await lr.json()).sessions;
+    renderObsSide();
+    if (view && view.type === "obs") renderMain(true);
+  } catch { /* transient — store may not exist yet; panel shows the empty state */ }
+}
+
+function renderObsSide() {
+  const el = document.getElementById("obsSide");
+  if (!el) return;
+  const plats = (obs.summary && obs.summary.capabilities) ? Object.keys(obs.summary.capabilities) : [];
+  const info = p => (obs.summary && obs.summary.platforms && obs.summary.platforms[p]) || {};
+  el.innerHTML = plats.map(p => {
+    const i = info(p), h = i.harvest || {};
+    const isOpen = view && view.type === "obs" && view.platform === p;
+    return `
+    <div class="obs-plat ${isOpen ? "open" : ""}" onclick="openObservability('${p}')">
+      <span class="pname">${esc(obs.summary.capabilities[p].label)}</span>
+      <span class="pnums">${i.sessions || 0}s · ${i.events || 0}e</span>
+      <span class="obs-status ${esc(h.status || "")}">${esc(h.status || "—")}</span>
+    </div>`;
+  }).join("") || `<div class="empty" style="padding:12px">Run a harvest to pull platform logs.</div>`;
+  const count = document.getElementById("obsCount");
+  const total = plats.reduce((n, p) => n + (info(p).sessions || 0), 0);
+  if (count) count.textContent = total ? String(total) : "";
+}
+
+window.openObservability = platform => {
+  document.getElementById("accObs").open = true;
+  pushNav();
+  view = { type: "obs", platform: platform || null, session: null };
+  obs.events = null;
+  renderSidebar(); renderMain(true);
+};
+
+async function fetchObsEvents(platform, sessionId) {
+  obs.events = null;
+  try {
+    const r = await fetch(apiUrl(`/api/obs/events`) + (window.location.search ? "&" : "?") +
+      `platform=${encodeURIComponent(platform)}&session_id=${encodeURIComponent(sessionId)}`);
+    obs.events = await r.json();
+  } catch { obs.events = { events: [], lab_traces: [] }; }
+  if (view && view.type === "obs" && view.session === sessionId) renderMain(true);
+}
+
+window.openObsSession = async (platform, sessionId) => {
+  pushNav();
+  view = { type: "obs", platform, session: sessionId };
+  obs.events = null;
+  renderMain(true);
+  await fetchObsEvents(platform, sessionId);
+};
+
+window.harvestObs = async ev => {
+  if (ev) ev.stopPropagation();
+  if (obs.harvesting) return;
+  obs.harvesting = true;
+  const btn = document.getElementById("harvestBtn");
+  if (btn) { btn.textContent = "Harvesting…"; btn.disabled = true; }
+  obsMsg("Pulling execution logs from each platform's API — can take ~10s per 50 sessions…");
+  try {
+    const r = await fetch(apiUrl("/api/obs/harvest"), { method: "POST" });
+    if (r.status === 404) {
+      obsMsg("Console server predates the Observability API — restart scripts/run_local.sh.", true);
+      return;
+    }
+    const data = await r.json();
+    if (!data.ok) { obsMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
+    const parts = data.results.map(x =>
+      `${x.platform}: ${x.status}` + (x.sessions || x.events ? ` (${x.sessions}s/${x.events}e)` : ""));
+    obsMsg("Done — " + parts.join(" · "));
+    await loadObs();
+    // Land the user on the refreshed dashboard so the result is visible.
+    if (!view || view.type === "obs") openObservability(view && view.platform);
+  } catch (e) {
+    obsMsg("Harvest failed: " + e, true);
+  } finally {
+    obs.harvesting = false;
+    if (btn) { btn.textContent = "Harvest"; btn.disabled = false; }
+  }
+};
+
+function obsEventClass(t) {
+  if (!t) return "";
+  if (t.includes("thinking")) return "think";
+  if (t.includes("message")) return "msg";
+  if (t.includes("tool")) return "tool";
+  if (t.includes("model_request") || t.includes("usage")) return "usage";
+  return "";
+}
+
+function obsUsageLine(usageJson) {
+  try {
+    const u = JSON.parse(usageJson);
+    const inp = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+    return `in ${fmtTokens(inp)} · out ${fmtTokens(u.output_tokens || 0)}`;
+  } catch { return ""; }
+}
+
+function obsCrumbsHtml() {
+  const caps = (obs.summary && obs.summary.capabilities) || {};
+  const label = view.platform ? ((caps[view.platform] || {}).label || view.platform) : null;
+  const crumbs = [];
+  crumbs.push(view.platform
+    ? `<span class="crumb" onclick="openObservability(null)">Observability</span>`
+    : `<span class="crumb here">Observability</span>`);
+  if (view.platform) {
+    crumbs.push(`<span class="sep">›</span>`);
+    crumbs.push(view.session
+      ? `<span class="crumb" onclick="openObservability('${esc(view.platform)}')">${esc(label)}</span>`
+      : `<span class="crumb here">${esc(label)}</span>`);
+  }
+  if (view.session) {
+    crumbs.push(`<span class="sep">›</span>`);
+    crumbs.push(`<span class="crumb here mono">${esc(view.session.slice(0, 22))}…</span>`);
+  }
+  return `<div class="crumbs">${backBtnHtml()}${crumbs.join("")}</div>`;
+}
+
+function obsDashboardHtml() {
+  const caps = (obs.summary && obs.summary.capabilities) || {};
+  const info = p => (obs.summary && obs.summary.platforms && obs.summary.platforms[p]) || {};
+  return `
+  <div class="flow">
+    <h3>Coverage — what each platform lets us pull</h3>
+    <div class="desc"><span class="stat">Harvest-and-cache: logs are pulled from each platform's API into the
+      local store (CMA events die with their session; Data Cloud queries cost credits; OpenAI has no read API).
+      The gaps below are findings, not TODOs — this is the honest matrix from plan/05-observability.md, live.</span></div>
+    <div class="obs-grid">
+      ${Object.keys(caps).map(p => {
+        const i = info(p), h = i.harvest || {};
+        return `
+        <div class="obs-card">
+          <h4>${esc(caps[p].label)} <span class="obs-status ${esc(h.status || "")}">${esc(h.status || "not harvested")}</span></h4>
+          <div class="nums">
+            <div class="num"><b>${i.sessions || 0}</b><span>sessions</span></div>
+            <div class="num"><b>${i.events || 0}</b><span>events</span></div>
+            <div class="num"><b>${fmtTokens(i.tokens || 0)}</b><span>tokens</span></div>
+          </div>
+          <ul class="cap-can">${caps[p].can.map(c => `<li>${esc(c)}</li>`).join("")}</ul>
+          <ul class="cap-not">${caps[p].cannot.map(c => `<li>${esc(c)}</li>`).join("")}</ul>
+          <div class="hdetail">Last harvest: ${fmtAgo(h.at)}${h.detail ? " — " + esc(h.detail) : ""}</div>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
+function obsSessionsHtml(platform) {
+  const rows = obs.sessions.filter(s => !platform || s.platform === platform);
+  if (!rows.length) return `<div class="flow"><h3>Executions</h3>
+    <div class="desc"><span class="stat">Nothing harvested${platform ? " for this platform" : ""} yet — hit Harvest in the sidebar.</span></div></div>`;
+  return `
+  <div class="flow">
+    <h3>Executions ${platform ? "— " + esc(platform) : ""}</h3>
+    <table class="obs-tbl">
+      <thead><tr><th>Platform</th><th>Native session</th><th>Title</th><th>Status</th><th>Started</th><th>Events</th><th>Lab traces</th></tr></thead>
+      <tbody>
+      ${rows.map(s => `
+        <tr class="rowlink" onclick="openObsSession('${esc(s.platform)}', '${esc(s.native_id)}')">
+          <td><span class="badge ${s.platform === "anthropic" ? "managed-agents-api" : s.platform === "salesforce" ? "agentforce-api" : "internal"}">${esc(s.platform)}</span></td>
+          <td class="fmono">${esc((s.native_id || "").slice(0, 22))}…</td>
+          <td>${esc(s.title || "")}</td>
+          <td>${esc(s.status || "")}</td>
+          <td class="fmono">${esc((s.created_at || "").slice(0, 19))}</td>
+          <td>${s.event_count || 0}</td>
+          <td>${s.lab_trace_count ? `<span class="badge rest">${s.lab_trace_count} linked</span>` : `<span class="fmono">—</span>`}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function obsSessionDetailHtml() {
+  const s = obs.sessions.find(x => x.platform === view.platform && x.native_id === view.session) || {};
+  const evs = obs.events ? obs.events.events : null;
+  const labTraces = obs.events ? obs.events.lab_traces : [];
+  return `
+  <div class="flow">
+    <h3>Platform-interior view — ${esc(view.platform)} session</h3>
+    <div class="frow"><span class="flabel">native id</span><span class="fval fmono">${esc(view.session)}</span></div>
+    ${s.title ? `<div class="frow"><span class="flabel">title</span><span class="fval">${esc(s.title)}</span></div>` : ""}
+    ${s.status ? `<div class="frow"><span class="flabel">status</span><span class="fval">${esc(s.status)}</span></div>` : ""}
+    ${s.usage_json ? `<div class="frow"><span class="flabel">usage</span><span class="fval fmono">${esc(obsUsageLine(s.usage_json))}</span></div>` : ""}
+    <div class="frow"><span class="flabel">lab traces</span><span class="fval">
+      ${labTraces.length ? labTraces.map(t => `<a href="#" onclick="openTrace('${esc(t)}'); return false;" class="fmono">${esc(t.slice(0, 16))}…</a>`).join(" · ")
+        : `<span class="stat">none linked — hops record platform_ref at emit time (runs before M11.1 predate the join)</span>`}
+    </span></div>
+  </div>
+  <div class="flow">
+    <h3>Event history — what the platform logged internally</h3>
+    ${evs === null ? `<div class="desc"><span class="stat">Loading…</span></div>`
+      : !evs.length ? `<div class="desc"><span class="stat">No events harvested for this session.</span></div>`
+      : evs.map(e => `
+        <div class="obs-ev ${obsEventClass(e.event_type)}">
+          <div class="et">${esc(e.event_type || "?")}${e.processed_at ? " · " + esc(e.processed_at.slice(11, 19)) : ""}${e.usage_json ? " · " + esc(obsUsageLine(e.usage_json)) : ""}</div>
+          ${e.summary ? `<div class="es">${esc(e.summary)}</div>` : ""}
+        </div>`).join("")}
+  </div>`;
+}
+
+function renderSidebar() { renderScenarios(); renderTargets(); renderList(); renderObsSide(); }
 
 // Two-step clear (no native confirm() dialog): first click arms the button,
 // second click within 4s deletes traces/*.jsonl via the API.
@@ -976,6 +1320,7 @@ window.browseCells = () => {
 // Experiment workspace (main canvas)
 // ---------------------------------------------------------------------------
 window.openExperiment = (kind, name, tab) => {
+  pushNav();
   view = { type: "experiment", kind, name };
   activeTab = tab || "run";
   const key = expKey(kind, name);
@@ -994,6 +1339,7 @@ window.openExperiment = (kind, name, tab) => {
 
 window.openTrace = tid => {
   document.getElementById("accTraces").open = true;
+  pushNav();
   view = { type: "trace" }; selected = tid; renderSidebar(); renderMain();
 };
 window.setTab = tab => { activeTab = tab; renderMain(); };
@@ -1301,9 +1647,17 @@ function renderMain(force) {
     mainKey = "trace";
     const t = traces.find(x => x.trace_id === selected);
     el.innerHTML = t ? `
-      <div class="detail-head"><div class="tid">trace ${t.trace_id}</div></div>
+      <div class="detail-head">${backBtnHtml()}<div class="tid">trace ${t.trace_id}</div></div>
       ${traceSectionHtml(t, "Call path")}` :
-      `<div class="empty">Trace not found.</div>`;
+      `<div class="crumbs">${backBtnHtml()}</div><div class="empty">Trace not found.</div>`;
+    return;
+  }
+
+  if (view.type === "obs") {
+    mainKey = `obs:${view.platform || "*"}:${view.session || ""}`;
+    el.innerHTML = obsCrumbsHtml() + (view.session
+      ? obsSessionDetailHtml()
+      : obsDashboardHtml() + obsSessionsHtml(view.platform));
     return;
   }
 
@@ -1430,8 +1784,26 @@ function connectStream() {
   es.onerror = () => { live.textContent = "reconnecting…"; live.classList.remove("on"); };
 }
 
+// ---------------------------------------------------------------------------
+// Theme (dark default, mirrored light) — persisted in localStorage; the
+// data-theme attribute is set pre-paint by the inline <head> script.
+// ---------------------------------------------------------------------------
+window.setTheme = theme => {
+  document.documentElement.setAttribute("data-theme", theme);
+  document.getElementById("themeLight")?.classList.toggle("on", theme === "light");
+  document.getElementById("themeDark")?.classList.toggle("on", theme === "dark");
+  try { localStorage.setItem("a2a-theme", theme); } catch { /* private mode — theme just won't persist */ }
+};
+(() => {
+  let saved = null;
+  try { saved = localStorage.getItem("a2a-theme"); } catch { /* ignore */ }
+  // Light is the default; dark only when explicitly chosen.
+  setTheme(saved === "dark" ? "dark" : "light");
+})();
+
 load().then(connectStream);
 loadLaunchers().then(renderMain);
+loadObs();
 </script>
 </body>
 </html>

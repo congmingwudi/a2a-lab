@@ -179,7 +179,7 @@ live: External/Named Credential + updated `A2ALab_Agent_Actions` permset
 Interim transport: a TryCloudflare quick tunnel (no Cloudflare login
 needed) fronts the bridge — its hostname changes per restart and lives in
 the Named Credential URL; M6's named tunnel replaces it with
-`bridge.lab.agenticthings.com`. Trace note: the Salesforce-internal legs
+`bridge-lab.agenticthings.com`. Trace note: the Salesforce-internal legs
 mint their own trace id (Apex generates one per callout), so a scenario run
 produces two correlated-by-time traces — the Agent API turn and the Apex →
 bridge → Claude leg. Measured e2e: 35.9s wall for the full collaboration
@@ -251,3 +251,70 @@ Follow-through on D16 — the brief must be *usable* where account teams live:
   deployment was archived and replaced (`depl_01C6Vv2bQJAhQjSK8NfTF8h4`).
   Gotcha logged: values with spaces in `.env` must be quoted — run_local
   workflows `source` it.
+
+## 2026-07-17 — D18: Observability = its own console category, harvest-and-join
+New left-nav category (peer of Scenarios/Targets/Traces) showing each
+*platform's interior view* of the executions the lab drove, joined to our
+wire traces — full plan in plan/05-observability.md (M11). Research-verified
+pull surfaces: Salesforce Session Tracing DMOs + Einstein GenAI audit DMOs
+via Data Cloud Query API v2 (richest; needs Data Cloud + setup toggles);
+Anthropic Managed Agents `GET /v1/sessions/{id}/events` (deepest per-session
+detail, but **no list-sessions API** — we must persist every CMA session id
+we create); OpenAI traces are ingestion-only/UI-only (no read API), so on
+that side our own trace layer stays the system of record and M9 must tee a
+`TracingProcessor` + persist response ids from day one. Design consequence:
+**harvest-and-cache** into a local store (platform logs lag, cost credits,
+or expire — CMA events die with the session, OpenAI responses in 30 days),
+and a new `platform_ref` field on `TraceEvent` records each hop's native
+execution id at emit time so the join is never reconstructed after the fact.
+
+## 2026-07-17 — D19: Local trace/observability query store = SQLite (DynamoDB unchanged)
+The console needs a query backend (timeline bucketing, platform filters,
+trace⋈platform-log joins) that JSONL can't serve. Chosen: a `sqlite`
+TraceSink (`traces/lab.db`, default `A2ALAB_TRACE_SINK=jsonl,sqlite`) that
+also hosts the harvested observability tables, becoming the console's read
+path. JSONL stays the append-only raw archive (rebuildable via
+`scripts/trace_import.py`); the DynamoDB sink stays the cloud path — M10's
+Data 360 zero-copy → TableauNext reporting is built on that table, so it is
+not replaced. Rejected: Postgres (infra burden for a single-user lab, no
+M10 story), OTel/ClickHouse stacks (overkill at ~500KB of traces, and they
+abstract away the raw payloads the lab exists to show).
+
+## 2026-07-17 — D20: Cloudflare = free plan, whole-zone DNS (Enterprise subdomain delegation dropped)
+The M6 runbook assumed an Enterprise account for a `lab.agenticthings.com`
+subdomain zone (NS-delegated from GoDaddy). No Enterprise account exists;
+subdomain zones are Enterprise-only and partial/CNAME setup is Business.
+Chosen: a **free** Cloudflare account onboarding the whole `agenticthings.com`
+zone — GoDaddy stays registrar, nameservers move to Cloudflare, existing DNS
+records are imported at onboarding. Named tunnels and unlimited hostnames are
+free (Zero Trust free plan). One knock-on rename: free Universal SSL covers
+only one subdomain level (`*.agenticthings.com`), so the planned two-level
+`bridge.lab.…` names fail TLS at the edge — lab hostnames are single-level
+`<svc>-lab.agenticthings.com` (`bridge-lab`, `console-lab`, `claude-rest-lab`,
+`claude-mcp-lab`, `claude-a2a-lab`); keeping `*.lab.…` would need paid
+Advanced Certificate Manager. Also: this network blocks QUIC/UDP egress, so
+config.yml pins `protocol: http2`. Stable hostnames matter twice: the `A2ALab_Bridge` Named
+Credential is set once (no redeploy per tunnel restart, unlike TryCloudflare),
+and M11.4's Anthropic webhooks require a stable public HTTPS endpoint.
+Runbook §3 rewritten accordingly.
+
+## 2026-07-17 — D21: AWS runtime account = lab-account (REDACTED-AWS-ACCOUNT); a2alab-traces provisioned
+Lab AWS runtimes (D13 DynamoDB trace table, later M8 AgentCore) live in the
+**lab-account** SSO account `REDACTED-AWS-ACCOUNT` (role AccountUser via
+REDACTED-SSO-DOMAIN; SSO home region us-west-2), NOT the personal account
+REDACTED-AWS-ACCOUNT that the local `default`/`congmingwudi` profiles point to.
+`.env` sets `AWS_PROFILE=lab-account`, `AWS_REGION=us-east-1`. The `a2alab-traces`
+table (runbook §6 schema: PK trace_id, SK sk, GSI day-index, PAY_PER_REQUEST,
+TTL on expires_at) is created in us-east-1. Gotcha: SSO tokens expire — rerun
+`aws sso login --profile lab-account` when boto3/CLI report an expired token.
+
+## 2026-07-17 — D22: Observability = deterministic ETL below, agent analysis above
+Harvesting platform logs stays pure ETL (scripts/obs_harvest.py, later cron
+or M11.4 webhook-triggered) — no LLM in the pull loop: it's deterministic
+API paging + upserts where an agent adds only cost and nondeterminism. The
+agent-shaped job sits one layer up: **M11.5** (plan/05-observability.md), a
+scheduled CMA deployment that reads traces/lab.db through a host-side
+custom tool and writes an interpretive nightly brief (failures, token
+anomalies, cross-platform comparisons). Deferred until the store holds real
+multi-platform data — STDM/GenAI toggles were enabled 2026-07-17, DMOs
+materializing; revisit after the first live Salesforce harvest.

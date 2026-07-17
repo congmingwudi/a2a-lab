@@ -76,11 +76,13 @@ flowchart LR
         APEX["Apex invocable<br/>A2ALabInvokeRemoteAgent"]
         NC["Named Credential<br/>A2ALab_Bridge"]
         AGENTAPI["Agent API<br/>api.salesforce.com"]
+        STDM[("Session Tracing DMOs<br/>(Data Cloud STDM)")]
         AF --> APEX --> NC
+        AGENTAPI -. "traces sessions into" .-> STDM
     end
 
     subgraph edge["Cloudflare tunnel (public)"]
-        TUN["*.lab.agenticthings.com"]
+        TUN["*-lab.agenticthings.com"]
     end
 
     subgraph lab["Lab host"]
@@ -99,8 +101,11 @@ flowchart LR
             SHIMM["MCP shim :8021"]
             SHIMA["A2A shim :8023"]
         end
-        TRACES[("trace sink (D13)<br/>jsonl | DynamoDB")]
+        TRACES[("trace sinks (D13/D19)<br/>jsonl + lab.db | DynamoDB")]
+        HARV["Obs harvester (M11)<br/>scripts/obs_harvest.py"]
         CONSOLE -.reads / tails.-> TRACES
+        HARV --> TRACES
+        CONSOLE -- "Observability section<br/>+ Harvest button" --> HARV
     end
 
     subgraph anthropic["Anthropic"]
@@ -117,6 +122,8 @@ flowchart LR
     SHIMM -- "proxy (no GA MCP/A2A inbound)" --> AGENTAPI
     SHIMA --> AGENTAPI
     CONSOLE -- "run cell / scenario" --> BR
+    HARV -- "GET /v1/sessions + events" --> CMA
+    HARV -- "SOQL over STDM" --> STDM
 ```
 
 The stack hangs off two seams sharing the canonical `AgentRequest`/`AgentResponse`
@@ -143,12 +150,37 @@ shim → Agent API) cover the same direction for protocol comparison.
 
 Every hop records a `TraceEvent` with the raw wire bytes (REST at handler
 level; MCP/A2A via the WireTap ASGI middleware, since the JSON-RPC envelopes
-live inside the frameworks). Where events go is pluggable (ADR D13,
-`A2ALAB_TRACE_SINK`): JSONL files under `traces/` by default — what the
-console tails — and/or a DynamoDB table for cloud deploys, which is also the
-integration point for Data 360's zero-copy connector → TableauNext reporting
-(M10). The console groups events by trace id, which rides `X-Trace-Id` on
-REST, a tool argument on MCP, and `metadata.trace_id` on A2A.
+live inside the frameworks). Where events go is pluggable (ADR D13/D19,
+`A2ALAB_TRACE_SINK`, default `jsonl,sqlite`): JSONL files under `traces/` are
+the append-only raw archive, `traces/lab.db` (SQLite) is the console's query
+path, and a DynamoDB table covers cloud deploys — also the integration point
+for Data 360's zero-copy connector → TableauNext reporting (M10). The console
+groups events by trace id, which rides `X-Trace-Id` on REST, a tool argument
+on MCP, and `metadata.trace_id` on A2A. Each hop additionally records a
+`platform_ref` — the *platform-native* execution id (CMA session id, Agent
+API/STDM session id) — stamped at emit time.
+
+**Public exposure** (D20): a free-plan Cloudflare account holds DNS for the
+whole `agenticthings.com` zone; a named tunnel (`cloudflared`, outbound-only,
+HTTP/2) publishes the lab under stable single-level hostnames
+(`bridge-lab`, `console-lab`, `claude-{rest,mcp,a2a}-lab`
+`.agenticthings.com` — single-level because free Universal SSL covers only
+one subdomain label). Stable hostnames mean the Salesforce Named Credential
+is configured once and survives tunnel restarts.
+
+**Observability** (M11, `plan/05-observability.md`): a dedicated console
+section shows each *platform's interior view* of the runs the lab drove,
+next to the lab's own wire traces. Harvesters (`src/observability/`,
+`scripts/obs_harvest.py`, or the console's Harvest button) pull Claude
+Managed Agents sessions/events (thinking, tool calls, token usage) and
+Salesforce Session Tracing DMOs into `lab.db`; `platform_ref` joins the two
+views per execution. The coverage panel renders the honest per-platform
+capability matrix live — including what each platform does *not* expose
+(OpenAI's traces are write-only; that gap is a finding). One layer up
+(D22), an optional **observability analyst** — a managed Claude agent with a
+single read-only SQL tool (`scripts/setup_obs_analyst.py --run`) —
+interprets the harvested store and writes findings briefs to
+`traces/obs-briefs/`; the pull itself stays deterministic ETL.
 
 ## The A2A implementation
 
@@ -226,7 +258,7 @@ the raw payloads in the console) are open to anyone.
 The Named Credential URL currently points at an **interim TryCloudflare
 quick tunnel** (`*.trycloudflare.com`, hostname changes on every tunnel
 restart — redeploy `namedCredentials/` with the new hostname). It gets
-repointed to the stable `bridge.lab.agenticthings.com` when the M6 named
+repointed to the stable `bridge-lab.agenticthings.com` when the M6 named
 tunnel lands, and to the AgentCore endpoint in M8.
 
 1. **Agentforce → Apex** — stays inside the org. The custom action runs as the

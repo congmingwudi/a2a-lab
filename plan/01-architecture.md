@@ -12,7 +12,7 @@ Salesforce Agentforce (custom Service agent; Apex action → Named Credential)
    claude servers  REST :8001 | MCP :8002 | A2A :8003    (openai :8011/12/13, M9)
    agentforce shims        MCP :8021 | A2A :8023          (proxy → Agent API)
    lab console :8200 (trace viewer, SSE live tail)
-   cloudflared tunnel → *.lab.agenticthings.com
+   cloudflared tunnel → *-lab.agenticthings.com
 ```
 
 ## The two seams
