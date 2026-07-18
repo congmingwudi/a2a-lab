@@ -1,18 +1,23 @@
-"""Pull each platform's execution logs into the local obs store (M11.2).
+"""Pull each platform's execution logs into the obs store (M11.2).
 
     uv run python scripts/obs_harvest.py                 # all platforms
     uv run python scripts/obs_harvest.py anthropic       # one platform
 
-The console's Observability section triggers the same harvest via
-POST /api/obs/harvest.
+Store selection (D23): A2ALAB_OBS_STORE=sqlite (default, traces/lab.db) or
+postgres (the hosted Aurora store — needs A2ALAB_PG_* config). The console's
+Observability section triggers the same harvest via POST /api/obs/harvest;
+the hosted harvest Lambda runs the same sources against Postgres.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from dotenv import load_dotenv
 
 from observability import ObsStore
 from observability.anthropic_source import AnthropicSource
@@ -26,14 +31,23 @@ SOURCES = {
 }
 
 
+def make_store():
+    if os.environ.get("A2ALAB_OBS_STORE", "sqlite").lower() == "postgres":
+        from observability.pg import PgObsStore
+
+        return PgObsStore()
+    return ObsStore()
+
+
 def main() -> int:
+    load_dotenv()
     wanted = sys.argv[1:] or list(SOURCES)
     unknown = [w for w in wanted if w not in SOURCES]
     if unknown:
         print(f"unknown platform(s): {', '.join(unknown)} — choose from {', '.join(SOURCES)}")
         return 2
-    store = ObsStore()
-    print(f"obs store: {store.db_path}")
+    store = make_store()
+    print(f"obs store: {getattr(store, 'db_path', 'postgres (D23 hosted store)')}")
     failed = False
     for name in wanted:
         result = SOURCES[name]().harvest(store)
