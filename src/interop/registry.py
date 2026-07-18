@@ -67,9 +67,7 @@ class Registry:
 
     def get(self, name: str) -> Target:
         if name not in self.targets:
-            raise KeyError(
-                f"unknown target '{name}' — known targets: {sorted(self.targets)}"
-            )
+            raise KeyError(f"unknown target '{name}' — known targets: {sorted(self.targets)}")
         return self.targets[name]
 
     def client_for(self, name: str):
@@ -96,4 +94,8 @@ class Registry:
             from platforms.agentforce.client import AgentforceClient
 
             return AgentforceClient.from_target(target)
+        if target.protocol == "agentcore-http":
+            from platforms.openai.agentcore_client import AgentCoreClient
+
+            return AgentCoreClient.from_target(target)
         raise ValueError(f"no client for protocol '{target.protocol}'")

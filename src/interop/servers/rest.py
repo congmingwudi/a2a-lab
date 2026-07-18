@@ -61,9 +61,7 @@ def create_rest_app(adapter: AgentAdapter) -> FastAPI:
                 )
             )
             traceback.print_exc()
-            return JSONResponse(
-                status_code=500, content={"error": error, "trace_id": req.trace_id}
-            )
+            return JSONResponse(status_code=500, content={"error": error, "trace_id": req.trace_id})
         resp.latency_ms = resp.latency_ms or int((time.perf_counter() - start) * 1000)
         payload = resp.to_dict()
         recorder.record(

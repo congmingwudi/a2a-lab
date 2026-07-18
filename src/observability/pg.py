@@ -365,6 +365,15 @@ class PgObsStore:
         )
         return rows[0]["updated_at"] if rows else None
 
+    def openai_response_ids(self, limit: int = 50) -> list[str]:
+        rows = self.client.execute(
+            f"""SELECT platform_ref, MAX(ts) AS ts FROM {SCHEMA}.trace_events
+                WHERE target = 'openai-platform' AND platform_ref IS NOT NULL
+                GROUP BY platform_ref ORDER BY ts DESC LIMIT :limit""",
+            {"limit": limit},
+        )
+        return [r["platform_ref"] for r in rows]
+
     # ---- brief feed (console + save_brief tool) ---------------------------
 
     def insert_brief(self, brief_md: str, *, session_id: str | None, queries_run: int) -> None:

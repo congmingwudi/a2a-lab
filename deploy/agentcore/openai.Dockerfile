@@ -13,10 +13,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-# --extra openai lands once the agents-sdk backend adds the dependency
-# (plan/06-openai-codex-handoff.md §5).
-RUN uv sync --frozen --no-install-project --no-dev --extra openai || \
-    uv sync --frozen --no-install-project --no-dev
+# openai = the agents-sdk backend; aws = boto3 for the postgres TraceSink
+# (Data API) — without it the container's hops are silently contained-and-
+# dropped ("[trace] PostgresSink failed: No module named 'boto3'").
+RUN uv sync --frozen --no-install-project --no-dev --extra openai --extra aws
 COPY src ./src
 COPY config ./config
 

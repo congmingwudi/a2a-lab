@@ -52,12 +52,14 @@ class TokenAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
+        }
         supplied = headers.get(TOKEN_HEADER)
         if not supplied:
             authz = headers.get("authorization", "")
             if authz.startswith("Bearer "):
-                supplied = authz[len("Bearer "):]
+                supplied = authz[len("Bearer ") :]
         if not supplied and self.allow_query_param:
             qs = parse_qs(scope.get("query_string", b"").decode("latin-1"))
             supplied = (qs.get("token") or [None])[0]
