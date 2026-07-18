@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A2A Interop Lab: cross-platform agent-to-agent experiments between Salesforce Agentforce and Claude (OpenAI later), with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`.
+A2A Interop Lab: cross-platform agent-to-agent experiments between Salesforce Agentforce and Claude (OpenAI later), with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`, and the Codex build brief for the OpenAI agents-sdk backend in `plan/06-openai-codex-handoff.md` (D24 — that one file is the contract; the `agents-sdk` backend and its tests are Codex's to write, everything else OpenAI-related is ours).
 
 ## Commands
 
