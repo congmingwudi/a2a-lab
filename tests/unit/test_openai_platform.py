@@ -23,10 +23,9 @@ async def test_stub_is_default_backend(monkeypatch):
     assert make_adapter().backend.backend_name == "stub"
 
 
-async def test_agents_sdk_backend_is_a_clear_todo():
+async def test_agents_sdk_backend_can_be_selected():
     adapter = make_adapter("agents-sdk")
-    with pytest.raises(NotImplementedError, match="codex-handoff"):
-        await adapter.handle(AgentRequest(message="hi"))
+    assert adapter.backend.backend_name == "agents-sdk"
 
 
 def test_unknown_backend_rejected():

@@ -121,10 +121,13 @@ uv run pytest                     # must stay green (live tests deselected by de
 uv run ruff check . && uv run ruff format .   # line-length 100
 uv run pytest tests/unit/test_openai_agents_backend.py -k <name>
 
-# manual run (stub proves the plumbing; yours replaces it):
+# local manual run: starts a local REST server that calls OpenAI and,
+# when the model chooses the tool, the Salesforce Agentforce agent.
 OPENAI_BACKEND=agents-sdk uv run python -m platforms.openai --protocol rest --port 8011
-curl -s -X POST localhost:8011/invoke -H 'content-type: application/json' \
-  -d '{"message":"Summarize account Omega, Inc. and recent market news"}'
+
+curl -s -X POST http://127.0.0.1:8011/invoke \
+  -H 'content-type: application/json' \
+  -d '{"message":"What is the status of account Omega, Inc.?"}'
 ```
 
 - Imports are package-prefix-free (`from interop.models import ...`);
