@@ -75,8 +75,6 @@ def serve(
     if protocol == "a2a":
         advertised_host = "localhost" if host in ("0.0.0.0", "::") else host
         kwargs["public_url"] = (
-            public_url
-            or os.environ.get("A2A_PUBLIC_URL")
-            or f"http://{advertised_host}:{port}/"
+            public_url or os.environ.get("A2A_PUBLIC_URL") or f"http://{advertised_host}:{port}/"
         )
     uvicorn.run(build_app(adapter, protocol, **kwargs), host=host, port=port, log_level="info")

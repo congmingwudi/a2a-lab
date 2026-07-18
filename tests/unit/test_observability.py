@@ -237,11 +237,14 @@ def test_salesforce_source_blocked_without_env(tmp_path, monkeypatch):
     store.close()
 
 
-def test_openai_source_states_the_gap(tmp_path):
+def test_openai_source_blocked_without_key(tmp_path, monkeypatch):
+    # Built with M9 (D24): harvest works from emit-time-captured response
+    # ids, so without an API key it reports blocked — not not-built.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     store = ObsStore(db_path=tmp_path / "lab.db")
-    result = OpenAISource().harvest(store)
-    assert result.status == "not-built"
-    assert store.summary()["platforms"]["openai"]["harvest"]["status"] == "not-built"
+    result = OpenAISource(fetch=lambda rid: {}).harvest(store)
+    assert result.status == "blocked"
+    assert store.summary()["platforms"]["openai"]["harvest"]["status"] == "blocked"
     store.close()
 
 

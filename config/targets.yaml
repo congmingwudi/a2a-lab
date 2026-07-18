@@ -83,3 +83,12 @@ targets:
     endpoint: http://localhost:8013
     status: native
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  # The AWS-hosted variant (D4/D24): Bedrock AgentCore Runtime, IAM-authed
+  # data plane (invoke_agent_runtime) — no raw HTTP endpoint exists, so the
+  # client is boto3-based. Same container handler as openai-rest.
+  openai-agentcore:
+    platform: openai
+    protocol: agentcore-http
+    status: native
+    options: {timeout: 65}
+    auth: {runtime_arn: "${OPENAI_AGENTCORE_ARN}"}
