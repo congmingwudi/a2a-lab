@@ -121,9 +121,7 @@ async def test_mcp_loopback(echo_servers, isolated_traces):
 
 async def test_a2a_loopback(echo_servers, isolated_traces):
     client = A2AClient(f"http://127.0.0.1:{echo_servers['a2a']}")
-    resp = await client.ask(
-        AgentRequest(message="ping", session_id="ctx-42", trace_id="t-a2a")
-    )
+    resp = await client.ask(AgentRequest(message="ping", session_id="ctx-42", trace_id="t-a2a"))
     assert resp.text == "echo: ping"
     assert resp.session_id == "ctx-42"  # contextId round-trip
     assert resp.raw["state"] == "TASK_STATE_COMPLETED"
@@ -136,9 +134,7 @@ async def test_a2a_loopback(echo_servers, isolated_traces):
 
 async def test_a2a_agent_card_published(echo_servers):
     async with httpx.AsyncClient() as hc:
-        r = await hc.get(
-            f"http://127.0.0.1:{echo_servers['a2a']}/.well-known/agent-card.json"
-        )
+        r = await hc.get(f"http://127.0.0.1:{echo_servers['a2a']}/.well-known/agent-card.json")
         assert r.status_code == 200
         card = r.json()
         assert card["name"] == "echo"

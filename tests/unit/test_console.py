@@ -135,7 +135,11 @@ def test_scenarios_listed(tmp_path, monkeypatch):
     data = client.get("/api/scenarios").json()["scenarios"]
     names = {s["name"]: s for s in data}
     assert "claude-to-agentforce" in names and names["claude-to-agentforce"]["status"] == "live"
-    assert names["chatgpt-to-agentforce"]["status"] == "coming-soon"
+    # D25: the OpenAI pair went live, mirroring the Claude pair — each
+    # direction enters through its own platform and stays two-platform.
+    assert names["chatgpt-to-agentforce"]["status"] == "live"
+    assert names["chatgpt-to-agentforce"]["target"] == "openai-rest"
+    assert names["agentforce-to-chatgpt"]["target"] == "agentforce-openai-rest"
     # D15: the experiment enters through the real Agentforce agent (Agent
     # API); the org itself initiates the bridge hop, not the console.
     assert names["agentforce-to-claude"]["target"] == "agentforce-rest"
@@ -153,8 +157,14 @@ def test_run_scenario_resolves_target_and_suffix(tmp_path, monkeypatch):
     req = registry.fake_client.requests[0]
     assert req.message.startswith("What can you do?")
     assert "ask_agentforce" in req.message  # prompt_suffix appended
-    # coming-soon scenario refuses to run
-    assert client.post("/api/run", json={"scenario": "chatgpt-to-agentforce"}).status_code == 409
+    # a non-live scenario refuses to run (none ship as coming-soon since
+    # D25, so patch one in to keep the refusal path covered)
+    import console.app as console_app
+
+    scenarios = console_app.load_scenarios()
+    scenarios["not-yet"] = {"title": "Not yet", "status": "coming-soon"}
+    monkeypatch.setattr(console_app, "load_scenarios", lambda: scenarios)
+    assert client.post("/api/run", json={"scenario": "not-yet"}).status_code == 409
     # unknown scenario
     assert client.post("/api/run", json={"scenario": "nope"}).status_code == 404
 
@@ -205,15 +215,18 @@ def test_run_async_scenario_returns_immediately(tmp_path, monkeypatch):
     import briefs.runner as brief_runner
 
     async def fake_run_brief(accounts, trace_id, extra_context=""):
-        return {"deliveries": [], "elapsed_s": 0.0, "web_lookups": 0,
-                "session_id": "sesn_x", "text": ""}
+        return {
+            "deliveries": [],
+            "elapsed_s": 0.0,
+            "web_lookups": 0,
+            "session_id": "sesn_x",
+            "text": "",
+        }
 
     monkeypatch.setattr(brief_runner, "run_brief", fake_run_brief)
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
-    data = client.post(
-        "/api/run", json={"scenario": "account-brief-async", "message": "hi"}
-    ).json()
+    data = client.post("/api/run", json={"scenario": "account-brief-async", "message": "hi"}).json()
     assert data["ok"] is True and data.get("async") is True
     assert data["trace_id"]
     assert "research started" in data["text"].lower()

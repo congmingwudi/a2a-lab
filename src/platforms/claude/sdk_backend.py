@@ -56,9 +56,7 @@ def _build_agentforce_tool():
         {"question": str},
     )
     async def ask_agentforce(args: dict) -> dict:
-        resp = await _get_agentforce_client().ask(
-            AgentRequest(message=str(args["question"]))
-        )
+        resp = await _get_agentforce_client().ask(AgentRequest(message=str(args["question"])))
         return {"content": [{"type": "text", "text": resp.text}]}
 
     return ask_agentforce

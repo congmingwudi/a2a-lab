@@ -52,6 +52,13 @@ def _get_agentforce_client():
         from platforms.agentforce.client import AgentforceClient
 
         _agentforce_client = AgentforceClient.from_env()
+        # D25: the OpenAI agent talks to its OpenAI-paired Agentforce twin
+        # (whose external-research action targets openai-rest, not Claude),
+        # keeping each cross-platform experiment a closed two-platform
+        # system. Falls back to the shared SF_AGENT_ID when unset.
+        openai_paired = os.environ.get("SF_OPENAI_AGENT_ID")
+        if openai_paired:
+            _agentforce_client.agent_id = openai_paired
     return _agentforce_client
 
 
