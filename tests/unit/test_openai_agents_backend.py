@@ -86,8 +86,13 @@ async def test_answer_runs_sdk_agent_and_records_response_id(
     agent_kwargs = FakeAgent.calls[0]
     assert agent_kwargs["instructions"] == OPENAI_RESEARCH_SYSTEM_PROMPT
     assert agent_kwargs["model"] == "gpt-test"
-    assert agent_kwargs["model_settings"].kwargs == {"max_tokens": 400, "verbosity": "low"}
-    assert agent_kwargs["tool_use_behavior"] == "stop_on_first_tool"
+    settings = agent_kwargs["model_settings"].kwargs
+    assert settings["max_tokens"] == 2000  # reasoning models spend output tokens on reasoning
+    assert settings["verbosity"] == "low"
+    # Default run-until-done behavior (no stop_on_first_tool): the model
+    # gets a synthesis round after ask_agentforce so it can attribute the
+    # CRM portion — the Path C collaboration contract.
+    assert "tool_use_behavior" not in agent_kwargs
     assert agent_kwargs["tools"][0].tool_kwargs["name_override"] == "ask_agentforce"
 
     lines = [

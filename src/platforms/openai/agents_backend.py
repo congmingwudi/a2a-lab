@@ -34,7 +34,10 @@ from platforms.openai.core import OPENAI_RESEARCH_SYSTEM_PROMPT
 DEFAULT_MODEL = "gpt-5-mini"
 DEFAULT_TIMEOUT_S = "40"
 DEFAULT_AGENTFORCE_TOOL_TIMEOUT_S = "34"
-DEFAULT_MAX_TOKENS = "400"
+# Reasoning models spend "output" tokens on reasoning before any visible
+# text: 400 starved the post-tool synthesis round into an empty answer.
+DEFAULT_MAX_TOKENS = "2000"
+DEFAULT_REASONING_EFFORT = "low"
 
 # One process-lifetime client so the OAuth token survives across tool calls
 # (a per-call client would re-authenticate and leak its connection pool on
@@ -133,16 +136,32 @@ class AgentsSdkBackend:
     def _agent(self):
         from agents import Agent, ModelSettings
 
+        settings_kwargs: dict[str, Any] = {
+            "max_tokens": int(os.environ.get("OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS)),
+            "verbosity": "low",
+        }
+        try:
+            # Low reasoning effort keeps the two model rounds inside the
+            # 40s budget. Guarded import: unit tests fake the `agents`
+            # module and may run without the openai extra installed.
+            from openai.types.shared import Reasoning
+
+            settings_kwargs["reasoning"] = Reasoning(
+                effort=os.environ.get("OPENAI_REASONING_EFFORT", DEFAULT_REASONING_EFFORT)
+            )
+        except ImportError:
+            pass
         return Agent(
             name="OpenAI Researcher",
             instructions=OPENAI_RESEARCH_SYSTEM_PROMPT,
             model=self.model,
-            model_settings=ModelSettings(
-                max_tokens=int(os.environ.get("OPENAI_MAX_TOKENS", DEFAULT_MAX_TOKENS)),
-                verbosity="low",
-            ),
+            model_settings=ModelSettings(**settings_kwargs),
+            # No stop_on_first_tool: after ask_agentforce returns, the model
+            # gets a synthesis round so it can attribute the CRM portion
+            # ("From the CRM (via Agentforce): ...") and add its own
+            # research — the Path C collaboration contract. Budget still
+            # fits: tool leg capped at 34s inside the 40s run cap.
             tools=[_build_agentforce_tool()],
-            tool_use_behavior="stop_on_first_tool",
         )
 
     async def _run(self, req: AgentRequest):
