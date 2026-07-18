@@ -30,11 +30,7 @@ class FakeAgentAPI:
             self.messages.append({"path": path, "body": body})
             return httpx.Response(
                 200,
-                json={
-                    "messages": [
-                        {"type": "Inform", "message": f"answer #{len(self.messages)}"}
-                    ]
-                },
+                json={"messages": [{"type": "Inform", "message": f"answer #{len(self.messages)}"}]},
             )
         if request.method == "DELETE" and "/sessions/" in path:
             self.deleted.append(path.rsplit("/", 1)[-1])

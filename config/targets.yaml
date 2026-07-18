@@ -50,6 +50,18 @@ targets:
     status: via-shim
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
+  # The OpenAI-paired Agentforce twin (ADR D25): same org/credentials,
+  # different agent — its external-research action targets openai-rest.
+  agentforce-openai-rest:
+    platform: agentforce
+    protocol: agentforce-api
+    status: native
+    auth:
+      my_domain: "${SF_MY_DOMAIN}"
+      client_id: "${SF_CLIENT_ID}"
+      client_secret: "${SF_CLIENT_SECRET}"
+      agent_id: "${SF_OPENAI_AGENT_ID}"
+
   # ---- OpenAI agent (M9/Path C — hosted by us; backend = stub|agents-sdk
   # via OPENAI_BACKEND; the agents-sdk backend is the Codex deliverable,
   # plan/06-openai-codex-handoff.md)

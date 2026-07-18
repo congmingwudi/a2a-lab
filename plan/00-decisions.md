@@ -394,3 +394,26 @@ not API-drivable, so it fails D15; a custom GPT with an Action pointed at
 the bridge IS wire-traceable our side and becomes a **manual demo cell**
 (interior dark, not automatable — recorded honestly in the matrix), not
 the primary Path C.
+
+## 2026-07-18 — D25: Per-platform Agentforce twins keep cross-platform experiments closed systems
+**At user request**, after the accept-4 trace showed the OpenAI→Agentforce
+experiment silently becoming a THREE-platform chain (the shared Agentforce
+agent's external-research action delegated to Claude mid-answer): each
+counterpart platform now gets its own Agentforce twin so every experiment
+is a closed two-platform system with attributable contributions. New Agent
+Script bundle `A2ALab_Research_Assistant_OpenAI` (agent
+0XxKB000000xdn30AA, published+activated v1) — behaviorally identical to
+the Claude-paired agent except its `ask_external_researcher` action
+targets **openai-rest**, pinned three ways: a required `target` action
+input ("ALWAYS pass exactly: openai-rest"), the input description, and the
+STEP 2 instruction. **No Apex change / no prod class deploy**: the D15
+invocable already takes `target`; the twin reuses the same agent user,
+permission set, and Named Credential. Lab wiring: `SF_OPENAI_AGENT_ID`
+(the OpenAI backend's ask_agentforce targets the twin),
+`agentforce-openai-rest` target, both OpenAI scenarios flipped live
+(mirroring the Claude pair's flows), openai servers added to run_local.
+Live-verified both directions with wire proof: Agentforce→OpenAI 20.9s
+(apex→bridge→openai-rest, no Claude hop), OpenAI→Agentforce 20.1s (CRM
+attributed, nested research loop bounded). The symmetric self-loop
+(openai→AF-twin→openai) is intentional — it mirrors claude→AF→claude, so
+"the same two experiments" holds exactly across platforms.

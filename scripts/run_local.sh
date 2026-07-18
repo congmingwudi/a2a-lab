@@ -14,6 +14,10 @@ run() { echo "+ $*"; "$@" & PIDS+=($!); }
 run uv run python -m platforms.claude --protocol rest --port 8001
 run uv run python -m platforms.claude --protocol mcp  --port 8002
 run uv run python -m platforms.claude --protocol a2a  --port 8003
+# OpenAI agent (M9/D24) — backend from OPENAI_BACKEND (.env; stub if unset)
+run uv run python -m platforms.openai --protocol rest --port 8011
+run uv run python -m platforms.openai --protocol mcp  --port 8012
+run uv run python -m platforms.openai --protocol a2a  --port 8013
 if [[ -n "${SF_CLIENT_ID:-}" ]]; then
   run uv run python -m platforms.agentforce.mcp_shim --port 8021
   run uv run python -m platforms.agentforce.a2a_shim --port 8023
