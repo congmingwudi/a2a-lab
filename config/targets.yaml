@@ -50,5 +50,24 @@ targets:
     status: via-shim
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
-  # ---- OpenAI agent (M9 — same shape as claude-*, ports 8011/8012/8013)
-  # openai-rest: {platform: openai, protocol: rest, endpoint: http://localhost:8011, status: native}
+  # ---- OpenAI agent (M9/Path C — hosted by us; backend = stub|agents-sdk
+  # via OPENAI_BACKEND; the agents-sdk backend is the Codex deliverable,
+  # plan/06-openai-codex-handoff.md)
+  openai-rest:
+    platform: openai
+    protocol: rest
+    endpoint: http://localhost:8011
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  openai-mcp:
+    platform: openai
+    protocol: mcp
+    endpoint: http://localhost:8012/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  openai-a2a:
+    platform: openai
+    protocol: a2a
+    endpoint: http://localhost:8013
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}

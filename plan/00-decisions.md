@@ -373,3 +373,24 @@ delivery: `/mnt/session/outputs/` fetched via Files API on a
 the analyst observable by the thing it analyzes. Env note: if the agent's
 environment uses `limited` networking, set `allow_mcp_servers: true` or
 list the MCP host, else tool calls fail silently.
+
+## 2026-07-18 — D24: Path C = OpenAI Agents SDK on AgentCore; interior built by Codex; ChatGPT cell is manual-only
+Refines D4 with three calls. (1) **Runtime vs model**: AgentCore hosts the
+container; the brain is the **OpenAI Agents SDK calling the real OpenAI
+API** — not gpt-oss-on-Bedrock — because M9's observability column
+(TracingProcessor tee, response-id capture) only exists on OpenAI's
+platform. SCP preflight passed 2026-07-18: `bedrock-agentcore-control`
+responds in embark (tonight's D23 lesson: preflight org SCPs before
+committing to an AWS service). (2) **Build split, at user request**: the
+lab side (adapter/backend seam, stub backend, protocol servers, ports
+8011/8012/8013, targets.yaml cells, AgentCore Dockerfile, tests) is built
+here; the agent interior (`AgentsSdkBackend`) is handed to **OpenAI
+Codex** against the written contract in plan/06-openai-codex-handoff.md —
+on-brand for a cross-vendor lab (each vendor's coding agent builds its own
+platform's integration) with the seam kept convention-safe on our side.
+(3) **ChatGPT-native paths**: "Agentforce Sales in ChatGPT" (Salesforce's
+app, open beta) is a closed surface — can't host our agent, no trace API,
+not API-drivable, so it fails D15; a custom GPT with an Action pointed at
+the bridge IS wire-traceable our side and becomes a **manual demo cell**
+(interior dark, not automatable — recorded honestly in the matrix), not
+the primary Path C.
