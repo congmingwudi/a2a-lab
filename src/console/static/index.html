@@ -380,6 +380,23 @@
   .obs-status.ok { color: var(--rest); border-color: color-mix(in srgb, var(--rest) 45%, transparent); }
   .obs-status.blocked { color: var(--mcp); border-color: color-mix(in srgb, var(--mcp) 45%, transparent); }
   .obs-status.error { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
+  .brief-md { font-size: 13px; line-height: 1.6; }
+  .brief-md p { margin: 0 0 10px; }
+  .brief-md h4, .brief-md h5, .brief-md h6 { margin: 14px 0 6px; font-size: 13.5px; }
+  .brief-md ul, .brief-md ol { margin: 4px 0 10px; padding-left: 22px; }
+  .brief-md li { margin: 4px 0; }
+  .brief-md code { background: var(--code); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 5px; font-family: var(--font-mono); font-size: 11.5px; }
+  .brief-md pre { margin: 6px 0 10px; overflow-x: auto; }
+  .obs-updated { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
+  .obs-pipe { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 10px 0 4px; }
+  .obs-pipe .stage { flex: 1 1 150px; min-width: 150px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; position: relative; }
+  .obs-pipe .stage h5 { margin: 0 0 6px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .obs-pipe .stage p { margin: 0; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  .obs-pipe .stage .who { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 10px;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .obs-pipe .arr { align-self: center; padding: 0 6px; color: var(--muted); font-size: 16px; flex: 0 0 auto; }
   .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
   .obs-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   .obs-card h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
@@ -435,13 +452,15 @@
         <div id="scenarios"></div>
       </div>
     </details>
-    <details class="acc" id="accObs">
-      <summary>Observability <span class="count" id="obsCount"></span></summary>
+    <details class="acc" id="accObs" open>
+      <summary onclick="obsSummaryNav(event)">Observability <span class="count" id="obsCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
           <span class="hint">Each platform's own record of the agents' runs.</span>
           <button class="ghost" id="harvestBtn" onclick="harvestObs(event)"
             title="Pull fresh execution logs from each platform's API into the local store">Harvest</button>
+          <button class="ghost" id="analyzeBtn" onclick="runAnalysis(event)"
+            title="Fire the hosted analyst agent (D23): a manual deployment run reads the Aurora store through the obs MCP server and saves a findings brief">Analyze</button>
         </div>
         <div class="hint" id="obsMsg" style="display:none; padding: 0 12px 8px"></div>
         <div id="obsSide"></div>
@@ -891,7 +910,128 @@ async function loadObs() {
     renderObsSide();
     if (view && view.type === "obs") renderMain(true);
   } catch { /* transient — store may not exist yet; panel shows the empty state */ }
+  loadBriefs();
 }
+
+// Findings briefs from the hosted analyst (D23) — read from Aurora, shown
+// in the canvas's "Analysis brief" tab.
+async function loadBriefs() {
+  try {
+    const r = await fetch(apiUrl("/api/obs/briefs"));
+    if (r.status === 404) return;
+    const data = await r.json();
+    const had = (obs.briefs || []).length;
+    obs.briefs = data.briefs || [];
+    if (obs.briefs.length > had && obs.analysisRunning) {
+      // The awaited brief arrived — stop watching and show it.
+      obs.analysisRunning = false;
+      if (obs.briefWatch) { clearInterval(obs.briefWatch); obs.briefWatch = null; }
+      obs.tab = "brief";
+      obsMsg("");
+    }
+    if (view && view.type === "obs" && !view.session) renderMain(true);
+  } catch { /* hosted store not configured — the brief tab explains itself */ }
+}
+
+window.setObsTab = t => {
+  obs.tab = t;
+  renderMain(true);
+};
+
+function obsBriefsHtml() {
+  const briefs = obs.briefs || [];
+  const running = obs.analysisRunning ? `
+    <div class="desc"><span class="stat">${esc(obs.analysisAgent || "The analyst agent")} is running —
+      this tab updates when the brief lands (usually a few minutes).</span></div>` : "";
+  if (!briefs.length) return `
+  <div class="flow">
+    <h3>Analysis brief</h3>
+    ${running || `<div class="desc"><span class="stat">No briefs yet — hit <b>Analyze</b> in the sidebar and the
+      Claude-managed analyst will query the store and save its findings here.</span></div>`}
+  </div>`;
+  const latest = briefs[0];
+  return `
+  <div class="flow">
+    <h3>Analysis brief — ${esc(latest.brief_date)}
+      <span class="obs-updated" style="float:right">last updated ${fmtWhen(latest.created_at)}</span></h3>
+    ${running}
+    <div class="desc"><span class="stat">Curated by the Claude-managed analyst agent over the harvested store
+      (${latest.queries_run ?? "?"} queries${latest.session_id ? " · session " + esc(latest.session_id.slice(-8)) : ""}).</span></div>
+    <div class="obs-card brief-md">${mdToHtml(latest.brief_md)}</div>
+    ${briefs.length > 1 ? `
+    <h3 style="margin-top:18px">Past briefs</h3>
+    ${briefs.slice(1).map(b => `
+      <details>
+        <summary style="cursor:pointer; font-size:12.5px; padding:4px 0">${esc(b.brief_date)} · ${b.queries_run ?? "?"} queries · ${fmtWhen(b.created_at)}</summary>
+        <div class="obs-card brief-md" style="margin:6px 0">${mdToHtml(b.brief_md)}</div>
+      </details>`).join("")}` : ""}
+  </div>`;
+}
+
+// "last updated" stamp: absolute local time + relative age.
+function fmtWhen(value) {
+  if (!value) return "—";
+  let d;
+  if (typeof value === "number") d = new Date(value * 1000);
+  else {
+    // Postgres text casts look like "2026-07-18 16:12:34.1+00" — normalize
+    // to ISO with a full offset so Date() parses reliably.
+    let s = String(value).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00");
+    if (!/[+Z]/i.test(s.slice(10))) s += "Z";
+    d = new Date(s);
+  }
+  if (isNaN(d)) return esc(String(value));
+  const ago = fmtAgo(d.getTime() / 1000);
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })} (${ago})`;
+}
+
+function obsTabsHtml() {
+  return `
+  <div class="tabbar">
+    <h2>Observability</h2>
+    <div class="tabs">
+      <button class="tab ${obs.tab !== "brief" ? "on" : ""}" onclick="setObsTab('dashboard')">Dashboard</button>
+      <button class="tab ${obs.tab === "brief" ? "on" : ""}" onclick="setObsTab('brief')">Analysis brief</button>
+    </div>
+  </div>`;
+}
+
+window.runAnalysis = async ev => {
+  if (ev) ev.stopPropagation();
+  if (obs.analyzing) return;
+  obs.analyzing = true;
+  const btn = document.getElementById("analyzeBtn");
+  if (btn) { btn.textContent = "Analyzing…"; btn.disabled = true; }
+  obsMsg("Firing the hosted analyst — a manual deployment run on the Claude platform…");
+  try {
+    const r = await fetch(apiUrl("/api/obs/analysis/run"), { method: "POST" });
+    if (r.status === 404) {
+      obsMsg("Console server predates the analysis API — restart scripts/run_local.sh.", true);
+      return;
+    }
+    const data = await r.json();
+    if (!data.ok) { obsMsg("Analysis failed to start: " + (data.error || "unknown"), true); return; }
+    const who = `Claude Managed Agent '${data.agent_name || "Observability Analyst"}'`;
+    obsMsg(`${who} is running — the brief appears in the Analysis brief tab in a few minutes.`);
+    obs.analysisRunning = true;
+    obs.analysisAgent = who;
+    obs.tab = "brief";
+    if (!view || view.type !== "obs") obsSummaryNav();
+    else renderMain(true);
+    // Watch for the brief every 30s, give up after 20 minutes.
+    if (obs.briefWatch) clearInterval(obs.briefWatch);
+    let ticks = 0;
+    obs.briefWatch = setInterval(() => {
+      if (++ticks > 40) { clearInterval(obs.briefWatch); obs.briefWatch = null; obs.analysisRunning = false; return; }
+      loadBriefs();
+    }, 30000);
+  } catch (e) {
+    obsMsg("Analysis failed to start: " + e, true);
+  } finally {
+    obs.analyzing = false;
+    if (btn) { btn.textContent = "Analyze"; btn.disabled = false; }
+  }
+};
 
 function renderObsSide() {
   const el = document.getElementById("obsSide");
@@ -1005,12 +1145,92 @@ function obsCrumbsHtml() {
   return `<div class="crumbs">${backBtnHtml()}${crumbs.join("")}</div>`;
 }
 
+// The observability story, drawn: platforms → harvest → store → dashboard
+// → analyst → brief. Shown expanded when the store is empty (first-run
+// explainer), collapsed above the dashboard once data exists.
+function obsPipelineHtml(hasData) {
+  const diagram = `
+  <div class="obs-pipe">
+    <div class="stage">
+      <h5>Agent platforms</h5>
+      <p>Agentforce (Data Cloud session tracing), Claude Managed Agents (session events), OpenAI
+        (captured at emit time) — each platform's <i>interior</i> record of the runs this lab drove.</p>
+      <span class="who">agentforce · claude · openai</span>
+    </div>
+    <div class="arr">→</div>
+    <div class="stage">
+      <h5>Harvest</h5>
+      <p>Deterministic pulls of those execution logs — no LLM in the loop. Runs hosted every 6h
+        (Lambda + EventBridge) and on demand from the Harvest button.</p>
+      <span class="who">obs_harvest · a2alab-obs-harvest</span>
+    </div>
+    <div class="arr">→</div>
+    <div class="stage">
+      <h5>Postgres store</h5>
+      <p>Aurora (schema <code>lab</code>): platform logs joined to the lab's own wire traces via
+        <code>platform_ref</code>, plus the analyst's briefs. Local dev mirrors this in SQLite.</p>
+      <span class="who">lab.trace_events ⋈ lab.obs_sessions</span>
+    </div>
+    <div class="arr">→</div>
+    <div class="stage">
+      <h5>Drill-down dashboard</h5>
+      <p>This section: coverage per platform, sessions, per-event detail, and the joins back to raw
+        wire payloads.</p>
+      <span class="who">this console</span>
+    </div>
+    <div class="arr">→</div>
+    <div class="stage">
+      <h5>Analyst agent</h5>
+      <p>A Claude-managed agent reads the store through a remote MCP server (read-only SQL) and
+        curates a findings brief — failures, latency by protocol, token spend. Nightly (paused) or
+        via Analyze.</p>
+      <span class="who">save_brief → briefs feed</span>
+    </div>
+  </div>`;
+  if (!hasData) return `
+  <div class="flow">
+    <h3>How observability works here</h3>
+    <div class="desc"><span class="stat">Nothing harvested yet — hit <b>Harvest</b> in the sidebar to pull each
+      platform's execution logs, then <b>Analyze</b> to have the analyst agent write its first brief.</span></div>
+    ${diagram}
+  </div>`;
+  return `
+  <div class="flow">
+    <details>
+      <summary style="cursor:pointer; font-size:12px; color:var(--muted)">How observability works here — the pipeline</summary>
+      ${diagram}
+    </details>
+  </div>`;
+}
+
+function obsHasData() {
+  const plats = (obs.summary && obs.summary.platforms) || {};
+  return Object.values(plats).some(i => (i.sessions || 0) > 0 || (i.events || 0) > 0)
+    || (obs.briefs || []).length > 0;
+}
+
+window.obsSummaryNav = ev => {
+  // The Observability section stays expanded (D18 — it's a top-level lab
+  // surface now): the header click navigates the canvas to the overview
+  // (dashboard if harvested data exists, explainer otherwise) instead of
+  // collapsing the accordion.
+  if (ev) ev.preventDefault();
+  document.getElementById("accObs").open = true;
+  if (view && view.type === "obs" && !view.platform && !view.session) return;
+  pushNav();
+  view = { type: "obs", platform: null, session: null };
+  obs.events = null;
+  renderSidebar(); renderMain(true);
+};
+
 function obsDashboardHtml() {
   const caps = (obs.summary && obs.summary.capabilities) || {};
   const info = p => (obs.summary && obs.summary.platforms && obs.summary.platforms[p]) || {};
+  const newest = Math.max(0, ...Object.keys(caps).map(p => (info(p).harvest || {}).at || 0));
   return `
   <div class="flow">
-    <h3>Coverage — what each platform lets us pull</h3>
+    <h3>Coverage — what each platform lets us pull
+      <span class="obs-updated" style="float:right">last updated ${newest ? fmtWhen(newest) : "never — run a harvest"}</span></h3>
     <div class="desc"><span class="stat">Harvest-and-cache: logs are pulled from each platform's API into the
       local store (CMA events die with their session; Data Cloud queries cost credits; OpenAI has no read API).
       The gaps below are findings, not TODOs — this is the honest matrix from plan/05-observability.md, live.</span></div>
@@ -1654,10 +1874,19 @@ function renderMain(force) {
   }
 
   if (view.type === "obs") {
-    mainKey = `obs:${view.platform || "*"}:${view.session || ""}`;
-    el.innerHTML = obsCrumbsHtml() + (view.session
-      ? obsSessionDetailHtml()
-      : obsDashboardHtml() + obsSessionsHtml(view.platform));
+    mainKey = `obs:${view.platform || "*"}:${view.session || ""}:${obs.tab || "dashboard"}`;
+    if (view.session) {
+      el.innerHTML = obsCrumbsHtml() + obsSessionDetailHtml();
+    } else if (view.platform) {
+      el.innerHTML = obsCrumbsHtml() + obsDashboardHtml() + obsSessionsHtml(view.platform);
+    } else if (!obsHasData()) {
+      // First-run: explain the pipeline instead of an empty dashboard.
+      el.innerHTML = obsCrumbsHtml() + obsPipelineHtml(false);
+    } else {
+      el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + (obs.tab === "brief"
+        ? obsBriefsHtml()
+        : obsPipelineHtml(true) + obsDashboardHtml() + obsSessionsHtml(null));
+    }
     return;
   }
 

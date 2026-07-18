@@ -184,3 +184,57 @@ One-time setup (after §1 and §2 are done):
 5. **Downstream (M10):** index `Brief__c` for vector search in Data 360 so
    the Agentforce agent grounds account answers / sales plays in the
    latest brief.
+
+## 8. Hosted obs store + analyst (D23 / M11.5)
+
+Provisioned 2026-07-17 in the embark account (D21), us-east-1:
+- **Aurora Postgres Serverless v2** `a2alab-obs` (engine 16.13, min ACU 0 —
+  scale-to-zero; Data API enabled; publicly accessible instance
+  `a2alab-obs-1`; SG `a2alab-aurora-sg` allowlists the lab host only).
+  Database `a2alab`, schema `lab`: trace_events, obs_sessions, obs_events,
+  obs_harvest, obs_briefs (all jsonb payloads).
+- **Roles/secrets** (Secrets Manager): master (RDS-managed),
+  `a2alab/obs/writer` (lab_writer), `a2alab/obs/reader` (lab_reader —
+  default_transaction_read_only, 15s statement_timeout). The Data API
+  secret ARN *is* the role selection; 5432 stays closed to AWS compute.
+- **Lambdas** (arm64, py3.12, role `a2alab-obs-lambda`):
+  `a2alab-obs-mcp` (obs_mcp/lambda_entry.handler — the MCP server; bearer
+  token in env + `.a2alab/obs_mcp.json`) and `a2alab-obs-harvest`
+  (observability/lambda_handlers.handler; creds from `a2alab/obs/harvest`
+  secret; EventBridge schedule `a2alab-obs-harvest-6h`).
+- **Public MCP endpoint = API Gateway HTTP API** `a2alab-obs-mcp`
+  (`https://<api-id>.execute-api.us-east-1.amazonaws.com`), invoking the
+  Lambda via integration-credentials role `a2alab-obs-apigw`. NOT a Lambda
+  Function URL: the org SCP explicitly denies `lambda:AddPermission`, so a
+  public (auth NONE) Function URL can never be granted invoke access — the
+  symptom is an AWS-layer 403, surfacing on the Anthropic side as
+  `mcp_connection_failed_error: initialize failed: access forbidden`.
+  API GW's 2.0 payload format matches the Function URL event shape, so the
+  handler is unchanged.
+- Rebuild + update zips: `deploy/obs/build_zips.sh`, then
+  `aws lambda update-function-code --function-name <fn> --zip-file
+  fileb://deploy/obs/dist/<fn>.zip`.
+
+**Finish once (public exposure needs a human):**
+1. `AWS_PROFILE=embark AWS_REGION=us-east-1 deploy/obs/expose_mcp.sh`
+   — creates the Function URL, saves it to `.a2alab/obs_mcp.json`.
+2. `uv run python scripts/setup_obs_analyst.py --recreate --run` — vault +
+   static_bearer credential, analyst agent (mcp_toolset → obs-store),
+   nightly deployment created **paused**, then one manual smoke run.
+
+**Ops:** `scripts/obs_analysis.py run|status|latest|pause|resume`; console
+Observability section has Analyze + an Analysis brief tab. Backfill/refresh
+from local sqlite: `scripts/pg_backfill.py` (writer secret ARN in env).
+
+**Gotcha — MCP tools evaluate as `ask` by default here.** Without an
+explicit `default_config: {permission_policy: {type: "always_allow"}}` on
+the `mcp_toolset`, every MCP call idles the session awaiting a
+`user.tool_confirmation` — which deadlocks unattended deployment runs (no
+client is connected; that's the point of D23). setup_obs_analyst.py sets
+it explicitly; symptom if it regresses: session idle `requires_action` on
+`agent.mcp_tool_use` events, `evaluated_permission: "ask"`.
+
+**Data 360 (M10):** the Aurora Postgres zero-copy connector replaces the
+DynamoDB one — needs the cluster endpoint reachable from Salesforce IP
+ranges (extend the SG), TLS, and a `lab_reader`-style user scoped to the
+`lab` schema. Set up in Data 360 UI; not automatable here.

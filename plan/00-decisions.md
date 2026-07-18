@@ -318,3 +318,58 @@ custom tool and writes an interpretive nightly brief (failures, token
 anomalies, cross-platform comparisons). Deferred until the store holds real
 multi-platform data — STDM/GenAI toggles were enabled 2026-07-17, DMOs
 materializing; revisit after the first live Salesforce harvest.
+
+## 2026-07-17 — D23: Hosted obs analyst = Aurora Postgres store + MCP front + scheduled deployment (no driver loop)
+Direction decided for the hosted phase; the D22/D19 local design stays as
+the working prototype until then. Constraint forcing the fork: CMA **custom
+tools are pull-serviced** — `agent.custom_tool_use` arrives on an outbound
+SSE stream a local driver holds open (`analyst.py:_drive`); with no driver
+attached the tool call parks until the session times out. Fine on a laptop
+(D16's `--watch` exists for exactly this), disqualifying for a hosted,
+cron-fired analyst. Rule extracted: **a scheduled/hosted agent may only use
+tools servable without a client attached** — custom tools are the one tool
+type that blocks on one.
+
+**Store = Aurora PostgreSQL Serverless v2** (scale-to-zero, embark account
+per D21, us-east-1) — one store for all five consumers: trace hops (new
+`postgres` TraceSink), harvested obs tables (obs_harvest writes here),
+hosted console reads, the analyst's ad-hoc SQL, and M10 reporting.
+Considered and rejected: DynamoDB-only (no joins/aggregates — kills the
+analyst workload, whose entire value is ad-hoc SQL over
+trace_events⋈obs_sessions); DynamoDB+Athena two-tier (was the leading
+option while DynamoDB held the only Data 360 zero-copy path, but Data 360's
+**AWS Aurora PostgreSQL connector is GA for Zero Copy query federation**,
+so Postgres now serves M10 too and the second tier buys nothing);
+Timestream (dead-ended), OpenSearch/CloudWatch (hide the raw payloads the
+lab exists to show). Payloads land as **jsonb** — strictly better than the
+JSON-strings-because-DynamoDB-rejects-floats shape of D13. Retention via
+pg_cron/partition drops replaces TTL. **Supersedes**: D13's dynamodb sink
+is no longer the cloud path (code stays; a2alab-traces decommissionable)
+and M10 rebuilds on the Aurora connector instead of the DynamoDB one.
+
+Connector-driven design constraints (verified against the setup doc):
+federation reaches the cluster endpoint (`*.rds.amazonaws.com`) with
+username/password, scoped to one database+schema, from Salesforce IP
+ranges — so the cluster needs a reachable endpoint with a tight
+security-group allowlist (Salesforce IPs + the MCP server) and TLS
+required; auth is a dedicated schema-scoped **read-only role** shared in
+kind (not in credential) with the analyst path. Roles: `lab_writer` for
+sinks/harvest, `lab_reader` for Data 360 and the analyst MCP server, with
+statement_timeout and row caps enforced in DB grants/settings — the
+server-side successor to `_run_readonly_sql`'s app-level guard.
+
+Analyst wiring, three pieces: (1) **harvest** = obs_harvest.py as hosted
+cron writing Aurora (keeps SF/Anthropic creds; stays our code);
+(2) **access** = thin remote MCP server (Streamable HTTP) exposing
+`query_obs_store` backed by `lab_reader`; declared on the agent via
+`mcp_servers` + `mcp_toolset`, token in a vault attached by `vault_ids`
+(credentials never enter the sandbox) — data access becomes
+server-to-server, no session driving needed; (3) **schedule** = CMA
+scheduled deployment (the D16 pattern), but unlike D16 firings complete
+with **no watcher process** since every tool is server-servable. Brief
+delivery: `/mnt/session/outputs/` fetched via Files API on a
+`session.status_idled` webhook (D20's stable hostname prereq), or a
+`save_brief` MCP tool writing back into Aurora — preferred, since it keeps
+the analyst observable by the thing it analyzes. Env note: if the agent's
+environment uses `limited` networking, set `allow_mcp_servers: true` or
+list the MCP host, else tool calls fail silently.

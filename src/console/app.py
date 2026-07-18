@@ -640,6 +640,64 @@ def create_console_app(registry: Registry | None = None):
         results = await asyncio.get_event_loop().run_in_executor(None, run)
         return {"ok": True, "results": results}
 
+    # ---- Hosted analyst (D23): briefs feed + ad-hoc analysis runs ---------
+    # The analyst is a paused scheduled deployment on the Claude platform;
+    # "Analyze" fires a manual deployment run (no local driver — the agent
+    # reaches the store through the obs MCP server). Briefs land in
+    # lab.obs_briefs on Aurora and are read back here.
+
+    @app.get("/api/obs/briefs")
+    async def obs_briefs():
+        from observability.pg import PgClient, PgObsStore
+
+        if not PgClient.configured():
+            return {"briefs": [], "error": "hosted store not configured (A2ALAB_PG_*)"}
+
+        def run():
+            store = PgObsStore()
+            try:
+                return store.list_briefs()
+            finally:
+                store.close()
+
+        try:
+            briefs = await asyncio.get_event_loop().run_in_executor(None, run)
+            return {"briefs": briefs}
+        except Exception as exc:  # noqa: BLE001 - surface, don't 500 the panel
+            return {"briefs": [], "error": f"{type(exc).__name__}: {exc}"}
+
+    @app.post("/api/obs/analysis/run")
+    async def obs_analysis_run():
+        import time as _time
+
+        state_file = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "obs_analyst.json"
+        if not state_file.exists():
+            return {"ok": False, "error": "analyst not provisioned — scripts/setup_obs_analyst.py"}
+        state = json.loads(state_file.read_text())
+        if state.get("mode") != "hosted" or not state.get("deployment_id"):
+            return {"ok": False, "error": "analyst is not in hosted mode (D23)"}
+
+        agent_name = state.get("agent_name") or "Observability Analyst"
+
+        def run():
+            from anthropic import Anthropic
+
+            client = Anthropic()
+            client.beta.deployments.run(state["deployment_id"])
+            for _ in range(6):  # short poll for the session id; UI can check later
+                _time.sleep(2)
+                for dr in client.beta.deployment_runs.list(deployment_id=state["deployment_id"]):
+                    if dr.session_id:
+                        return {"ok": True, "session_id": dr.session_id, "agent_name": agent_name}
+                    if getattr(dr, "error", None):
+                        return {"ok": False, "error": f"{dr.error.type}: {dr.error.message}"}
+            return {"ok": True, "session_id": None, "agent_name": agent_name}
+
+        try:
+            return await asyncio.get_event_loop().run_in_executor(None, run)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
     # The console is tunnel-exposed and its API returns every raw wire
     # payload — including production-org responses. Only the static index
     # stays open; /api/* requires the lab token (query param allowed because

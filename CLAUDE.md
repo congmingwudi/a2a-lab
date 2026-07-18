@@ -22,6 +22,9 @@ uv run python scripts/sf_smoke.py    # Agentforce go/no-go (needs SF_* in .env)
 uv run python scripts/obs_harvest.py # pull platform execution logs → traces/lab.db (M11)
 uv run python scripts/trace_import.py # rebuild lab.db trace tables from the JSONL archive
 uv run python scripts/setup_managed_agent.py       # once: provisions the Managed Agents agent
+uv run python scripts/obs_analysis.py run          # fire the hosted obs analyst (D23)
+uv run python scripts/pg_backfill.py               # copy local lab.db → hosted Aurora store
+deploy/obs/build_zips.sh                           # rebuild the obs Lambda bundles (D23)
 ```
 
 Code under `src/` is imported without a package prefix (`from interop import ...`); tests add `src/` to `sys.path` via conftest, and scripts run with `PYTHONPATH=src` (run_local.sh does this). Config comes from `.env` (see `.env.example`).
