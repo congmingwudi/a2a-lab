@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 
+from interop import delegation
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, new_trace_id
 from interop.registry import Registry
@@ -82,6 +83,12 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
         if delay:
             await asyncio.sleep(delay)
 
+        # Delegation guard (D27): every bridge forward IS a delegation (the
+        # Agentforce twin farming out through Apex). Refuse over-depth
+        # requests with a clean wire-visible answer instead of letting a
+        # circular chain die of stacked timeouts; otherwise stamp the
+        # standard rider + metadata on what we forward.
+        inbound_depth = delegation.depth_of(req)
         start = time.perf_counter()
         with Hop(
             req.trace_id,
@@ -91,6 +98,22 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
             transport_detail=f"POST /invoke/{target_name}",
             request_payload=body,
         ) as hop:
+            if not delegation.allowed(req):
+                payload = {
+                    "text": delegation.refusal("bridge"),
+                    "session_id": req.session_id,
+                    "delegation_refused": True,
+                    "bridge": {"target": target_name, "protocol": target.protocol},
+                }
+                hop.response_payload = payload
+                return payload
+            req.message, meta = delegation.delegate(
+                req.message,
+                caller="agentforce-twin-via-bridge",
+                platform="agentforce",
+                inbound_depth=inbound_depth,
+            )
+            req.metadata = {**(req.metadata or {}), **meta}
             resp = await get_client(target_name).ask(req)
             payload = resp.to_dict()
             payload["bridge"] = {

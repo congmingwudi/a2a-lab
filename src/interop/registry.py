@@ -45,8 +45,9 @@ def _expand_env(value: Any) -> Any:
 
 
 class Registry:
-    def __init__(self, targets: dict[str, Target]):
+    def __init__(self, targets: dict[str, Target], modes: dict[str, dict[str, str]] | None = None):
         self.targets = targets
+        self.modes = modes or {}
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_TARGETS_PATH) -> "Registry":
@@ -63,21 +64,34 @@ class Registry:
                 status=spec.get("status", "native"),
                 options=spec.get("options") or {},
             )
-        return cls(targets)
+        return cls(targets, modes=raw.get("modes") or {})
 
     def get(self, name: str) -> Target:
         if name not in self.targets:
-            raise KeyError(
-                f"unknown target '{name}' — known targets: {sorted(self.targets)}"
-            )
+            raise KeyError(f"unknown target '{name}' — known targets: {sorted(self.targets)}")
         return self.targets[name]
 
-    def client_for(self, name: str):
+    @property
+    def mode(self) -> str:
+        return os.environ.get("A2ALAB_MODE", "local")
+
+    def resolve_name(self, name: str) -> str:
+        """Apply the active deployment mode's remap (A2ALAB_MODE, e.g.
+        local -> hosted): the bridge, custom tools, and console scenario runs
+        follow the remap so one env flip repoints every experiment at the
+        hosted runtimes without touching Salesforce or scenario config.
+        Unknown mode or unmapped target resolves to itself."""
+        return self.modes.get(self.mode, {}).get(name, name)
+
+    def client_for(self, name: str, *, exact: bool = False):
         """Instantiate the RemoteAgentClient for a target. Callers own the
         client's lifetime — hold one per target (they cache tokens, sessions,
-        and connections), don't build one per request."""
-        target = self.get(name)
-        kwargs: dict[str, Any] = {"auth": target.auth, "target_name": name}
+        and connections), don't build one per request.
+
+        The active A2ALAB_MODE remap applies unless exact=True — the matrix
+        harness passes exact so every cell measures the target it names."""
+        target = self.get(name if exact else self.resolve_name(name))
+        kwargs: dict[str, Any] = {"auth": target.auth, "target_name": target.name}
         if target.options.get("timeout"):
             kwargs["timeout"] = float(target.options["timeout"])
         if target.protocol == "rest":
@@ -96,4 +110,8 @@ class Registry:
             from platforms.agentforce.client import AgentforceClient
 
             return AgentforceClient.from_target(target)
+        if target.protocol == "agentcore-http":
+            from interop.clients.agentcore import AgentCoreClient
+
+            return AgentCoreClient.from_target(target)
         raise ValueError(f"no client for protocol '{target.protocol}'")

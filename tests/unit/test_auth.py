@@ -37,9 +37,7 @@ def test_rejects_without_token(monkeypatch):
 def test_accepts_header_and_bearer(monkeypatch):
     client = make_client(monkeypatch, token_env="sekrit")
     assert client.get("/api/data", headers={"x-lab-token": "sekrit"}).status_code == 200
-    assert (
-        client.get("/api/data", headers={"authorization": "Bearer sekrit"}).status_code == 200
-    )
+    assert client.get("/api/data", headers={"authorization": "Bearer sekrit"}).status_code == 200
     assert client.get("/api/data", headers={"x-lab-token": "wrong"}).status_code == 401
 
 

@@ -55,9 +55,7 @@ class RestClient(RemoteAgentClient):
                 # structured {"error": ...}) instead of a bare status line —
                 # this message is what the console shows the operator.
                 detail = r.text[:400] if r.text else "(empty body)"
-                raise RuntimeError(
-                    f"HTTP {r.status_code} from {url} — server said: {detail}"
-                )
+                raise RuntimeError(f"HTTP {r.status_code} from {url} — server said: {detail}")
             data = r.json()
         resp = AgentResponse.from_dict(data)
         resp.latency_ms = int((time.perf_counter() - start) * 1000)

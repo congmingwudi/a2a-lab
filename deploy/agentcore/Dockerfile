@@ -19,7 +19,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev
+# --extra aws: boto3 for the Postgres TraceSink via Data API — without it
+# the container's hops are silently dropped (same lesson as openai.Dockerfile).
+RUN uv sync --frozen --no-install-project --no-dev --extra aws
 COPY src ./src
 COPY config ./config
 

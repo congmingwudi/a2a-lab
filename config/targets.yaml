@@ -31,6 +31,18 @@ targets:
     endpoint: http://localhost:8003
     status: native
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  # The AWS-hosted twin (D26): the sdk backend containerized on Bedrock
+  # AgentCore Runtime — the self-hosted counterpart to the Managed Agents
+  # default, and the apples-to-apples peer of openai-agentcore. Same
+  # deploy path: deploy/agentcore/deploy.sh claude
+  claude-agentcore:
+    platform: claude
+    protocol: agentcore-http
+    status: native
+    # warmup: cold starts (~56s here, ~31s openai) blow demo budgets — the
+    # console's warm-up panel pings flagged targets and records durations
+    options: {timeout: 65, warmup: true}
+    auth: {runtime_arn: "${CLAUDE_AGENTCORE_ARN}"}
 
   # ---- Agentforce (hosted by Salesforce)
   agentforce-rest:
@@ -50,5 +62,56 @@ targets:
     status: via-shim
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
-  # ---- OpenAI agent (M9 — same shape as claude-*, ports 8011/8012/8013)
-  # openai-rest: {platform: openai, protocol: rest, endpoint: http://localhost:8011, status: native}
+  # The OpenAI-paired Agentforce twin (ADR D25): same org/credentials,
+  # different agent — its external-research action targets openai-rest.
+  agentforce-openai-rest:
+    platform: agentforce
+    protocol: agentforce-api
+    status: native
+    auth:
+      my_domain: "${SF_MY_DOMAIN}"
+      client_id: "${SF_CLIENT_ID}"
+      client_secret: "${SF_CLIENT_SECRET}"
+      agent_id: "${SF_OPENAI_AGENT_ID}"
+
+  # ---- OpenAI agent (M9/Path C — hosted by us; backend = stub|agents-sdk
+  # via OPENAI_BACKEND; the agents-sdk backend is the Codex deliverable,
+  # plan/06-openai-codex-handoff.md)
+  openai-rest:
+    platform: openai
+    protocol: rest
+    endpoint: http://localhost:8011
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  openai-mcp:
+    platform: openai
+    protocol: mcp
+    endpoint: http://localhost:8012/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  openai-a2a:
+    platform: openai
+    protocol: a2a
+    endpoint: http://localhost:8013
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  # The AWS-hosted variant (D4/D24): Bedrock AgentCore Runtime, IAM-authed
+  # data plane (invoke_agent_runtime) — no raw HTTP endpoint exists, so the
+  # client is boto3-based. Same container handler as openai-rest.
+  openai-agentcore:
+    platform: openai
+    protocol: agentcore-http
+    status: native
+    options: {timeout: 65, warmup: true}
+    auth: {runtime_arn: "${OPENAI_AGENTCORE_ARN}"}
+
+# Deployment modes (D26): A2ALAB_MODE=hosted transparently remaps these
+# names wherever a client is resolved (bridge, custom tools, console runs) —
+# one env flip moves every experiment from local servers to the AgentCore
+# runtimes with no Salesforce or scenario changes. scripts/matrix.py is
+# exempt (exact=True): a matrix cell always measures the target it names.
+# Restart the stack after flipping — bridge/console cache clients per name.
+modes:
+  hosted:
+    claude-rest: claude-agentcore
+    openai-rest: openai-agentcore

@@ -33,9 +33,7 @@ from interop.registry import Registry, Target
 
 pytestmark = [
     pytest.mark.live,
-    pytest.mark.skipif(
-        not os.environ.get("ANTHROPIC_API_KEY"), reason="needs ANTHROPIC_API_KEY"
-    ),
+    pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="needs ANTHROPIC_API_KEY"),
 ]
 
 needs_salesforce = pytest.mark.skipif(
@@ -117,9 +115,7 @@ async def test_path_b_claude_consults_agentforce(isolated_traces):
     from platforms.claude.core import make_adapter
 
     adapter = make_adapter("managed")
-    resp = await adapter.handle(
-        AgentRequest(message=CONSULT_AGENTFORCE, trace_id="live-path-b")
-    )
+    resp = await adapter.handle(AgentRequest(message=CONSULT_AGENTFORCE, trace_id="live-path-b"))
 
     assert resp.text.strip(), "Claude returned an empty answer"
     hops = read_trace(isolated_traces, "live-path-b")
@@ -128,9 +124,7 @@ async def test_path_b_claude_consults_agentforce(isolated_traces):
     assert "agentforce-api" in protocols, (
         "Claude never called Agentforce — the round trip did not cross platforms"
     )
-    af_details = " ".join(
-        h["transport_detail"] for h in hops if h["protocol"] == "agentforce-api"
-    )
+    af_details = " ".join(h["transport_detail"] for h in hops if h["protocol"] == "agentforce-api")
     # Full Agent API lifecycle on the same trace: create -> message -> delete.
     assert "/sessions" in af_details and "/messages" in af_details
     assert "DELETE" in af_details, "one-shot Agentforce session was not cleaned up"
