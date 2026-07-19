@@ -25,6 +25,7 @@ from claude_agent_sdk import (
     tool,
 )
 
+from interop import delegation
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 from platforms.claude.core import RESEARCH_SYSTEM_PROMPT
@@ -47,7 +48,7 @@ def _get_agentforce_client():
     return _agentforce_client
 
 
-def _build_agentforce_tool():
+def _build_agentforce_tool(inbound_depth: int = 0):
     @tool(
         "ask_agentforce",
         "Ask the Salesforce Agentforce service agent a question and return "
@@ -56,7 +57,18 @@ def _build_agentforce_tool():
         {"question": str},
     )
     async def ask_agentforce(args: dict) -> dict:
-        resp = await _get_agentforce_client().ask(AgentRequest(message=str(args["question"])))
+        # Delegation guard (D27): a request that was itself delegated to us
+        # doesn't get to delegate onward — refuse in the tool result so the
+        # model answers directly instead of looping back to the caller.
+        if inbound_depth >= delegation.max_depth():
+            return {"content": [{"type": "text", "text": delegation.refusal("ask_agentforce")}]}
+        message, meta = delegation.delegate(
+            str(args["question"]),
+            caller="claude-sdk-agent",
+            platform="claude",
+            inbound_depth=inbound_depth,
+        )
+        resp = await _get_agentforce_client().ask(AgentRequest(message=message, metadata=meta))
         return {"content": [{"type": "text", "text": resp.text}]}
 
     return ask_agentforce
@@ -79,7 +91,9 @@ class SdkBackend:
             model=os.environ.get("CLAUDE_AGENT_MODEL"),
         )
         if self.enable_agentforce_tool:
-            server = create_sdk_mcp_server(name="a2alab", tools=[_build_agentforce_tool()])
+            server = create_sdk_mcp_server(
+                name="a2alab", tools=[_build_agentforce_tool(delegation.depth_of(req))]
+            )
             kwargs["mcp_servers"] = {"a2alab": server}
             kwargs["allowed_tools"] = [AGENTFORCE_TOOL]
         if req.session_id and req.session_id in self._sessions:

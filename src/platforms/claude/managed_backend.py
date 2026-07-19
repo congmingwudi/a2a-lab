@@ -27,6 +27,7 @@ from typing import Any
 
 from anthropic import AsyncAnthropic
 
+from interop import delegation
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 
@@ -118,13 +119,27 @@ class ManagedBackend:
         self._persist_session_ref(session.id, lab_session_id)
         return session.id
 
-    async def _handle_custom_tool(self, session_id: str, event: Any, trace_id: str) -> None:
+    async def _handle_custom_tool(
+        self, session_id: str, event: Any, trace_id: str, inbound_depth: int = 0
+    ) -> None:
         tool_input = dict(event.input) if getattr(event, "input", None) else {}
         if event.name == AGENTFORCE_TOOL_NAME:
-            question = str(tool_input.get("question", ""))
-            client = self._get_agentforce_client()
-            resp = await client.ask(AgentRequest(message=question, trace_id=trace_id))
-            result_text = resp.text
+            # Delegation guard (D27): a delegated-to agent doesn't delegate
+            # onward — refuse in the tool result instead of looping back.
+            if inbound_depth >= delegation.max_depth():
+                result_text = delegation.refusal("ask_agentforce")
+            else:
+                message, meta = delegation.delegate(
+                    str(tool_input.get("question", "")),
+                    caller="claude-managed-agent",
+                    platform="claude",
+                    inbound_depth=inbound_depth,
+                )
+                client = self._get_agentforce_client()
+                resp = await client.ask(
+                    AgentRequest(message=message, trace_id=trace_id, metadata=meta)
+                )
+                result_text = resp.text
         else:
             result_text = f"Unknown tool: {event.name}"
         await self._client.beta.sessions.events.send(
@@ -165,7 +180,9 @@ class ManagedBackend:
                         if getattr(block, "type", "") == "text":
                             texts.append(block.text)
                 elif etype == "agent.custom_tool_use":
-                    await self._handle_custom_tool(session_id, event, trace_id)
+                    await self._handle_custom_tool(
+                        session_id, event, trace_id, delegation.depth_of(req)
+                    )
                 elif etype == "session.status_idle":
                     stop = getattr(event, "stop_reason", None)
                     if getattr(stop, "type", None) != "requires_action":

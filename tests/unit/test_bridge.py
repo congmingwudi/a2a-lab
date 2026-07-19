@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from bridge.app import create_bridge_app
+from interop import delegation
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, AgentResponse
 from interop.registry import Registry, Target
@@ -57,12 +58,35 @@ def test_invoke_forwards_and_annotates(bridge, monkeypatch):
     )
     assert r.status_code == 200
     data = r.json()
-    assert data["text"] == "echo: hi"
+    # The forwarded message = original + the D27 delegation rider at depth 1.
+    assert data["text"].startswith("echo: hi")
+    assert delegation.MARKER in data["text"]
     assert data["bridge"]["target"] == "claude-rest"
     assert data["bridge"]["status"] == "via-bridge"
     req = registry.fake_client.requests[0]
     assert req.trace_id == "trace-abc"  # header propagated
     assert req.session_id == "s1"
+    assert req.metadata["delegation"]["depth"] == 1
+
+
+def test_delegation_guard_refuses_over_depth(bridge, monkeypatch):
+    """A request that was already delegated (depth >= max) must not be
+    forwarded — the bridge answers with the standard refusal instead of
+    letting a circular chain form (D27)."""
+    monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
+    client, registry = bridge
+    r = client.post(
+        "/invoke/claude-rest",
+        json={
+            "message": "loop attempt",
+            "metadata": {"delegation": {"caller": "claude-sdk-agent", "depth": 1}},
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["delegation_refused"] is True
+    assert "circular" in data["text"]
+    assert registry.fake_client.requests == []  # nothing forwarded
 
 
 def test_unknown_target_404(bridge, monkeypatch):
