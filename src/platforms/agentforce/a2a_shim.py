@@ -1,6 +1,6 @@
 """A2A shim for Agentforce (Path B via-shim cell).
 
-    uv run python -m platforms.agentforce.a2a_shim --port 8023
+uv run python -m platforms.agentforce.a2a_shim --port 8023
 """
 
 from __future__ import annotations
@@ -27,7 +27,10 @@ def main() -> None:
     )
     args = parser.parse_args()
     serve(
-        AgentforceProxyAdapter(), "a2a", port=args.port, host=args.host,
+        AgentforceProxyAdapter(),
+        "a2a",
+        port=args.port,
+        host=args.host,
         public_url=args.public_url or f"http://localhost:{args.port}/",
     )
 

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A Interop Lab Console</title>
 <!-- Apply the saved theme before first paint so light-mode users see no dark flash. -->
-<script>try { var t = localStorage.getItem("a2a-theme"); document.documentElement.setAttribute("data-theme", t || "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }</script>
+<script>try { var t = localStorage.getItem("a2a-theme-v2"); document.documentElement.setAttribute("data-theme", t || "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }</script>
 <style>
   /* Design system aligned with labs.agentforce.com: their dark palette
      (#0b0b0b / #161616 / #292929), the labs hero — deep-navy radial
@@ -19,6 +19,12 @@
     --sidebar: #0d0d0d; --shadow: rgba(0, 0, 0, .35); --shadow-lg: rgba(0, 0, 0, .45);
     --rest: #00ab6d; --mcp: #ff9c3e; --a2a: #fd73d5; --agentforce-api: #00b0d6;
     --managed-agents-api: #9e9e9e; --internal: #636363; --err: #f9423d;
+    /* platform/component chip tokens — ONE hue per platform across every
+       chip surface (scenario tags, component kinds, obs platforms, warm-up
+       rows): agentforce=blue, claude=orange, openai=neutral, lab=gray,
+       aws=solid squid-ink. Protocol badges above are a separate system. */
+    --chip-agentforce: var(--agentforce-api); --chip-claude: #d97757;
+    --chip-openai: #ececec; --chip-lab: #969696; --chip-aws: #232f3e;
     /* labs.agentforce.com hero tokens */
     --hero-sub: #8fc0e8; --hero-body: rgba(244, 249, 255, .9); --hero-link: #57a9f5;
     --wordmark-grad: linear-gradient(100deg, #09decb 0%, #3fc7d8 22%, #7db9e8 48%, #a8a2ec 74%, #c99df0 100%);
@@ -37,6 +43,10 @@
     --primary: #1a1a1a; --primary-fg: #ffffff; --primary-hi: #000000;
     --sidebar: #fafafa; --shadow: rgba(15, 23, 42, .12); --shadow-lg: rgba(15, 23, 42, .18);
     --managed-agents-api: #6f6f6f; --internal: #8a8a8a;
+    /* chip tokens, darkened for AA-ish contrast on light surfaces; openai
+       inverts to near-black-on-light-gray (white-ish stays a dark-mode
+       look); aws keeps its solid squid-ink fill on both themes */
+    --chip-claude: #c05a3a; --chip-openai: #2f2f2f; --chip-lab: #6f6f6f;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-ui); }
@@ -80,19 +90,43 @@
                                  border-radius: 999px; padding: 0 8px; }
   details.acc .acc-body { padding-bottom: 12px; }
 
+  /* second-level experiment groups — one expander per platform pair */
+  .nav-group { display: flex; align-items: center; gap: 7px; padding: 9px 18px 3px; cursor: pointer;
+               font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .4px; }
+  .nav-group:hover { color: var(--fg); }
+  .nav-group .caret { width: 10px; font-size: 10px; flex: none; }
+  .nav-group .gtitle { flex: 1; }
+  .nav-group .gcount { font: 600 10px var(--font-mono); background: var(--card2);
+                       border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
+  .nav-group.upcoming { cursor: default; }
+  .nav-group-empty { margin: 4px 14px 8px 35px; padding: 6px 10px; font-size: 11.5px;
+                     color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
+
   /* pill badges, labs-style: tinted fill + rim in the accent color */
   .badge { display: inline-block; padding: 1.5px 10px; border-radius: 999px; font: 600 11px var(--font-mono);
-           color: var(--tag, var(--muted));
-           background: color-mix(in srgb, var(--tag, var(--muted)) 10%, transparent);
-           border: 1px solid color-mix(in srgb, var(--tag, var(--muted)) 38%, transparent); }
+           color: var(--tag, var(--chip-lab));
+           background: color-mix(in srgb, var(--tag, var(--chip-lab)) 10%, transparent);
+           border: 1px solid color-mix(in srgb, var(--tag, var(--chip-lab)) 38%, transparent); }
   .badge.rest { --tag: var(--rest); } .badge.mcp { --tag: var(--mcp); }
   .badge.a2a { --tag: var(--a2a); } .badge.agentforce-api { --tag: var(--agentforce-api); }
   .badge.managed-agents-api { --tag: var(--managed-agents-api); }
   .badge.internal { --tag: var(--internal); }
-  .badge.agentforce { --tag: var(--agentforce-api); } .badge.claude { --tag: #cecece; }
-  .badge.openai { --tag: var(--rest); } .badge.bridge { --tag: var(--mcp); }
-  .badge.managed-agents { --tag: var(--managed-agents-api); }
-  .badge.agentcore { --tag: var(--mcp); } .badge.soon { --tag: var(--muted); }
+  .badge.soon { --tag: var(--muted); }
+  /* platform & lab-component chips — always the --chip-* tokens, so
+     agentforce is ALWAYS blue, claude ALWAYS orange, openai neutral,
+     lab plumbing gray, and AgentCore/AWS steel — on every chip surface */
+  .badge.agentforce, .badge.agent-api { --tag: var(--chip-agentforce); }
+  .badge.claude, .badge.managed-agents, .badge.agent-sdk { --tag: var(--chip-claude); }
+  .badge.openai, .badge.agents-sdk { --tag: var(--chip-openai); }
+  .badge.bridge, .badge.daily-brief { --tag: var(--chip-lab); }
+  /* AWS chips break the tinted formula on purpose: an AWS-console-style
+     SOLID squid-ink pill with near-white text — legible on both themes; the
+     slate rim keeps the edge intentional on dark surfaces */
+  .badge.agentcore, .badge.aws { background: var(--chip-aws); color: #eef2f7;
+                                 border: 1px solid #52627a; }
+  /* scenarios gated on a deployment mode — same accent family as the
+     top-right mode badge, so "hosted" reads as one concept everywhere */
+  .badge.hosted { --tag: var(--hero-link); }
 
   button { font-family: var(--font-ui); cursor: pointer; }
   button.primary { background: var(--primary); color: var(--primary-fg); border: none; border-radius: 8px;
@@ -199,6 +233,10 @@
   .landing section:last-child { padding-bottom: 44px; }
   .landing h2 { font-family: var(--font-head); font-size: 19px; font-weight: 600; letter-spacing: .2px; margin: 0 0 6px; }
   .landing .lede { color: var(--muted); font-size: 13.5px; margin: 0 0 18px; max-width: 680px; line-height: 1.6; }
+  .landing h3.tile-group { font-family: var(--font-head); font-size: 14px; font-weight: 600;
+                           letter-spacing: .2px; margin: 20px 0 10px; }
+  .landing h3.tile-group:first-of-type { margin-top: 0; }
+  .landing .tile-upcoming { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
 
   .intro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
   .intro-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
@@ -294,6 +332,10 @@
                          padding: 1px 5px; border-radius: 5px; font-size: 12px; }
   .turn.agent .md pre { margin: 6px 0 8px; }
   .turn.agent .md pre code { background: none; border: none; padding: 0; }
+  /* requires_mode gate — the run is refused in the wrong deployment mode */
+  .mode-notice { padding: 9px 16px; border-top: 1px solid var(--border); font-size: 12.5px;
+                 line-height: 1.5; color: var(--mcp);
+                 background: color-mix(in srgb, var(--mcp) 8%, transparent); }
   .composer { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); align-items: flex-end; }
   .composer textarea { flex: 1; background: var(--code); color: var(--fg); border: 1px solid var(--border);
                        border-radius: 8px; padding: 9px 10px; font: 12.5px/1.5 var(--font-ui); resize: vertical; }
@@ -347,6 +389,11 @@
   .skill { margin: 2px 0 8px; }
   .skill:last-child { margin-bottom: 2px; }
 
+  /* the D27 delegation rider — a read-only design-decision exhibit, styled
+     like a disabled input so it can't be mistaken for the editable prompt */
+  .rider-block { margin: 10px 16px 14px; color: var(--muted); cursor: default;
+                 border-style: dashed; border-color: var(--border-hi); font-size: 11.5px; }
+
   /* raw hop cards */
   .hop { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
          margin-bottom: 10px; overflow: hidden; }
@@ -380,6 +427,23 @@
   .obs-status.ok { color: var(--rest); border-color: color-mix(in srgb, var(--rest) 45%, transparent); }
   .obs-status.blocked { color: var(--mcp); border-color: color-mix(in srgb, var(--mcp) 45%, transparent); }
   .obs-status.error { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
+  .brief-md { font-size: 13px; line-height: 1.6; }
+  .brief-md p { margin: 0 0 10px; }
+  .brief-md h4, .brief-md h5, .brief-md h6 { margin: 14px 0 6px; font-size: 13.5px; }
+  .brief-md ul, .brief-md ol { margin: 4px 0 10px; padding-left: 22px; }
+  .brief-md li { margin: 4px 0; }
+  .brief-md code { background: var(--code); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 5px; font-family: var(--font-mono); font-size: 11.5px; }
+  .brief-md pre { margin: 6px 0 10px; overflow-x: auto; }
+  .obs-updated { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
+  .obs-pipe { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 10px 0 4px; }
+  .obs-pipe .stage { flex: 1 1 150px; min-width: 150px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; position: relative; }
+  .obs-pipe .stage h5 { margin: 0 0 6px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .obs-pipe .stage p { margin: 0; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  .obs-pipe .stage .who { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 10px;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .obs-pipe .arr { align-self: center; padding: 0 6px; color: var(--muted); font-size: 16px; flex: 0 0 auto; }
   .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
   .obs-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   .obs-card h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
@@ -405,6 +469,80 @@
   .obs-ev.tool { border-left-color: var(--mcp); }
   .obs-ev.usage { border-left-color: var(--agentforce-api); }
 
+  /* Insights — the trusted-advisor findings (config/insights.yaml) */
+  .ins-cat { display: flex; align-items: center; gap: 8px; padding: 8px 18px; cursor: pointer; }
+  .ins-cat:hover { background: var(--card2); }
+  .ins-cat .cname { flex: 1; font-size: 12.5px; }
+  .ins-cat .cnum { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+  .ins-explain { color: var(--muted); font-size: 12.5px; margin: -4px 0 16px; max-width: 680px; line-height: 1.55; }
+  .ins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px;
+              padding: 12px 16px 16px; }
+  .ins-card { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .ins-card .head { display: flex; align-items: flex-start; gap: 8px; }
+  .ins-card h4 { margin: 0; font-size: 13.5px; font-weight: 600; flex: 1; line-height: 1.4; }
+  /* status chip — evidence level, tinted like the protocol badges so it reads
+     in both themes: measured=green, observed=blue, hypothesis=amber */
+  .ins-status { flex: none; margin-top: 1px; padding: 2px 8px; border-radius: 999px;
+                font: 600 10px var(--font-mono); text-transform: uppercase; letter-spacing: .5px;
+                color: var(--ist, var(--muted));
+                background: color-mix(in srgb, var(--ist, var(--muted)) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--ist, var(--muted)) 40%, transparent); }
+  .ins-status.measured { --ist: var(--rest); }
+  .ins-status.observed { --ist: var(--agentforce-api); }
+  .ins-status.hypothesis { --ist: var(--mcp); }
+  .ins-card .lbl { margin: 10px 0 3px; font: 600 10.5px var(--font-ui); color: var(--muted);
+                   text-transform: uppercase; letter-spacing: .7px; }
+  .ins-card .evid { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  /* the advisor take is the talking point — tinted panel so it leads the eye */
+  .ins-card .take { margin-top: 10px; padding: 9px 12px 10px; border-radius: 10px;
+                    background: color-mix(in srgb, var(--hero-link) 9%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--hero-link) 32%, transparent); }
+  .ins-card .take .lbl { margin-top: 0; color: var(--hero-link); }
+  .ins-card .take p { margin: 0; font-size: 12.5px; line-height: 1.55; }
+  .ins-card .refs { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; }
+
+  /* deployment-mode badge (top-right) — which runtimes /api/run really hits:
+     "local" stays muted, "hosted" lights up (live AWS AgentCore runtimes) */
+  .mode-badge { margin-left: 12px; padding: 2px 10px; border-radius: 999px; cursor: default;
+                font: 600 11px var(--font-mono); color: var(--muted);
+                border: 1px solid var(--border); background: var(--card); }
+  .mode-badge.hosted { color: var(--hero-link);
+                       background: color-mix(in srgb, var(--hero-link) 10%, transparent);
+                       border-color: color-mix(in srgb, var(--hero-link) 45%, transparent); }
+
+  /* settings gear + runtime warm-up popover (top-right) — pre-warm the
+     AgentCore runtimes before a demo; durations recorded to warmups.jsonl */
+  .gear-wrap { position: relative; margin-left: 8px; }
+  .gear-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px;
+              padding: 0; font-size: 14px; line-height: 1; color: var(--muted);
+              background: var(--card); border: 1px solid var(--border); border-radius: 999px; }
+  .gear-btn:hover { color: var(--fg); border-color: var(--border-hi); }
+  .gear-btn.on { color: var(--fg); background: var(--elevated); }
+  .warm-panel { position: absolute; right: 0; top: 36px; width: 360px; z-index: 5;
+                background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+                box-shadow: 0 12px 32px var(--shadow-lg); overflow: hidden; }
+  .warm-panel h3 { display: flex; align-items: center; margin: 0; padding: 10px 14px; font-size: 11px;
+                   color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
+                   border-bottom: 1px solid var(--border); }
+  .warm-panel h3 .x { margin-left: auto; padding: 0 2px; font-size: 13px; color: var(--muted);
+                      background: none; border: none; line-height: 1; }
+  .warm-panel h3 .x:hover { color: var(--fg); }
+  .warm-row { display: flex; align-items: center; gap: 8px; padding: 9px 14px;
+              border-bottom: 1px solid var(--border); }
+  .warm-row .wname { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px;
+                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .warm-row .wlast { font: 600 11px var(--font-mono); color: var(--muted); white-space: nowrap; }
+  .warm-row .wlast.fail { color: var(--err); }
+  .warm-row .wlast.busy { color: var(--fg); animation: pulse 1s infinite; }
+  .warm-tag { padding: 1px 6px; border-radius: 999px; font: 600 9.5px var(--font-mono);
+              text-transform: uppercase; letter-spacing: .5px; color: var(--wt, var(--muted));
+              background: color-mix(in srgb, var(--wt, var(--muted)) 10%, transparent);
+              border: 1px solid color-mix(in srgb, var(--wt, var(--muted)) 40%, transparent); }
+  .warm-tag.warm { --wt: var(--rest); }
+  .warm-tag.cold { --wt: var(--mcp); }
+  .warm-foot { display: flex; align-items: center; gap: 10px; padding: 9px 14px; }
+  .warm-foot .note { flex: 1; font-size: 10.5px; color: var(--muted); line-height: 1.45; }
+
   /* in-canvas navigation (back + breadcrumbs) */
   .crumbs { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 12.5px; }
   .crumbs .sep { color: var(--muted); }
@@ -422,9 +560,16 @@
   </div>
   <span class="sub">cross-platform agent-to-agent experiments · Agentforce × Claude × OpenAI</span>
   <span id="live" class="live">connecting…</span>
+  <span id="modeBadge" class="mode-badge" style="display:none"></span>
   <div class="theme-switch" role="group" aria-label="Theme">
     <button class="tbtn" id="themeLight" onclick="setTheme('light')" title="Light mode" aria-label="Switch to light mode">☀</button>
     <button class="tbtn" id="themeDark" onclick="setTheme('dark')" title="Dark mode" aria-label="Switch to dark mode">☾</button>
+  </div>
+  <div class="gear-wrap">
+    <button class="gear-btn" id="gearBtn" onclick="toggleWarmPanel(event)"
+      title="Runtime warm-up — pre-warm the hosted runtimes before a demo"
+      aria-label="Runtime warm-up settings">⚙</button>
+    <div id="warmPanel" class="warm-panel" style="display:none" onclick="event.stopPropagation()"></div>
   </div>
 </header>
 <main>
@@ -435,16 +580,27 @@
         <div id="scenarios"></div>
       </div>
     </details>
-    <details class="acc" id="accObs">
-      <summary>Observability <span class="count" id="obsCount"></span></summary>
+    <details class="acc" id="accObs" open>
+      <summary onclick="obsSummaryNav(event)">Observability <span class="count" id="obsCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
           <span class="hint">Each platform's own record of the agents' runs.</span>
           <button class="ghost" id="harvestBtn" onclick="harvestObs(event)"
             title="Pull fresh execution logs from each platform's API into the local store">Harvest</button>
+          <button class="ghost" id="analyzeBtn" onclick="runAnalysis(event)"
+            title="Fire the hosted analyst agent (D23): a manual deployment run reads the Aurora store through the obs MCP server and saves a findings brief">Analyze</button>
         </div>
         <div class="hint" id="obsMsg" style="display:none; padding: 0 12px 8px"></div>
         <div id="obsSide"></div>
+      </div>
+    </details>
+    <details class="acc" id="accInsights" open>
+      <summary onclick="insightsNav(event)">Insights <span class="count" id="insightCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">The lab's distilled findings — the trusted-advisor take.</span>
+        </div>
+        <div id="insightsSide"></div>
       </div>
     </details>
     <details class="acc" id="accCells">
@@ -480,6 +636,8 @@ let selected = null;      // trace_id shown in the trace section / trace view
 let openHops = new Set();
 let autoOpened = new Set(); // error hops auto-expanded once (then user-controlled)
 let scenarios = [];       // from /api/scenarios (incl. flow + agents)
+let scenarioGroups = [];  // second-level nav groups ({id, title, upcoming?}, yaml order)
+let openGroups = null;    // Set of expanded group ids; seeded once groups load
 let targets = [];         // from /api/targets
 let runState = {};        // key -> {state: running|ok|fail, note}   (sidebar chips)
 let defaultQuestion = "";
@@ -776,22 +934,74 @@ function statusHtml(key, cls) {
   return `<span class="${cls} ${r.state}" title="${esc(r.note || "")}">${esc(r.note || r.state)}</span>`;
 }
 
-function renderScenarios() {
-  const el = document.getElementById("scenarios");
-  el.innerHTML = scenarios.map(s => {
-    const soon = s.status !== "live";
-    const isOpen = view && view.type === "experiment" && view.kind === "scenario" && view.name === s.name;
-    return `
+function scenarioCardHtml(s) {
+  const soon = s.status !== "live";
+  const isOpen = view && view.type === "experiment" && view.kind === "scenario" && view.name === s.name;
+  return `
     <div class="card ${soon ? "soon" : ""} ${isOpen ? "open" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
       <div class="head">
         <h3>${esc(s.title || s.name)}</h3>
         ${statusHtml("scn:" + s.name, "status")}
       </div>
       <p>${esc(s.summary || s.description || "")}</p>
-      <div class="foot">${(s.tags || []).map(t => `<span class="badge ${t}">${esc(t)}</span>`).join("")}
+      <div class="foot">${tagChipsHtml(s.tags)}
+        ${modeUnmet(s) ? `<span class="badge hosted" title="Needs A2ALAB_MODE=${esc(s.requires_mode)} — the top-right mode badge shows the active mode">needs ${esc(s.requires_mode)} mode</span>` : ""}
         ${soon ? `<span class="badge soon">coming soon</span>` : ""}</div>
     </div>`;
-  }).join("");
+}
+
+// One chip per tag; agentcore carries the hosting tooltip itself (an extra
+// "aws" chip next to it would render as a same-styled near-duplicate).
+function tagChipsHtml(tags) {
+  return (tags || []).map(t => t === "agentcore"
+    ? `<span class="badge agentcore" title="The Claude end runs self-hosted on AWS Bedrock AgentCore (D26)">${esc(t)}</span>`
+    : `<span class="badge ${t}">${esc(t)}</span>`).join("");
+}
+
+// Scenarios bucketed into the yaml-ordered nav groups; a missing/unknown
+// group id lands in a trailing "Other" bucket instead of disappearing.
+function groupedScenarios() {
+  const byId = {};
+  for (const s of scenarios) (byId[s.group] = byId[s.group] || []).push(s);
+  const out = scenarioGroups.map(g => ({ ...g, scenarios: byId[g.id] || [] }));
+  const known = new Set(scenarioGroups.map(g => g.id));
+  const other = scenarios.filter(s => !known.has(s.group));
+  if (other.length) out.push({ id: "_other", title: "Other", scenarios: other });
+  return out;
+}
+
+window.toggleGroup = id => {
+  if (!openGroups) openGroups = new Set();
+  openGroups.has(id) ? openGroups.delete(id) : openGroups.add(id);
+  renderScenarios();
+};
+
+function renderScenarios() {
+  const el = document.getElementById("scenarios");
+  const groups = groupedScenarios();
+  // No groups defined -> the flat list this nav always had.
+  if (!scenarioGroups.length) {
+    el.innerHTML = scenarios.map(scenarioCardHtml).join("");
+  } else {
+    // Groups with scenarios start expanded; upcoming placeholders collapsed.
+    if (openGroups === null)
+      openGroups = new Set(groups.filter(g => g.scenarios.length).map(g => g.id));
+    el.innerHTML = groups.map(g => {
+      if (g.upcoming) return `
+      <div class="nav-group upcoming" title="Roadmap workstream ${esc(g.upcoming)} — plan/07-workstreams.md">
+        <span class="caret"></span><span class="gtitle">${esc(g.title)}</span>
+      </div>
+      <div class="nav-group-empty">coming soon · ${esc(g.upcoming)}</div>`;
+      const open = openGroups.has(g.id);
+      return `
+      <div class="nav-group ${open ? "open" : ""}" onclick="toggleGroup('${esc(g.id)}')">
+        <span class="caret">${open ? "▾" : "▸"}</span>
+        <span class="gtitle">${esc(g.title)}</span>
+        <span class="gcount">${g.scenarios.length}</span>
+      </div>
+      ${open ? g.scenarios.map(scenarioCardHtml).join("") : ""}`;
+    }).join("");
+  }
   const count = document.getElementById("expCount");
   if (count) count.textContent = scenarios.length ? String(scenarios.length) : "";
 }
@@ -891,7 +1101,128 @@ async function loadObs() {
     renderObsSide();
     if (view && view.type === "obs") renderMain(true);
   } catch { /* transient — store may not exist yet; panel shows the empty state */ }
+  loadBriefs();
 }
+
+// Findings briefs from the hosted analyst (D23) — read from Aurora, shown
+// in the canvas's "Analysis brief" tab.
+async function loadBriefs() {
+  try {
+    const r = await fetch(apiUrl("/api/obs/briefs"));
+    if (r.status === 404) return;
+    const data = await r.json();
+    const had = (obs.briefs || []).length;
+    obs.briefs = data.briefs || [];
+    if (obs.briefs.length > had && obs.analysisRunning) {
+      // The awaited brief arrived — stop watching and show it.
+      obs.analysisRunning = false;
+      if (obs.briefWatch) { clearInterval(obs.briefWatch); obs.briefWatch = null; }
+      obs.tab = "brief";
+      obsMsg("");
+    }
+    if (view && view.type === "obs" && !view.session) renderMain(true);
+  } catch { /* hosted store not configured — the brief tab explains itself */ }
+}
+
+window.setObsTab = t => {
+  obs.tab = t;
+  renderMain(true);
+};
+
+function obsBriefsHtml() {
+  const briefs = obs.briefs || [];
+  const running = obs.analysisRunning ? `
+    <div class="desc"><span class="stat">${esc(obs.analysisAgent || "The analyst agent")} is running —
+      this tab updates when the brief lands (usually a few minutes).</span></div>` : "";
+  if (!briefs.length) return `
+  <div class="flow">
+    <h3>Analysis brief</h3>
+    ${running || `<div class="desc"><span class="stat">No briefs yet — hit <b>Analyze</b> in the sidebar and the
+      Claude-managed analyst will query the store and save its findings here.</span></div>`}
+  </div>`;
+  const latest = briefs[0];
+  return `
+  <div class="flow">
+    <h3>Analysis brief — ${esc(latest.brief_date)}
+      <span class="obs-updated" style="float:right">last updated ${fmtWhen(latest.created_at)}</span></h3>
+    ${running}
+    <div class="desc"><span class="stat">Curated by the Claude-managed analyst agent over the harvested store
+      (${latest.queries_run ?? "?"} queries${latest.session_id ? " · session " + esc(latest.session_id.slice(-8)) : ""}).</span></div>
+    <div class="obs-card brief-md">${mdToHtml(latest.brief_md)}</div>
+    ${briefs.length > 1 ? `
+    <h3 style="margin-top:18px">Past briefs</h3>
+    ${briefs.slice(1).map(b => `
+      <details>
+        <summary style="cursor:pointer; font-size:12.5px; padding:4px 0">${esc(b.brief_date)} · ${b.queries_run ?? "?"} queries · ${fmtWhen(b.created_at)}</summary>
+        <div class="obs-card brief-md" style="margin:6px 0">${mdToHtml(b.brief_md)}</div>
+      </details>`).join("")}` : ""}
+  </div>`;
+}
+
+// "last updated" stamp: absolute local time + relative age.
+function fmtWhen(value) {
+  if (!value) return "—";
+  let d;
+  if (typeof value === "number") d = new Date(value * 1000);
+  else {
+    // Postgres text casts look like "2026-07-18 16:12:34.1+00" — normalize
+    // to ISO with a full offset so Date() parses reliably.
+    let s = String(value).replace(" ", "T").replace(/([+-]\d{2})$/, "$1:00");
+    if (!/[+Z]/i.test(s.slice(10))) s += "Z";
+    d = new Date(s);
+  }
+  if (isNaN(d)) return esc(String(value));
+  const ago = fmtAgo(d.getTime() / 1000);
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZoneName: "short" })} (${ago})`;
+}
+
+function obsTabsHtml() {
+  return `
+  <div class="tabbar">
+    <h2>Observability</h2>
+    <div class="tabs">
+      <button class="tab ${obs.tab !== "brief" ? "on" : ""}" onclick="setObsTab('dashboard')">Dashboard</button>
+      <button class="tab ${obs.tab === "brief" ? "on" : ""}" onclick="setObsTab('brief')">Analysis brief</button>
+    </div>
+  </div>`;
+}
+
+window.runAnalysis = async ev => {
+  if (ev) ev.stopPropagation();
+  if (obs.analyzing) return;
+  obs.analyzing = true;
+  const btn = document.getElementById("analyzeBtn");
+  if (btn) { btn.textContent = "Analyzing…"; btn.disabled = true; }
+  obsMsg("Firing the hosted analyst — a manual deployment run on the Claude platform…");
+  try {
+    const r = await fetch(apiUrl("/api/obs/analysis/run"), { method: "POST" });
+    if (r.status === 404) {
+      obsMsg("Console server predates the analysis API — restart scripts/run_local.sh.", true);
+      return;
+    }
+    const data = await r.json();
+    if (!data.ok) { obsMsg("Analysis failed to start: " + (data.error || "unknown"), true); return; }
+    const who = `Claude Managed Agent '${data.agent_name || "Observability Analyst"}'`;
+    obsMsg(`${who} is running — the brief appears in the Analysis brief tab in a few minutes.`);
+    obs.analysisRunning = true;
+    obs.analysisAgent = who;
+    obs.tab = "brief";
+    if (!view || view.type !== "obs") obsSummaryNav();
+    else renderMain(true);
+    // Watch for the brief every 30s, give up after 20 minutes.
+    if (obs.briefWatch) clearInterval(obs.briefWatch);
+    let ticks = 0;
+    obs.briefWatch = setInterval(() => {
+      if (++ticks > 40) { clearInterval(obs.briefWatch); obs.briefWatch = null; obs.analysisRunning = false; return; }
+      loadBriefs();
+    }, 30000);
+  } catch (e) {
+    obsMsg("Analysis failed to start: " + e, true);
+  } finally {
+    obs.analyzing = false;
+    if (btn) { btn.textContent = "Analyze"; btn.disabled = false; }
+  }
+};
 
 function renderObsSide() {
   const el = document.getElementById("obsSide");
@@ -1005,12 +1336,92 @@ function obsCrumbsHtml() {
   return `<div class="crumbs">${backBtnHtml()}${crumbs.join("")}</div>`;
 }
 
+// The observability story, drawn: platforms → harvest → store → dashboard
+// → analyst → brief. Shown expanded when the store is empty (first-run
+// explainer), collapsed above the dashboard once data exists.
+function obsPipelineHtml(hasData) {
+  const diagram = `
+  <div class="obs-pipe">
+    <div class="stage">
+      <h5>Agent platforms</h5>
+      <p>Agentforce (Data Cloud session tracing), Claude Managed Agents (session events), OpenAI
+        (captured at emit time) — each platform's <i>interior</i> record of the runs this lab drove.</p>
+      <span class="who">agentforce · claude · openai</span>
+    </div>
+    <div class="arr">→</div>
+    <div class="stage">
+      <h5>Harvest</h5>
+      <p>Deterministic pulls of those execution logs — no LLM in the loop. Runs hosted every 6h
+        (Lambda + EventBridge) and on demand from the Harvest button.</p>
+      <span class="who">obs_harvest · a2alab-obs-harvest</span>
+    </div>
+    <div class="arr">→</div>
+    <div class="stage">
+      <h5>Postgres store</h5>
+      <p>Aurora (schema <code>lab</code>): platform logs joined to the lab's own wire traces via
+        <code>platform_ref</code>, plus the analyst's briefs. Local dev mirrors this in SQLite.</p>
+      <span class="who">lab.trace_events ⋈ lab.obs_sessions</span>
+    </div>
+    <div class="arr">→</div>
+    <div class="stage">
+      <h5>Drill-down dashboard</h5>
+      <p>This section: coverage per platform, sessions, per-event detail, and the joins back to raw
+        wire payloads.</p>
+      <span class="who">this console</span>
+    </div>
+    <div class="arr">→</div>
+    <div class="stage">
+      <h5>Analyst agent</h5>
+      <p>A Claude-managed agent reads the store through a remote MCP server (read-only SQL) and
+        curates a findings brief — failures, latency by protocol, token spend. Nightly (paused) or
+        via Analyze.</p>
+      <span class="who">save_brief → briefs feed</span>
+    </div>
+  </div>`;
+  if (!hasData) return `
+  <div class="flow">
+    <h3>How observability works here</h3>
+    <div class="desc"><span class="stat">Nothing harvested yet — hit <b>Harvest</b> in the sidebar to pull each
+      platform's execution logs, then <b>Analyze</b> to have the analyst agent write its first brief.</span></div>
+    ${diagram}
+  </div>`;
+  return `
+  <div class="flow">
+    <details>
+      <summary style="cursor:pointer; font-size:12px; color:var(--muted)">How observability works here — the pipeline</summary>
+      ${diagram}
+    </details>
+  </div>`;
+}
+
+function obsHasData() {
+  const plats = (obs.summary && obs.summary.platforms) || {};
+  return Object.values(plats).some(i => (i.sessions || 0) > 0 || (i.events || 0) > 0)
+    || (obs.briefs || []).length > 0;
+}
+
+window.obsSummaryNav = ev => {
+  // The Observability section stays expanded (D18 — it's a top-level lab
+  // surface now): the header click navigates the canvas to the overview
+  // (dashboard if harvested data exists, explainer otherwise) instead of
+  // collapsing the accordion.
+  if (ev) ev.preventDefault();
+  document.getElementById("accObs").open = true;
+  if (view && view.type === "obs" && !view.platform && !view.session) return;
+  pushNav();
+  view = { type: "obs", platform: null, session: null };
+  obs.events = null;
+  renderSidebar(); renderMain(true);
+};
+
 function obsDashboardHtml() {
   const caps = (obs.summary && obs.summary.capabilities) || {};
   const info = p => (obs.summary && obs.summary.platforms && obs.summary.platforms[p]) || {};
+  const newest = Math.max(0, ...Object.keys(caps).map(p => (info(p).harvest || {}).at || 0));
   return `
   <div class="flow">
-    <h3>Coverage — what each platform lets us pull</h3>
+    <h3>Coverage — what each platform lets us pull
+      <span class="obs-updated" style="float:right">last updated ${newest ? fmtWhen(newest) : "never — run a harvest"}</span></h3>
     <div class="desc"><span class="stat">Harvest-and-cache: logs are pulled from each platform's API into the
       local store (CMA events die with their session; Data Cloud queries cost credits; OpenAI has no read API).
       The gaps below are findings, not TODOs — this is the honest matrix from plan/05-observability.md, live.</span></div>
@@ -1046,7 +1457,7 @@ function obsSessionsHtml(platform) {
       <tbody>
       ${rows.map(s => `
         <tr class="rowlink" onclick="openObsSession('${esc(s.platform)}', '${esc(s.native_id)}')">
-          <td><span class="badge ${s.platform === "anthropic" ? "managed-agents-api" : s.platform === "salesforce" ? "agentforce-api" : "internal"}">${esc(s.platform)}</span></td>
+          <td><span class="badge ${s.platform === "anthropic" ? "claude" : s.platform === "salesforce" ? "agentforce" : "openai"}">${esc(s.platform)}</span></td>
           <td class="fmono">${esc((s.native_id || "").slice(0, 22))}…</td>
           <td>${esc(s.title || "")}</td>
           <td>${esc(s.status || "")}</td>
@@ -1087,7 +1498,252 @@ function obsSessionDetailHtml() {
   </div>`;
 }
 
-function renderSidebar() { renderScenarios(); renderTargets(); renderList(); renderObsSide(); }
+// ---------------------------------------------------------------------------
+// Insights — the trusted-advisor findings (config/insights.yaml), grouped by
+// category, with the deck-ready markdown export. Plus the deployment-mode
+// badge from /api/config (which runtimes /api/run really hits).
+// ---------------------------------------------------------------------------
+let insightsData = { insights: [], categories: [] };  // from /api/insights
+let labConfig = null;                                 // from /api/config
+
+// Folded YAML scalars arrive with soft newlines — collapse to clean prose
+// (same normalization the markdown export applies).
+const prose = s => String(s || "").replace(/\s+/g, " ").trim();
+const catSlug = c => String(c).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+async function loadInsights() {
+  try {
+    const r = await fetch(apiUrl("/api/insights"));
+    if (r.status === 404) return; // console server predates the Insights API
+    insightsData = await r.json();
+    renderInsightsSide();
+    if (view && view.type === "insights") renderMain(true);
+  } catch { /* transient — sidebar shows the empty state */ }
+}
+
+async function loadConfig() {
+  try {
+    const r = await fetch(apiUrl("/api/config"));
+    if (r.status === 404) return;
+    labConfig = await r.json();
+    renderModeBadge();
+    // The requires_mode chips and gate depend on the config too: re-render
+    // the scenario surfaces (sidebar, landing, open workspace) once the
+    // mode/delegation data lands after first paint.
+    renderSidebar();
+    if (!view || view.type === "experiment") renderMain(true);
+  } catch { /* transient — badge stays hidden */ }
+}
+
+// The "needs <mode> mode" chip and run gate render only while the
+// requirement is UNMET — in the right mode the top-right badge already
+// tells the story (null labConfig = unknown yet, so nothing renders).
+const modeUnmet = s => !!(s && s.requires_mode && labConfig && labConfig.mode !== s.requires_mode);
+
+// The D27 delegation rider, shown read-only wherever a scenario is about to
+// run — the injection is a visible design decision, not hidden plumbing.
+function riderSectionHtml() {
+  const d = labConfig && labConfig.delegation;
+  if (!d) return "";
+  return `
+  <div class="flow">
+    <details>
+      <summary style="cursor:pointer; font-size:12px; color:var(--muted); padding:10px 16px">Injected at delegation seams (D27)</summary>
+      <div class="desc"><span class="stat">This block is appended automatically by the lab's delegation
+        seams (${(d.seams || []).map(esc).join(", ")}) to every cross-agent call — it carries the caller's
+        identity and the delegation depth with a do-not-call-back directive, max depth ${d.max_depth}.
+        A design-decision exhibit (ADR D27), not an editable prompt.</span></div>
+      <pre class="rider-block" aria-readonly="true">${esc(d.rider)}</pre>
+    </details>
+  </div>`;
+}
+
+function renderModeBadge() {
+  const el = document.getElementById("modeBadge");
+  if (!el || !labConfig) return;
+  const hosted = labConfig.mode !== "local";
+  el.style.display = "";
+  el.textContent = labConfig.mode;
+  el.classList.toggle("hosted", hosted);
+  const maps = Object.entries(labConfig.remapped || {}).map(([a, b]) => `${a} → ${b}`);
+  el.title = hosted
+    ? `Deployment mode: ${labConfig.mode} — runs hit the live hosted runtimes` +
+      (maps.length ? `\nRemapped targets:\n${maps.join("\n")}` : "\nNo targets remapped.")
+    : "Deployment mode: local — runs hit the lab's local servers (A2ALAB_MODE flips this)";
+}
+
+window.insightsNav = ev => {
+  // Same pattern as Observability: the header click navigates the canvas
+  // instead of collapsing the accordion.
+  if (ev) ev.preventDefault();
+  document.getElementById("accInsights").open = true;
+  if (view && view.type === "insights") return;
+  pushNav();
+  view = { type: "insights" };
+  renderSidebar(); renderMain(true);
+};
+
+window.openInsights = cat => {
+  if (!view || view.type !== "insights") insightsNav();
+  const el = cat && document.getElementById("inscat-" + catSlug(cat));
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+function renderInsightsSide() {
+  const el = document.getElementById("insightsSide");
+  if (!el) return;
+  const cats = insightsData.categories || [];
+  el.innerHTML = cats.map(([cat, items]) => `
+    <div class="ins-cat" onclick="openInsights('${esc(cat)}')" title="Jump to this category">
+      <span class="cname">${esc(cat)}</span>
+      <span class="cnum">${items.length}</span>
+    </div>`).join("") || `<div class="empty" style="padding:12px">No insights yet — config/insights.yaml.</div>`;
+  const count = document.getElementById("insightCount");
+  const total = (insightsData.insights || []).length;
+  if (count) count.textContent = total ? String(total) : "";
+}
+
+function insightCardHtml(ins) {
+  return `
+  <div class="ins-card">
+    <div class="head">
+      <h4>${esc(ins.headline || ins.id || "untitled")}</h4>
+      <span class="ins-status ${esc(ins.status || "observed")}">${esc(ins.status || "observed")}</span>
+    </div>
+    <div class="lbl">What the lab showed</div>
+    <p class="evid">${esc(prose(ins.evidence))}</p>
+    <div class="take">
+      <div class="lbl">Advisor take</div>
+      <p>${esc(prose(ins.advisory))}</p>
+    </div>
+    ${(ins.refs || []).length ? `<div class="refs">${ins.refs.map(r =>
+      `<span class="badge internal">${esc(r)}</span>`).join("")}</div>` : ""}
+  </div>`;
+}
+
+function insightsHtml() {
+  const cats = insightsData.categories || [];
+  return `
+  <div class="crumbs">${backBtnHtml()}<span class="crumb here">Insights</span></div>
+  <div class="tabbar">
+    <h2>Insights — what the lab taught us</h2>
+    <a class="ghost" href="${esc(apiUrl("/api/insights.md"))}" download="a2a-lab-insights.md"
+      title="Export every insight as one markdown doc">Download insights.md</a>
+  </div>
+  <p class="ins-explain">The deck-ready markdown export — the same findings below as one document,
+    ready to pull into Claude Design for presentation work.</p>
+  ${cats.length ? cats.map(([cat, items]) => `
+  <div class="flow" id="inscat-${catSlug(cat)}">
+    <h3>${esc(cat)} <span style="text-transform:none;letter-spacing:0"> · ${items.length} insight${items.length === 1 ? "" : "s"}</span></h3>
+    <div class="ins-grid">${items.map(insightCardHtml).join("")}</div>
+  </div>`).join("") : `<div class="empty">No insights recorded yet — add them to config/insights.yaml.</div>`}`;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime warm-up (settings gear) — AgentCore-hosted runtimes cold-start in
+// ~30-60s, enough to blow a demo budget. The gear panel pings each warmable
+// target ahead of time; the server records every duration (warmups.jsonl)
+// for the cross-platform cold-start comparison.
+// ---------------------------------------------------------------------------
+let warm = { open: false, targets: [], inflight: {}, timer: null };
+
+async function loadWarmup() {
+  try {
+    const r = await fetch(apiUrl("/api/warmup"));
+    if (r.status === 404) return; // console server predates the warm-up API
+    warm.targets = (await r.json()).targets;
+    renderWarmPanel();
+  } catch { /* transient — panel shows the last known state */ }
+}
+
+window.toggleWarmPanel = ev => {
+  if (ev) ev.stopPropagation();
+  warm.open = !warm.open;
+  if (warm.open) loadWarmup(); // refresh last-run stamps on open
+  renderWarmPanel();
+};
+
+// Dismiss on outside click — the gear and the panel stop propagation.
+document.addEventListener("click", () => {
+  if (warm.open) { warm.open = false; renderWarmPanel(); }
+});
+
+// While a warm-up is in flight the row shows elapsed seconds ticking.
+function ensureWarmTimer() {
+  if (warm.timer) return;
+  warm.timer = setInterval(() => {
+    if (!Object.keys(warm.inflight).length) { clearInterval(warm.timer); warm.timer = null; return; }
+    if (warm.open) renderWarmPanel();
+  }, 500);
+}
+
+window.warmTarget = async name => {
+  if (warm.inflight[name]) return;
+  warm.inflight[name] = Date.now();
+  ensureWarmTimer();
+  renderWarmPanel();
+  try {
+    const r = await fetch(apiUrl("/api/warmup/" + encodeURIComponent(name)), { method: "POST" });
+    if (r.ok) {
+      // Refresh the row from the POST's record — no full reload needed.
+      const rec = await r.json();
+      const t = warm.targets.find(x => x.name === name);
+      if (t) { t.last = rec; t.history = [rec, ...(t.history || [])].slice(0, 5); }
+    }
+  } catch { /* network drop — the server records the attempt regardless */ }
+  delete warm.inflight[name];
+  renderWarmPanel();
+};
+
+window.warmAll = async () => {
+  for (const t of warm.targets) await warmTarget(t.name); // sequential, top to bottom
+};
+
+function warmRowHtml(t, anyBusy) {
+  const start = warm.inflight[t.name];
+  const last = t.last;
+  let lastHtml;
+  if (start) {
+    lastHtml = `<span class="wlast busy">${Math.round((Date.now() - start) / 1000)}s…</span>`;
+  } else if (last) {
+    const cold = last.duration_ms > 20000;
+    lastHtml = `<span class="wlast ${last.ok ? "" : "fail"}" title="${esc(last.note || "")}">${
+      last.ok ? "" : "✗ "}${(last.duration_ms / 1000).toFixed(1)}s · ${fmtAgo(last.ts)}</span>${
+      last.ok ? `<span class="warm-tag ${cold ? "cold" : "warm"}">${cold ? "cold" : "warm"}</span>` : ""}`;
+  } else {
+    lastHtml = `<span class="wlast">never warmed</span>`;
+  }
+  return `
+  <div class="warm-row">
+    <span class="badge ${esc(t.platform)}">${esc(t.platform)}</span>
+    <span class="wname" title="${esc(t.name)} · ${esc(t.protocol)}">${esc(t.name)}</span>
+    ${lastHtml}
+    <button class="ghost" onclick="warmTarget('${esc(t.name)}')"
+      ${start || anyBusy ? "disabled" : ""}>${start ? "Warming…" : "Warm"}</button>
+  </div>`;
+}
+
+function renderWarmPanel() {
+  const btn = document.getElementById("gearBtn");
+  const panel = document.getElementById("warmPanel");
+  if (!btn || !panel) return;
+  btn.classList.toggle("on", warm.open);
+  panel.style.display = warm.open ? "" : "none";
+  if (!warm.open) return;
+  const anyBusy = Object.keys(warm.inflight).length > 0;
+  panel.innerHTML = `
+    <h3>Runtime warm-up <button class="x" onclick="toggleWarmPanel(event)" title="Close" aria-label="Close">✕</button></h3>
+    ${warm.targets.map(t => warmRowHtml(t, anyBusy)).join("")
+      || `<div class="empty" style="padding:14px">No warmable targets — flag them with
+          <span class="mono">options.warmup</span> in config/targets.yaml.</div>`}
+    <div class="warm-foot">
+      <span class="note">First invoke after idle or a runtime update is a cold start — every duration
+        is recorded for the cross-platform comparison.</span>
+      <button class="ghost" onclick="warmAll()" ${anyBusy || !warm.targets.length ? "disabled" : ""}>Warm all</button>
+    </div>`;
+}
+
+function renderSidebar() { renderScenarios(); renderTargets(); renderList(); renderObsSide(); renderInsightsSide(); }
 
 // Two-step clear (no native confirm() dialog): first click arms the button,
 // second click within 4s deletes traces/*.jsonl via the API.
@@ -1209,9 +1865,19 @@ function tileHtml(s, i) {
       <div class="tile-head"><h3>${esc(s.title || s.name)}</h3>
         ${soon ? `<span class="badge soon">coming soon</span>` : `<span class="badge rest">live</span>`}</div>
       <p>${esc(s.summary || s.description || "")}</p>
-      <div class="tile-foot">${(s.tags || []).map(t => `<span class="badge ${t}">${esc(t)}</span>`).join("")}</div>
+      <div class="tile-foot">${tagChipsHtml(s.tags)}
+        ${modeUnmet(s) ? `<span class="badge hosted" title="Needs A2ALAB_MODE=${esc(s.requires_mode)} — the top-right mode badge shows the active mode">needs ${esc(s.requires_mode)} mode</span>` : ""}</div>
     </div>
   </div>`;
+}
+
+// Upcoming platform pairs as one muted line — the sidebar carries the
+// per-group placeholders; the landing just points at the roadmap.
+function upcomingLineHtml() {
+  const up = scenarioGroups.filter(g => g.upcoming);
+  if (!up.length) return "";
+  return `<p class="tile-upcoming" title="plan/07-workstreams.md">Coming soon:
+    ${up.map(g => `${esc(g.title)} (${esc(g.upcoming)})`).join(" · ")}</p>`;
 }
 
 function landingHtml() {
@@ -1269,9 +1935,12 @@ function landingHtml() {
       <h2>Experiments</h2>
       <p class="lede">Pick a scenario — chat with it multi-turn, watch the live call-path diagram
         stream in beneath each reply, and expand any hop to the raw payloads.</p>
-      <div class="tiles">
-        ${scenarios.length ? scenarios.map(tileHtml).join("") : `<div class="empty">Loading experiments…</div>`}
-      </div>
+      ${!scenarios.length ? `<div class="tiles"><div class="empty">Loading experiments…</div></div>`
+        : !scenarioGroups.length ? `<div class="tiles">${scenarios.map(tileHtml).join("")}</div>`
+        : groupedScenarios().filter(g => g.scenarios.length).map(g => `
+          <h3 class="tile-group">${esc(g.title)}</h3>
+          <div class="tiles">${g.scenarios.map(tileHtml).join("")}</div>`).join("")
+          + upcomingLineHtml()}
     </section>
 
     <section>
@@ -1624,7 +2293,8 @@ function detailsTabHtml() {
         from the lab, not from a file.</span></div>
       ${(s.agents || []).map(agentRow).join("")}
     </div>` : ""}
-    ${componentsHtml(s.components)}`;
+    ${componentsHtml(s.components)}
+    ${riderSectionHtml()}`;
 }
 
 // --- Main renderer -----------------------------------------------------------
@@ -1653,11 +2323,26 @@ function renderMain(force) {
     return;
   }
 
+  if (view.type === "insights") {
+    mainKey = "insights";
+    el.innerHTML = insightsHtml();
+    return;
+  }
+
   if (view.type === "obs") {
-    mainKey = `obs:${view.platform || "*"}:${view.session || ""}`;
-    el.innerHTML = obsCrumbsHtml() + (view.session
-      ? obsSessionDetailHtml()
-      : obsDashboardHtml() + obsSessionsHtml(view.platform));
+    mainKey = `obs:${view.platform || "*"}:${view.session || ""}:${obs.tab || "dashboard"}`;
+    if (view.session) {
+      el.innerHTML = obsCrumbsHtml() + obsSessionDetailHtml();
+    } else if (view.platform) {
+      el.innerHTML = obsCrumbsHtml() + obsDashboardHtml() + obsSessionsHtml(view.platform);
+    } else if (!obsHasData()) {
+      // First-run: explain the pipeline instead of an empty dashboard.
+      el.innerHTML = obsCrumbsHtml() + obsPipelineHtml(false);
+    } else {
+      el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + (obs.tab === "brief"
+        ? obsBriefsHtml()
+        : obsPipelineHtml(true) + obsDashboardHtml() + obsSessionsHtml(null));
+    }
     return;
   }
 
@@ -1667,6 +2352,11 @@ function renderMain(force) {
   const exp = currentExperiment();
   const title = view.kind === "scenario" ? (exp && (exp.title || exp.name)) || view.name : view.name;
   const soon = view.kind === "scenario" && exp && exp.status !== "live";
+  // requires_mode gate: the server 409s a mismatched run — say so up front
+  // and disable Send instead of letting the demo hit the refusal blind.
+  // Same modeUnmet condition as the sidebar/tile chips.
+  const modeBlocked = view.kind === "scenario" && modeUnmet(exp);
+  const blocked = soon || modeBlocked;
   const skeletonKey = `exp:${key}:${activeTab}`;
 
   if (mainKey !== skeletonKey || force) {
@@ -1674,6 +2364,10 @@ function renderMain(force) {
     el.innerHTML = `
       <div class="tabbar">
         <h2>${esc(title)}</h2>
+        ${exp && (exp.tags || []).includes("agentcore") ? `<span class="badge aws"
+          title="The Claude end runs self-hosted on AWS Bedrock AgentCore (D26)">aws</span>` : ""}
+        ${modeUnmet(exp) ? `<span class="badge hosted"
+          title="Needs A2ALAB_MODE=${esc(exp.requires_mode)} — the top-right mode badge shows the active mode">needs ${esc(exp.requires_mode)} mode</span>` : ""}
         <div class="tabs">
           <button class="tab ${activeTab === "run" ? "on" : ""}" onclick="setTab('run')">Run</button>
           <button class="tab ${activeTab === "details" ? "on" : ""}" onclick="setTab('details')">Details</button>
@@ -1687,13 +2381,19 @@ function renderMain(force) {
             <button class="ghost" onclick="resetChat()">New chat</button>
           </div>
           <div class="turns" id="chatTurns"></div>
+          ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
+            <span class="mono">A2ALAB_MODE=${esc(exp.requires_mode)}</span> in .env and restart the
+            stack; the mode badge (top right) shows the active mode.</div>` : ""}
           <div class="composer">
-            <textarea id="chatInput" rows="3" ${soon ? "disabled" : ""}
-              placeholder="${soon ? "This experiment isn't runnable yet — see the Details tab." : "Message the agent — Enter to send, Shift+Enter for a new line."}"
+            <textarea id="chatInput" rows="3" ${blocked ? "disabled" : ""}
+              placeholder="${soon ? "This experiment isn't runnable yet — see the Details tab."
+                : modeBlocked ? "Runs are refused in the wrong deployment mode — see the notice above."
+                : "Message the agent — Enter to send, Shift+Enter for a new line."}"
               oninput="draftChanged(this)" onkeydown="chatKeydown(event)"></textarea>
-            <button class="primary" id="sendBtn" onclick="sendChat()" ${soon ? "disabled" : ""}>Send</button>
+            <button class="primary" id="sendBtn" onclick="sendChat()" ${blocked ? "disabled" : ""}>Send</button>
           </div>
         </div>
+        ${view.kind === "scenario" ? riderSectionHtml() : ""}
         <div id="traceArea"></div>` :
       `<div id="detailsArea"></div>`}`;
     const input = document.getElementById("chatInput");
@@ -1705,7 +2405,7 @@ function renderMain(force) {
     turnsEl.innerHTML = chatTurnsHtml(chat);
     turnsEl.scrollTop = turnsEl.scrollHeight;
     const sendBtn = document.getElementById("sendBtn");
-    if (sendBtn && !soon) sendBtn.disabled = chat.running;
+    if (sendBtn && !blocked) sendBtn.disabled = chat.running;
     const t = traces.find(x => x.trace_id === selected);
     const owned = chat.turns.some(turn => turn.trace_id === selected);
     document.getElementById("traceArea").innerHTML = owned || chat.running
@@ -1746,7 +2446,9 @@ async function refreshTraces() {
 
 async function loadLaunchers() {
   const [sr, tr] = await Promise.all([fetch(apiUrl("/api/scenarios")), fetch(apiUrl("/api/targets"))]);
-  scenarios = (await sr.json()).scenarios;
+  const sdata = await sr.json();
+  scenarios = sdata.scenarios;
+  scenarioGroups = sdata.groups || [];
   const tdata = await tr.json();
   targets = tdata.targets;
   defaultQuestion = tdata.default_question || "";
@@ -1785,25 +2487,34 @@ function connectStream() {
 }
 
 // ---------------------------------------------------------------------------
-// Theme (dark default, mirrored light) — persisted in localStorage; the
+// Theme (light default, mirrored dark) — persisted in localStorage; the
 // data-theme attribute is set pre-paint by the inline <head> script.
+// Key is versioned ("a2a-theme-v2"): the legacy "a2a-theme" key may hold a
+// "dark" value written by the old dark-default init, which would silently
+// override the light default forever. Only an explicit toggle click persists.
 // ---------------------------------------------------------------------------
-window.setTheme = theme => {
+const applyTheme = theme => {
   document.documentElement.setAttribute("data-theme", theme);
   document.getElementById("themeLight")?.classList.toggle("on", theme === "light");
   document.getElementById("themeDark")?.classList.toggle("on", theme === "dark");
-  try { localStorage.setItem("a2a-theme", theme); } catch { /* private mode — theme just won't persist */ }
+};
+window.setTheme = theme => {
+  applyTheme(theme);
+  try { localStorage.setItem("a2a-theme-v2", theme); } catch { /* private mode — theme just won't persist */ }
 };
 (() => {
   let saved = null;
-  try { saved = localStorage.getItem("a2a-theme"); } catch { /* ignore */ }
+  try { saved = localStorage.getItem("a2a-theme-v2"); } catch { /* ignore */ }
   // Light is the default; dark only when explicitly chosen.
-  setTheme(saved === "dark" ? "dark" : "light");
+  applyTheme(saved === "dark" ? "dark" : "light");
 })();
 
 load().then(connectStream);
 loadLaunchers().then(renderMain);
 loadObs();
+loadInsights();
+loadConfig();
+loadWarmup();
 </script>
 </body>
 </html>

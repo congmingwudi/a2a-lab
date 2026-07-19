@@ -1,9 +1,9 @@
 """Run the Claude research agent over a chosen protocol.
 
-    uv run python -m platforms.claude --protocol rest --port 8001
-    uv run python -m platforms.claude --protocol mcp  --port 8002
-    uv run python -m platforms.claude --protocol a2a  --port 8003
-    CLAUDE_BACKEND=sdk uv run python -m platforms.claude --protocol rest --port 8001
+uv run python -m platforms.claude --protocol rest --port 8001
+uv run python -m platforms.claude --protocol mcp  --port 8002
+uv run python -m platforms.claude --protocol a2a  --port 8003
+CLAUDE_BACKEND=sdk uv run python -m platforms.claude --protocol rest --port 8001
 """
 
 from __future__ import annotations

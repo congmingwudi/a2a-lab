@@ -23,6 +23,15 @@ targets:
     endpoint: http://${A2ALAB_TEST_HOST}:9001
     auth: {header_name: X-Bridge-Token, header_value: "${A2ALAB_TEST_TOKEN}"}
     status: via-bridge
+  echo-hosted:
+    platform: echo
+    protocol: rest
+    endpoint: http://hosted:9001
+    status: native
+
+modes:
+  hosted:
+    echo-rest: echo-hosted
 """
 
 
@@ -61,3 +70,25 @@ def test_client_for_types(registry):
     assert isinstance(registry.client_for("echo-rest"), RestClient)
     assert isinstance(registry.client_for("echo-mcp"), McpClient)
     assert isinstance(registry.client_for("echo-a2a"), A2AClient)
+
+
+def test_mode_remap(registry, monkeypatch):
+    # Default mode: no remap.
+    assert registry.mode == "local"
+    assert registry.resolve_name("echo-rest") == "echo-rest"
+
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    assert registry.mode == "hosted"
+    assert registry.resolve_name("echo-rest") == "echo-hosted"
+    # Unmapped names and unknown modes resolve to themselves.
+    assert registry.resolve_name("echo-mcp") == "echo-mcp"
+    monkeypatch.setenv("A2ALAB_MODE", "nonesuch")
+    assert registry.resolve_name("echo-rest") == "echo-rest"
+
+
+def test_mode_remap_client_and_exact(registry, monkeypatch):
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    # client_for follows the remap and the client is honest about the
+    # target it actually talks to; exact=True (the matrix harness) doesn't.
+    assert registry.client_for("echo-rest").target_name == "echo-hosted"
+    assert registry.client_for("echo-rest", exact=True).target_name == "echo-rest"

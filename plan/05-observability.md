@@ -169,7 +169,17 @@ platform APIs ──pull──►  harvester (src/observability/)  ──upsert�
   land back in the dashboard via the CMA harvester — the analyst is
   observable by the thing it analyzes. Output: append to
   plan/03-results.md-style findings or an in-console "briefs" feed; decide
-  when built.
+  when built. **Hosted-phase fork (D23)**: the host-side custom tool is the
+  laptop-only design — custom tools block on a connected driver. Hosted, the
+  store moves to Aurora Postgres Serverless v2 (also the M10 zero-copy
+  source via the Data 360 Aurora connector, superseding DynamoDB), fronted
+  by a remote MCP server (`query_obs_store` on a read-only DB role), and
+  the deployment's firings then need no watcher process at all.
+  **Built 2026-07-17** (runbooks §8): Aurora `a2alab-obs` live with the
+  local store backfilled; `a2alab-obs-mcp` + `a2alab-obs-harvest` Lambdas
+  deployed (harvest on a 6h EventBridge schedule, verified end-to-end);
+  console gained Analyze + briefs feed. Remaining human steps:
+  `deploy/obs/expose_mcp.sh` then `setup_obs_analyst.py --recreate --run`.
 
 ## References (research sources, verified 2026-07-17)
 

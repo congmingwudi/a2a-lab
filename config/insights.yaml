@@ -1,0 +1,284 @@
+# Trusted-advisor insights — the lab's distilled findings, published in the
+# console's Insights section and exported to markdown for presentations
+# (scripts/export_insights.py -> plan/08-insights.md).
+#
+# status legend (be honest — same ethos as the matrix):
+#   measured    backed by recorded lab runs / numbers in plan/03-results.md
+#   observed    seen and documented in the lab, not yet a measured table
+#   hypothesis  framed by the lab, measurement planned (say where)
+#
+# Each entry: headline (the claim), evidence (what the lab showed),
+# advisory (the talking point you'd give a customer), refs (ADRs/docs).
+
+insights:
+  - id: sync-delegation-works
+    category: Delegation patterns
+    status: measured
+    headline: Synchronous agent-to-agent delegation is real and fast enough for conversational use
+    evidence: >
+      Cross-platform sync round trips measured live in both directions and
+      across vendors: Agentforce→OpenAI 20.9s, OpenAI→Agentforce 20.1s (D25),
+      Agentforce→Claude collaboration turns 27–36s — one agent farms out a
+      subtask, waits, and folds the answer into its own reply.
+    advisory: >
+      Treat sync delegation as "ask a colleague a quick question," not
+      "commission a report." It fits expert lookups and enrichment inside a
+      conversation turn; anything deeper belongs in an async pattern.
+    refs: [D15, D16, D25, plan/03-results.md]
+
+  - id: timeout-budget-stack
+    category: Delegation patterns
+    status: measured
+    headline: Every platform in a sync chain stacks its own timeout — the tightest link caps the whole chain
+    evidence: >
+      The lab's Path A budget: Agentforce action ~60s → Apex callout 110s →
+      bridge 45s → remote agent 40s. The delegated agent's thinking depth is
+      governed by the smallest budget upstream, and one platform's retry can
+      blow another's ceiling. A 40s agent timeout proved too tight the moment
+      the delegated turn itself contained a platform round trip.
+    advisory: >
+      Before promising a sync UX, map the full timeout chain across every
+      platform involved — then keep delegated turns fast (small models,
+      concise prompts, warm runtimes) or move the work async. This is the
+      first architecture-review question for any interop design.
+    refs: [plan/01-architecture.md, plan/02-matrix.md]
+
+  - id: sync-vs-async-shape
+    category: Delegation patterns
+    status: measured
+    headline: Async delegation doesn't just relax the clock — it changes where the answer lands
+    evidence: >
+      The async account-brief pipeline runs 69–127s unbounded (scheduled
+      managed-agent sessions) and delivers into CRM records consumed later in
+      Salesforce, instead of into a waiting HTTP response. Same platforms,
+      same protocols — different integration shape entirely.
+    advisory: >
+      Choose the pattern by asking who consumes the answer: a human waiting in
+      a conversation (sync) or a business record/workflow (async). Async
+      removes the timeout ceiling, adds delivery, retry, and dedup design —
+      most enterprises need both patterns, deliberately.
+    refs: [D16, D17]
+
+  - id: a2a-session-semantics
+    category: Protocols
+    status: observed
+    headline: Of REST, MCP, and A2A, only A2A carries conversation identity as a first-class wire concept
+    evidence: >
+      Running the same scenario over all three protocols: REST rides the
+      session in a custom header, MCP smuggles it as a tool argument (the
+      protocol has no session semantics for this), while A2A's contextId is
+      part of the protocol itself. A2A 1.2 added signed agent cards for
+      cryptographic agent identity.
+    advisory: >
+      For one-shot delegation the protocol choice matters less than auth and
+      observability. For durable multi-turn relationships between agents —
+      especially across organizations — A2A is architecturally ahead: session
+      identity and agent identity live in the protocol, not in conventions.
+    refs: [plan/02-matrix.md]
+
+  - id: protocol-reality-check
+    category: Protocols
+    status: observed
+    headline: Native protocol support across enterprise platforms is sparser than the marketing suggests
+    evidence: >
+      The lab's honest matrix: Agentforce outbound is REST-only (every
+      protocol experiment rides an Apex callout through our bridge), inbound
+      MCP is gated beta, inbound A2A doesn't exist — so those cells run
+      via shims. The all-native cells today are the ones we host ourselves.
+    advisory: >
+      Plan for bridges and adapters as permanent, first-class, observable
+      components of an interop program — not temporary scaffolding. Ask every
+      vendor "which protocols do you speak natively, in which direction, GA
+      or beta?" and demand wire-level evidence.
+    refs: [D8, plan/02-matrix.md]
+
+  - id: observability-fragmentation
+    category: Observability
+    status: observed
+    headline: Cross-platform agent observability is radically uneven — federate agents and you own the audit trail
+    evidence: >
+      Harvested side by side: Salesforce exposes the richest queryable
+      telemetry (full SQL over sessions/steps/LLM calls — but requires Data
+      Cloud provisioning); Anthropic exposes the deepest per-session detail
+      (thinking and tool events — but no aggregation or discovery API);
+      OpenAI's trace dashboard is write-only with no read API — your own
+      tracing is the system of record.
+    advisory: >
+      "Can you audit what your agents did across platforms?" is usually
+      unanswerable today. Any multi-platform agent estate needs its own trace
+      layer: a correlation id on every hop, raw payloads recorded, platform
+      logs harvested where APIs exist. Budget for this on day one.
+    refs: [D7, D18, D22, plan/05-observability.md]
+
+  - id: managed-vs-self-hosted
+    category: Hosting models
+    status: measured
+    headline: "Managed agent runtime vs self-hosted framework is the real platform decision — model choice is downstream"
+    evidence: >
+      The lab runs the same Claude agent two ways: Anthropic Managed Agents
+      (zero infra, host-side tools, ~5–10s first-turn container provisioning)
+      and the self-hosted Agent SDK containerized on Bedrock AgentCore
+      (IAM-only data plane, credentials and telemetry are yours). The OpenAI
+      agent runs the self-hosted path on the identical runtime for a clean
+      cross-vendor comparison. Measured on AgentCore (2026-07-19): OpenAI
+      cold start ~31s / warm p50 10.3s; Claude cold ~56s (can blow a 65s
+      client timeout) / warm p50 8.4s — cold starts dominate the sync budget
+      either way, and the heavier harness pays a visibly bigger cold price.
+    advisory: >
+      Managed runtimes buy speed-to-value and push security posture to the
+      vendor; self-hosting buys VPC/data-residency control and portability at
+      the cost of owning scaling, secrets, and observability. Decide this per
+      agent — it's a bigger architectural fork than which frontier model runs
+      inside.
+    refs: [D9, D24, D26]
+
+  - id: sdk-footprint
+    category: Hosting models
+    status: observed
+    headline: '"Agent SDK" spans two very different species — thin API loops and full agent harnesses — with real deployment consequences'
+    evidence: >
+      Containerizing both self-hosted agents side by side: the OpenAI Agents
+      SDK is a pure-Python library implementing its agent loop natively — an
+      8-line Dockerfile. The Claude Agent SDK packages the entire Claude Code
+      harness: the Python package is a client that spawns the Claude Code CLI
+      (a Node runtime) as a subprocess, which owns the agentic loop, tool
+      execution, MCP client, and session state. Same lab adapter on top;
+      very different footprints underneath — measured on identical AgentCore
+      runtimes: ~31s vs ~56s cold start; warm invokes comparable (p50 ~10.3s
+      vs ~8.4s).
+    advisory: >
+      When customers compare "agent SDKs," make them ask what's actually in
+      the box. A thin loop means a small image and full DIY on tooling; a
+      harness means mature tool execution, MCP, and subagents for free — paid
+      for in image size, cold start, and an extra process boundary. Neither is
+      wrong; budget and architect for the one you picked.
+    refs: [D24, D26, deploy/agentcore/]
+
+  - id: credential-locality
+    category: Security & trust
+    status: observed
+    headline: Where partner credentials live is a design decision most agent architectures make by accident
+    evidence: >
+      Two patterns in the lab, deliberately contrasted: the managed path keeps
+      Salesforce credentials host-side (the sandboxed agent calls a custom
+      tool; secrets never enter the LLM runtime), while the self-hosted
+      containers carry credentials in their runtime environment. Both work;
+      the blast radius differs.
+    advisory: >
+      Make credential locality explicit in every agent integration review.
+      Across trust boundaries, prefer broker/host-side tool patterns where the
+      reasoning runtime never holds partner secrets — an agent that can be
+      prompt-injected should not also be an agent holding your partner's keys.
+    refs: [plan/01-architecture.md, D9]
+
+  - id: emergent-topology
+    category: Security & trust
+    status: observed
+    headline: Agent-to-agent graphs grow edges nobody drew — govern the actual topology, not the diagram
+    evidence: >
+      Mid-experiment, a shared Agentforce agent silently delegated to Claude
+      while answering an OpenAI-originated request — turning a controlled
+      two-platform test into a three-platform chain. Only the wire traces
+      revealed it; the fix (D25) was dedicated per-platform twin agents so
+      each experiment stays a closed system.
+    advisory: >
+      Once agents can call agents, delegation chains form transitively —
+      including across billing, compliance, and data boundaries. Enforce
+      closed systems per use case, and monitor real topology from traces.
+      This governance problem arrives with your second platform, not your
+      tenth.
+    refs: [D25]
+
+  - id: delegation-ttl
+    category: Security & trust
+    status: observed
+    headline: Agent protocols have no TTL — bidirectional agent pairs loop by construction unless you build the guard yourself
+    evidence: >
+      Wiring both directions of each platform pair (the lab's whole premise)
+      makes circular delegation possible by design: A delegates to B, whose
+      tool delegates back to A. Without a guard, loops in the lab ended only
+      by starvation — stacked timeouts and turn caps — surfacing as errors,
+      not clean stops. None of REST, MCP, or A2A carries hop-count/TTL
+      semantics; networking solved this decades ago (IP TTL, SIP
+      Max-Forwards). The lab's fix is a convention: every delegated request
+      carries a standard caller/depth rider with a do-not-call-back
+      directive, and every delegation seam refuses beyond a depth limit with
+      a wire-visible message.
+    advisory: >
+      Ask any multi-agent architecture "what's your TTL?" If the answer is
+      "the timeout," loops are being absorbed, not prevented — and each one
+      burns tokens, latency, and platform quota until something starves.
+      Until the protocols standardize hop semantics, enterprises must impose
+      their own delegation-depth convention at every boundary they control,
+      and prompt-level directives alone are hope, not enforcement — enforce
+      at the seams.
+    refs: [D25, D27]
+
+  - id: platform-not-model
+    category: Federation vs consolidation
+    status: observed
+    headline: Delegating to a remote agent is not the same as calling a different model — platforms carry capabilities, models don't
+    evidence: >
+      The lab's Agentforce twin answers from live CRM data through governed
+      Apex actions; the Claude and OpenAI researchers bring their own tools
+      and runtimes. Swapping which model an Agentforce action calls could not
+      reproduce any of these experiments — the delegation is to capabilities
+      plus data access, not to a text generator.
+    advisory: >
+      Cut through the "one platform, many models" pitch with one question: is
+      this use case satisfied by a different model behind the same tools and
+      data, or does it need capabilities and data another platform owns? The
+      first is consolidation (simpler — take it when you can); the second is
+      federation, and no model picker makes it go away.
+    refs: [D12, D15]
+
+  - id: when-to-federate
+    category: Federation vs consolidation
+    status: observed
+    headline: Federation is driven by ownership boundaries, not technology preference
+    evidence: >
+      The drivers that hold up in practice: different business units or
+      partners already own different agent stacks; vendor SaaS increasingly
+      ships embedded agents you don't control; a best-of-breed capability
+      lives off-platform; M&A merges estates. Where one trust domain and one
+      data estate cover the use cases, consolidation stays simpler — the lab
+      exists to make both paths concrete.
+    advisory: >
+      Advise customers to consolidate within a trust domain and federate
+      across trust domains — and to treat "we'll never need interop" with
+      suspicion: your vendors are already shipping agents, so the second
+      platform usually arrives whether you chose it or not.
+    refs: [plan/02-matrix.md]
+
+  - id: honest-demos
+    category: Method
+    status: observed
+    headline: Interop claims deserve wire-level evidence — insist that demos enter through the real platform agent
+    evidence: >
+      Lab rule D15: every experiment enters through the actual platform agent
+      (a real Agentforce conversation, a real managed session) — no console
+      simulation of a platform leg — and every hop records its raw wire
+      payload. The rule has caught more architectural truth than any feature
+      matrix, including the emergent-topology incident.
+    advisory: >
+      When evaluating vendor interop claims, require the demo to start inside
+      the real product surface and show the wire. "Our platform speaks A2A"
+      and "a slide says our platform speaks A2A" are different facts.
+    refs: [D7, D15]
+
+  - id: interop-tax
+    category: Federation vs consolidation
+    status: hypothesis
+    headline: Every cross-platform hop levies a tax — latency, tokens, and an observability seam — that consolidation avoids
+    evidence: >
+      Qualitatively visible in every trace: each hop adds transport latency,
+      re-contextualization tokens (the calling agent restates the task; the
+      answering agent's context is rebuilt), and one more seam where telemetry
+      fragments. Quantified lanes (per-hop token and cost accounting) are the
+      M11.4 measurement workstream.
+    advisory: >
+      Federation isn't free even when it's right. Price the interop tax into
+      the business case: if a delegation crosses platforms mainly for
+      organizational convenience, consolidation may pay for itself in latency
+      and cost alone. Numbers to follow from the lab.
+    refs: [plan/05-observability.md]

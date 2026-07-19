@@ -16,10 +16,15 @@ to one or more TraceSinks, selected by A2ALAB_TRACE_SINK (comma-separated):
                       platform filters, joins against the harvested
                       observability tables live in the same file).
 - "dynamodb"          put_item per event into a DynamoDB table
-                      (A2ALAB_TRACE_TABLE, default "a2alab-traces") — the
-                      durable store for cloud deploys, and the table Data
-                      360's zero-copy DynamoDB connector reads for
-                      TableauNext reporting (M10).
+                      (A2ALAB_TRACE_TABLE, default "a2alab-traces") —
+                      superseded as the cloud path by "postgres" (D23) but
+                      kept runnable.
+- "postgres"          insert into lab.trace_events on the Aurora Postgres
+                      obs store (D23) — the durable cloud store and the
+                      table Data 360's zero-copy Aurora connector reads for
+                      TableauNext reporting (M10). Config via
+                      A2ALAB_PG_CLUSTER_ARN+A2ALAB_PG_SECRET_ARN (Data API)
+                      or A2ALAB_PG_DSN (direct).
 
 Default is "jsonl,sqlite" (D19). JSONL can rebuild the DB at any time via
 scripts/trace_import.py.
@@ -272,6 +277,13 @@ def sinks_from_env() -> list[TraceSink]:
             sinks.append(SqliteSink())
         elif name == "dynamodb":
             sinks.append(DynamoDbSink())
+        elif name == "postgres":
+            # D23: Aurora Postgres — the hosted successor to dynamodb as the
+            # cloud sink and the M10 zero-copy source. Lazy import: the pg
+            # layer lives with the observability store it shares tables with.
+            from observability.pg import PostgresSink
+
+            sinks.append(PostgresSink())
         else:
             raise ValueError(f"unknown trace sink '{name}' in {TRACE_SINK_ENV}")
     return sinks

@@ -135,11 +135,35 @@ def test_scenarios_listed(tmp_path, monkeypatch):
     data = client.get("/api/scenarios").json()["scenarios"]
     names = {s["name"]: s for s in data}
     assert "claude-to-agentforce" in names and names["claude-to-agentforce"]["status"] == "live"
-    assert names["chatgpt-to-agentforce"]["status"] == "coming-soon"
+    # D25: the OpenAI pair went live, mirroring the Claude pair — each
+    # direction enters through its own platform and stays two-platform.
+    assert names["chatgpt-to-agentforce"]["status"] == "live"
+    assert names["chatgpt-to-agentforce"]["target"] == "openai-rest"
+    assert names["agentforce-to-chatgpt"]["target"] == "agentforce-openai-rest"
     # D15: the experiment enters through the real Agentforce agent (Agent
     # API); the org itself initiates the bridge hop, not the console.
     assert names["agentforce-to-claude"]["target"] == "agentforce-rest"
     assert names["agentforce-to-claude"]["via_bridge"] is False
+
+
+def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
+    """The two-level Experiments nav: yaml-ordered groups (2 live pairs +
+    4 upcoming workstream placeholders), every scenario bucketed into one."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    data = client.get("/api/scenarios").json()
+    assert [g["id"] for g in data["groups"]] == [
+        "claude-agentforce",
+        "openai-agentforce",
+        "adk-agentforce",
+        "foundry-agentforce",
+        "langgraph-agentforce",
+        "strands-agentforce",
+    ]
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 2 + [True] * 4
+    group_ids = {g["id"] for g in data["groups"]}
+    for s in data["scenarios"]:
+        assert s["group"] in group_ids, s["name"]
 
 
 def test_run_scenario_resolves_target_and_suffix(tmp_path, monkeypatch):
@@ -153,10 +177,50 @@ def test_run_scenario_resolves_target_and_suffix(tmp_path, monkeypatch):
     req = registry.fake_client.requests[0]
     assert req.message.startswith("What can you do?")
     assert "ask_agentforce" in req.message  # prompt_suffix appended
-    # coming-soon scenario refuses to run
-    assert client.post("/api/run", json={"scenario": "chatgpt-to-agentforce"}).status_code == 409
+    # a non-live scenario refuses to run (none ship as coming-soon since
+    # D25, so patch one in to keep the refusal path covered)
+    import console.app as console_app
+
+    scenarios = console_app.load_scenarios()
+    scenarios["not-yet"] = {"title": "Not yet", "status": "coming-soon"}
+    monkeypatch.setattr(console_app, "load_scenarios", lambda: scenarios)
+    assert client.post("/api/run", json={"scenario": "not-yet"}).status_code == 409
     # unknown scenario
     assert client.post("/api/run", json={"scenario": "nope"}).status_code == 404
+
+
+def test_config_reports_delegation(tmp_path, monkeypatch):
+    """D27: the run panel shows the injected rider read-only — the API must
+    hand the console the real rider text, depth limit, and seam list."""
+    monkeypatch.delenv("A2ALAB_MODE", raising=False)
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    data = client.get("/api/config").json()
+    assert data["mode"] == "local"
+    d = data["delegation"]
+    assert "A2A-LAB DELEGATION" in d["rider"]
+    assert d["max_depth"] >= 1 and len(d["seams"]) == 4
+
+
+def test_run_scenario_requires_mode_gate(tmp_path, monkeypatch):
+    """A requires_mode scenario is refused with instructions in the wrong
+    deployment mode, and runs once A2ALAB_MODE matches."""
+    monkeypatch.delenv("A2ALAB_MODE", raising=False)
+    registry = FakeRegistry()
+    registry.targets["agentforce-rest"] = Target(
+        name="agentforce-rest", platform="agentforce", protocol="rest"
+    )
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    r = client.post("/api/run", json={"scenario": "agentforce-to-claude-aws", "message": "hi"})
+    assert r.status_code == 409
+    assert "A2ALAB_MODE=hosted" in r.json()["detail"]
+    # flipping the mode opens the gate
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    data = client.post(
+        "/api/run", json={"scenario": "agentforce-to-claude-aws", "message": "hi"}
+    ).json()
+    assert data["ok"] is True
 
 
 def test_run_cell_via_bridge(tmp_path, monkeypatch):
@@ -200,20 +264,107 @@ def test_run_via_bridge(tmp_path, monkeypatch):
     assert calls["target"] == "claude-rest" and calls["req"].trace_id == "t-b"
 
 
+class ColdClient(RemoteAgentClient):
+    """A runtime whose cold start blows the client timeout — the failure is
+    the data point, so the console must record it, not 500."""
+
+    protocol = "rest"
+
+    async def ask(self, req: AgentRequest) -> AgentResponse:
+        raise TimeoutError("cold start exceeded 65s")
+
+
+class WarmupRegistry(Registry):
+    """Two warmup-flagged targets plus a plain one; client_for takes the
+    exact= kwarg like the real registry (warm-ups are never mode-remapped)."""
+
+    def __init__(self, client=None):
+        super().__init__(
+            {
+                "claude-agentcore": Target(
+                    name="claude-agentcore",
+                    platform="claude",
+                    protocol="rest",
+                    options={"warmup": True},
+                ),
+                "openai-agentcore": Target(
+                    name="openai-agentcore",
+                    platform="openai",
+                    protocol="rest",
+                    options={"warmup": True},
+                ),
+                "claude-rest": Target(name="claude-rest", platform="claude", protocol="rest"),
+            }
+        )
+        self.fake_client = client or FakeClient()
+        self.exact_calls: list[bool] = []
+
+    def client_for(self, name, *, exact=False):
+        self.exact_calls.append(exact)
+        return self.fake_client
+
+
+def test_warmup_lists_only_flagged_targets(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "traces", monkeypatch, WarmupRegistry())
+    client = TestClient(app)
+    data = client.get("/api/warmup").json()["targets"]
+    assert [t["name"] for t in data] == ["claude-agentcore", "openai-agentcore"]
+    assert all(t["last"] is None and t["history"] == [] for t in data)
+
+
+def test_warmup_post_records_and_returns(tmp_path, monkeypatch):
+    registry = WarmupRegistry()
+    trace_dir = tmp_path / "traces"
+    app = make_app(trace_dir, monkeypatch, registry)
+    client = TestClient(app)
+    rec = client.post("/api/warmup/claude-agentcore").json()
+    assert rec["target"] == "claude-agentcore" and rec["ok"] is True
+    assert rec["duration_ms"] >= 0 and "ready" in rec["note"]
+    assert registry.exact_calls == [True]  # warm-ups are never mode-remapped
+    # appended to warmups.jsonl in the (isolated) trace dir
+    lines = (trace_dir / "warmups.jsonl").read_text().splitlines()
+    assert json.loads(lines[-1]) == rec
+    # and surfaced as the target's last + history head on the next GET
+    listed = client.get("/api/warmup").json()["targets"]
+    claude = next(t for t in listed if t["name"] == "claude-agentcore")
+    assert claude["last"] == rec and claude["history"] == [rec]
+
+
+def test_warmup_failure_recorded_not_500(tmp_path, monkeypatch):
+    trace_dir = tmp_path / "traces"
+    app = make_app(trace_dir, monkeypatch, WarmupRegistry(ColdClient()))
+    client = TestClient(app)
+    r = client.post("/api/warmup/openai-agentcore")
+    assert r.status_code == 200
+    rec = r.json()
+    assert rec["ok"] is False and "cold start exceeded 65s" in rec["note"]
+    assert json.loads((trace_dir / "warmups.jsonl").read_text().splitlines()[-1]) == rec
+
+
+def test_warmup_non_warmable_404(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "traces", monkeypatch, WarmupRegistry())
+    client = TestClient(app)
+    assert client.post("/api/warmup/claude-rest").status_code == 404  # no warmup flag
+    assert client.post("/api/warmup/nope").status_code == 404  # unknown target
+
+
 def test_run_async_scenario_returns_immediately(tmp_path, monkeypatch):
     """D16: async scenarios fire a background research run and ack at once."""
     import briefs.runner as brief_runner
 
     async def fake_run_brief(accounts, trace_id, extra_context=""):
-        return {"deliveries": [], "elapsed_s": 0.0, "web_lookups": 0,
-                "session_id": "sesn_x", "text": ""}
+        return {
+            "deliveries": [],
+            "elapsed_s": 0.0,
+            "web_lookups": 0,
+            "session_id": "sesn_x",
+            "text": "",
+        }
 
     monkeypatch.setattr(brief_runner, "run_brief", fake_run_brief)
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
-    data = client.post(
-        "/api/run", json={"scenario": "account-brief-async", "message": "hi"}
-    ).json()
+    data = client.post("/api/run", json={"scenario": "account-brief-async", "message": "hi"}).json()
     assert data["ok"] is True and data.get("async") is True
     assert data["trace_id"]
     assert "research started" in data["text"].lower()

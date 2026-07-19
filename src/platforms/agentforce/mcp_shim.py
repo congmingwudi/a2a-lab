@@ -1,6 +1,6 @@
 """MCP shim for Agentforce (Path B via-shim cell).
 
-    uv run python -m platforms.agentforce.mcp_shim --port 8021
+uv run python -m platforms.agentforce.mcp_shim --port 8021
 """
 
 from __future__ import annotations

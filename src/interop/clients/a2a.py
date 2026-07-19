@@ -100,9 +100,9 @@ class A2AClient(RemoteAgentClient):
                     "artifacts": texts,
                 }
                 if task.status.state == TaskState.TASK_STATE_FAILED:
-                    detail = "\n".join(
-                        _texts_from_parts(task.status.message.parts)
-                    ) or "task failed"
+                    detail = (
+                        "\n".join(_texts_from_parts(task.status.message.parts)) or "task failed"
+                    )
                     raise RuntimeError(f"A2A task failed on {self.target_name}: {detail}")
                 resp = AgentResponse(
                     text="\n".join(texts),

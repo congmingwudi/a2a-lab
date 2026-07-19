@@ -237,6 +237,18 @@ class ObsStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def openai_response_ids(self, limit: int = 50) -> list[str]:
+        """Newest-first OpenAI response ids captured at emit time as
+        platform_ref on agents-sdk hops (M9/D18 — the only join key that
+        exists; OpenAI has no list/read-back API)."""
+        rows = self._safe_query(
+            """SELECT platform_ref, MAX(ts) AS ts FROM trace_events
+               WHERE target = 'openai-platform' AND platform_ref IS NOT NULL
+               GROUP BY platform_ref ORDER BY ts DESC LIMIT ?""",
+            [limit],
+        )
+        return [r["platform_ref"] for r in rows]
+
     def lab_traces_for(self, native_id: str) -> list[str]:
         rows = self._safe_query(
             "SELECT DISTINCT trace_id FROM trace_events WHERE platform_ref = ?",

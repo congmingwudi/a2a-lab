@@ -318,3 +318,154 @@ custom tool and writes an interpretive nightly brief (failures, token
 anomalies, cross-platform comparisons). Deferred until the store holds real
 multi-platform data — STDM/GenAI toggles were enabled 2026-07-17, DMOs
 materializing; revisit after the first live Salesforce harvest.
+
+## 2026-07-17 — D23: Hosted obs analyst = Aurora Postgres store + MCP front + scheduled deployment (no driver loop)
+Direction decided for the hosted phase; the D22/D19 local design stays as
+the working prototype until then. Constraint forcing the fork: CMA **custom
+tools are pull-serviced** — `agent.custom_tool_use` arrives on an outbound
+SSE stream a local driver holds open (`analyst.py:_drive`); with no driver
+attached the tool call parks until the session times out. Fine on a laptop
+(D16's `--watch` exists for exactly this), disqualifying for a hosted,
+cron-fired analyst. Rule extracted: **a scheduled/hosted agent may only use
+tools servable without a client attached** — custom tools are the one tool
+type that blocks on one.
+
+**Store = Aurora PostgreSQL Serverless v2** (scale-to-zero, embark account
+per D21, us-east-1) — one store for all five consumers: trace hops (new
+`postgres` TraceSink), harvested obs tables (obs_harvest writes here),
+hosted console reads, the analyst's ad-hoc SQL, and M10 reporting.
+Considered and rejected: DynamoDB-only (no joins/aggregates — kills the
+analyst workload, whose entire value is ad-hoc SQL over
+trace_events⋈obs_sessions); DynamoDB+Athena two-tier (was the leading
+option while DynamoDB held the only Data 360 zero-copy path, but Data 360's
+**AWS Aurora PostgreSQL connector is GA for Zero Copy query federation**,
+so Postgres now serves M10 too and the second tier buys nothing);
+Timestream (dead-ended), OpenSearch/CloudWatch (hide the raw payloads the
+lab exists to show). Payloads land as **jsonb** — strictly better than the
+JSON-strings-because-DynamoDB-rejects-floats shape of D13. Retention via
+pg_cron/partition drops replaces TTL. **Supersedes**: D13's dynamodb sink
+is no longer the cloud path (code stays; a2alab-traces decommissionable)
+and M10 rebuilds on the Aurora connector instead of the DynamoDB one.
+
+Connector-driven design constraints (verified against the setup doc):
+federation reaches the cluster endpoint (`*.rds.amazonaws.com`) with
+username/password, scoped to one database+schema, from Salesforce IP
+ranges — so the cluster needs a reachable endpoint with a tight
+security-group allowlist (Salesforce IPs + the MCP server) and TLS
+required; auth is a dedicated schema-scoped **read-only role** shared in
+kind (not in credential) with the analyst path. Roles: `lab_writer` for
+sinks/harvest, `lab_reader` for Data 360 and the analyst MCP server, with
+statement_timeout and row caps enforced in DB grants/settings — the
+server-side successor to `_run_readonly_sql`'s app-level guard.
+
+Analyst wiring, three pieces: (1) **harvest** = obs_harvest.py as hosted
+cron writing Aurora (keeps SF/Anthropic creds; stays our code);
+(2) **access** = thin remote MCP server (Streamable HTTP) exposing
+`query_obs_store` backed by `lab_reader`; declared on the agent via
+`mcp_servers` + `mcp_toolset`, token in a vault attached by `vault_ids`
+(credentials never enter the sandbox) — data access becomes
+server-to-server, no session driving needed; (3) **schedule** = CMA
+scheduled deployment (the D16 pattern), but unlike D16 firings complete
+with **no watcher process** since every tool is server-servable. Brief
+delivery: `/mnt/session/outputs/` fetched via Files API on a
+`session.status_idled` webhook (D20's stable hostname prereq), or a
+`save_brief` MCP tool writing back into Aurora — preferred, since it keeps
+the analyst observable by the thing it analyzes. Env note: if the agent's
+environment uses `limited` networking, set `allow_mcp_servers: true` or
+list the MCP host, else tool calls fail silently.
+
+## 2026-07-18 — D24: Path C = OpenAI Agents SDK on AgentCore; interior built by Codex; ChatGPT cell is manual-only
+Refines D4 with three calls. (1) **Runtime vs model**: AgentCore hosts the
+container; the brain is the **OpenAI Agents SDK calling the real OpenAI
+API** — not gpt-oss-on-Bedrock — because M9's observability column
+(TracingProcessor tee, response-id capture) only exists on OpenAI's
+platform. SCP preflight passed 2026-07-18: `bedrock-agentcore-control`
+responds in embark (tonight's D23 lesson: preflight org SCPs before
+committing to an AWS service). (2) **Build split, at user request**: the
+lab side (adapter/backend seam, stub backend, protocol servers, ports
+8011/8012/8013, targets.yaml cells, AgentCore Dockerfile, tests) is built
+here; the agent interior (`AgentsSdkBackend`) is handed to **OpenAI
+Codex** against the written contract in plan/06-openai-codex-handoff.md —
+on-brand for a cross-vendor lab (each vendor's coding agent builds its own
+platform's integration) with the seam kept convention-safe on our side.
+(3) **ChatGPT-native paths**: "Agentforce Sales in ChatGPT" (Salesforce's
+app, open beta) is a closed surface — can't host our agent, no trace API,
+not API-drivable, so it fails D15; a custom GPT with an Action pointed at
+the bridge IS wire-traceable our side and becomes a **manual demo cell**
+(interior dark, not automatable — recorded honestly in the matrix), not
+the primary Path C.
+
+## 2026-07-18 — D25: Per-platform Agentforce twins keep cross-platform experiments closed systems
+**At user request**, after the accept-4 trace showed the OpenAI→Agentforce
+experiment silently becoming a THREE-platform chain (the shared Agentforce
+agent's external-research action delegated to Claude mid-answer): each
+counterpart platform now gets its own Agentforce twin so every experiment
+is a closed two-platform system with attributable contributions. New Agent
+Script bundle `A2ALab_Research_Assistant_OpenAI` (agent
+0XxKB000000xdn30AA, published+activated v1) — behaviorally identical to
+the Claude-paired agent except its `ask_external_researcher` action
+targets **openai-rest**, pinned three ways: a required `target` action
+input ("ALWAYS pass exactly: openai-rest"), the input description, and the
+STEP 2 instruction. **No Apex change / no prod class deploy**: the D15
+invocable already takes `target`; the twin reuses the same agent user,
+permission set, and Named Credential. Lab wiring: `SF_OPENAI_AGENT_ID`
+(the OpenAI backend's ask_agentforce targets the twin),
+`agentforce-openai-rest` target, both OpenAI scenarios flipped live
+(mirroring the Claude pair's flows), openai servers added to run_local.
+Live-verified both directions with wire proof: Agentforce→OpenAI 20.9s
+(apex→bridge→openai-rest, no Claude hop), OpenAI→Agentforce 20.1s (CRM
+attributed, nested research loop bounded). The symmetric self-loop
+(openai→AF-twin→openai) is intentional — it mirrors claude→AF→claude, so
+"the same two experiments" holds exactly across platforms.
+
+## 2026-07-19 — D26: Claude sdk twin on AgentCore, scripted deploys, and the local/hosted mode switch
+The Managed-Agents Claude cell and the self-hosted OpenAI Agents SDK cell
+are different architectural species (managed platform runtime vs BYO
+container), so the cross-vendor comparison gets an apples-to-apples peer:
+the Claude **sdk backend** (already the M8 containerization path) deploys
+to Bedrock AgentCore Runtime exactly like the OpenAI agent — same image
+contract (`POST /invocations` + `GET /ping`), same IAM-only data plane,
+same twin rules (its `ask_agentforce` targets `SF_AGENT_ID`, the
+Claude-paired Agentforce twin, per D25). The Managed cell **stays** — the
+lab now runs the same Claude adapter both ways, making managed-vs-
+self-hosted itself a measured comparison (cold start, credential locality,
+observability access, ops burden), alongside the cross-vendor pair on
+identical runtime. Mechanics: `AgentCoreClient` lifted to
+`interop/clients/agentcore.py` (platform-generic; the openai module is
+gone), `claude-agentcore` target added, Claude image gains `--extra aws`
+(boto3 for the PG TraceSink — without it container hops drop silently),
+and the M9 hand-deploy is replaced by `deploy/agentcore/deploy.sh
+<claude|openai>` (ECR build/push arm64, create-or-update runtime, role
+copied from the existing a2alab_* runtime, env written back to .env).
+Dev↔hosted switching: `A2ALAB_MODE=hosted` remaps `claude-rest`/
+`openai-rest` to the agentcore targets at client resolution (bridge,
+custom tools, console runs) via a `modes:` block in targets.yaml — one
+env flip, no Salesforce or scenario changes; `scripts/matrix.py` resolves
+exact names so matrix cells always measure the target they name. Roadmap
+context in plan/07-workstreams.md (WS1); CrewAI and Pydantic AI are
+flagged as candidate future platforms, **user decision pending**.
+
+## 2026-07-19 — D27: Delegation guard — standard rider + depth limit at every delegation seam
+The paired experiments intentionally wire both directions of each platform
+pair, which makes circular execution possible by construction
+(claude→agentforce→claude...). Loops previously terminated only by
+starvation (stacked timeouts + per-agent turn caps) — surfacing as
+timeouts and max-turns errors, not clean stops. None of REST/MCP/A2A
+defines TTL/max-forwards semantics (networking solved this with IP TTL and
+SIP Max-Forwards; agent protocols haven't — recorded as an insight), so
+the lab adds its own convention in `interop/delegation.py`, enforced at
+every delegation seam (the three ask_agentforce tool paths — sdk, managed
+host-side, openai — and the bridge): (1) every delegated request carries a
+standard parseable **rider** block naming caller, platform, and
+delegation-depth, with a do-not-call-back directive — the prompt-level
+guard and the only channel into text-only platform APIs (Agentforce Agent
+API); (2) the same context rides `AgentRequest.metadata["delegation"]` on
+lab protocols; (3) seams forward only while depth <
+`A2ALAB_MAX_DELEGATION_DEPTH` (default 1: a delegated-to agent answers
+itself, delegates no further) and otherwise return a standard wire-visible
+refusal. Known bound: depth cannot survive *through* the Agentforce
+platform (its model composes fresh action inputs), so an ignored rider
+costs at most one extra leg before the next lab seam re-stamps depth 1 and
+the chain stops — claude→AF→claude(refused tool, answers directly).
+Optional follow-up (not done): add rider-honoring instructions to the
+Agent Script twins so Agentforce also stops at the prompt level.
