@@ -16,8 +16,30 @@
 #         targets.yaml — the console fetches that server's live
 #         /.well-known/agent-card.json on demand.
 
+# Nav groups: second-level sections under "Experiments" — one per platform
+# pair. `upcoming` groups render as collapsed placeholders tied to the
+# roadmap workstreams (plan/07-workstreams.md) until their scenarios land.
+groups:
+  - id: claude-agentforce
+    title: "Claude - Agentforce"
+  - id: openai-agentforce
+    title: "OpenAI - Agentforce"
+  - id: adk-agentforce
+    title: "Google ADK - Agentforce"
+    upcoming: WS2
+  - id: foundry-agentforce
+    title: "Microsoft Foundry - Agentforce"
+    upcoming: WS3
+  - id: langgraph-agentforce
+    title: "LangGraph - Agentforce"
+    upcoming: WS4
+  - id: strands-agentforce
+    title: "AWS Strands - Agentforce"
+    upcoming: WS5
+
 scenarios:
   claude-to-agentforce:
+    group: claude-agentforce
     title: "Claude → Agentforce"
     summary: >-
       Claude Managed Agent calls an Agentforce Agent via A2A protocol.
@@ -28,7 +50,7 @@ scenarios:
     target: claude-rest
     via_bridge: false
     status: live
-    tags: [claude, managed-agents, agent-api]
+    tags: [claude, managed-agents, agentforce, agent-api]
     prompt_suffix: >-
       Consult the Salesforce Agentforce agent with your ask_agentforce tool
       as part of answering, and say what it contributed.
@@ -70,6 +92,7 @@ scenarios:
           Agent API. Honest status: via-shim.
 
   agentforce-to-claude:
+    group: claude-agentforce
     title: "Agentforce → Claude (sync)"
     summary: >-
       Agentforce Agent calls a Claude Managed Agent via A2A protocol and waits for a response.
@@ -86,7 +109,7 @@ scenarios:
     target: agentforce-rest
     via_bridge: false
     status: live
-    tags: [agentforce, agent-api, bridge, claude]
+    tags: [agentforce, agent-api, bridge, claude, managed-agents]
     note: >-
       The Salesforce-internal legs mint their own trace id (the Apex
       invocable generates one per callout), so the Apex → bridge → Claude
@@ -147,7 +170,155 @@ scenarios:
           Native card — generated at startup by the lab's a2a-sdk server on
           :8003 from the mounted adapter's name and description.
 
+  claude-aws-to-agentforce:
+    group: claude-agentforce
+    title: "Claude (AWS) → Agentforce"
+    summary: >-
+      The self-hosted Claude Agent SDK on Bedrock AgentCore calls the
+      Agentforce Agent mid-answer — cross-cloud AWS → Salesforce.
+    description: >-
+      The hosting-model twin of Claude → Agentforce (ADR D26): the SAME
+      Claude adapter, but self-hosted — the Claude Agent SDK containerized
+      on Bedrock AgentCore Runtime instead of Anthropic Managed Agents. You
+      invoke the AWS runtime (IAM-authed invoke_agent_runtime; there is no
+      public HTTP endpoint); inside the container the SDK spawns the Claude
+      Code CLI, and mid-answer the agent consults Agentforce through its
+      in-process ask_agentforce tool — Salesforce credentials live in the
+      container env here, versus host-side under managed (the
+      credential-locality contrast is the point). The outbound question
+      carries the D27 delegation rider — visible in this leg's raw wire
+      payload.
+    target: claude-agentcore
+    via_bridge: false
+    status: live
+    tags: [claude, agent-sdk, agentcore, agentforce, agent-api]
+    prompt_suffix: >-
+      Consult the Salesforce Agentforce agent with your ask_agentforce tool
+      as part of answering, and say what it contributed.
+    note: >-
+      Cold start matters here: first invoke after idle or a runtime update
+      is ~56s (vs ~31s for the OpenAI runtime — the harness-vs-thin-SDK
+      footprint contrast, see Insights). Use the warm-up gear before
+      demoing.
+    flow:
+      - source: remote-caller
+        target: claude-agentcore
+        protocol: agentcore-http
+        detail: >-
+          You (the console) invoke the AWS-hosted runtime via boto3
+          invoke_agent_runtime — SigV4/IAM only, no public endpoint, no
+          bearer token (the IAM data plane replaces app-level auth). The
+          payload lands on the container's POST /invocations.
+      - source: claude-researcher
+        target: claude-agent-sdk
+        protocol: internal
+        detail: >-
+          Inside the container the adapter drives the Claude Agent SDK,
+          which spawns the Claude Code CLI (Node) as a subprocess — the
+          full agent harness runs in the container, calling the Anthropic
+          API with the key from the runtime env.
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          Mid-answer the model calls ask_agentforce (in-process SDK MCP
+          tool). The container itself performs OAuth + session + message
+          against the Salesforce Agent API — a cross-cloud AWS→Salesforce
+          hop, with the D27 delegation rider stamped on the outbound
+          question (depth 1: the twin is asked not to delegate onward).
+    agents:
+      - title: Claude research agent (AgentCore, sdk backend)
+        target: claude-a2a
+        caption: >-
+          Same adapter as the managed variant — the A2A card is generated
+          from the same mounted adapter; only the hosting differs (D26).
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          proxies inbound A2A to the GA Agent API. Honest status: via-shim.
+
+  agentforce-to-claude-aws:
+    group: claude-agentforce
+    title: "Agentforce → Claude (AWS, sync)"
+    summary: >-
+      The Agentforce Agent delegates research through the bridge to the
+      AWS-hosted Claude runtime instead of Managed Agents.
+    description: >-
+      Agentforce → Claude (sync) with the Claude end self-hosted on Bedrock
+      AgentCore (ADR D26). Same Salesforce entry point, same twin, same
+      Apex action, same bridge — the ONLY change is A2ALAB_MODE=hosted,
+      under which the bridge resolves claude-rest to claude-agentcore and
+      forwards over IAM-authed invoke_agent_runtime. One env flip moves the
+      experiment across hosting models with no Salesforce redeploy — that
+      is the deployment-mode seam working as designed. The bridge stamps
+      the D27 delegation rider on the forwarded question (visible in the
+      raw wire payload of the bridge → AgentCore leg).
+    target: agentforce-rest
+    via_bridge: false
+    requires_mode: hosted
+    status: live
+    tags: [agentforce, agent-api, bridge, claude, agent-sdk, agentcore]
+    note: >-
+      Requires A2ALAB_MODE=hosted (the mode badge shows the active mode) —
+      in local mode the run is refused with instructions rather than
+      silently testing the wrong hosting. Warm the runtime first: a ~56s
+      cold start inside the bridge's 45s budget fails the sync turn — that
+      stacked-timeout reality is itself one of the lab's findings.
+    flow:
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          You talk to the Agentforce agent over the GA Agent API — the same
+          Claude-paired twin as the managed variant (one twin per platform
+          pair, D25; hosting mode is not a new platform).
+      - source: agentforce
+        target: agentforce-apex
+        protocol: internal
+        detail: >-
+          STEP 1 — internal truth: A2ALab: Get Account Summary (Apex SOQL
+          over Account + open Opportunities + open Cases). CRM data never
+          leaves the org.
+      - source: agentforce-apex
+        target: bridge
+        protocol: rest
+        detail: >-
+          STEP 2 — external delegation: the agent's action POSTs through
+          the Named Credential and tunnel to the lab bridge with
+          target=claude-rest — the SAME pinned input as the managed
+          variant; Salesforce is unaware hosting changed.
+      - source: client
+        target: claude-agentcore
+        protocol: agentcore-http
+        detail: >-
+          Under A2ALAB_MODE=hosted the bridge resolves claude-rest →
+          claude-agentcore and invokes the AWS runtime via boto3
+          invoke_agent_runtime (SigV4). The forwarded question carries the
+          D27 delegation rider at depth 1 — inspect this hop's raw request
+          payload to see it on the wire.
+      - source: claude-researcher
+        target: claude-agent-sdk
+        protocol: internal
+        detail: >-
+          The containerized Claude Agent SDK produces the market research
+          and does NOT call back to Agentforce — the rider's directive and
+          the depth guard both stand between this leg and a circular
+          claude→agentforce→claude chain (D27).
+    agents:
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: >-
+          Shim card — the lab's shim proxies inbound A2A to the GA Agent
+          API. Honest status: via-shim.
+      - title: Claude research agent (AgentCore, sdk backend)
+        target: claude-a2a
+        caption: >-
+          Same adapter, same card — only the hosting differs from the
+          managed variant (D26).
+
   account-brief-async:
+    group: claude-agentforce
     title: "Account Intelligence Brief (async)"
     summary: >-
       A scheduled Claude Managed Agent runs long running tasks and updates
@@ -236,6 +407,7 @@ scenarios:
           brief. Shim card shown for reference; honest status via-shim.
 
   chatgpt-to-agentforce:
+    group: openai-agentforce
     title: "OpenAI → Agentforce"
     summary: >-
       An OpenAI agent calls the Agentforce Agent mid-answer.
@@ -250,7 +422,7 @@ scenarios:
     target: openai-rest
     via_bridge: false
     status: live
-    tags: [openai, agents-sdk, agent-api]
+    tags: [openai, agents-sdk, agentforce, agent-api]
     prompt_suffix: >-
       Consult the Salesforce Agentforce agent with your ask_agentforce tool
       as part of answering, and say what it contributed.
@@ -292,6 +464,7 @@ scenarios:
           Honest status: via-shim.
 
   agentforce-to-chatgpt:
+    group: openai-agentforce
     title: "Agentforce → OpenAI (sync)"
     summary: >-
       Agentforce Agent delegates research to an OpenAI agent via the bridge
@@ -307,7 +480,7 @@ scenarios:
     target: agentforce-openai-rest
     via_bridge: false
     status: live
-    tags: [agentforce, agent-api, bridge, openai]
+    tags: [agentforce, agent-api, bridge, openai, agents-sdk]
     note: >-
       The Salesforce-internal legs mint their own trace id (the Apex
       invocable generates one per callout), so the Apex → bridge → OpenAI

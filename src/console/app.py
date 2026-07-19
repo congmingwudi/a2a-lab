@@ -7,8 +7,11 @@ launching experiments.
 - GET  /api/traces    traces grouped by trace_id, newest first
 - GET  /api/stream    SSE live tail of new TraceEvents (file-watcher)
 - GET  /api/targets   runnable targets from config/targets.yaml
-- GET  /api/scenarios primary demo scenarios from config/scenarios.yaml
+- GET  /api/scenarios primary demo scenarios + nav groups from config/scenarios.yaml
+- GET  /api/insights  trusted-advisor findings from config/insights.yaml
+- GET  /api/config    active deployment mode (A2ALAB_MODE) + target remaps
 - POST /api/run       run a scenario or one cell (custom prompt, live trace)
+- POST /api/warmup/{name} pre-warm a hosted runtime; every duration recorded
 """
 
 from __future__ import annotations
@@ -16,15 +19,18 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 import httpx
 import yaml
 
+from console.insights import by_category, load_insights, to_markdown
+from interop import delegation
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, new_trace_id
 from interop.registry import Registry
@@ -40,6 +46,16 @@ def load_scenarios(path: str | Path = SCENARIOS_PATH) -> dict[str, dict]:
         return {}
     raw = yaml.safe_load(p.read_text()) or {}
     return raw.get("scenarios") or {}
+
+
+def load_groups(path: str | Path = SCENARIOS_PATH) -> list[dict]:
+    """Second-level nav groups ({id, title, upcoming?}, yaml order) — one per
+    platform pair; `upcoming` groups are roadmap placeholders (WS2-WS5)."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    raw = yaml.safe_load(p.read_text()) or {}
+    return raw.get("groups") or []
 
 
 # Customer-shaped default for demos: the Agentforce agent's "Customer account
@@ -126,7 +142,9 @@ def components_for(tags: set[str]) -> list[dict]:
     — url None renders as not-yet-available."""
     comps: list[dict] = []
     ld = _lightning_domain()
-    if {"claude", "managed-agents"} & tags:
+    # Keyed on managed-agents alone: the AgentCore-hosted Claude scenarios
+    # carry `claude` too but run the sdk backend, not the managed platform.
+    if "managed-agents" in tags:
         comps.append(
             {
                 "title": "Claude research agent — Managed Agents (beta)",
@@ -159,11 +177,28 @@ def components_for(tags: set[str]) -> list[dict]:
     if "openai" in tags:
         comps.append(
             {
-                "title": "OpenAI research agent — Bedrock AgentCore",
+                "title": "OpenAI research agent — Agents SDK",
                 "kind": "openai",
-                "note": "Lands with M9 (platforms/openai + AgentCore deploy).",
-                "url": None,
+                "note": "M9: the openai-agents backend, answering locally and as the "
+                "a2alab_openai AgentCore runtime.",
+                "url": os.environ.get("OPENAI_CONSOLE_URL") or None,
                 **_shots("openai-agentcore"),
+            }
+        )
+    if "agentcore" in tags:
+        comps.append(
+            {
+                "title": "Bedrock AgentCore runtime — a2alab-claude / a2alab-openai",
+                "kind": "aws",
+                "note": "D26: the self-hosted Agent SDK containers deployed to Bedrock "
+                "AgentCore Runtime (IAM-only data plane, no public HTTP endpoint) — "
+                "deploy/agentcore/deploy.sh builds and pushes them.",
+                "url": os.environ.get(
+                    "AGENTCORE_CONSOLE_URL",
+                    "https://us-east-1.console.aws.amazon.com/bedrock-agentcore/home"
+                    "?region=us-east-1#/agent-runtimes",
+                ),
+                **_shots("agentcore-runtimes"),
             }
         )
     if "bridge" in tags:
@@ -243,6 +278,25 @@ def _parse_lines(data: bytes) -> list[dict]:
     return events
 
 
+# Warm-up records live next to the traces (same isolated dir under tests):
+# one JSON line per attempt, kept forever — the cold-start comparison data.
+WARMUP_LOG = "warmups.jsonl"
+
+
+def _read_warmups() -> list[dict]:
+    path = _trace_dir() / WARMUP_LOG
+    if not path.exists():
+        return []
+    return _parse_lines(path.read_bytes())
+
+
+def _record_warmup(record: dict) -> None:
+    trace_dir = _trace_dir()
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    with (trace_dir / WARMUP_LOG).open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def _read_events() -> list[dict]:
     events: list[dict] = []
     trace_dir = _trace_dir()
@@ -309,11 +363,127 @@ def create_console_app(registry: Registry | None = None):
     @app.get("/api/scenarios")
     async def scenarios():
         return {
+            "groups": load_groups(),
             "scenarios": [
                 {"name": name, **spec, "components": components_for(set(spec.get("tags") or []))}
                 for name, spec in load_scenarios().items()
-            ]
+            ],
         }
+
+    # ---- Insights + deployment mode ---------------------------------------
+    # The trusted-advisor findings (config/insights.yaml via console.insights)
+    # and which runtimes /api/run really hits under the active A2ALAB_MODE.
+
+    @app.get("/api/insights")
+    async def insights():
+        data = load_insights()
+        return {"insights": data, "categories": by_category(data)}
+
+    @app.get("/api/insights.md")
+    async def insights_md():
+        """The deck-ready markdown export — same renderer as
+        scripts/export_insights.py, served with a filename so it downloads
+        cleanly (this is what gets pulled into Claude Design)."""
+        return Response(
+            to_markdown(load_insights()),
+            media_type="text/markdown; charset=utf-8",
+            headers={"content-disposition": 'attachment; filename="a2a-lab-insights.md"'},
+        )
+
+    @app.get("/api/config")
+    async def config():
+        reg = get_registry()
+        return {
+            "mode": reg.mode,
+            "modes": reg.modes,
+            "remapped": {
+                name: reg.resolve_name(name)
+                for name in reg.targets
+                if reg.resolve_name(name) != name
+            },
+            # D27: shown read-only in the run panel so the injected rider is
+            # a visible design decision, not hidden plumbing.
+            "delegation": {
+                "max_depth": delegation.max_depth(),
+                "rider": delegation.example_rider(),
+                "seams": [
+                    "ask_agentforce (sdk)",
+                    "ask_agentforce (managed)",
+                    "ask_agentforce (openai)",
+                    "bridge",
+                ],
+            },
+        }
+
+    # ---- Runtime warm-up ---------------------------------------------------
+    # AgentCore-hosted runtimes cold-start in ~30-60s (claude ~56s, openai
+    # ~31s measured) — enough to blow a demo's timeout budget. The gear panel
+    # pings each warmable target (options.warmup in config/targets.yaml)
+    # before demonstrating, and every attempt's wall-clock duration lands in
+    # <trace_dir>/warmups.jsonl for the cross-platform cold-start comparison.
+
+    WARMUP_PING = "Reply with the single word: ready."
+    warming: set[str] = set()
+
+    @app.get("/api/warmup")
+    async def warmup_status():
+        by_target: dict[str, list[dict]] = {}
+        for rec in _read_warmups():
+            by_target.setdefault(rec.get("target", "?"), []).append(rec)
+        out = []
+        for t in get_registry().targets.values():
+            if not t.options.get("warmup"):
+                continue
+            history = sorted(by_target.get(t.name, []), key=lambda r: r.get("ts", 0), reverse=True)
+            history = history[:5]
+            out.append(
+                {
+                    "name": t.name,
+                    "platform": t.platform,
+                    "protocol": t.protocol,
+                    "last": history[0] if history else None,
+                    "history": history,
+                }
+            )
+        return {"targets": out}
+
+    @app.post("/api/warmup/{name}")
+    async def warmup(name: str):
+        try:
+            target = get_registry().get(name)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        if not target.options.get("warmup"):
+            raise HTTPException(status_code=404, detail=f"target '{name}' is not warmable")
+        if name in warming:
+            raise HTTPException(status_code=409, detail=f"warm-up for '{name}' already in flight")
+        warming.add(name)
+        started = time.time()
+        t0 = time.monotonic()
+        try:
+            # A fresh, never-remapped client (exact=True): a warm-up must hit
+            # the runtime it names, and must not disturb the cached clients'
+            # sessions. A timeout is recorded, not raised — a >65s cold start
+            # IS a data point.
+            client = get_registry().client_for(name, exact=True)
+            try:
+                resp = await client.ask(AgentRequest(message=WARMUP_PING, trace_id=new_trace_id()))
+                ok, note = True, (resp.text or "").strip()
+            finally:
+                await client.aclose()
+        except Exception as exc:  # noqa: BLE001 - the failure is the result
+            ok, note = False, f"{type(exc).__name__}: {exc}"
+        finally:
+            warming.discard(name)
+        record = {
+            "target": name,
+            "ts": round(started, 3),
+            "duration_ms": int((time.monotonic() - t0) * 1000),
+            "ok": ok,
+            "note": note[:140],
+        }
+        _record_warmup(record)
+        return record
 
     @app.get("/api/agent-card/{target_name}")
     async def agent_card(target_name: str):
@@ -354,6 +524,18 @@ def create_console_app(registry: Registry | None = None):
             if spec.get("status") != "live":
                 raise HTTPException(
                     status_code=409, detail=f"scenario '{scenario_name}' is not live yet"
+                )
+            required_mode = spec.get("requires_mode")
+            if required_mode and get_registry().mode != required_mode:
+                # e.g. the AWS-hosted Agentforce→Claude variant: the bridge
+                # only routes to the AgentCore runtime under A2ALAB_MODE=hosted.
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"scenario '{scenario_name}' needs A2ALAB_MODE={required_mode} "
+                        f"(current: {get_registry().mode}) — set it in .env and restart "
+                        "the stack"
+                    ),
                 )
             if spec.get("mode") == "async":
                 # Fire-and-return: the research session runs for minutes in
