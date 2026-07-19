@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from interop import delegation
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 from platforms.openai.core import OPENAI_RESEARCH_SYSTEM_PROMPT
@@ -106,7 +107,7 @@ def _response_id_from_result(result: Any) -> str | None:
     return None
 
 
-def _build_agentforce_tool():
+def _build_agentforce_tool(inbound_depth: int = 0):
     from agents import function_tool
 
     @function_tool(
@@ -117,9 +118,19 @@ def _build_agentforce_tool():
         ),
     )
     async def ask_agentforce(question: str) -> str:
+        # Delegation guard (D27): a delegated-to agent doesn't delegate
+        # onward — refuse in the tool result instead of looping back.
+        if inbound_depth >= delegation.max_depth():
+            return delegation.refusal("ask_agentforce")
+        message, meta = delegation.delegate(
+            question,
+            caller="openai-agents-sdk-agent",
+            platform="openai",
+            inbound_depth=inbound_depth,
+        )
         try:
             resp = await asyncio.wait_for(
-                _get_agentforce_client().ask(AgentRequest(message=question)),
+                _get_agentforce_client().ask(AgentRequest(message=message, metadata=meta)),
                 float(
                     os.environ.get(
                         "OPENAI_AGENTFORCE_TOOL_TIMEOUT_S",
@@ -140,7 +151,7 @@ class AgentsSdkBackend:
     def __init__(self, model: str | None = None):
         self.model = model or os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
 
-    def _agent(self):
+    def _agent(self, inbound_depth: int = 0):
         from agents import Agent, ModelSettings
 
         settings_kwargs: dict[str, Any] = {
@@ -168,14 +179,14 @@ class AgentsSdkBackend:
             # ("From the CRM (via Agentforce): ...") and add its own
             # research — the Path C collaboration contract. Budget still
             # fits: tool leg capped at 34s inside the 40s run cap.
-            tools=[_build_agentforce_tool()],
+            tools=[_build_agentforce_tool(inbound_depth)],
         )
 
     async def _run(self, req: AgentRequest):
         from agents import Runner
 
         return await Runner.run(
-            self._agent(),
+            self._agent(delegation.depth_of(req)),
             req.message,
             max_turns=int(os.environ.get("OPENAI_MAX_TURNS", "3")),
         )

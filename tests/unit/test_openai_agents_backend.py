@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from interop import delegation
 from interop.models import AgentRequest, AgentResponse
 from platforms.openai import agents_backend as backend_mod
 from platforms.openai.agents_backend import AgentsSdkBackend
@@ -173,7 +174,11 @@ async def test_agentforce_tool_uses_module_level_client(fake_agents_module, monk
     tool = backend_mod._build_agentforce_tool()
 
     assert await tool("what is account Omega status?") == "from crm"
-    assert calls == [AgentRequest(message="what is account Omega status?")]
+    # The outbound question carries the D27 delegation rider at depth 1.
+    assert len(calls) == 1
+    assert calls[0].message.startswith("what is account Omega status?")
+    assert delegation.MARKER in calls[0].message
+    assert calls[0].metadata["delegation"]["depth"] == 1
 
 
 @pytest.mark.live

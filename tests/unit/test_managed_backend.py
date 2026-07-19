@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from interop import delegation
 from interop.models import AgentRequest, AgentResponse
 from platforms.claude.managed_backend import ManagedBackend
 
@@ -159,7 +160,10 @@ async def test_custom_tool_round_trip(provisioned, monkeypatch):
     backend._agentforce_client = fake_af
 
     resp = await backend.answer(AgentRequest(message="check case 42"))
-    assert fake_af.questions == ["What is case 42?"]
+    # The outbound question carries the D27 delegation rider at depth 1.
+    assert len(fake_af.questions) == 1
+    assert fake_af.questions[0].startswith("What is case 42?")
+    assert delegation.MARKER in fake_af.questions[0]
     # the tool result was sent back to the session
     tool_results = [
         e
