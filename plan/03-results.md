@@ -76,3 +76,43 @@ noise for async, but material inside the sync budget.
   separated timeout errors (~45,010 ms, bridge cap) from fast auth-style
   failures, and flagged >45s "ok" hops that turned out to be direct client
   calls that legitimately bypass the bridge cap.
+
+## Matrix run — 2026-07-19 11:39:42 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+openai-agentcore   openai      agentcore-http  native       PASS     10306  11920  MCP is a brokered, envelope-based protocol for interoperable message exchange that supports mediation, routing, transfor
+```
+
+## Matrix run — 2026-07-19 11:53:30 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+claude-agentcore   claude      agentcore-http  native       FAIL      8025   8025  RuntimeClientError: An error occurred (RuntimeClientError) when calling the InvokeAgentRuntime operation: Received error (500) from runtime. Please check your CloudWatch logs for more information.
+```
+
+## Matrix run — 2026-07-19 11:57:47 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+claude-agentcore   claude      agentcore-http  native       FAIL     26492  29589  TimeoutError: 
+```
+
+## Matrix run — 2026-07-19 11:59:01 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+claude-agentcore   claude      agentcore-http  native       FAIL         -      -  TimeoutError: 
+```
+
+## Matrix run — 2026-07-19 11:59:57 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+claude-agentcore   claude      agentcore-http  native       PASS      8444  15446  **MCP (Model Context Protocol)** is a standard that enables LLM applications to securely connect to external data source
+```

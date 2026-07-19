@@ -44,7 +44,7 @@ async def run_cell(registry: Registry, name: str, runs: int) -> dict:
         # An unconfigured target (e.g. missing SF_* env vars) must FAIL its
         # own cell, not crash the whole run.
         try:
-            client = registry.client_for(name)
+            client = registry.client_for(name, exact=True)
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             break

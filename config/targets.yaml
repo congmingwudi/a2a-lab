@@ -31,6 +31,18 @@ targets:
     endpoint: http://localhost:8003
     status: native
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  # The AWS-hosted twin (D26): the sdk backend containerized on Bedrock
+  # AgentCore Runtime — the self-hosted counterpart to the Managed Agents
+  # default, and the apples-to-apples peer of openai-agentcore. Same
+  # deploy path: deploy/agentcore/deploy.sh claude
+  claude-agentcore:
+    platform: claude
+    protocol: agentcore-http
+    status: native
+    # warmup: cold starts (~56s here, ~31s openai) blow demo budgets — the
+    # console's warm-up panel pings flagged targets and records durations
+    options: {timeout: 65, warmup: true}
+    auth: {runtime_arn: "${CLAUDE_AGENTCORE_ARN}"}
 
   # ---- Agentforce (hosted by Salesforce)
   agentforce-rest:
@@ -90,5 +102,16 @@ targets:
     platform: openai
     protocol: agentcore-http
     status: native
-    options: {timeout: 65}
+    options: {timeout: 65, warmup: true}
     auth: {runtime_arn: "${OPENAI_AGENTCORE_ARN}"}
+
+# Deployment modes (D26): A2ALAB_MODE=hosted transparently remaps these
+# names wherever a client is resolved (bridge, custom tools, console runs) —
+# one env flip moves every experiment from local servers to the AgentCore
+# runtimes with no Salesforce or scenario changes. scripts/matrix.py is
+# exempt (exact=True): a matrix cell always measures the target it names.
+# Restart the stack after flipping — bridge/console cache clients per name.
+modes:
+  hosted:
+    claude-rest: claude-agentcore
+    openai-rest: openai-agentcore

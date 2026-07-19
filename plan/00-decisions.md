@@ -417,3 +417,55 @@ Live-verified both directions with wire proof: Agentforce→OpenAI 20.9s
 attributed, nested research loop bounded). The symmetric self-loop
 (openai→AF-twin→openai) is intentional — it mirrors claude→AF→claude, so
 "the same two experiments" holds exactly across platforms.
+
+## 2026-07-19 — D26: Claude sdk twin on AgentCore, scripted deploys, and the local/hosted mode switch
+The Managed-Agents Claude cell and the self-hosted OpenAI Agents SDK cell
+are different architectural species (managed platform runtime vs BYO
+container), so the cross-vendor comparison gets an apples-to-apples peer:
+the Claude **sdk backend** (already the M8 containerization path) deploys
+to Bedrock AgentCore Runtime exactly like the OpenAI agent — same image
+contract (`POST /invocations` + `GET /ping`), same IAM-only data plane,
+same twin rules (its `ask_agentforce` targets `SF_AGENT_ID`, the
+Claude-paired Agentforce twin, per D25). The Managed cell **stays** — the
+lab now runs the same Claude adapter both ways, making managed-vs-
+self-hosted itself a measured comparison (cold start, credential locality,
+observability access, ops burden), alongside the cross-vendor pair on
+identical runtime. Mechanics: `AgentCoreClient` lifted to
+`interop/clients/agentcore.py` (platform-generic; the openai module is
+gone), `claude-agentcore` target added, Claude image gains `--extra aws`
+(boto3 for the PG TraceSink — without it container hops drop silently),
+and the M9 hand-deploy is replaced by `deploy/agentcore/deploy.sh
+<claude|openai>` (ECR build/push arm64, create-or-update runtime, role
+copied from the existing a2alab_* runtime, env written back to .env).
+Dev↔hosted switching: `A2ALAB_MODE=hosted` remaps `claude-rest`/
+`openai-rest` to the agentcore targets at client resolution (bridge,
+custom tools, console runs) via a `modes:` block in targets.yaml — one
+env flip, no Salesforce or scenario changes; `scripts/matrix.py` resolves
+exact names so matrix cells always measure the target they name. Roadmap
+context in plan/07-workstreams.md (WS1); CrewAI and Pydantic AI are
+flagged as candidate future platforms, **user decision pending**.
+
+## 2026-07-19 — D27: Delegation guard — standard rider + depth limit at every delegation seam
+The paired experiments intentionally wire both directions of each platform
+pair, which makes circular execution possible by construction
+(claude→agentforce→claude...). Loops previously terminated only by
+starvation (stacked timeouts + per-agent turn caps) — surfacing as
+timeouts and max-turns errors, not clean stops. None of REST/MCP/A2A
+defines TTL/max-forwards semantics (networking solved this with IP TTL and
+SIP Max-Forwards; agent protocols haven't — recorded as an insight), so
+the lab adds its own convention in `interop/delegation.py`, enforced at
+every delegation seam (the three ask_agentforce tool paths — sdk, managed
+host-side, openai — and the bridge): (1) every delegated request carries a
+standard parseable **rider** block naming caller, platform, and
+delegation-depth, with a do-not-call-back directive — the prompt-level
+guard and the only channel into text-only platform APIs (Agentforce Agent
+API); (2) the same context rides `AgentRequest.metadata["delegation"]` on
+lab protocols; (3) seams forward only while depth <
+`A2ALAB_MAX_DELEGATION_DEPTH` (default 1: a delegated-to agent answers
+itself, delegates no further) and otherwise return a standard wire-visible
+refusal. Known bound: depth cannot survive *through* the Agentforce
+platform (its model composes fresh action inputs), so an ignored rider
+costs at most one extra leg before the next lab seam re-stamps depth 1 and
+the chain stops — claude→AF→claude(refused tool, answers directly).
+Optional follow-up (not done): add rider-honoring instructions to the
+Agent Script twins so Agentforce also stops at the prompt level.

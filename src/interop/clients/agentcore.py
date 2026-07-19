@@ -1,10 +1,15 @@
-"""RemoteAgentClient for the AgentCore-hosted OpenAI agent (D4/D24/M9).
+"""RemoteAgentClient for agents hosted on Bedrock AgentCore Runtime (D4/D24/D26).
+
+Platform-agnostic: any lab platform containerized behind the REST
+``POST /invocations`` + ``GET /ping`` contract (see deploy/agentcore/) is
+reachable through this client — the target's ``auth.runtime_arn`` selects
+the runtime, nothing else is platform-specific.
 
 Bedrock AgentCore Runtime's data plane is IAM-authed (SigV4) — there is no
 raw public HTTP endpoint — so the lab reaches the hosted agent through
 boto3 ``invoke_agent_runtime``: the JSON payload lands on the container's
-POST /invocations (the same handler local :8011 serves), and the response
-body is the canonical AgentResponse dict. App-level bearer auth is
+POST /invocations (the same handler the local rest servers serve), and the
+response body is the canonical AgentResponse dict. App-level bearer auth is
 intentionally OFF in the runtime (A2ALAB_TOKEN unset there): IAM already
 gates the data plane, and invoke carries no custom headers.
 
@@ -13,6 +18,10 @@ Target config (config/targets.yaml):
       platform: openai
       protocol: agentcore-http
       auth: {runtime_arn: "${OPENAI_AGENTCORE_ARN}"}
+    claude-agentcore:
+      platform: claude
+      protocol: agentcore-http
+      auth: {runtime_arn: "${CLAUDE_AGENTCORE_ARN}"}
 """
 
 from __future__ import annotations
@@ -37,7 +46,7 @@ class AgentCoreClient(RemoteAgentClient):
         runtime_arn: str,
         *,
         auth: dict[str, Any] | None = None,
-        target_name: str = "openai-agentcore",
+        target_name: str = "agentcore",
         timeout: float = DEFAULT_TIMEOUT,
     ):
         self.runtime_arn = runtime_arn
@@ -54,8 +63,9 @@ class AgentCoreClient(RemoteAgentClient):
         runtime_arn = auth.get("runtime_arn") or ""
         if not runtime_arn:
             raise RuntimeError(
-                f"target '{target.name}' has no runtime_arn — set OPENAI_AGENTCORE_ARN "
-                "after deploy/agentcore/deploy_openai.sh"
+                f"target '{target.name}' has no runtime_arn — deploy the runtime with "
+                f"deploy/agentcore/deploy.sh {target.platform}, then set the ARN env var "
+                "referenced by this target in config/targets.yaml"
             )
         kwargs: dict[str, Any] = {"auth": auth, "target_name": target.name}
         if (target.options or {}).get("timeout"):

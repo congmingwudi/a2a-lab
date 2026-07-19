@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A2A Interop Lab: cross-platform agent-to-agent experiments between Salesforce Agentforce and Claude (OpenAI later), with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`, and the Codex build brief for the OpenAI agents-sdk backend in `plan/06-openai-codex-handoff.md` (D24 — that one file is the contract; the `agents-sdk` backend and its tests are Codex's to write, everything else OpenAI-related is ours).
+A2A Interop Lab: cross-platform agent-to-agent experiments between Salesforce Agentforce and Claude (OpenAI later), with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`, the Codex build brief for the OpenAI agents-sdk backend in `plan/06-openai-codex-handoff.md` (D24 — that one file is the contract; the `agents-sdk` backend and its tests are Codex's to write, everything else OpenAI-related is ours), the multi-platform buildout roadmap (WS1–WS5: AgentCore pair, GCP ADK, Azure Foundry, LangGraph, Strands) in `plan/07-workstreams.md`, and the published field insights in `plan/08-insights.md` — generated, don't edit: the source is `config/insights.yaml` (rendered in the console's Insights section; regenerate with `uv run python scripts/export_insights.py`).
 
 ## Commands
 
@@ -25,7 +25,11 @@ uv run python scripts/setup_managed_agent.py       # once: provisions the Manage
 uv run python scripts/obs_analysis.py run          # fire the hosted obs analyst (D23)
 uv run python scripts/pg_backfill.py               # copy local lab.db → hosted Aurora store
 deploy/obs/build_zips.sh                           # rebuild the obs Lambda bundles (D23)
+deploy/agentcore/deploy.sh <claude|openai>         # build/push/create-or-update an AgentCore runtime (D26)
+uv run python scripts/export_insights.py           # config/insights.yaml → plan/08-insights.md
 ```
+
+`A2ALAB_MODE=hosted` in .env remaps `claude-rest`/`openai-rest` to the AgentCore runtimes wherever clients are resolved (bridge, tools, console runs; matrix.py is exempt) — the local↔hosted dev switch (D26). Restart the stack after flipping.
 
 Code under `src/` is imported without a package prefix (`from interop import ...`); tests add `src/` to `sys.path` via conftest, and scripts run with `PYTHONPATH=src` (run_local.sh does this). Config comes from `.env` (see `.env.example`).
 
@@ -46,6 +50,10 @@ A platform = one directory under `src/platforms/<name>/` contributing an `AgentA
 - `src/platforms/agentforce/` — GA Agent API client (`client.py`) plus MCP (`:8021`) / A2A (`:8023`) shims proxying to the Agent API (Agentforce has no GA MCP/A2A inbound).
 - `src/bridge/` (`:8100`) — Path A: Agentforce's outbound is REST-only, so its Apex callout hits the bridge, which fans out to any target/protocol per `config/targets.yaml` — switching protocol needs no Salesforce redeploy.
 - `src/console/` (`:8200`) — lab console: groups trace events by trace_id, protocol badges, raw request/response, SSE live tail.
+
+### Delegation guard (D27)
+
+Every delegation seam (the three `ask_agentforce` tool paths and the bridge) stamps outbound requests with the standard rider + `metadata["delegation"]` from `src/interop/delegation.py`, and refuses onward delegation at depth ≥ `A2ALAB_MAX_DELEGATION_DEPTH` (default 1) — this is what stops circular agent-to-agent chains. New delegation paths (new platforms' tools, new outbound seams) must go through `delegation.delegate()` / `delegation.allowed()`.
 
 ### Trace layer (core requirement)
 
