@@ -21,10 +21,11 @@
     --managed-agents-api: #9e9e9e; --internal: #636363; --err: #f9423d;
     /* platform/component chip tokens — ONE hue per platform across every
        chip surface (scenario tags, component kinds, obs platforms, warm-up
-       rows): agentforce=blue, claude=orange, openai=neutral, lab=gray,
-       aws=solid squid-ink. Protocol badges above are a separate system. */
+       rows): agentforce=blue, claude=orange, openai=neutral, google=green,
+       lab=gray, aws=solid squid-ink. Protocol badges above are separate. */
     --chip-agentforce: var(--agentforce-api); --chip-claude: #d97757;
-    --chip-openai: #ececec; --chip-lab: #969696; --chip-aws: #232f3e;
+    --chip-openai: #ececec; --chip-google: #34a853;
+    --chip-lab: #969696; --chip-aws: #232f3e;
     /* labs.agentforce.com hero tokens */
     --hero-sub: #8fc0e8; --hero-body: rgba(244, 249, 255, .9); --hero-link: #57a9f5;
     --wordmark-grad: linear-gradient(100deg, #09decb 0%, #3fc7d8 22%, #7db9e8 48%, #a8a2ec 74%, #c99df0 100%);
@@ -46,7 +47,7 @@
     /* chip tokens, darkened for AA-ish contrast on light surfaces; openai
        inverts to near-black-on-light-gray (white-ish stays a dark-mode
        look); aws keeps its solid squid-ink fill on both themes */
-    --chip-claude: #c05a3a; --chip-openai: #2f2f2f; --chip-lab: #6f6f6f;
+    --chip-claude: #c05a3a; --chip-openai: #2f2f2f; --chip-google: #1e8e3e; --chip-lab: #6f6f6f;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-ui); }
@@ -118,6 +119,7 @@
   .badge.agentforce, .badge.agent-api { --tag: var(--chip-agentforce); }
   .badge.claude, .badge.managed-agents, .badge.agent-sdk { --tag: var(--chip-claude); }
   .badge.openai, .badge.agents-sdk { --tag: var(--chip-openai); }
+  .badge.adk, .badge.gemini, .badge.agent-engine { --tag: var(--chip-google); }
   .badge.bridge, .badge.daily-brief { --tag: var(--chip-lab); }
   /* AWS chips break the tinted formula on purpose: an AWS-console-style
      SOLID squid-ink pill with near-white text — legible on both themes; the
@@ -332,6 +334,16 @@
                          padding: 1px 5px; border-radius: 5px; font-size: 12px; }
   .turn.agent .md pre { margin: 6px 0 8px; }
   .turn.agent .md pre code { background: none; border: none; padding: 0; }
+  /* D28 Agentforce-channel radio — which tool the entry agent consults
+     Agentforce with: the GA Agent API (default) or the hosted A2A shim */
+  .chan-row { display: flex; align-items: center; gap: 14px; padding: 8px 16px; flex-wrap: wrap;
+              border-bottom: 1px solid var(--border); font-size: 12px; }
+  .chan-row .chan-label { font-size: 11px; font-weight: 600; color: var(--muted);
+                          text-transform: uppercase; letter-spacing: .8px; }
+  .chan-row label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .chan-row input[type=radio] { accent-color: var(--primary); margin: 0; }
+  .chan-row .chan-hint { flex-basis: 100%; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+
   /* requires_mode gate — the run is refused in the wrong deployment mode */
   .mode-notice { padding: 9px 16px; border-top: 1px solid var(--border); font-size: 12.5px;
                  line-height: 1.5; color: var(--mcp);
@@ -397,6 +409,14 @@
   /* raw hop cards */
   .hop { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
          margin-bottom: 10px; overflow: hidden; }
+  /* ghost hops — planned flow steps with no lab trace (platform-interior) */
+  .hop.ghost { background: transparent; border-style: dashed; border-color: var(--border-hi); }
+  .hop.ghost .hop-head { cursor: default; }
+  .hop.ghost .hop-head:hover { background: none; }
+  .hop.ghost .route, .hop.ghost .route b { color: var(--muted); }
+  .ghost-tag { flex: none; font: 600 10px var(--font-mono); color: var(--muted);
+               text-transform: uppercase; letter-spacing: .5px; cursor: help;
+               border: 1px dashed var(--border-hi); border-radius: 999px; padding: 1px 8px; }
   .hop.has-err { border-color: color-mix(in srgb, var(--err) 45%, transparent); }
   pre.err-pre { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
   .hop-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; cursor: pointer; }
@@ -652,6 +672,7 @@ let mainKey = null;       // skeleton identity — rebuilt only when this change
 //                              running, selected (this experiment's shown trace)}
 let chats = {};
 let drafts = {};          // key -> composer draft (survives re-renders)
+let afChannels = {};      // key -> "agent-api" | "a2a-shim" (D28 channel radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
 // turn's call path.
@@ -844,13 +865,16 @@ function renderDiagram(t) {
 
   t.hops.forEach((h, i) => {
     const y = TOP + i * ROW + 18;
-    const color = PROTO_COLOR[h.protocol] || "var(--muted)";
+    // Ghost hops (planned-but-untraced platform-interior legs) draw dashed
+    // in the neutral internal tone — visibly not a recorded wire hop.
+    const color = h._ghost ? "var(--internal)" : (PROTO_COLOR[h.protocol] || "var(--muted)");
     let x1 = x(h.source), x2 = x(h.target);
     if (x1 === x2) x2 = x1 + 24; // self-call: short stub arrow
     const dir = x2 > x1 ? 1 : -1;
-    svg += `<line x1="${x1}" y1="${y}" x2="${x2 - 4 * dir}" y2="${y}" stroke="${color}" stroke-width="1.6" marker-end="url(#arr-${h.protocol in PROTO_COLOR ? h.protocol : "internal"})" ${h.status === "error" ? 'stroke-dasharray="5 3"' : ""}/>`;
+    svg += `<line x1="${x1}" y1="${y}" x2="${x2 - 4 * dir}" y2="${y}" stroke="${color}" stroke-width="1.6" marker-end="url(#arr-${!h._ghost && h.protocol in PROTO_COLOR ? h.protocol : "internal"})" ${h.status === "error" || h._ghost ? 'stroke-dasharray="5 3"' : ""}/>`;
     const mid = (x1 + x2) / 2;
-    const label = `${h.protocol}${h.latency_ms != null ? " · " + h.latency_ms + "ms" : ""}${h.status === "error" ? " · ERROR" : ""}`;
+    const label = h._ghost ? `${h.protocol} · untraced`
+      : `${h.protocol}${h.latency_ms != null ? " · " + h.latency_ms + "ms" : ""}${h.status === "error" ? " · ERROR" : ""}`;
     svg += `<text class="alabel" x="${mid}" y="${y - 5}" text-anchor="middle"${h.status === "error" ? ' fill="var(--err)"' : ""}>${esc(label)}</text>`;
   });
   return svg + `</svg>`;
@@ -885,18 +909,76 @@ function mergedTurnTrace(t) {
   return { ...t, hops, protocols, _legs: legs.length };
 }
 
-function traceSectionHtml(t, title) {
+// Planned-vs-live (scenario runs, post-run only): flow steps that produced
+// no lab trace event render as dashed "ghost" hops in sequence position —
+// legs that ran inside a remote platform's runtime, where the lab has no
+// seam to record and the platform's interior telemetry is ephemeral (the
+// GCP Agent Engine container, Salesforce-interior Apex before its leg's
+// trace arrives). Matching is exact on the source→target pair (flow uses
+// trace participant names), except the interchangeable caller aliases; each
+// live hop is consumed once — ambiguity prefers no ghost over a false one.
+const CALLER_ALIASES = new Set(["client", "caller", "remote-caller"]);
+
+function withGhostHops(hops, flow) {
+  if (!flow || !flow.length || !hops.length) return hops;
+  const norm = s => {
+    const n = String(s || "").toLowerCase().trim();
+    return CALLER_ALIASES.has(n) ? "remote-caller" : n;
+  };
+  const used = new Set();
+  const inserts = [];
+  let lastMatched = -1;
+  for (const step of flow) {
+    let found = -1;
+    for (let i = 0; i < hops.length; i++) {
+      if (used.has(i)) continue;
+      if (norm(hops[i].source) === norm(step.source)
+          && norm(hops[i].target) === norm(step.target)) { found = i; break; }
+    }
+    if (found >= 0) { used.add(found); lastMatched = found; }
+    else inserts.push({ after: lastMatched, step });
+  }
+  if (!inserts.length) return hops;
+  const out = [];
+  for (let i = -1; i < hops.length; i++) {
+    if (i >= 0) out.push(hops[i]);
+    for (const ins of inserts) {
+      if (ins.after !== i) continue;
+      out.push({
+        source: ins.step.source, target: ins.step.target, protocol: ins.step.protocol,
+        transport_detail: ins.step.detail || "", _ghost: true,
+      });
+    }
+  }
+  return out;
+}
+
+const GHOST_TIP = "This leg runs inside the remote platform's runtime. The lab records wire hops "
+  + "at its own seams, and this platform's interior telemetry is ephemeral — see the "
+  + "Observability coverage panel.";
+
+function traceSectionHtml(t, title, flow) {
   if (!t || !t.hops.length) {
     return `<div class="flow"><h3>${esc(title)}</h3>
       <div class="desc"><span class="stat">No hops yet — run a turn and the call path streams in live.</span></div></div>`;
   }
+  const hops = withGhostHops(t.hops, flow || null);
   return `
     <div class="flow">
       <h3>${esc(title)} <span style="text-transform:none;letter-spacing:0"> · trace ${esc(t.trace_id.slice(0, 12))}…${
         t._legs ? ` + ${t._legs} platform-initiated leg${t._legs === 1 ? "" : "s"} (correlated by time — Apex mints its own trace id)` : ""}</span></h3>
       <div class="desc">${describeTrace(t)}</div>
-      <div class="svgwrap">${renderDiagram(t)}</div>
-    </div>` + t.hops.map((h, i) => {
+      <div class="svgwrap">${renderDiagram({ ...t, hops })}</div>
+    </div>` + hops.map((h, i) => {
+      if (h._ghost) return `
+      <div class="hop ghost">
+        <div class="hop-head">
+          <span class="badge ${h.protocol}">${h.protocol}</span>
+          <span class="route">${esc(h.source)} → <b>${esc(h.target)}</b>
+            <span class="td"> · ${esc((h.transport_detail || "").split(/\s+/).slice(0, 14).join(" "))}…</span></span>
+          <span class="ghost-tag" title="${esc(GHOST_TIP)}">platform-interior · untraced</span>
+        </div>
+      </div>`;
       const key = t.trace_id + ":" + i;
       // Errored hops start expanded (once per trace) — the error detail is
       // in the raw panes and shouldn't hide behind a click.
@@ -1540,6 +1622,53 @@ async function loadConfig() {
 // tells the story (null labConfig = unknown yet, so nothing renders).
 const modeUnmet = s => !!(s && s.requires_mode && labConfig && labConfig.mode !== s.requires_mode);
 
+// ---------------------------------------------------------------------------
+// D28 Agentforce channel — on toggle scenarios the operator picks which tool
+// the entry agent consults Agentforce with: ask_agentforce (GA Agent API,
+// the default bias) or ask_agentforce_a2a (A2A via the lab's hosted shim).
+// The pick rides to /api/run; a2a-shim injects a routing block (shown below
+// as a read-only exhibit, sibling of the D27 rider).
+// ---------------------------------------------------------------------------
+window.setAfChannel = ch => {
+  if (!view || view.type !== "experiment") return;
+  afChannels[expKey(view.kind, view.name)] = ch;
+  renderMain(true); // show/hide the routing exhibit with the pick
+};
+
+function afChannelRowHtml(key) {
+  const ch = afChannels[key] || "agent-api";
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Agentforce channel</span>
+    <label><input type="radio" name="afChannel" value="agent-api" ${ch === "agent-api" ? "checked" : ""}
+      onchange="setAfChannel('agent-api')"> agent-api (native)</label>
+    <label><input type="radio" name="afChannel" value="a2a-shim" ${ch === "a2a-shim" ? "checked" : ""}
+      onchange="setAfChannel('a2a-shim')"> a2a-shim (A2A protocol)</label>
+    <span class="chan-hint">Same conversation and agents, different intermediate protocol —
+      agent-api is the platform's GA surface; a2a-shim routes through the lab's hosted A2A shim.</span>
+  </div>`;
+}
+
+// The exact block /api/run will append for a2a-shim — a read-only exhibit
+// like the D27 rider (that one is per-delegation identity, this one is the
+// per-run channel routing).
+function routingSectionHtml(key) {
+  const a = labConfig && labConfig.af_channel;
+  if (!a || (afChannels[key] || "agent-api") !== "a2a-shim") return "";
+  return `
+  <div class="flow">
+    <details open>
+      <summary style="cursor:pointer; font-size:12px; color:var(--muted); padding:10px 16px">Injected for this run — Agentforce channel routing (D28)</summary>
+      <div class="desc"><span class="stat">Appended to this run's outgoing message (after the scenario's
+        prompt suffix): it directs the entry agent to consult Agentforce with its
+        <code>${esc((a.tools || {})["a2a-shim"] || "ask_agentforce_a2a")}</code> tool — the A2A protocol
+        via the lab's hosted shim — instead of the default GA Agent API. A design-decision exhibit,
+        not an editable prompt.</span></div>
+      <pre class="rider-block" aria-readonly="true">${esc(String(a.routing_block || "").trim())}</pre>
+    </details>
+  </div>`;
+}
+
 // The D27 delegation rider, shown read-only wherever a scenario is about to
 // run — the injection is a visible design decision, not hidden plumbing.
 function riderSectionHtml() {
@@ -1554,6 +1683,9 @@ function riderSectionHtml() {
         identity and the delegation depth with a do-not-call-back directive, max depth ${d.max_depth}.
         A design-decision exhibit (ADR D27), not an editable prompt.</span></div>
       <pre class="rider-block" aria-readonly="true">${esc(d.rider)}</pre>
+      ${d.callers ? `<div class="desc"><span class="stat">The &lt;placeholders&gt; are display-only —
+        real injected blocks name the delegating seam explicitly: ${d.callers.map(esc).join(" · ")}.
+        See any delegated hop's raw request payload for the block as sent on the wire.</span></div>` : ""}
     </details>
   </div>`;
 }
@@ -2050,7 +2182,8 @@ function chatTurnsHtml(chat) {
     }
     const err = !!turn.error;
     return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text)}</div>`}
-      <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}</span></div>`;
+      <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}${
+        turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}</span></div>`;
   }).join("");
 }
 
@@ -2071,8 +2204,11 @@ async function sendTurn(kind, name, message) {
   renderSidebar(); renderMain();
 
   const body = { trace_id, message, session_id: chat.session };
-  if (kind === "scenario") body.scenario = name;
-  else {
+  if (kind === "scenario") {
+    body.scenario = name;
+    const spec = scenarios.find(s => s.name === name);
+    if (spec && spec.af_channel_toggle) body.af_channel = afChannels[key] || "agent-api";
+  } else {
     body.target = name;
     body.via_bridge = document.getElementById("viaBridge")?.checked || false;
   }
@@ -2092,7 +2228,8 @@ async function sendTurn(kind, name, message) {
   if (turnWindows[trace_id]) turnWindows[trace_id].end = Date.now() / 1000;
   chat.turns.pop(); // remove the running placeholder
   if (result.ok) {
-    chat.turns.push({ role: "agent", text: result.text || "(empty response)", latency_ms: result.latency_ms, trace_id });
+    chat.turns.push({ role: "agent", text: result.text || "(empty response)",
+      latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null });
     runState[key] = { state: "ok", note: result.latency_ms != null
       ? `PASS · ${result.latency_ms} ms` : (result.async ? "running async" : "PASS") };
   } else {
@@ -2380,6 +2517,7 @@ function renderMain(force) {
             <span class="sess">session ${esc(chat.session.slice(-8))}</span>
             <button class="ghost" onclick="resetChat()">New chat</button>
           </div>
+          ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
             <span class="mono">A2ALAB_MODE=${esc(exp.requires_mode)}</span> in .env and restart the
@@ -2393,6 +2531,7 @@ function renderMain(force) {
             <button class="primary" id="sendBtn" onclick="sendChat()" ${blocked ? "disabled" : ""}>Send</button>
           </div>
         </div>
+        ${view.kind === "scenario" && exp && exp.af_channel_toggle ? routingSectionHtml(key) : ""}
         ${view.kind === "scenario" ? riderSectionHtml() : ""}
         <div id="traceArea"></div>` :
       `<div id="detailsArea"></div>`}`;
@@ -2408,8 +2547,14 @@ function renderMain(force) {
     if (sendBtn && !blocked) sendBtn.disabled = chat.running;
     const t = traces.find(x => x.trace_id === selected);
     const owned = chat.turns.some(turn => turn.trace_id === selected);
+    // Planned flow rides along post-run only: mid-run a pending step is just
+    // "not yet", not "untraced" — ghosts would mislabel it. Async scenarios
+    // are excluded entirely: their /api/run acks immediately while hops
+    // stream for minutes, so "post-run" never means "path complete".
+    const ghostFlow = view.kind === "scenario" && exp && !chat.running && exp.mode !== "async"
+      ? exp.flow : null;
     document.getElementById("traceArea").innerHTML = owned || chat.running
-      ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn")
+      ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn", ghostFlow)
       : `<div class="flow"><h3>Call path</h3><div class="desc"><span class="stat">Send a turn — its live
           call path and raw wire traces appear here. Click any of your past turns to revisit its path.</span></div></div>`;
   } else {

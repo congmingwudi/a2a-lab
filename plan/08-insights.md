@@ -46,7 +46,7 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 *Status: measured · refs: plan/01-architecture.md, plan/02-matrix.md*
 
-**What the lab showed:** The lab's Path A budget: Agentforce action ~60s → Apex callout 110s → bridge 45s → remote agent 40s. The delegated agent's thinking depth is governed by the smallest budget upstream, and one platform's retry can blow another's ceiling. A 40s agent timeout proved too tight the moment the delegated turn itself contained a platform round trip.
+**What the lab showed:** The lab's Path A budget: Agentforce action ~60s → Apex callout 110s → bridge 45s → remote agent 40s. The delegated agent's thinking depth is governed by the smallest budget upstream, and one platform's retry can blow another's ceiling. A 40s agent timeout proved too tight the moment the delegated turn itself contained a platform round trip. The rule recurses: hosting the lab's A2A shim behind API Gateway added a hard 29s ceiling that an Agentforce account turn (~15-30s tail) straddles — every intermediary you add contributes its own timeout to the stack.
 
 **Advisor take:** Before promising a sync UX, map the full timeout chain across every platform involved — then keep delegated turns fast (small models, concise prompts, warm runtimes) or move the work async. This is the first architecture-review question for any interop design.
 
@@ -68,6 +68,22 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** For one-shot delegation the protocol choice matters less than auth and observability. For durable multi-turn relationships between agents — especially across organizations — A2A is architecturally ahead: session identity and agent identity live in the protocol, not in conventions.
 
+### A2A is an async-capable protocol that everyone drives synchronously — the task lifecycle is its real differentiator
+
+*Status: observed · refs: D11, D16, plan/02-matrix.md*
+
+**What the lab showed:** Every A2A exchange in the lab returns a Task object with an id, state machine (submitted → working → completed/failed), and artifacts — and the protocol defines polling (tasks/get), streaming, and push notifications for long-running work. Yet the lab (like most current integrations) drives it synchronously: message:send blocks until the task completes inside one HTTP exchange, and the "response" is simply the completed task coming back on the same connection — there is no callback leg on the wire. The sync delegation pattern rides on top of a protocol built for more.
+
+**Advisor take:** Don't conflate the pattern with the protocol. REST gives you request/response; A2A gives you a durable task you could hand off, poll, or subscribe to — which is exactly what long-running cross-org delegation needs (compare the lab's async pattern, hand-rolled over platform schedulers). If your delegations will outgrow a timeout budget, A2A's task lifecycle is the standards-based escape hatch — ask vendors whether they implement it, not just message exchange.
+
+### Platform-native A2A is real — and young; "speaks A2A" spans a maturity spectrum you must test end to end
+
+*Status: measured · refs: D25, plan/07-workstreams.md, plan/03-results.md*
+
+**What the lab showed:** The lab's first native×native A2A cell (2026-07-19): a Gemini/ADK agent served by Vertex AI Agent Engine's own A2A endpoint, called by the lab's generic a2a-sdk client — no bridge, no shim, warm answers in 2.6s. But the preview edges showed immediately: the public agent-card route 404s (discovery broken — the lab pins the transport and builds a minimal card locally), auth is cloud IAM (a Google bearer token, not anything the agent card negotiates), and the surface is v1beta1 HTTP+JSON, not the JSON-RPC binding most A2A examples assume.
+
+**Advisor take:** When a platform claims A2A support, test the full story — discovery (card), transport negotiation, auth, session continuity — not just message exchange. Today's reality: message exchange works and is fast; discovery and card-declared auth are the immature edges, and cloud IAM sits outside the protocol entirely. Interop code needs escape hatches (pinned transports, locally-built cards) for exactly these gaps.
+
 ### Native protocol support across enterprise platforms is sparser than the marketing suggests
 
 *Status: observed · refs: D8, plan/02-matrix.md*
@@ -82,7 +98,7 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 *Status: measured · refs: D9, D24, D26*
 
-**What the lab showed:** The lab runs the same Claude agent two ways: Anthropic Managed Agents (zero infra, host-side tools, ~5–10s first-turn container provisioning) and the self-hosted Agent SDK containerized on Bedrock AgentCore (IAM-only data plane, credentials and telemetry are yours). The OpenAI agent runs the self-hosted path on the identical runtime for a clean cross-vendor comparison. Measured on AgentCore (2026-07-19): OpenAI cold start ~31s / warm p50 10.3s; Claude cold ~56s (can blow a 65s client timeout) / warm p50 8.4s — cold starts dominate the sync budget either way, and the heavier harness pays a visibly bigger cold price.
+**What the lab showed:** The lab runs the same Claude agent two ways: Anthropic Managed Agents (zero infra, host-side tools, ~5–10s first-turn container provisioning) and the self-hosted Agent SDK containerized on Bedrock AgentCore (IAM-only data plane, credentials and telemetry are yours). The OpenAI agent runs the self-hosted path on the identical runtime for a clean cross-vendor comparison. Measured on AgentCore (2026-07-19): OpenAI cold start ~31s / warm p50 10.3s; Claude cold ~56s (can blow a 65s client timeout) / warm p50 8.4s — cold starts dominate the sync budget either way, and the heavier harness pays a visibly bigger cold price. Third runtime, same pattern: Vertex AI Agent Engine (ADK/Gemini, scale-to-zero) cold ~34s / warm 2.6s — every serverless agent runtime trades idle cost for a cold start that a sync delegation budget must absorb or pre-warm away.
 
 **Advisor take:** Managed runtimes buy speed-to-value and push security posture to the vendor; self-hosting buys VPC/data-residency control and portability at the cost of owning scaling, secrets, and observability. Decide this per agent — it's a bigger architectural fork than which frontier model runs inside.
 

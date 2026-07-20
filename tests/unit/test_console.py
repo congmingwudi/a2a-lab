@@ -147,8 +147,8 @@ def test_scenarios_listed(tmp_path, monkeypatch):
 
 
 def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
-    """The two-level Experiments nav: yaml-ordered groups (2 live pairs +
-    4 upcoming workstream placeholders), every scenario bucketed into one."""
+    """The two-level Experiments nav: yaml-ordered groups (3 live pairs +
+    3 upcoming workstream placeholders), every scenario bucketed into one."""
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
     data = client.get("/api/scenarios").json()
@@ -160,10 +160,24 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "langgraph-agentforce",
         "strands-agentforce",
     ]
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 2 + [True] * 4
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 3 + [True] * 3
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
+
+
+def test_scenarios_include_adk_pair(tmp_path, monkeypatch):
+    """WS2: the ADK pair went live in group adk-agentforce, and the
+    agent-engine tag resolves the Vertex AI Agent Engine component row."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    data = client.get("/api/scenarios").json()
+    names = {s["name"]: s for s in data["scenarios"]}
+    assert names["adk-to-agentforce"]["group"] == "adk-agentforce"
+    assert names["adk-to-agentforce"]["target"] == "adk-a2a"
+    assert names["agentforce-to-adk"]["group"] == "adk-agentforce"
+    assert names["agentforce-to-adk"]["target"] == "agentforce-adk-rest"
+    assert "adk" in [c["kind"] for c in names["adk-to-agentforce"]["components"]]
 
 
 def test_run_scenario_resolves_target_and_suffix(tmp_path, monkeypatch):
@@ -199,7 +213,46 @@ def test_config_reports_delegation(tmp_path, monkeypatch):
     assert data["mode"] == "local"
     d = data["delegation"]
     assert "A2A-LAB DELEGATION" in d["rider"]
-    assert d["max_depth"] >= 1 and len(d["seams"]) == 4
+    assert d["max_depth"] >= 1 and len(d["seams"]) == 5  # 4 tool paths + bridge
+    # Placeholders are display-only; the API names the real seam identities.
+    assert any("adk-gemini-agent" in c for c in d["callers"])
+    # D28: the channel-routing sibling exhibit
+    assert "A2A-LAB ROUTING" in data["af_channel"]["routing_block"]
+    assert data["af_channel"]["tools"]["a2a-shim"] == "ask_agentforce_a2a"
+
+
+def test_run_af_channel_routing_block(tmp_path, monkeypatch):
+    """D28: on a toggle scenario, af_channel=a2a-shim appends the routing
+    block after the prompt suffix; agent-api (the tools' default bias) and
+    non-toggle scenarios never inject."""
+    registry = FakeRegistry()
+    registry.targets["agentforce-rest"] = Target(
+        name="agentforce-rest", platform="agentforce", protocol="rest"
+    )
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    data = client.post(
+        "/api/run",
+        json={"scenario": "claude-to-agentforce", "message": "hi", "af_channel": "a2a-shim"},
+    ).json()
+    assert data["ok"] is True and data["af_channel"] == "a2a-shim"
+    msg = registry.fake_client.requests[0].message
+    assert "[A2A-LAB ROUTING]" in msg and "ask_agentforce_a2a" in msg
+    assert msg.rstrip().endswith("[/A2A-LAB ROUTING]")  # after the prompt_suffix
+    # agent-api: no injection, but the channel is still echoed for the badge
+    data = client.post(
+        "/api/run",
+        json={"scenario": "claude-to-agentforce", "message": "hi", "af_channel": "agent-api"},
+    ).json()
+    assert data["af_channel"] == "agent-api"
+    assert "[A2A-LAB ROUTING]" not in registry.fake_client.requests[1].message
+    # non-toggle scenario: a2a-shim request is ignored entirely
+    data = client.post(
+        "/api/run",
+        json={"scenario": "agentforce-to-claude", "message": "hi", "af_channel": "a2a-shim"},
+    ).json()
+    assert data.get("af_channel") is None
+    assert "[A2A-LAB ROUTING]" not in registry.fake_client.requests[2].message
 
 
 def test_run_scenario_requires_mode_gate(tmp_path, monkeypatch):

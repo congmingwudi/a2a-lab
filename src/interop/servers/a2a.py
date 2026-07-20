@@ -107,7 +107,13 @@ class AdapterExecutor(AgentExecutor):
         await updater.cancel()
 
 
-def create_a2a_app(adapter: AgentAdapter, public_url: str = "http://localhost/"):
+def create_a2a_app(
+    adapter: AgentAdapter, public_url: str = "http://localhost/", wiretap: bool = True
+):
+    """wiretap=False for ASGI hosts whose receive-channel semantics the
+    middleware mishandles (Lambda/Mangum single-shot bodies — the hosted
+    shim, D28); the adapter-level Hops still record, so only the raw
+    envelope capture is lost on that host."""
     card = build_agent_card(adapter, public_url)
     handler = DefaultRequestHandler(
         agent_executor=AdapterExecutor(adapter),
@@ -120,4 +126,6 @@ def create_a2a_app(adapter: AgentAdapter, public_url: str = "http://localhost/")
         agent_card_routes=create_agent_card_routes(card),
         jsonrpc_routes=create_jsonrpc_routes(handler, rpc_url="/"),
     )
+    if not wiretap:
+        return app
     return WireTapMiddleware(app, protocol="a2a", service=adapter.name)

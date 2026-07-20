@@ -1,0 +1,14 @@
+{
+  "required" : [ "question" ],
+  "unevaluatedProperties" : false,
+  "properties" : {
+    "question" : {
+      "title" : "Question",
+      "description" : "The research question to delegate to the external research agent",
+      "lightning:type" : "lightning__textType",
+      "lightning:isPII" : false,
+      "copilotAction:isUserInput" : false
+    }
+  },
+  "lightning:type" : "lightning__objectType"
+}
