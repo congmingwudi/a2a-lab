@@ -12,6 +12,7 @@ import httpx
 
 from a2a.client import ClientConfig, create_client
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
+from a2a.utils import TransportProtocol
 
 from interop.clients.base import RemoteAgentClient, auth_headers
 from interop.models import AgentRequest, AgentResponse, new_trace_id
@@ -38,14 +39,43 @@ class A2AClient(RemoteAgentClient):
         target_name: str = "remote",
         source_name: str = "client",
         timeout: float = DEFAULT_TIMEOUT,
+        card_path: str | None = None,
+        transport: str | None = None,
     ):
         # endpoint is the agent's base URL; the card is discovered at
-        # /.well-known/agent-card.json
+        # /.well-known/agent-card.json unless the platform serves it
+        # elsewhere (options.card_path) or discovery is skipped entirely
+        # with a pinned transport (options.transport, e.g. http_json —
+        # Vertex AI Agent Engine's preview A2A serves messages fine but its
+        # public card route 404s, so the card is built locally via
+        # minimal_agent_card).
         self.endpoint = endpoint.rstrip("/")
         self.auth = auth or {}
         self.target_name = target_name
         self.source_name = source_name
         self.timeout = timeout
+        self.card_path = card_path
+        self.transport = transport
+
+    def _httpx_auth(self) -> httpx.Auth | None:
+        """Refreshing Google ADC bearer auth for platform endpoints with an
+        IAM data plane (auth: {scheme: google-adc} in targets.yaml) — a
+        static header would go stale when the token expires."""
+        if self.auth.get("scheme") != "google-adc":
+            return None
+        from google.auth import default as google_default
+        from google.auth.transport.requests import Request as AuthRequest
+
+        credentials, _ = google_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+
+        class _AdcAuth(httpx.Auth):
+            def auth_flow(self, request):
+                if not credentials.valid:
+                    credentials.refresh(AuthRequest())
+                request.headers["Authorization"] = f"Bearer {credentials.token}"
+                yield request
+
+        return _AdcAuth()
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         req.trace_id = req.trace_id or new_trace_id()
@@ -60,7 +90,8 @@ class A2AClient(RemoteAgentClient):
         message.metadata.update({"trace_id": req.trace_id})
         request = SendMessageRequest(message=message)
 
-        headers = auth_headers(self.auth)
+        adc_auth = self._httpx_auth()
+        headers = {} if adc_auth else auth_headers(self.auth)
 
         start = time.perf_counter()
         with Hop(
@@ -71,9 +102,24 @@ class A2AClient(RemoteAgentClient):
             transport_detail=f"SendMessage @ {self.endpoint}",
             request_payload={"message": req.message, "contextId": req.session_id},
         ) as hop:
-            async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as hc:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, headers=headers, auth=adc_auth
+            ) as hc:
+                config = ClientConfig(streaming=False, httpx_client=hc)
+                if self.transport:
+                    from a2a.client import minimal_agent_card
+
+                    transport = self.transport.upper().replace("-", "_")
+                    config.supported_protocol_bindings = [getattr(TransportProtocol, transport)]
+                    agent = minimal_agent_card(
+                        self.endpoint, [getattr(TransportProtocol, transport)]
+                    )
+                else:
+                    agent = self.endpoint
                 client = await create_client(
-                    self.endpoint, ClientConfig(streaming=False, httpx_client=hc)
+                    agent,
+                    config,
+                    relative_card_path=self.card_path,
                 )
                 try:
                     task = None

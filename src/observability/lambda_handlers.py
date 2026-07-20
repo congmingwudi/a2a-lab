@@ -30,6 +30,7 @@ def _load_secret_env() -> None:
 
 def handler(event, context):  # noqa: ARG001 - AWS signature
     _load_secret_env()
+    from observability.adk_source import AdkSource
     from observability.anthropic_source import AnthropicSource
     from observability.openai_source import OpenAISource
     from observability.pg import PgObsStore
@@ -39,6 +40,9 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         "anthropic": AnthropicSource,
         "salesforce": SalesforceSource,
         "openai": OpenAISource,
+        # No GCP credentials in the hosted Lambda — reports blocked/error,
+        # which the coverage panel renders honestly (local harvests cover adk).
+        "adk": AdkSource,
     }
     wanted = [event.get("platform")] if isinstance(event, dict) and event.get("platform") else None
     wanted = wanted or list(sources)

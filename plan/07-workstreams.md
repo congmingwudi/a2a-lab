@@ -130,6 +130,69 @@ Work items:
 both sync directions live in the console; ADK obs source harvesting;
 insights updated (native-A2A reality, A2A auth story, Cloud Trace column).
 
+Status 2026-07-19 (first leg live):
+1. ✅ GCP project `a2a-lab-d441` (billing linked, APIs enabled, ADC);
+   user's duplicate a2a-lab-503000 deleted (recoverable ~30d).
+2. ✅ `src/platforms/adk/` — Gemini agent core + D27-guarded
+   ask_agentforce (SF_ADK_AGENT_ID twin, SF_AGENT_ID fallback until the
+   twin exists) + the Agent Engine A2aAgent app (a2a-sdk executor
+   mirroring the lab's AdapterExecutor lifecycle; InMemory sessions v1).
+3. ✅ Deployed via deploy/adk/deploy_adk.py to Agent Engine
+   (`a2alab-adk-researcher`, engine 1360159105477509120, us-central1) —
+   min_instances=0 + 1cpu/2Gi ON PURPOSE (a warm default-size instance
+   ≈ $250/mo on the personal account; scale-to-zero idles at $0).
+   Deploy learnings: extra_packages must be RELATIVE paths (absolute →
+   ModuleNotFoundError at unpickle); cloudpickle+pydantic belong in
+   requirements; one create() failed transiently (code 13, healthy
+   container) — retry succeeded.
+4. ✅ First native×native A2A cell RECORDED: adk-a2a PASS, warm 2.6s,
+   p50 9.3s / p95 34.5s (p95 = scale-to-zero cold start — third column
+   in the cold-start comparison: AgentCore claude ~56s / openai ~31s /
+   Agent Engine ~34s). Preview roughness recorded honestly: the public
+   card route 404s, so the lab client pins transport=http_json and
+   builds a minimal card locally (targets.yaml options; A2AClient
+   gained card_path/transport/google-adc auth support).
+5. ✅ SF ADK twin published+activated (`A2ALab_Research_Assistant_ADK`,
+   agent 0XxKB000000xdn80AA, v1 — Agent Script clone, action pinned
+   three ways to adk-a2a); `agentforce-adk-rest` target; engine env
+   updated with SF_ADK_AGENT_ID (one more transient code-13 on update,
+   retry succeeded — pattern confirmed).
+6. ✅ ADK→Agentforce live: 18.8s, real CRM data (Omega: 3 opps $212K,
+   11 cases) attributed to the twin, cross-cloud GCP→Salesforce tool
+   call from inside the container.
+7. ✅ Scenarios live + nav group flipped; Google-green chips;
+   Agent Engine component row; adk obs source harvesting (500 log
+   entries first pull — request-level telemetry, no session/turn API on
+   the preview surface; the honest fourth observability column).
+8. ✅ Insights: native-a2a-young added; Agent Engine cold/warm folded
+   into managed-vs-self-hosted (16 total, export regenerated).
+9. ✅ Agentforce→ADK live after stack restart: 18.4s, two labeled
+   sections, the external leg over the platform-native A2A endpoint via
+   the bridge; agentforce-adk-rest cell recorded (PASS p50 8.4s).
+   Finding: Gemini flash-lite once content-refused under the D27 rider
+   ("my capabilities are limited to Salesforce data" — small-model
+   identity confusion); next run answered perfectly. If it flakes demos,
+   bump ADK_MODEL a tier.
+10. Card-404 verdict (investigated): genuine preview gap — the current
+    A2aAgent template registers NO public-card method (classMethods has
+    message/tasks/extended-card only) and the SDK exposes no card getter;
+    docs describing GET /v1/card are ahead of the shipped template. The
+    extended-card 501 is partly ours (no extended_agent_card passed).
+    Minimal-card + pinned-transport in the lab client is the right
+    workaround for any external caller.
+
+11. ✅ D27 prompt-layer guard now honored ON the platform side: the ADK
+    twin's Agent Script v2 checks for the rider block and skips its
+    STEP 2 delegation when the request was itself delegated —
+    live-verified (no bridge leg on the wire; answers ~10.5s vs ~18s
+    with the nested loop). Claude/OpenAI twins can get the same
+    instruction on request. Flash-lite flake log: one content-refusal,
+    one hallucinated `run_code` tool across ~8 runs — bump ADK_MODEL if
+    demo-critical.
+
+WS2 COMPLETE 2026-07-19. Future polish: VertexAiSessionService for
+durable sessions; Cloud Trace spans in the obs source; extended card.
+
 ---
 
 ## WS3 — Microsoft Foundry Agent Service (Azure)

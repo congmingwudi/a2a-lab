@@ -105,6 +105,34 @@ targets:
     options: {timeout: 65, warmup: true}
     auth: {runtime_arn: "${OPENAI_AGENTCORE_ARN}"}
 
+  # The ADK-paired Agentforce twin (ADR D25): same org/credentials,
+  # different agent — its external-research action targets adk-a2a.
+  agentforce-adk-rest:
+    platform: agentforce
+    protocol: agentforce-api
+    status: native
+    auth:
+      my_domain: "${SF_MY_DOMAIN}"
+      client_id: "${SF_CLIENT_ID}"
+      client_secret: "${SF_CLIENT_SECRET}"
+      agent_id: "${SF_ADK_AGENT_ID}"
+
+  # ---- Google ADK agent (WS2 — hosted on Vertex AI Agent Engine)
+  # The lab's first remote cell where the PLATFORM speaks A2A natively:
+  # both ends native, no bridge, no shim. IAM data plane (google-adc
+  # bearer), card served at /v1/card (not /.well-known). Scale-to-zero
+  # (min_instances=0, personal GCP account) — hence warmup.
+  adk-a2a:
+    platform: adk
+    protocol: a2a
+    endpoint: "${ADK_A2A_ENDPOINT}"
+    status: native
+    # transport pinned: the preview A2A surface serves messages but its
+    # public card route 404s — the client builds a minimal card locally
+    # instead of discovering (honest preview roughness, noted in matrix)
+    options: {timeout: 65, transport: http_json, warmup: true}
+    auth: {scheme: google-adc}
+
 # Deployment modes (D26): A2ALAB_MODE=hosted transparently remaps these
 # names wherever a client is resolved (bridge, custom tools, console runs) —
 # one env flip moves every experiment from local servers to the AgentCore

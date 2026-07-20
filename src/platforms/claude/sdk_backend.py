@@ -32,6 +32,7 @@ from platforms.claude.core import RESEARCH_SYSTEM_PROMPT
 
 ANSWER_TIMEOUT_S = float(os.environ.get("CLAUDE_ANSWER_TIMEOUT_S", "40"))
 AGENTFORCE_TOOL = "mcp__a2alab__ask_agentforce"
+AGENTFORCE_A2A_TOOL = "mcp__a2alab__ask_agentforce_a2a"
 
 # One process-lifetime client so the OAuth token survives across tool calls
 # (a per-call client would re-authenticate and leak its connection pool on
@@ -74,6 +75,39 @@ def _build_agentforce_tool(inbound_depth: int = 0):
     return ask_agentforce
 
 
+def _build_agentforce_a2a_tool(inbound_depth: int = 0):
+    """The channel twin of ask_agentforce (D28): same Agentforce agent, but
+    over the A2A protocol through the lab's hosted shim — used when the
+    operator's routing block selects the a2a-shim channel."""
+
+    @tool(
+        "ask_agentforce_a2a",
+        "Ask the Salesforce Agentforce service agent a question over the A2A "
+        "protocol (via the lab's hosted shim). Use ONLY when the request's "
+        "[A2A-LAB ROUTING] block selects the a2a-shim channel; otherwise "
+        "prefer ask_agentforce.",
+        {"question": str},
+    )
+    async def ask_agentforce_a2a(args: dict) -> dict:
+        from interop import af_channel
+
+        if inbound_depth >= delegation.max_depth():
+            return {"content": [{"type": "text", "text": delegation.refusal("ask_agentforce_a2a")}]}
+        message, meta = delegation.delegate(
+            str(args["question"]),
+            caller="claude-sdk-agent",
+            platform="claude",
+            inbound_depth=inbound_depth,
+        )
+        try:
+            text = await af_channel.ask_via_shim(message, meta)
+        except Exception as exc:  # noqa: BLE001 - model-visible, not fatal
+            text = f"A2A shim call failed: {type(exc).__name__}: {exc}"
+        return {"content": [{"type": "text", "text": text}]}
+
+    return ask_agentforce_a2a
+
+
 class SdkBackend:
     backend_name = "sdk"
 
@@ -91,11 +125,13 @@ class SdkBackend:
             model=os.environ.get("CLAUDE_AGENT_MODEL"),
         )
         if self.enable_agentforce_tool:
+            depth = delegation.depth_of(req)
             server = create_sdk_mcp_server(
-                name="a2alab", tools=[_build_agentforce_tool(delegation.depth_of(req))]
+                name="a2alab",
+                tools=[_build_agentforce_tool(depth), _build_agentforce_a2a_tool(depth)],
             )
             kwargs["mcp_servers"] = {"a2alab": server}
-            kwargs["allowed_tools"] = [AGENTFORCE_TOOL]
+            kwargs["allowed_tools"] = [AGENTFORCE_TOOL, AGENTFORCE_A2A_TOOL]
         if req.session_id and req.session_id in self._sessions:
             kwargs["resume"] = self._sessions[req.session_id]
         return ClaudeAgentOptions(**kwargs)

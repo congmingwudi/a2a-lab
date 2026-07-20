@@ -469,3 +469,48 @@ costs at most one extra leg before the next lab seam re-stamps depth 1 and
 the chain stops — claude→AF→claude(refused tool, answers directly).
 Optional follow-up (not done): add rider-honoring instructions to the
 Agent Script twins so Agentforce also stops at the prompt level.
+
+## 2026-07-19 — D28: Hosted Agentforce A2A shim + the operator-selectable Agentforce channel
+Two moves that finish decoupling the experiments from the laptop and turn
+protocol choice into a demo control. (1) **The A2A shim now runs in AWS**:
+the same `create_a2a_app(AgentforceProxyAdapter())` app, wrapped with
+Mangum on Lambda (`a2alab-af-shim`, arm64 py3.12, 11MB vendored bundle via
+deploy/shim/build_zip.sh) behind an API Gateway HTTP API (SCP blocks
+Function URLs — same D23 pattern; app-layer x-lab-token auth; card
+well-known stays exempt). Any cloud container (AgentCore, Agent Engine)
+can now reach Agentforce over A2A with no local dependency. Found and
+worked around: WireTapMiddleware hangs under Mangum's single-shot ASGI
+body semantics — the hosted shim runs `wiretap=False` (adapter-level Hops
+still record; uvicorn-hosted servers keep the wiretap). Lambda cap note:
+API Gateway's 29s ceiling fits the twin's guarded (CRM-only) answers;
+full two-step answers flirt with it. (2) **Agentforce channel toggle**:
+every self-hosted backend (claude sdk, openai, adk) now exposes
+`ask_agentforce_a2a` (A2A via the hosted shim, `interop/af_channel.py`)
+next to `ask_agentforce` (GA Agent API, the default). The console's
+per-run radio injects a standard `[A2A-LAB ROUTING]` block after the
+prompt suffix — the entry agent honors it, so one conversation can be
+re-run across intermediate protocols. Riders (D27) apply on both
+channels. Also this session: all three Agentforce twins' Agent Scripts
+gained the rider-honoring DELEGATION GUARD (v2 active) — the D27
+"optional follow-up" is done platform-wide; delegated-to twins answer
+CRM-only with an explicit skip note instead of nesting delegations.
+
+## 2026-07-19 — D29: WS2 platform decisions — ADK on Agent Engine, preview-A2A workarounds, scale-to-zero economics
+The Google column runs the ADK 1.x surface the A2A-on-Agent-Engine docs
+target (google-adk pinned <2), a Gemini flash-lite brain (ADK_MODEL;
+3.x-family needs a location workaround — deferred), and Vertex AI Agent
+Engine as the runtime because its native A2A serving is the lab's first
+platform-native cell. Deploy shape (deploy/adk/deploy_adk.py):
+cloudpickled A2aAgent + extra_packages as RELATIVE paths (absolute paths
+break unpickling), min_instances=0 + 1cpu/2Gi on the personal GCP account
+(default-size warm instance ≈ $250/mo; scale-to-zero idles at $0, cold
+starts ~34s are lab data the warm-up panel manages). Preview-A2A
+workarounds, recorded honestly (native-a2a-young insight): the public
+card route 404s → the lab client pins transport http+json and builds a
+minimal card locally (A2AClient gained card_path/transport options and
+refreshing google-adc auth); create/update calls fail transiently with
+bare INTERNAL errors → retry. Sessions are InMemory v1 (contextId →
+session within a warm instance); VertexAiSessionService is the durable
+follow-up. Twin: A2ALab_Research_Assistant_ADK per D25. Observability:
+Cloud Logging harvested (request-level; no session/turn API on the
+preview surface) — the fourth column of the fragmentation comparison.
