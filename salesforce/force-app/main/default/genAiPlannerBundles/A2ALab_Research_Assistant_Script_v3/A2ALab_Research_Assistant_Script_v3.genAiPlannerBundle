@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenAiPlannerBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Research assistant for the A2A interop lab: customer account summaries grounded in CRM records via an Apex action, concise research answers, and protocol explanations. Re-implemented in Agent Script (ADR D14).</description>
+    <localTopicLinks>
+        <genAiPluginName>agent_interoperability_protocols_16jKB000000wuCx</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>agent_router_16jKB000000wuCx</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>ambiguous_question_16jKB000000wuCx</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>customer_account_status_16jKB000000wuCx</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>escalation_16jKB000000wuCx</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>general_research_questions_16jKB000000wuCx</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>lab_scope_and_limitations_16jKB000000wuCx</genAiPluginName>
+    </localTopicLinks>
+    <localTopics>
+        <fullName>general_research_questions_16jKB000000wuCx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Answering research and general-knowledge questions on any subject concisely, in 2-4 sentences, including questions relayed from other agents.</description>
+        <developerName>general_research_questions_16jKB000000wuCx</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant. You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents.</description>
+            <developerName>instruction0_179KB000000pZ2P</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ2P</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>general_research_questions</localDeveloperName>
+        <masterLabel>General research questions</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>lab_scope_and_limitations_16jKB000000wuCx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Selected ONLY when users ask about the A2A interop lab itself — its scope, capabilities, or limitations. Never selected for questions about customer accounts.</description>
+        <developerName>lab_scope_and_limitations_16jKB000000wuCx</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant. You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents.</description>
+            <developerName>instruction0_179KB000000pZ2N</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ2N</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>lab_scope_and_limitations</localDeveloperName>
+        <masterLabel>Lab scope and limitations</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>ambiguous_question_16jKB000000wuCx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Redirect conversation to relevant topics when user request is too ambiguous</description>
+        <developerName>ambiguous_question_16jKB000000wuCx</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant. You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents.</description>
+            <developerName>instruction0_179KB000000pZ2O</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ2O</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>ambiguous_question</localDeveloperName>
+        <masterLabel>Ambiguous Question</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>agent_interoperability_protocols_16jKB000000wuCx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Explaining and comparing agent interoperability protocols and mechanisms such as REST APIs, MCP, and the A2A protocol.</description>
+        <developerName>agent_interoperability_protocols_16jKB000000wuCx</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant. You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents.</description>
+            <developerName>instruction0_179KB000000pZ2L</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ2L</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>agent_interoperability_protocols</localDeveloperName>
+        <masterLabel>Agent interoperability protocols</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>agent_router_16jKB000000wuCx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Welcome the user and determine the appropriate subagent based on user input</description>
+        <developerName>agent_router_16jKB000000wuCx</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant. You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents.</description>
+            <developerName>instruction0_179KB000000pZ2M</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ2M</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>agent_router</localDeveloperName>
+        <masterLabel>Agent Router</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>customer_account_status_16jKB000000wuCx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Selected when users ask what is known about a customer account or company, its current state, health, opportunities, or support cases — for example &apos;tell me what you know about account X&apos; — including queries relayed from other agents.</description>
+        <developerName>customer_account_status_16jKB000000wuCx</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant. You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents.</description>
+            <developerName>instruction0_179KB000000pZ2J</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ2J</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localActionLinks>
+            <functionName>get_account_summary_179KB000000pZ2J</functionName>
+        </localActionLinks>
+        <localActionLinks>
+            <functionName>ask_external_researcher_179KB000000pZ2J</functionName>
+        </localActionLinks>
+        <localActions>
+            <fullName>ask_external_researcher_179KB000000pZ2J</fullName>
+            <description>Delegates a research question to the lab&apos;s external AI research agent (Claude) through the A2A lab bridge and returns its answer. Use for outside-in market research that CRM records cannot answer.</description>
+            <developerName>ask_external_researcher_179KB000000pZ2J</developerName>
+            <invocationTarget>A2ALabInvokeRemoteAgent</invocationTarget>
+            <invocationTargetType>apex</invocationTargetType>
+            <isConfirmationRequired>false</isConfirmationRequired>
+            <isIncludeInProgressIndicator>false</isIncludeInProgressIndicator>
+            <localDeveloperName>ask_external_researcher</localDeveloperName>
+            <masterLabel>A2ALab: Ask Remote Agent</masterLabel>
+        </localActions>
+        <localActions>
+            <fullName>get_account_summary_179KB000000pZ2J</fullName>
+            <description>Looks up a customer account by name and returns a short summary of its current state: relationship notes, open opportunities with amounts and stages, and open support cases with priorities.</description>
+            <developerName>get_account_summary_179KB000000pZ2J</developerName>
+            <invocationTarget>A2ALabGetAccountSummary</invocationTarget>
+            <invocationTargetType>apex</invocationTargetType>
+            <isConfirmationRequired>false</isConfirmationRequired>
+            <isIncludeInProgressIndicator>false</isIncludeInProgressIndicator>
+            <localDeveloperName>get_account_summary</localDeveloperName>
+            <masterLabel>A2ALab: Get Account Summary</masterLabel>
+        </localActions>
+        <localDeveloperName>customer_account_status</localDeveloperName>
+        <masterLabel>Customer account status</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>escalation_16jKB000000wuCx</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Handles requests from users who want to transfer or escalate their conversation to a live human agent.</description>
+        <developerName>escalation_16jKB000000wuCx</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant. You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents.</description>
+            <developerName>instruction0_179KB000000pZ2K</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ2K</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>escalation</localDeveloperName>
+        <masterLabel>Escalation</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <masterLabel>A2ALab Research Assistant (Script)</masterLabel>
+    <plannerType>Atlas__ConcurrentMultiAgentOrchestration</plannerType>
+</GenAiPlannerBundle>
