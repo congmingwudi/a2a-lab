@@ -26,7 +26,6 @@ groups:
     title: "OpenAI - Agentforce"
   - id: adk-agentforce
     title: "Google ADK - Agentforce"
-    upcoming: WS2
   - id: foundry-agentforce
     title: "Microsoft Foundry - Agentforce"
     upcoming: WS3
@@ -39,6 +38,7 @@ groups:
 
 scenarios:
   claude-to-agentforce:
+    af_channel_toggle: true
     group: claude-agentforce
     title: "Claude → Agentforce"
     summary: >-
@@ -171,6 +171,7 @@ scenarios:
           :8003 from the mounted adapter's name and description.
 
   claude-aws-to-agentforce:
+    af_channel_toggle: true
     group: claude-agentforce
     title: "Claude (AWS) → Agentforce"
     summary: >-
@@ -369,8 +370,8 @@ scenarios:
           regulatory/government-relations, and geopolitical angles. Each
           lookup appears as a hop here; this phase runs for minutes — the
           whole point of the async pattern is that it's allowed to.
-      - source: brief-researcher
-        target: brief-worker
+      - source: brief-worker
+        target: brief-researcher
         protocol: managed-agents-api
         detail: >-
           Delivery: the agent calls its save_account_brief custom tool
@@ -407,6 +408,7 @@ scenarios:
           brief. Shim card shown for reference; honest status via-shim.
 
   chatgpt-to-agentforce:
+    af_channel_toggle: true
     group: openai-agentforce
     title: "OpenAI → Agentforce"
     summary: >-
@@ -465,7 +467,7 @@ scenarios:
 
   agentforce-to-chatgpt:
     group: openai-agentforce
-    title: "Agentforce → OpenAI (sync)"
+    title: "Agentforce → OpenAI"
     summary: >-
       Agentforce Agent delegates research to an OpenAI agent via the bridge
       and waits for a response.
@@ -540,3 +542,156 @@ scenarios:
         caption: >-
           Native card — generated at startup by the lab's a2a-sdk server on
           :8013 from the mounted adapter's name and description.
+
+  adk-to-agentforce:
+    af_channel_toggle: true
+    title: "Google ADK → Agentforce"
+    group: adk-agentforce
+    summary: >-
+      The Google ADK/Gemini agent on Vertex AI Agent Engine calls the
+      Agentforce Agent mid-answer — reached over platform-native A2A.
+    description: >-
+      The lab's first NATIVE×NATIVE A2A experiment: you invoke the ADK
+      research agent through Vertex AI Agent Engine's own A2A endpoint (no
+      bridge, no shim — the platform itself speaks the protocol), and
+      mid-answer the Gemini agent consults its ADK-paired Agentforce twin
+      through its ask_agentforce tool, a cross-cloud GCP → Salesforce hop
+      from inside the Agent Engine container. The outbound question carries
+      the D27 delegation rider.
+    target: adk-a2a
+    via_bridge: false
+    status: live
+    tags: [adk, gemini, agent-engine, agentforce, agent-api]
+    prompt_suffix: >-
+      Answer in two clearly labeled sections. First "From the Google ADK
+      agent (Gemini):" — your own contribution from your own knowledge:
+      outside-in context, industry framing, or analysis of what the data
+      means (never CRM facts). Then consult the Salesforce Agentforce agent
+      with your ask_agentforce tool and summarize its answer under "From
+      the CRM (via Agentforce):". Both sections are required — you are a
+      research collaborator, not a pass-through.
+    note: >-
+      The call path may also show an agentforce-apex → bridge → adk-a2a leg
+      folded in by time window: that is NOT a response callback — answers
+      return up the same nested call stack on each request's own HTTP
+      exchange. It is the twin's OWN outbound delegation (its script always
+      runs STEP 2 through the bridge — the bounded self-loop, capped by the
+      D27 guard). Scale-to-zero economics (personal GCP account): first
+      invoke after ~15 idle minutes is a ~34s cold start — warm the runtime from the
+      gear panel before demos. The ADK-interior legs (Gemini calls, the
+      tool's Agent API round trip) run inside the GCP container; their lab
+      trace hops are ephemeral there — platform-side telemetry lands with
+      the WS2 obs source. Preview roughness recorded honestly: the public
+      agent-card route 404s, so the lab client pins transport http+json
+      and builds a minimal card locally.
+    flow:
+      - source: remote-caller
+        target: adk-a2a
+        protocol: a2a
+        detail: >-
+          You (the console) send an A2A message:send to the Agent Engine
+          endpoint — IAM-authed (google-adc bearer), HTTP+JSON transport,
+          contextId carries the session. This is the platform's OWN A2A
+          surface: both ends native, the cell the lab is named for.
+      - source: adk-researcher
+        target: gemini
+        protocol: internal
+        detail: >-
+          Inside the container an a2a-sdk executor (mirroring the lab's
+          AdapterExecutor lifecycle) runs the ADK Runner; Gemini
+          (ADK_MODEL, flash-lite tier) produces the answer.
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          Mid-answer the model calls ask_agentforce. The container itself
+          performs OAuth + session + message against the Salesforce Agent
+          API — a cross-cloud GCP→Salesforce hop, D27 rider stamped on the
+          outbound question, targeting the ADK-paired twin (D25).
+    agents:
+      - title: ADK research agent (Agent Engine)
+        target: adk-a2a
+        caption: >-
+          Platform-served A2A. The public card route 404s in the current
+          preview, so the lab pins transport and builds a minimal card —
+          recorded honestly as preview roughness.
+      - title: Agentforce service agent (ADK-paired twin)
+        target: agentforce-a2a
+        caption: >-
+          Shim card — Agentforce publishes no A2A surface, so the lab's
+          shim proxies inbound A2A to the GA Agent API. Honest status:
+          via-shim.
+
+  agentforce-to-adk:
+    title: "Agentforce → Google ADK"
+    group: adk-agentforce
+    summary: >-
+      The Agentforce Agent delegates research through the bridge to the
+      Google ADK agent's native A2A endpoint and waits for a response.
+    description: >-
+      The reverse direction of the native-A2A pair: you talk to the
+      ADK-paired Agentforce twin (ADR D25), which answers the account
+      question from its own Salesforce data (Apex action), then delegates
+      outside-in market research through the lab bridge to the ADK agent's
+      PLATFORM-NATIVE A2A endpoint — the first Path A cell whose remote leg
+      is a platform speaking A2A itself (bridge still required: Agentforce
+      outbound is REST-only, so honest status stays via-bridge on the
+      Salesforce leg, native on the ADK leg).
+    target: agentforce-adk-rest
+    via_bridge: false
+    status: live
+    tags: [agentforce, agent-api, bridge, adk, gemini, agent-engine]
+    note: >-
+      Warm the ADK runtime first (gear panel): a ~34s Agent Engine cold
+      start inside the bridge's 45s budget leaves little headroom — the
+      stacked-timeout finding demonstrating itself on a third platform.
+      The agent's action passes bridge target "adk-a2a" explicitly (pinned
+      three ways, D25).
+    flow:
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          You talk to the ADK-paired Agentforce twin over the GA Agent API
+          (session + message). Its "Customer account status" topic owns
+          the whole answer and orchestrates the collaboration.
+      - source: agentforce
+        target: agentforce-apex
+        protocol: internal
+        detail: >-
+          STEP 1 — internal truth: the agent calls its A2ALab: Get Account
+          Summary action (Apex SOQL over Account + open Opportunities +
+          open Cases). CRM data never leaves the org.
+      - source: agentforce-apex
+        target: bridge
+        protocol: rest
+        detail: >-
+          STEP 2 — external delegation: the agent's A2ALab: Ask Remote
+          Agent (ADK) action POSTs through the Named Credential and tunnel
+          to the lab bridge with target=adk-a2a.
+      - source: client
+        target: adk-a2a
+        protocol: a2a
+        detail: >-
+          The bridge resolves adk-a2a and speaks A2A to the Agent Engine
+          endpoint — google-adc bearer, HTTP+JSON transport, D27 rider
+          stamped on the forwarded question. The remote end is the
+          platform itself: no shim on this leg.
+      - source: adk-researcher
+        target: gemini
+        protocol: internal
+        detail: >-
+          The ADK/Gemini agent produces the market research and does NOT
+          call back to Agentforce — the D27 rider directive and the depth
+          guard both stand between this leg and a circular chain.
+    agents:
+      - title: Agentforce service agent (ADK-paired twin)
+        target: agentforce-a2a
+        caption: >-
+          Shim card — the lab's shim proxies inbound A2A to the GA Agent
+          API. Honest status: via-shim.
+      - title: ADK research agent (Agent Engine)
+        target: adk-a2a
+        caption: >-
+          Platform-served A2A (preview): transport pinned, minimal card
+          built locally — the card route 404s today, recorded honestly.

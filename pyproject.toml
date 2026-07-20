@@ -19,6 +19,12 @@ dependencies = [
 [project.optional-dependencies]
 aws = ["boto3>=1.34"]
 openai = ["openai-agents>=0.18.3,<1"]
+# adk pinned <2: the A2A-on-Agent-Engine docs/codelab target adk 1.x; the
+# deployed container's requirements pin must match (see deploy/adk/).
+gcp = [
+    "google-adk>=1.29,<2",
+    "google-cloud-aiplatform[agent_engines,adk]>=1.156",
+]
 
 [dependency-groups]
 dev = [

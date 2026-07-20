@@ -26,6 +26,8 @@ uv run python scripts/obs_analysis.py run          # fire the hosted obs analyst
 uv run python scripts/pg_backfill.py               # copy local lab.db → hosted Aurora store
 deploy/obs/build_zips.sh                           # rebuild the obs Lambda bundles (D23)
 deploy/agentcore/deploy.sh <claude|openai>         # build/push/create-or-update an AgentCore runtime (D26)
+deploy/adk/deploy_adk.py                           # deploy/update the ADK agent on Vertex AI Agent Engine (WS2)
+deploy/shim/build_zip.sh && deploy/shim/deploy_shim.sh  # hosted Agentforce A2A shim on Lambda (D28)
 uv run python scripts/export_insights.py           # config/insights.yaml → plan/08-insights.md
 ```
 

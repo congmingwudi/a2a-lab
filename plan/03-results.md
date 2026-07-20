@@ -116,3 +116,19 @@ target             platform    protocol        status       result   p50ms  p95m
 -----------------------------------------------------------------------------------------
 claude-agentcore   claude      agentcore-http  native       PASS      8444  15446  **MCP (Model Context Protocol)** is a standard that enables LLM applications to securely connect to external data source
 ```
+
+## Matrix run — 2026-07-19 19:14:56 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+adk-a2a            adk         a2a             native       PASS      9315  34536  The primary difference lies in their communication paradigms: MCP is message-based and asynchronous, focusing on workflo
+```
+
+## Matrix run — 2026-07-19 19:48:24 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+agentforce-adk-rest agentforce  agentforce-api  native       PASS      8375   9606  The MCP (Message Coordination Protocol) is a message-based protocol used for orchestrating complex, multi-step interacti
+```

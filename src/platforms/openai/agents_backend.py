@@ -145,6 +145,48 @@ def _build_agentforce_tool(inbound_depth: int = 0):
     return ask_agentforce
 
 
+def _build_agentforce_a2a_tool(inbound_depth: int = 0):
+    """The channel twin of ask_agentforce (D28): same Agentforce agent, but
+    over the A2A protocol through the lab's hosted shim — used when the
+    operator's routing block selects the a2a-shim channel."""
+    from agents import function_tool
+
+    @function_tool(
+        name_override="ask_agentforce_a2a",
+        description_override=(
+            "Ask the Salesforce Agentforce agent a question over the A2A "
+            "protocol (via the lab's hosted shim). Use ONLY when the "
+            "request's [A2A-LAB ROUTING] block selects the a2a-shim "
+            "channel; otherwise prefer ask_agentforce."
+        ),
+    )
+    async def ask_agentforce_a2a(question: str) -> str:
+        from interop import af_channel
+
+        if inbound_depth >= delegation.max_depth():
+            return delegation.refusal("ask_agentforce_a2a")
+        message, meta = delegation.delegate(
+            question,
+            caller="openai-agents-sdk-agent",
+            platform="openai",
+            inbound_depth=inbound_depth,
+        )
+        try:
+            return await asyncio.wait_for(
+                af_channel.ask_via_shim(message, meta),
+                float(
+                    os.environ.get(
+                        "OPENAI_AGENTFORCE_TOOL_TIMEOUT_S",
+                        DEFAULT_AGENTFORCE_TOOL_TIMEOUT_S,
+                    )
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - model-visible, not fatal
+            return f"A2A shim call failed: {type(exc).__name__}: {exc}"
+
+    return ask_agentforce_a2a
+
+
 class AgentsSdkBackend:
     backend_name = "agents-sdk"
 
@@ -179,7 +221,10 @@ class AgentsSdkBackend:
             # ("From the CRM (via Agentforce): ...") and add its own
             # research — the Path C collaboration contract. Budget still
             # fits: tool leg capped at 34s inside the 40s run cap.
-            tools=[_build_agentforce_tool(inbound_depth)],
+            tools=[
+                _build_agentforce_tool(inbound_depth),
+                _build_agentforce_a2a_tool(inbound_depth),
+            ],
         )
 
     async def _run(self, req: AgentRequest):

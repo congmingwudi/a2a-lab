@@ -30,7 +30,7 @@ import httpx
 import yaml
 
 from console.insights import by_category, load_insights, to_markdown
-from interop import delegation
+from interop import af_channel, delegation
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, new_trace_id
 from interop.registry import Registry
@@ -183,6 +183,22 @@ def components_for(tags: set[str]) -> list[dict]:
                 "a2alab_openai AgentCore runtime.",
                 "url": os.environ.get("OPENAI_CONSOLE_URL") or None,
                 **_shots("openai-agentcore"),
+            }
+        )
+    if "agent-engine" in tags:
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        comps.append(
+            {
+                "title": "Vertex AI Agent Engine — a2alab-adk-researcher",
+                "kind": "adk",
+                "note": "WS2: the ADK/Gemini agent deployed with native A2A serving "
+                "(deploy/adk/deploy_adk.py); scale-to-zero on a personal GCP project.",
+                "url": os.environ.get(
+                    "AGENT_ENGINE_CONSOLE_URL",
+                    "https://console.cloud.google.com/vertex-ai/agents/agent-engines"
+                    + (f"?project={project}" if project else ""),
+                ),
+                **_shots("agent-engine"),
             }
         )
     if "agentcore" in tags:
@@ -410,8 +426,24 @@ def create_console_app(registry: Registry | None = None):
                     "ask_agentforce (sdk)",
                     "ask_agentforce (managed)",
                     "ask_agentforce (openai)",
+                    "ask_agentforce (adk)",
                     "bridge",
                 ],
+                # The <placeholders> in the rider are display-only; real
+                # injected blocks carry the delegating seam's identity:
+                "callers": [
+                    "claude-sdk-agent (claude)",
+                    "claude-managed-agent (claude)",
+                    "openai-agents-sdk-agent (openai)",
+                    "adk-gemini-agent (adk)",
+                    "agentforce-twin-via-bridge (agentforce)",
+                ],
+            },
+            # D28 sibling exhibit: the per-run channel routing block the
+            # console injects when the operator picks a2a-shim.
+            "af_channel": {
+                "tools": af_channel.CHANNEL_TOOLS,
+                "routing_block": af_channel.routing_block("a2a-shim"),
             },
         }
 
@@ -500,6 +532,31 @@ def create_console_app(registry: Registry | None = None):
                 status_code=409,
                 detail=f"target '{target_name}' has no A2A endpoint to serve an agent card",
             )
+        if target.options.get("transport"):
+            # Pinned-transport target (Vertex AI Agent Engine preview): the
+            # platform serves NO public card — the lab synthesizes the same
+            # minimal card its client uses. Say so instead of 404ing.
+            from google.protobuf.json_format import MessageToDict
+
+            from a2a.client import minimal_agent_card
+            from a2a.utils import TransportProtocol
+
+            transport = target.options["transport"].upper().replace("-", "_")
+            card = MessageToDict(
+                minimal_agent_card(target.endpoint, [getattr(TransportProtocol, transport)])
+            )
+            return {
+                "ok": True,
+                "url": target.endpoint,
+                "card": card,
+                "synthesized": True,
+                "note": (
+                    "Synthesized locally — this platform's A2A serving is "
+                    "preview and registers no public card route (the lab "
+                    "client pins the transport instead; see the "
+                    "native-a2a-young insight)."
+                ),
+            }
         url = target.endpoint.rstrip("/") + "/.well-known/agent-card.json"
         try:
             async with httpx.AsyncClient(timeout=5.0) as http:
@@ -515,6 +572,9 @@ def create_console_app(registry: Registry | None = None):
         body = await request.json()
         message = (body.get("message") or "").strip() or DEFAULT_QUESTION
         via_bridge = bool(body.get("via_bridge"))
+        # D28: which Agentforce tool the entry agent should use, echoed back
+        # so the UI can badge the turn. Only meaningful on toggle scenarios.
+        chosen_channel: str | None = None
 
         scenario_name = body.get("scenario")
         if scenario_name:
@@ -600,6 +660,14 @@ def create_console_app(registry: Registry | None = None):
             via_bridge = bool(spec.get("via_bridge"))
             if spec.get("prompt_suffix"):
                 message = f"{message}\n\n{spec['prompt_suffix']}"
+            if spec.get("af_channel_toggle"):
+                chosen_channel = body.get("af_channel") or "agent-api"
+                if chosen_channel not in af_channel.CHANNEL_TOOLS:
+                    chosen_channel = "agent-api"
+                # The routing block rides AFTER the suffix; agent-api is the
+                # tools' default bias, so only a2a-shim ever injects.
+                if chosen_channel == "a2a-shim":
+                    message += af_channel.routing_block("a2a-shim")
         else:
             name = body.get("target")
         if not name:
@@ -617,7 +685,10 @@ def create_console_app(registry: Registry | None = None):
         )
         try:
             if via_bridge:
-                return await run_via_bridge(req, name)
+                result = await run_via_bridge(req, name)
+                if chosen_channel:
+                    result["af_channel"] = chosen_channel
+                return result
             client = get_client(name)
             resp = await client.ask(req)
             return {
@@ -626,6 +697,7 @@ def create_console_app(registry: Registry | None = None):
                 "text": resp.text,
                 "latency_ms": resp.latency_ms,
                 "session_id": resp.session_id,
+                "af_channel": chosen_channel,
             }
         except Exception as exc:  # surface the failure as a result, not a 500
             return {
@@ -766,6 +838,19 @@ def create_console_app(registry: Registry | None = None):
                 "list responses — ids must be captured at emit time",
             ],
         },
+        "adk": {
+            "label": "Google ADK / Agent Engine",
+            "can": [
+                "Cloud Logging entries per engine (queryable, filterable)",
+                "request + container app logs in near-real-time",
+                "Cloud Trace spans (OTel — not yet harvested)",
+            ],
+            "cannot": [
+                "session/turn read API (preview A2A surface)",
+                "A2A contextIds in default logs",
+                "agent-semantic events (tool calls) without custom instrumentation",
+            ],
+        },
     }
 
     @app.get("/api/obs/summary")
@@ -799,6 +884,7 @@ def create_console_app(registry: Registry | None = None):
 
     @app.post("/api/obs/harvest")
     async def obs_harvest(platform: str | None = None):
+        from observability.adk_source import AdkSource
         from observability.anthropic_source import AnthropicSource
         from observability.openai_source import OpenAISource
         from observability.salesforce_source import SalesforceSource
@@ -807,6 +893,7 @@ def create_console_app(registry: Registry | None = None):
             "anthropic": AnthropicSource,
             "salesforce": SalesforceSource,
             "openai": OpenAISource,
+            "adk": AdkSource,
         }
         wanted = [platform] if platform else list(sources)
         if any(w not in sources for w in wanted):

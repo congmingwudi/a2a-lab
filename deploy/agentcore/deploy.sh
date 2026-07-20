@@ -32,6 +32,7 @@ case "$PLATFORM" in
     # SF_AGENT_ID: the Claude-paired Agentforce twin (D25 — closed systems)
     ENV_KEYS=(ANTHROPIC_API_KEY CLAUDE_AGENT_MODEL CLAUDE_ANSWER_TIMEOUT_S
               SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_AGENT_ID
+              AF_SHIM_A2A_URL A2ALAB_TOKEN AF_SHIM_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
     ;;
   openai)
@@ -41,6 +42,7 @@ case "$PLATFORM" in
     # SF_OPENAI_AGENT_ID: the OpenAI-paired Agentforce twin (D25)
     ENV_KEYS=(OPENAI_API_KEY OPENAI_MODEL OPENAI_ANSWER_TIMEOUT_S
               SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_OPENAI_AGENT_ID
+              AF_SHIM_A2A_URL A2ALAB_TOKEN AF_SHIM_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
     ;;
   *) echo "unknown platform '$PLATFORM' (claude|openai)"; exit 1 ;;
