@@ -421,3 +421,51 @@ def test_run_async_scenario_returns_immediately(tmp_path, monkeypatch):
     assert data["ok"] is True and data.get("async") is True
     assert data["trace_id"]
     assert "research started" in data["text"].lower()
+
+
+def test_decisions_parsed_and_served(tmp_path, monkeypatch):
+    """/api/decisions: the ADR log parsed per id — revised decisions keep
+    every entry in one markdown body; non-decision sections (M10) excluded."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    decisions = client.get("/api/decisions").json()["decisions"]
+    assert "D27" in decisions and "D28" in decisions
+    assert "M10" not in decisions
+    d27 = decisions["D27"]
+    assert d27["id"] == "D27" and d27["date"] and d27["title"]
+    assert "delegation" in d27["markdown"].lower()
+    # D12 was revised: both entries live in one body, separated by a rule.
+    assert decisions["D12"]["markdown"].count("### ") == 2
+    assert "\n---\n" in decisions["D12"]["markdown"]
+
+
+def test_decisions_missing_file_empty(tmp_path, monkeypatch):
+    import console.app as console_app
+
+    assert console_app.load_decisions(tmp_path / "nope.md") == {}
+
+
+def test_run_af_route_direct_block(tmp_path, monkeypatch):
+    """The reverse-direction sibling of D28's channel radio: on an
+    af_route_toggle scenario, af_route=direct appends the outbound-route
+    block for the twin's script; bridge (the script's default) never
+    injects."""
+    registry = FakeRegistry()
+    registry.targets["agentforce-adk-rest"] = Target(
+        name="agentforce-adk-rest", platform="agentforce", protocol="agentforce-api"
+    )
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    data = client.post(
+        "/api/run",
+        json={"scenario": "agentforce-to-adk", "message": "hi", "af_route": "direct"},
+    ).json()
+    assert data["ok"] is True and data["af_route"] == "direct"
+    msg = registry.fake_client.requests[0].message
+    assert "agentforce-route: direct" in msg and "ask_external_researcher_direct" in msg
+    data = client.post(
+        "/api/run",
+        json={"scenario": "agentforce-to-adk", "message": "hi", "af_route": "bridge"},
+    ).json()
+    assert data["af_route"] == "bridge"
+    assert "[A2A-LAB ROUTING]" not in registry.fake_client.requests[1].message

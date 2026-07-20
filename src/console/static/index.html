@@ -126,6 +126,34 @@
      slate rim keeps the edge intentional on dark surfaces */
   .badge.agentcore, .badge.aws { background: var(--chip-aws); color: #eef2f7;
                                  border: 1px solid #52627a; }
+  /* Decision chips — ADR refs (D27, D28, …) in any visible UI text become
+     clickable chips; the popover renders that decision's markdown from the
+     ADR log (GET /api/decisions ← plan/00-decisions.md). */
+  .dchip { display: inline-block; padding: 0 8px; border-radius: 999px;
+           font: 600 11px/17px var(--font-mono); color: var(--hero-link);
+           background: color-mix(in srgb, var(--hero-link) 10%, transparent);
+           border: 1px solid color-mix(in srgb, var(--hero-link) 38%, transparent);
+           cursor: pointer; vertical-align: baseline; }
+  .dchip:hover { color: var(--fg-hi); border-color: var(--hero-link); }
+  .dpopover { position: fixed; z-index: 60; width: min(560px, calc(100vw - 24px));
+              max-height: min(65vh, 560px); overflow: auto; background: var(--card);
+              border: 1px solid var(--border-hi); border-radius: 12px; padding: 4px 18px 12px;
+              box-shadow: 0 14px 40px var(--shadow-lg); font-size: 13px; line-height: 1.55; }
+  .dpopover h4, .dpopover h5, .dpopover h6 { margin: 12px 0 6px; font-size: 13px; color: var(--fg-hi); }
+  .dpopover code { background: var(--code); border: 1px solid var(--border);
+                   padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+  .dpopover pre { overflow-x: auto; background: var(--code); border: 1px solid var(--border);
+                  border-radius: 8px; padding: 10px; }
+  .dpopover pre code { background: none; border: none; padding: 0; }
+  .dpopover hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+  .dpopover ul, .dpopover ol { margin: 4px 0 8px; padding-left: 20px; }
+  .dpop-head { position: sticky; top: 0; display: flex; align-items: center;
+               justify-content: space-between; gap: 10px; background: var(--card);
+               padding: 10px 0 6px; border-bottom: 1px solid var(--border); }
+  .dpop-head .dchip { cursor: default; }
+  .dpop-close { background: none; border: none; color: var(--muted); font-size: 17px;
+                line-height: 1; padding: 2px 5px; cursor: pointer; border-radius: 6px; }
+  .dpop-close:hover { color: var(--fg-hi); background: var(--card2); }
   /* scenarios gated on a deployment mode — same accent family as the
      top-right mode badge, so "hosted" reads as one concept everywhere */
   .badge.hosted { --tag: var(--hero-link); }
@@ -578,7 +606,7 @@
     <span class="brandmark"></span>
     <h1>A2A Interop Lab</h1>
   </div>
-  <span class="sub">cross-platform agent-to-agent experiments · Agentforce × Claude × OpenAI</span>
+  <span class="sub">cross-platform agent-to-agent experiments · Agentforce × Claude × OpenAI × Google</span>
   <span id="live" class="live">connecting…</span>
   <span id="modeBadge" class="mode-badge" style="display:none"></span>
   <div class="theme-switch" role="group" aria-label="Theme">
@@ -673,6 +701,7 @@ let mainKey = null;       // skeleton identity — rebuilt only when this change
 let chats = {};
 let drafts = {};          // key -> composer draft (survives re-renders)
 let afChannels = {};      // key -> "agent-api" | "a2a-shim" (D28 channel radio)
+let afRoutes = {};        // key -> "bridge" | "direct" (Agentforce outbound route radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
 // turn's call path.
@@ -719,6 +748,7 @@ function mdToHtml(src) {
       code = !code; continue;
     }
     if (code) { out.push(line + "\n"); continue; }
+    if (/^\s*-{3,}\s*$/.test(line)) { flushPara(); closeList(); out.push("<hr>"); continue; }
     const h = line.match(/^(#{1,4})\s+(.*)/);
     const ul = line.match(/^\s*[-*]\s+(.*)/);
     const ol = line.match(/^\s*\d+[.)]\s+(.*)/);
@@ -742,6 +772,92 @@ function pretty(payload) {
     try { return JSON.stringify(JSON.parse(payload), null, 2); } catch { return payload; }
   }
   return JSON.stringify(payload, null, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Decision chips — ADR refs (D27, D28, …) mean nothing to a visitor, so any
+// D-number in visible text becomes a chip whose popover renders the actual
+// decision from plan/00-decisions.md. A MutationObserver linkifies every
+// render path (innerHTML swaps, SSE updates) without touching the templates.
+// ---------------------------------------------------------------------------
+let decisionLog = {};   // "D28" -> {id, title, date, markdown}
+
+const D_REF_RE = /\b(D\d{1,2})\b/;
+
+function linkifyDecisions(root) {
+  if (!root || !Object.keys(decisionLog).length) return;
+  if (root.nodeType !== 1 && root.nodeType !== 11) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!D_REF_RE.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+      const p = node.parentElement;
+      if (!p || p.closest("pre, code, script, style, textarea, .dchip, .dpopover"))
+        return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    const parts = node.nodeValue.split(/\b(D\d{1,2})\b/);
+    // Only known decision ids become chips; anything else stays plain text.
+    if (!parts.some(p => decisionLog[p])) continue;
+    const frag = document.createDocumentFragment();
+    for (const part of parts) {
+      if (decisionLog[part]) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "dchip"; b.textContent = part;
+        b.title = decisionLog[part].title;
+        frag.appendChild(b);
+      } else if (part) frag.appendChild(document.createTextNode(part));
+    }
+    node.parentNode.replaceChild(frag, node);
+  }
+}
+
+function closeDecisionPopover() {
+  document.querySelector(".dpopover")?.remove();
+}
+
+function openDecisionPopover(chip) {
+  const d = decisionLog[chip.textContent];
+  if (!d) return;
+  const pop = document.createElement("div");
+  pop.className = "dpopover";
+  pop.innerHTML = `<div class="dpop-head"><span class="dchip">${d.id}</span>`
+    + `<button type="button" class="dpop-close" title="Close">×</button></div>`
+    + mdToHtml(d.markdown);
+  pop.addEventListener("click", ev => ev.stopPropagation());
+  pop.querySelector(".dpop-close").addEventListener("click", closeDecisionPopover);
+  document.body.appendChild(pop);
+  // Below the chip when it fits, else above; clamped to the viewport.
+  const r = chip.getBoundingClientRect();
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12)) + "px";
+  pop.style.top = (r.bottom + h + 20 < window.innerHeight
+    ? r.bottom + 8 : Math.max(12, r.top - h - 8)) + "px";
+}
+
+document.addEventListener("click", ev => {
+  const chip = ev.target.closest?.(".dchip");
+  closeDecisionPopover();
+  if (!chip) return;
+  ev.preventDefault();  // chips inside <summary> must not toggle the details
+  ev.stopPropagation();
+  openDecisionPopover(chip);
+});
+document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeDecisionPopover(); });
+
+new MutationObserver(muts => {
+  for (const m of muts) for (const n of m.addedNodes) linkifyDecisions(n);
+}).observe(document.body, { childList: true, subtree: true });
+
+async function loadDecisions() {
+  try {
+    const r = await fetch(apiUrl("/api/decisions"));
+    decisionLog = (await r.json()).decisions || {};
+    linkifyDecisions(document.body);  // content rendered before the fetch resolved
+  } catch { /* chips just don't activate */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -918,6 +1034,56 @@ function mergedTurnTrace(t) {
 // trace participant names), except the interchangeable caller aliases; each
 // live hop is consumed once — ambiguity prefers no ghost over a false one.
 const CALLER_ALIASES = new Set(["client", "caller", "remote-caller"]);
+
+// Direct-route flow (Agentforce->platform): the bridge legs collapse into
+// one Apex -> Agent Engine A2A ghost — a leg the lab cannot record, which
+// is exactly what this route demonstrates versus the bridge.
+function routeFlow(flow, afRoute) {
+  if (afRoute !== "direct" || !flow) return flow;
+  const out = [];
+  for (const step of flow) {
+    if (step.target === "bridge") {
+      out.push({
+        source: "agentforce-apex", target: "adk-a2a", protocol: "a2a",
+        detail: "Direct route: the twin's Apex action calls Vertex AI Agent Engine's "
+          + "platform-native A2A endpoint itself (message:send, a2a-version 1.0, Google OAuth "
+          + "via the JWT-bearer named credential) — no lab bridge, so the lab records nothing "
+          + "on this leg. The D27 rider is stamped by the Apex seam.",
+      });
+    } else if (String(step.source).toLowerCase() === "client" && step.protocol === "a2a") {
+      continue; // the bridge's client leg does not exist on the direct route
+    } else out.push(step);
+  }
+  return out;
+}
+
+// The planned flow is channel-aware (D28): when a turn ran on the a2a-shim
+// channel, the direct Agent-API step is replaced by the real path — the
+// agent's A2A client to the hosted shim, then the shim's proxy to the GA
+// Agent API. Without this, shim runs render a ghost "agent → agentforce
+// api direct" leg that never happened.
+function channelFlow(flow, afChannel) {
+  if (afChannel !== "a2a-shim" || !flow) return flow;
+  const out = [];
+  for (const step of flow) {
+    if (step.protocol === "agentforce-api" && String(step.target).toLowerCase() === "agentforce") {
+      out.push({
+        source: "client", target: "agentforce-a2a-shim", protocol: "a2a",
+        detail: "The a2a-shim channel (D28): the agent's ask_agentforce_a2a tool sends an A2A "
+          + "message/send to the lab's AWS-hosted shim (API Gateway + Lambda) instead of the GA "
+          + "Agent API — x-lab-token auth, D27 rider on the outbound question.",
+      });
+      out.push({
+        source: "agentforce-client", target: "agentforce", protocol: "agentforce-api",
+        detail: "Inside the Lambda the shim proxies the A2A task to the GA Agent API — OAuth + "
+          + "session + message against the calling platform's paired twin (D25 twin routing via "
+          + "the delegation rider). The shim records these hops to the Aurora trace store; the "
+          + "console merges them into this view.",
+      });
+    } else out.push(step);
+  }
+  return out;
+}
 
 function withGhostHops(hops, flow) {
   if (!flow || !flow.length || !hops.length) return hops;
@@ -1517,6 +1683,8 @@ function obsDashboardHtml() {
             <div class="num"><b>${i.sessions || 0}</b><span>sessions</span></div>
             <div class="num"><b>${i.events || 0}</b><span>events</span></div>
             <div class="num"><b>${fmtTokens(i.tokens || 0)}</b><span>tokens</span></div>
+            ${i.est_cost_usd != null ? `<div class="num" title="Estimated from the platform's billing meters (Agent Engine bills allocated vCPU/GiB seconds, not tokens) + list token prices — an estimate, not billing truth">
+              <b>$${Number(i.est_cost_usd).toFixed(2)}</b><span>est. 24h cost</span></div>` : ""}
           </div>
           <ul class="cap-can">${caps[p].can.map(c => `<li>${esc(c)}</li>`).join("")}</ul>
           <ul class="cap-not">${caps[p].cannot.map(c => `<li>${esc(c)}</li>`).join("")}</ul>
@@ -1646,6 +1814,48 @@ function afChannelRowHtml(key) {
       onchange="setAfChannel('a2a-shim')"> a2a-shim (A2A protocol)</label>
     <span class="chan-hint">Same conversation and agents, different intermediate protocol —
       agent-api is the platform's GA surface; a2a-shim routes through the lab's hosted A2A shim.</span>
+  </div>`;
+}
+
+// The reverse-direction sibling: how the Agentforce twin's Apex reaches
+// the remote agent — via the lab bridge (traced) or straight at the
+// platform-native endpoint (bridgeless — deliberately dark to the lab; the
+// visibility gap IS the experiment).
+window.setAfRoute = rt => {
+  if (!view || view.type !== "experiment") return;
+  afRoutes[expKey(view.kind, view.name)] = rt;
+  renderMain(true);
+};
+
+function afRouteRowHtml(key) {
+  const rt = afRoutes[key] || "bridge";
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Agentforce outbound route</span>
+    <label><input type="radio" name="afRoute" value="bridge" ${rt === "bridge" ? "checked" : ""}
+      onchange="setAfRoute('bridge')"> via bridge (traced)</label>
+    <label><input type="radio" name="afRoute" value="direct" ${rt === "direct" ? "checked" : ""}
+      onchange="setAfRoute('direct')"> direct A2A (platform-native)</label>
+    <span class="chan-hint">Same twin, same remote agent — bridge routes the Apex callout through
+      the lab bridge (every hop recorded); direct has Apex call Vertex AI Agent Engine's native
+      A2A endpoint itself (Google OAuth named credential) — a leg the lab cannot trace.</span>
+  </div>`;
+}
+
+function routeExhibitHtml(key) {
+  const a = labConfig && labConfig.af_route;
+  if (!a || (afRoutes[key] || "bridge") !== "direct") return "";
+  return `
+  <div class="flow">
+    <details open>
+      <summary style="cursor:pointer; font-size:12px; color:var(--muted); padding:10px 16px">Injected for this run — Agentforce outbound routing</summary>
+      <div class="desc"><span class="stat">Appended to this run's outgoing message: it directs the
+        Agentforce twin to consult the external researcher with its
+        <code>${esc((a.tools || {})["direct"] || "ask_external_researcher_direct")}</code> action —
+        Apex straight at the Agent Engine A2A endpoint, no lab bridge. A design-decision exhibit,
+        not an editable prompt.</span></div>
+      <pre class="rider-block" aria-readonly="true">${esc(String(a.routing_block || "").trim())}</pre>
+    </details>
   </div>`;
 }
 
@@ -2183,7 +2393,8 @@ function chatTurnsHtml(chat) {
     const err = !!turn.error;
     return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text)}</div>`}
       <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}${
-        turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}</span></div>`;
+        turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}${
+        turn.af_route === "direct" ? ` · <span class="badge a2a" title="This turn's external-research leg went straight from Apex to Vertex AI Agent Engine's native A2A endpoint — no lab bridge, untraced by design">direct a2a</span>` : ""}</span></div>`;
   }).join("");
 }
 
@@ -2208,6 +2419,7 @@ async function sendTurn(kind, name, message) {
     body.scenario = name;
     const spec = scenarios.find(s => s.name === name);
     if (spec && spec.af_channel_toggle) body.af_channel = afChannels[key] || "agent-api";
+    if (spec && spec.af_route_toggle) body.af_route = afRoutes[key] || "bridge";
   } else {
     body.target = name;
     body.via_bridge = document.getElementById("viaBridge")?.checked || false;
@@ -2229,7 +2441,8 @@ async function sendTurn(kind, name, message) {
   chat.turns.pop(); // remove the running placeholder
   if (result.ok) {
     chat.turns.push({ role: "agent", text: result.text || "(empty response)",
-      latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null });
+      latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null,
+      af_route: result.af_route || null });
     runState[key] = { state: "ok", note: result.latency_ms != null
       ? `PASS · ${result.latency_ms} ms` : (result.async ? "running async" : "PASS") };
   } else {
@@ -2518,6 +2731,7 @@ function renderMain(force) {
             <button class="ghost" onclick="resetChat()">New chat</button>
           </div>
           ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.af_route_toggle ? afRouteRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
             <span class="mono">A2ALAB_MODE=${esc(exp.requires_mode)}</span> in .env and restart the
@@ -2532,6 +2746,7 @@ function renderMain(force) {
           </div>
         </div>
         ${view.kind === "scenario" && exp && exp.af_channel_toggle ? routingSectionHtml(key) : ""}
+        ${view.kind === "scenario" && exp && exp.af_route_toggle ? routeExhibitHtml(key) : ""}
         ${view.kind === "scenario" ? riderSectionHtml() : ""}
         <div id="traceArea"></div>` :
       `<div id="detailsArea"></div>`}`;
@@ -2551,8 +2766,9 @@ function renderMain(force) {
     // "not yet", not "untraced" — ghosts would mislabel it. Async scenarios
     // are excluded entirely: their /api/run acks immediately while hops
     // stream for minutes, so "post-run" never means "path complete".
+    const selTurn = chat.turns.find(turn => turn.trace_id === selected);
     const ghostFlow = view.kind === "scenario" && exp && !chat.running && exp.mode !== "async"
-      ? exp.flow : null;
+      ? routeFlow(channelFlow(exp.flow, selTurn && selTurn.af_channel), selTurn && selTurn.af_route) : null;
     document.getElementById("traceArea").innerHTML = owned || chat.running
       ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn", ghostFlow)
       : `<div class="flow"><h3>Call path</h3><div class="desc"><span class="stat">Send a turn — its live
@@ -2660,6 +2876,7 @@ loadObs();
 loadInsights();
 loadConfig();
 loadWarmup();
+loadDecisions();
 </script>
 </body>
 </html>

@@ -1,0 +1,22 @@
+{
+  "unevaluatedProperties" : false,
+  "properties" : {
+    "answer" : {
+      "title" : "Answer",
+      "description" : "The external research agent's answer",
+      "lightning:type" : "lightning__textType",
+      "lightning:isPII" : false,
+      "copilotAction:isDisplayable" : false,
+      "copilotAction:isUsedByPlanner" : true
+    },
+    "traceId" : {
+      "title" : "Trace Id",
+      "description" : "Trace id of the direct call (the leg itself is untraced by the lab)",
+      "lightning:type" : "lightning__textType",
+      "lightning:isPII" : false,
+      "copilotAction:isDisplayable" : false,
+      "copilotAction:isUsedByPlanner" : true
+    }
+  },
+  "lightning:type" : "lightning__objectType"
+}

@@ -37,6 +37,34 @@ def test_mangled_rider_still_counts_as_delegated():
     assert delegation.depth_of(req) == 1
 
 
+def test_platform_of_metadata_wins():
+    req = AgentRequest(
+        message="plain question",
+        metadata={"delegation": {"caller": "x", "platform": "adk", "depth": 1}},
+    )
+    assert delegation.platform_of(req) == "adk"
+
+
+def test_platform_of_rider_scan_fallback():
+    # Twin routing survives a metadata-dropping transport: no metadata,
+    # rider in message (the D28 shim bug — every experiment collapsed onto
+    # the default twin when the platform only arrived as rider text).
+    message, _ = delegation.delegate(
+        "who owns the Apple account?",
+        caller="adk-gemini-agent",
+        platform="adk",
+        inbound_depth=0,
+    )
+    req = AgentRequest(message=message)
+    assert delegation.platform_of(req) == "adk"
+
+
+def test_platform_of_origin_request_is_none():
+    assert delegation.platform_of(AgentRequest(message="what is A2A?")) is None
+    mangled = AgentRequest(message=f"question\n{delegation.MARKER}\ngarbage\n")
+    assert delegation.platform_of(mangled) is None
+
+
 def test_max_depth_env(monkeypatch):
     monkeypatch.setenv("A2ALAB_MAX_DELEGATION_DEPTH", "2")
     req = AgentRequest(message="q", metadata={"delegation": {"depth": 1}})

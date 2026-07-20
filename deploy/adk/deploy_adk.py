@@ -56,8 +56,8 @@ ENV_KEYS = [
     "SF_AGENT_ID",
     "SF_ADK_AGENT_ID",
     "ADK_MODEL",
+    "ADK_REAL_SEARCH",
     "AF_SHIM_A2A_URL",
-    "A2ALAB_TOKEN",
     "AF_SHIM_TIMEOUT_S",
     "A2ALAB_MAX_DELEGATION_DEPTH",
 ]
@@ -83,6 +83,10 @@ def assemble_bundle() -> list[str]:
 
 def runtime_env() -> dict[str, str]:
     env = {k: os.environ[k] for k in ENV_KEYS if os.environ.get(k)}
+    # Shim credential under its own name (same convention as the AgentCore
+    # runtimes — A2ALAB_TOKEN stays a laptop-only variable).
+    if os.environ.get("A2ALAB_TOKEN"):
+        env["AF_SHIM_TOKEN"] = os.environ["A2ALAB_TOKEN"]
     env["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
     # The container FS: keep the trace layer writing somewhere writable —
     # these hops are ephemeral (the caller's client hop is the lab record).

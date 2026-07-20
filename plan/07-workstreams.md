@@ -193,6 +193,14 @@ Status 2026-07-19 (first leg live):
 WS2 COMPLETE 2026-07-19. Future polish: VertexAiSessionService for
 durable sessions; Cloud Trace spans in the obs source; extended card.
 
+Post-WS2 additions (2026-07-20): the agent contributes its own value via a
+market-signals tool — deterministic synthetic by default, live Google
+Search grounding behind `ADK_REAL_SEARCH=1` (GoogleSearchTool with
+bypass_multi_tools_limit=True; engine redeploy required — see
+.env.example for the trade-offs); the D30 direct route (Apex → Agent
+Engine A2A, operator route radio) with its Salesforce-side JWT-bearer
+credential chain.
+
 ---
 
 ## WS3 — Microsoft Foundry Agent Service (Azure)

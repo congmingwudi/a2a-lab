@@ -31,6 +31,7 @@ from interop.models import AgentRequest
 MARKER = "[A2A-LAB DELEGATION]"
 END_MARKER = "[/A2A-LAB DELEGATION]"
 _DEPTH_RE = re.compile(r"delegation-depth:\s*(\d+)")
+_PLATFORM_RE = re.compile(r"caller-platform:\s*([\w.-]+)")
 
 _RIDER_TEMPLATE = (
     "\n\n"
@@ -63,6 +64,21 @@ def depth_of(req: AgentRequest) -> int:
         # A rider with a mangled depth line still marks a delegated request.
         return int(match.group(1)) if match else 1
     return 0
+
+
+def platform_of(req: AgentRequest) -> str | None:
+    """The platform that delegated this request, or None for an origin
+    request. metadata wins; the message-scan fallback covers hops that
+    crossed a text-only platform or a metadata-dropping transport (the
+    shim's twin routing depends on this surviving every hop)."""
+    meta = (req.metadata or {}).get("delegation") or {}
+    if isinstance(meta, dict) and meta.get("platform"):
+        return str(meta["platform"])
+    if req.message and MARKER in req.message:
+        match = _PLATFORM_RE.search(req.message)
+        if match:
+            return match.group(1)
+    return None
 
 
 def allowed(req: AgentRequest) -> bool:

@@ -514,3 +514,83 @@ session within a warm instance); VertexAiSessionService is the durable
 follow-up. Twin: A2ALab_Research_Assistant_ADK per D25. Observability:
 Cloud Logging harvested (request-level; no session/turn API on the
 preview surface) — the fourth column of the fragmentation comparison.
+
+## 2026-07-20 — D30: Direct platform-to-platform route (Apex → Agent Engine A2A) + operator route radio
+
+The Agentforce→ADK experiment gains an operator-selectable outbound route,
+the reverse-direction sibling of D28's channel radio: **via bridge**
+(default — the twin's Apex hits the lab bridge, every hop recorded) or
+**direct A2A** (Apex calls Vertex AI Agent Engine's platform-native
+endpoint itself — no lab component in the path, and therefore a leg the lab
+cannot trace; that visibility gap is the experiment). Mechanics:
+
+- **Auth without exported keys:** a Salesforce self-signed certificate
+  (`A2ALab_GCP_JWT`) signs an OAuth 2.0 JWT-bearer assertion; the cert's
+  PUBLIC key is uploaded as a key on the GCP service account
+  `a2alab-sf-caller@a2a-lab-d441` (`roles/aiplatform.user`). External
+  credential `A2ALab_GCP` exchanges it at Google's token endpoint; named
+  credential `A2ALab_AgentEngine` carries the token. No Google private key
+  exists outside GCP; no Salesforce key leaves the org. Field learnings:
+  the `sub` claim must be OMITTED (Google treats it as a Workspace
+  impersonation target → `invalid_grant: account not found`), and claim
+  parameterValues are raw strings except URLs, which the validator demands
+  JSON-quoted (`aud`) — quoting `iss` breaks the exchange the same way.
+- **Apex A2A client** (`A2ALabInvokeAgentEngine`): speaks the HTTP+JSON
+  binding `POST {engine}/a2a/message:send` and MUST send `a2a-version:
+  1.0` — the handler rejects the implied 0.3 default with
+  `VERSION_NOT_SUPPORTED` (live A2A version negotiation, observed on
+  Agent Engine; WS3 expects the same on Foundry). As a delegation seam with
+  no bridge behind it, the class stamps the D27 rider + metadata itself.
+- **Route selection** rides the same `[A2A-LAB ROUTING]` block as D28
+  (`agentforce-route: direct|bridge`); the ADK twin's Agent Script v3
+  branches between `ask_external_researcher` (bridge invocable) and
+  `ask_external_researcher_direct`.
+- Live 2026-07-20: direct round trip 35s, CRM + external sections, rider
+  honored (no callback), external section built on the ADK agent's new
+  synthetic `search_industry_news` signals.
+
+Sibling fixes shipped with it: hosted runtimes carry the shim credential as
+`AF_SHIM_TOKEN` (setting `A2ALAB_TOKEN` in a runtime flips on inbound
+bearer auth that `invoke_agent_runtime` cannot satisfy — every invoke
+401s), the shim Lambda writes its interior hops to the Aurora store which
+the console now merges into the live trace view (real shim legs instead of
+ghosts, same trace id end-to-end), and the A2A client forwards full request
+metadata (the D28 twin-routing regression fix).
+
+## 2026-07-20 — D31: GCP obs column upgraded — Cloud Monitoring rollup (tokens, billing meters, est. cost)
+
+The ADK harvest (`adk_source.py`) now pulls a Cloud Monitoring rollup
+alongside Cloud Logging entries, using the same ADC credentials
+(cloud-platform scope) and plain REST — no new client libraries:
+
+- `reasoning_engine/request_count` + `request_latencies` (per engine, by
+  response code) and the **literal billing meters**:
+  `cpu/allocation_time` (vCPU-s) and `memory/allocation_time` (GiB-s) —
+  Agent Engine bills allocated compute, not tokens.
+- `publisher/online_serving/token_count` — real Gemini token counts per
+  model, input/output split. Caveat recorded honestly: project+model
+  granularity, not per-engine (the lab project runs only the ADK agent, so
+  it is effectively that agent's usage).
+- An **estimated daily cost** computed from documented list prices
+  (constants in the source, labeled estimates, never billing truth):
+  compute + token components.
+
+Where it lands: the engine session's `usage_json` (the coverage tile's
+token count works generically), a new optional `est_cost_usd` rollup in
+the store summary → an "est. 24h cost" cell on any platform's tile that
+reports one, and a daily `metrics-rollup` obs event so the hosted analyst
+(D23) can query the cost/compute picture over SQL. First live harvest:
+41.9k tokens ≈ $0.05/day.
+
+Also catalogued from the newly-enabled APIs: `observability.googleapis.com`
+/ `telemetry.googleapis.com` power Google's unified o11y UI and OTLP
+ingest (nothing extra to harvest), Cloud Trace spans remain the "not yet
+harvested" future item (needs enable_tracing on the deployment),
+`agentregistry.googleapis.com` is future discovery-insight material, and
+`modelarmor.googleapis.com` is the GCP counterpart to the Einstein Trust
+Layer — prime material for the trust-boundary security cell.
+
+Insight updated: observability-fragmentation now records the punchline
+that GCP is the inverse shape — no session/turn API, but the only platform
+handing over token counts AND its actual billing meters, making the GCP
+agent the only one the lab can price per day.

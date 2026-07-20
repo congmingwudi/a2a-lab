@@ -286,3 +286,64 @@ def test_salesforce_summary_heuristics():
     summary = _summary_of(rec)
     assert "A2ALab Research Assistant" in summary
     assert "Completed" in summary
+
+
+def test_adk_metrics_rollup_math():
+    """summarize_metrics: Monitoring series -> tokens, billing meters, and
+    the estimated-cost formula (compute + list token prices)."""
+    from observability import adk_source
+
+    series = {
+        "requests": [
+            {
+                "metric": {"labels": {"response_code": "200"}},
+                "points": [{"value": {"int64Value": "47"}}],
+            },
+            {
+                "metric": {"labels": {"response_code": "404"}},
+                "points": [{"value": {"int64Value": "4"}}],
+            },
+        ],
+        "cpu_s": [{"metric": {}, "points": [{"value": {"doubleValue": 3600.0}}]}],
+        "gib_s": [{"metric": {}, "points": [{"value": {"doubleValue": 7200.0}}]}],
+        "tokens": [
+            {
+                "metric": {"labels": {"type": "input", "model_user_id": "gemini-2.5-flash-lite"}},
+                "points": [{"value": {"int64Value": "1000000"}}],
+            },
+            {
+                "metric": {"labels": {"type": "output", "model_user_id": "gemini-2.5-flash-lite"}},
+                "points": [{"value": {"int64Value": "500000"}}],
+            },
+        ],
+    }
+    m = adk_source.summarize_metrics(series)
+    assert m["requests"] == {"200": 47, "404": 4}
+    assert m["input_tokens"] == 1_000_000 and m["output_tokens"] == 500_000
+    assert m["tokens_by_model"]["gemini-2.5-flash-lite"] == {
+        "input": 1_000_000,
+        "output": 500_000,
+    }
+    # 1 vCPU-hr + 2 GiB-hr compute; 1M in + 0.5M out tokens at list prices
+    assert m["est_compute_usd"] == round(0.0994 + 2 * 0.0105, 4)
+    assert m["est_token_usd"] == round(0.10 + 0.5 * 0.40, 4)
+    assert m["est_cost_usd"] == round(m["est_compute_usd"] + m["est_token_usd"], 4)
+
+
+def test_summary_rolls_up_est_cost(tmp_path, monkeypatch):
+    """Platforms whose usage carries est_cost_usd surface it in the
+    coverage summary next to the token totals."""
+    monkeypatch.setenv("A2ALAB_TRACE_DIR", str(tmp_path))
+    from observability.store import ObsStore
+
+    store = ObsStore()
+    store.upsert_session(
+        "adk",
+        "engine-1",
+        title="t",
+        usage={"input_tokens": 10, "output_tokens": 5, "est_cost_usd": 0.0416},
+    )
+    plat = store.summary()["platforms"]["adk"]
+    store.close()
+    assert plat["tokens"] == 15
+    assert plat["est_cost_usd"] == 0.0416

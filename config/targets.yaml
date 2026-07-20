@@ -41,7 +41,7 @@ targets:
     status: native
     # warmup: cold starts (~56s here, ~31s openai) blow demo budgets — the
     # console's warm-up panel pings flagged targets and records durations
-    options: {timeout: 65, warmup: true}
+    options: {timeout: 110, warmup: true}
     auth: {runtime_arn: "${CLAUDE_AGENTCORE_ARN}"}
 
   # ---- Agentforce (hosted by Salesforce)
@@ -102,7 +102,7 @@ targets:
     platform: openai
     protocol: agentcore-http
     status: native
-    options: {timeout: 65, warmup: true}
+    options: {timeout: 110, warmup: true}
     auth: {runtime_arn: "${OPENAI_AGENTCORE_ARN}"}
 
   # The ADK-paired Agentforce twin (ADR D25): same org/credentials,

@@ -116,6 +116,11 @@ insights:
       minimal card locally), auth is cloud IAM (a Google bearer token, not
       anything the agent card negotiates), and the surface is v1beta1
       HTTP+JSON, not the JSON-RPC binding most A2A examples assume.
+      Version negotiation is live, too (2026-07-20): omit the a2a-version
+      header and the handler assumes 0.3 and rejects the call with
+      VERSION_NOT_SUPPORTED — a raw HTTP caller (the lab's Apex client)
+      must pin "a2a-version: 1.0" explicitly. The same spread of protocol
+      revisions is expected on Foundry (1.0/0.3) in WS3.
     advisory: >
       When a platform claims A2A support, test the full story — discovery
       (card), transport negotiation, auth, session continuity — not just
@@ -151,7 +156,13 @@ insights:
       Cloud provisioning); Anthropic exposes the deepest per-session detail
       (thinking and tool events — but no aggregation or discovery API);
       OpenAI's trace dashboard is write-only with no read API — your own
-      tracing is the system of record.
+      tracing is the system of record. Google's column is the inverse shape
+      (2026-07-20): no session/turn API at all on the preview A2A surface,
+      but Cloud Monitoring hands over what no other platform does — token
+      counts per model AND the literal billing meters (vCPU-seconds /
+      GiB-seconds of allocated compute), so the lab's dashboard can show an
+      estimated dollar cost per day for the GCP agent while the platforms
+      with rich session APIs expose no cost surface at all.
     advisory: >
       "Can you audit what your agents did across platforms?" is usually
       unanswerable today. Any multi-platform agent estate needs its own trace
@@ -256,7 +267,13 @@ insights:
       Max-Forwards). The lab's fix is a convention: every delegated request
       carries a standard caller/depth rider with a do-not-call-back
       directive, and every delegation seam refuses beyond a depth limit with
-      a wire-visible message.
+      a wire-visible message. The rider travels twice on purpose — as
+      structured metadata AND as a text block in the message — and the lab
+      caught why that redundancy matters: one protocol client silently
+      dropped request metadata on the A2A hop, which collapsed the shared
+      shim's per-platform twin routing onto the default agent (a wrong-agent
+      call path, found only in the wire traces). The text copy survived
+      every hop; the shim now falls back to parsing it.
     advisory: >
       Ask any multi-agent architecture "what's your TTL?" If the answer is
       "the timeout," loops are being absorbed, not prevented — and each one
@@ -264,8 +281,10 @@ insights:
       Until the protocols standardize hop semantics, enterprises must impose
       their own delegation-depth convention at every boundary they control,
       and prompt-level directives alone are hope, not enforcement — enforce
-      at the seams.
-    refs: [D25, D27]
+      at the seams. Carry the context in both the protocol's metadata and
+      the message text: across heterogeneous hops, the text is the only
+      channel every platform preserves.
+    refs: [D25, D27, D28]
 
   - id: platform-not-model
     category: Federation vs consolidation

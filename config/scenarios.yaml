@@ -93,7 +93,7 @@ scenarios:
 
   agentforce-to-claude:
     group: claude-agentforce
-    title: "Agentforce → Claude (sync)"
+    title: "Agentforce → Claude"
     summary: >-
       Agentforce Agent calls a Claude Managed Agent via A2A protocol and waits for a response.
     description: >-
@@ -241,7 +241,7 @@ scenarios:
 
   agentforce-to-claude-aws:
     group: claude-agentforce
-    title: "Agentforce → Claude (AWS, sync)"
+    title: "Agentforce → Claude (AWS)"
     summary: >-
       The Agentforce Agent delegates research through the bridge to the
       AWS-hosted Claude runtime instead of Managed Agents.
@@ -410,7 +410,7 @@ scenarios:
   chatgpt-to-agentforce:
     af_channel_toggle: true
     group: openai-agentforce
-    title: "OpenAI → Agentforce"
+    title: "OpenAI (AWS) → Agentforce"
     summary: >-
       An OpenAI agent calls the Agentforce Agent mid-answer.
     description: >-
@@ -467,7 +467,7 @@ scenarios:
 
   agentforce-to-chatgpt:
     group: openai-agentforce
-    title: "Agentforce → OpenAI"
+    title: "Agentforce → OpenAI (AWS)"
     summary: >-
       Agentforce Agent delegates research to an OpenAI agent via the bridge
       and waits for a response.
@@ -623,6 +623,7 @@ scenarios:
           via-shim.
 
   agentforce-to-adk:
+    af_route_toggle: true
     title: "Agentforce → Google ADK"
     group: adk-agentforce
     summary: >-
