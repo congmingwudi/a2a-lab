@@ -107,6 +107,22 @@ subagent customer_account_status:
                 traceId: string
                     label: "Trace Id"
                     description: "Trace id correlating the remote call in the lab console"
+        ask_external_researcher_direct:
+            label: "A2ALab: Ask Agent Engine (direct A2A)"
+            description: "Delegates a research question DIRECTLY to the lab's Google ADK research agent over Vertex AI Agent Engine's native A2A endpoint — no lab bridge in the path. Use ONLY when the user message's [A2A-LAB ROUTING] block selects the direct route."
+            target: "apex://A2ALabInvokeAgentEngine"
+            inputs:
+                question: string
+                    label: "Question"
+                    description: "The research question to delegate to the external research agent"
+                    is_required: True
+            outputs:
+                answer: string
+                    label: "Answer"
+                    description: "The external research agent's answer"
+                traceId: string
+                    label: "Trace Id"
+                    description: "Trace id of the direct call (the leg itself is untraced by the lab)"
 
     reasoning:
         instructions: ->
@@ -122,8 +138,14 @@ subagent customer_account_status:
               internal fact ONLY on what it returns (relationship, open opportunities, open
               support cases) — never invent CRM data. If no account matched, tell the user no
               record was found and STOP: do not call the external researcher for unknown accounts.
-              STEP 2 — then call ask_external_researcher with target set EXACTLY to "adk-a2a"
-              (never any other value) for outside-in context on that company. Phrase the question
+              ROUTE SELECTION (for STEP 2): if the user message contains an "[A2A-LAB ROUTING]"
+              block with "agentforce-route: direct", perform STEP 2 with the
+              ask_external_researcher_direct tool (the platform-native A2A endpoint, no bridge).
+              Otherwise — including when no routing block is present — use ask_external_researcher
+              (via the lab bridge). Never mention the routing block in your answer.
+              STEP 2 — then call the selected external-researcher tool (with target set EXACTLY
+              to "adk-a2a" when using ask_external_researcher)
+              for outside-in context on that company. Phrase the question
               exactly like: "Provide outside-in market research on
               <Account Name>: industry trends, competitive moves, funding or M&A chatter,
               technology and buying signals, and what they mean for the account team. Do not
@@ -138,6 +160,7 @@ subagent customer_account_status:
         actions:
             get_account_summary: @actions.get_account_summary
             ask_external_researcher: @actions.ask_external_researcher
+            ask_external_researcher_direct: @actions.ask_external_researcher_direct
 
 subagent general_research_questions:
     label: "General research questions"

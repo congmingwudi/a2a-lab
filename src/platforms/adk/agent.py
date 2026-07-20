@@ -28,24 +28,41 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import Part, Task, TaskState, TaskStatus
+from google.protobuf.json_format import MessageToDict
 
 from interop import delegation
 from interop.models import AgentRequest
 from platforms.adk.core import (
-    ADK_RESEARCH_SYSTEM_PROMPT,
     adk_model,
     make_ask_agentforce,
     make_ask_agentforce_a2a,
+    real_search_enabled,
+    research_instruction,
+    search_industry_news,
 )
 
 APP_NAME = "a2a-lab-adk"
 USER_ID = "a2a-lab"
 
 
-def build_llm_agent(inbound_depth: int = 0):
-    """One LlmAgent per request: the ask_agentforce tool is closed over the
-    request's delegation depth (D27), so the agent object can't be shared."""
+def build_llm_agent(inbound_depth: int = 0, trace_id: str | None = None):
+    """One LlmAgent per request: the ask_agentforce tools are closed over
+    the request's delegation depth (D27) and trace id (downstream hops join
+    the caller's trace), so the agent object can't be shared."""
     from google.adk.agents import LlmAgent
+
+    tools = [
+        make_ask_agentforce(inbound_depth, trace_id),
+        make_ask_agentforce_a2a(inbound_depth, trace_id),
+    ]
+    if real_search_enabled():
+        # Live grounding alongside function tools: the bypass flag is ADK's
+        # sanctioned escape from the one-built-in-tool-per-agent API rule.
+        from google.adk.tools.google_search_tool import GoogleSearchTool
+
+        tools.append(GoogleSearchTool(bypass_multi_tools_limit=True))
+    else:
+        tools.append(search_industry_news)
 
     return LlmAgent(
         model=adk_model(),
@@ -54,8 +71,8 @@ def build_llm_agent(inbound_depth: int = 0):
             "Gemini-powered research assistant (A2A interop lab). Delegates "
             "open-ended research and summarization. Platform: Vertex AI Agent Engine."
         ),
-        instruction=ADK_RESEARCH_SYSTEM_PROMPT,
-        tools=[make_ask_agentforce(inbound_depth), make_ask_agentforce_a2a(inbound_depth)],
+        instruction=research_instruction(),
+        tools=tools,
     )
 
 
@@ -77,12 +94,14 @@ class AdkResearchExecutor(AgentExecutor):
             self._session_ids[key] = session.id
         return self._session_ids[key]
 
-    async def _run_adk(self, text: str, session_id: str, inbound_depth: int) -> str:
+    async def _run_adk(
+        self, text: str, session_id: str, inbound_depth: int, trace_id: str | None
+    ) -> str:
         from google.adk.runners import Runner
         from google.genai import types as genai_types
 
         runner = Runner(
-            agent=build_llm_agent(inbound_depth),
+            agent=build_llm_agent(inbound_depth, trace_id),
             app_name=APP_NAME,
             session_service=self._sessions,
         )
@@ -97,8 +116,11 @@ class AdkResearchExecutor(AgentExecutor):
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         text = context.get_user_input()
-        metadata = dict(context.message.metadata) if context.message is not None else {}
+        # MessageToDict, not dict(): nested values (metadata["delegation"])
+        # must arrive as plain dicts, not protobuf Structs.
+        metadata = MessageToDict(context.message.metadata) if context.message is not None else {}
         inbound_depth = delegation.depth_of(AgentRequest(message=text, metadata=metadata))
+        trace_id = str(metadata.get("trace_id") or "") or None
 
         initial = Task(
             id=context.task_id,
@@ -113,7 +135,7 @@ class AdkResearchExecutor(AgentExecutor):
         await updater.start_work()
         try:
             session_id = await self._session_for(context.context_id)
-            answer = await self._run_adk(text, session_id, inbound_depth)
+            answer = await self._run_adk(text, session_id, inbound_depth, trace_id)
         except Exception as exc:
             await updater.failed(
                 updater.new_agent_message([Part(text=f"{type(exc).__name__}: {exc}")])

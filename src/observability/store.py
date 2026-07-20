@@ -205,6 +205,13 @@ class ObsStore:
                 )
                 plat = out["platforms"].setdefault(row["platform"], {})
                 plat["tokens"] = plat.get("tokens", 0) + tokens
+                # Platforms that bill something other than tokens (Agent
+                # Engine bills allocated compute) surface an estimated-cost
+                # rollup instead/in addition — additive and optional.
+                if usage.get("est_cost_usd") is not None:
+                    plat["est_cost_usd"] = round(
+                        plat.get("est_cost_usd", 0.0) + float(usage["est_cost_usd"]), 4
+                    )
             except (ValueError, TypeError, AttributeError):
                 pass
         return out

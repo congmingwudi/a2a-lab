@@ -28,23 +28,51 @@ ROLE_ARN=$(aws iam get-role --role-name a2alab-shim-lambda --query 'Role.Arn' --
   sleep 10  # IAM propagation before first create-function
 }
 
-ENV_VARS="Variables={SF_MY_DOMAIN=$SF_MY_DOMAIN,SF_CLIENT_ID=$SF_CLIENT_ID,SF_CLIENT_SECRET=$SF_CLIENT_SECRET,SF_AGENT_ID=$SF_AGENT_ID,SF_OPENAI_AGENT_ID=$SF_OPENAI_AGENT_ID,SF_ADK_AGENT_ID=$SF_ADK_AGENT_ID,A2ALAB_TOKEN=$A2ALAB_TOKEN,A2ALAB_TRACE_DIR=/tmp/traces,A2ALAB_TRACE_SINK=jsonl}"
+# Env as JSON — the CLI's shorthand Variables={...} syntax can't carry
+# comma-valued vars (A2ALAB_TRACE_SINK=jsonl,postgres). Trace hops go to the
+# Aurora store over the RDS Data API (writer secret — same rule as the
+# AgentCore runtimes: the secret IS the role selection) so the console can
+# merge the shim's interior legs into the live trace view.
+ENV_JSON=$(python3 - <<'PY'
+import json, os
+keys = ["SF_MY_DOMAIN", "SF_CLIENT_ID", "SF_CLIENT_SECRET", "SF_AGENT_ID",
+        "SF_OPENAI_AGENT_ID", "SF_ADK_AGENT_ID", "A2ALAB_TOKEN"]
+env = {k: os.environ[k] for k in keys if os.environ.get(k)}
+env["A2ALAB_TRACE_DIR"] = "/tmp/traces"
+env["A2ALAB_TRACE_SINK"] = "jsonl"
+cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
+writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
+if cluster and writer:
+    env["A2ALAB_TRACE_SINK"] = "jsonl,postgres"
+    env["A2ALAB_PG_CLUSTER_ARN"] = cluster
+    env["A2ALAB_PG_SECRET_ARN"] = writer
+print(json.dumps({"Variables": env}))
+PY
+)
 
 if aws lambda get-function --function-name "$FN" --region "$REGION" >/dev/null 2>&1; then
   aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" --region "$REGION" >/dev/null
   aws lambda wait function-updated --function-name "$FN" --region "$REGION"
   aws lambda update-function-configuration --function-name "$FN" --region "$REGION" \
-    --environment "$ENV_VARS" --timeout 29 --memory-size 1024 >/dev/null
+    --environment "$ENV_JSON" --timeout 29 --memory-size 1024 >/dev/null
   echo "updated $FN"
 else
   aws lambda create-function --function-name "$FN" --region "$REGION" \
     --runtime python3.12 --architectures arm64 --handler handler.handler \
     --role "$ROLE_ARN" --zip-file "fileb://$ZIP" \
-    --timeout 29 --memory-size 1024 --environment "$ENV_VARS" >/dev/null
+    --timeout 29 --memory-size 1024 --environment "$ENV_JSON" >/dev/null
   echo "created $FN"
 fi
 aws lambda wait function-updated --function-name "$FN" --region "$REGION" 2>/dev/null || true
 FN_ARN=$(aws lambda get-function --function-name "$FN" --region "$REGION" --query 'Configuration.FunctionArn' --output text)
+
+# Idempotent: the trace-store write path (rds-data + the writer secret).
+if [ -n "${A2ALAB_PG_CLUSTER_ARN:-}" ] && [ -n "${A2ALAB_PG_WRITER_SECRET_ARN:-}" ]; then
+  aws iam put-role-policy --role-name a2alab-shim-lambda --policy-name write-trace-store \
+    --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[
+      {\"Effect\":\"Allow\",\"Action\":[\"rds-data:ExecuteStatement\",\"rds-data:BatchExecuteStatement\"],\"Resource\":\"$A2ALAB_PG_CLUSTER_ARN\"},
+      {\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"$A2ALAB_PG_WRITER_SECRET_ARN\"}]}"
+fi
 
 # ---- API Gateway (IAM integration role — no lambda:AddPermission) ----------
 API_ID=$(aws apigatewayv2 get-apis --region "$REGION" --query "Items[?Name=='$FN'].ApiId | [0]" --output text)
@@ -65,8 +93,9 @@ fi
 URL="https://$API_ID.execute-api.$REGION.amazonaws.com"
 
 # The card advertises the public URL — set it now that we know it.
+ENV_JSON_URL=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['Variables']['AF_SHIM_PUBLIC_URL']=sys.argv[2]; print(json.dumps(d))" "$ENV_JSON" "$URL/")
 aws lambda update-function-configuration --function-name "$FN" --region "$REGION" \
-  --environment "${ENV_VARS%\}},AF_SHIM_PUBLIC_URL=$URL/}" >/dev/null
+  --environment "$ENV_JSON_URL" >/dev/null
 
 python3 - "$URL" <<'PY'
 import sys

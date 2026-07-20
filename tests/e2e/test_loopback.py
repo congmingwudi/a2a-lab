@@ -26,8 +26,15 @@ class EchoAdapter:
     description = "Deterministic echo agent for loopback protocol tests."
 
     async def handle(self, req: AgentRequest) -> AgentResponse:
+        text = f"echo: {req.message}"
+        # Nested metadata must arrive as plain dicts on every protocol
+        # (isinstance guard: a protobuf Struct leaking through would skip
+        # this branch and fail the delegation round-trip assertion).
+        delegation_meta = req.metadata.get("delegation")
+        if isinstance(delegation_meta, dict):
+            text += f" [delegated-by {delegation_meta['platform']} depth {int(delegation_meta['depth'])}]"
         return AgentResponse(
-            text=f"echo: {req.message}",
+            text=text,
             session_id=req.session_id,
             raw={"metadata": req.metadata},
         )
@@ -130,6 +137,19 @@ async def test_a2a_loopback(echo_servers, isolated_traces):
     server_events = [e for e in a2a_events if e["target"] == "echo"]
     assert any('"method":"SendMessage"' in str(e["request_payload_raw"]) for e in server_events)
     assert any(e["trace_id"] == "t-a2a" for e in server_events)
+
+
+async def test_a2a_delegation_metadata_round_trip(echo_servers):
+    """metadata["delegation"] rides the A2A message and lands server-side as
+    a plain dict — the shim's twin routing (D25/D28) depends on it."""
+    client = A2AClient(f"http://127.0.0.1:{echo_servers['a2a']}")
+    resp = await client.ask(
+        AgentRequest(
+            message="ping",
+            metadata={"delegation": {"caller": "adk-gemini-agent", "platform": "adk", "depth": 1}},
+        )
+    )
+    assert resp.text == "echo: ping [delegated-by adk depth 1]"
 
 
 async def test_a2a_agent_card_published(echo_servers):

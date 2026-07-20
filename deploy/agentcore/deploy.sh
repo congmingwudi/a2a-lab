@@ -32,7 +32,7 @@ case "$PLATFORM" in
     # SF_AGENT_ID: the Claude-paired Agentforce twin (D25 — closed systems)
     ENV_KEYS=(ANTHROPIC_API_KEY CLAUDE_AGENT_MODEL CLAUDE_ANSWER_TIMEOUT_S
               SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_AGENT_ID
-              AF_SHIM_A2A_URL A2ALAB_TOKEN AF_SHIM_TIMEOUT_S
+              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
     ;;
   openai)
@@ -42,7 +42,7 @@ case "$PLATFORM" in
     # SF_OPENAI_AGENT_ID: the OpenAI-paired Agentforce twin (D25)
     ENV_KEYS=(OPENAI_API_KEY OPENAI_MODEL OPENAI_ANSWER_TIMEOUT_S
               SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_OPENAI_AGENT_ID
-              AF_SHIM_A2A_URL A2ALAB_TOKEN AF_SHIM_TIMEOUT_S
+              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
     ;;
   *) echo "unknown platform '$PLATFORM' (claude|openai)"; exit 1 ;;
@@ -92,6 +92,11 @@ if env.get("A2ALAB_PG_CLUSTER_ARN"):
     writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
     if writer:
         env["A2ALAB_PG_SECRET_ARN"] = writer
+# The shim credential rides as AF_SHIM_TOKEN, never A2ALAB_TOKEN: setting
+# A2ALAB_TOKEN in the runtime flips on the container's own inbound bearer
+# auth, which invoke_agent_runtime cannot satisfy — every invoke 401s.
+if os.environ.get("A2ALAB_TOKEN"):
+    env["AF_SHIM_TOKEN"] = os.environ["A2ALAB_TOKEN"]
 print(json.dumps(env))
 PY
 )

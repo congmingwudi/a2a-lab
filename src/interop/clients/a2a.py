@@ -87,7 +87,10 @@ class A2AClient(RemoteAgentClient):
         )
         if req.session_id:
             message.context_id = req.session_id
-        message.metadata.update({"trace_id": req.trace_id})
+        # The full request metadata rides the message — dropping it here
+        # severs metadata["delegation"], which the shim's twin routing and
+        # the remote seams' depth checks read (D25/D27).
+        message.metadata.update({**(req.metadata or {}), "trace_id": req.trace_id})
         request = SendMessageRequest(message=message)
 
         adc_auth = self._httpx_auth()
@@ -100,7 +103,11 @@ class A2AClient(RemoteAgentClient):
             target=self.target_name,
             protocol="a2a",
             transport_detail=f"SendMessage @ {self.endpoint}",
-            request_payload={"message": req.message, "contextId": req.session_id},
+            request_payload={
+                "message": req.message,
+                "contextId": req.session_id,
+                "metadata": req.metadata or {},
+            },
         ) as hop:
             async with httpx.AsyncClient(
                 timeout=self.timeout, headers=headers, auth=adc_auth

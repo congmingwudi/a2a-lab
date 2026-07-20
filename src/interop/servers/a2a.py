@@ -11,6 +11,7 @@ from __future__ import annotations
 
 
 from fastapi import FastAPI
+from google.protobuf.json_format import MessageToDict
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -70,7 +71,9 @@ class AdapterExecutor(AgentExecutor):
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         text = context.get_user_input()
-        metadata = dict(context.message.metadata) if context.message is not None else {}
+        # MessageToDict, not dict(): nested values (metadata["delegation"])
+        # must arrive as plain dicts, not protobuf Structs.
+        metadata = MessageToDict(context.message.metadata) if context.message is not None else {}
         trace_id = str(metadata.get("trace_id") or new_trace_id())
 
         # The framework requires the initial Task object on the queue before

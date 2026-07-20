@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -38,6 +39,52 @@ from interop.trace import DEFAULT_TRACE_DIR, TRACE_DIR_ENV
 
 STATIC_DIR = Path(__file__).parent / "static"
 SCENARIOS_PATH = Path("config/scenarios.yaml")
+DECISIONS_PATH = Path("plan/00-decisions.md")
+
+_DECISION_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — (D\d+)( \(revised\))?: (.+)$")
+
+
+def load_decisions(path: str | Path = DECISIONS_PATH) -> dict[str, dict]:
+    """Parse the ADR log into {"D28": {"id", "title", "date", "markdown"}}.
+    Revised decisions (D9, D12) keep every entry in one markdown body,
+    separated by a rule, with the latest entry's title/date on the chip."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    decisions: dict[str, dict] = {}
+    current: dict | None = None
+    body: list[str] = []
+
+    def flush():
+        if current is None:
+            return
+        section = f"### {current['date']} — {current['heading']}\n" + "\n".join(body).strip()
+        entry = decisions.setdefault(
+            current["id"], {"id": current["id"], "title": "", "date": "", "markdown": ""}
+        )
+        entry["title"], entry["date"] = current["title"], current["date"]
+        sep = "\n\n---\n\n" if entry["markdown"] else ""
+        entry["markdown"] = entry["markdown"] + sep + section
+
+    for line in p.read_text(encoding="utf-8").splitlines():
+        match = _DECISION_HEADING.match(line)
+        if match:
+            flush()
+            date, did, revised, title = match.groups()
+            current = {
+                "id": did,
+                "date": date,
+                "title": title,
+                "heading": f"{did}{revised or ''}: {title}",
+            }
+            body = []
+        elif line.startswith("## "):
+            flush()
+            current = None  # non-decision section (M10 etc.)
+        elif current is not None:
+            body.append(line)
+    flush()
+    return decisions
 
 
 def load_scenarios(path: str | Path = SCENARIOS_PATH) -> dict[str, dict]:
@@ -323,6 +370,76 @@ def _read_events() -> list[dict]:
     return events
 
 
+# Hosted-runtime hops (AgentCore containers, the af-shim Lambda) write to the
+# Aurora store, not local files (D23/D26/D28) — merge a recent window into
+# the trace view so remote legs render as real recorded hops, not ghosts.
+_REMOTE_WINDOW_S = 6 * 3600
+_remote = {"ts": 0.0, "events": [], "client": None}
+
+
+def _read_remote_events() -> list[dict]:
+    """Soft-fail by design: no PG config, Aurora resuming, or missing creds
+    just means local-only traces (and a retry on the next poll)."""
+    now = time.time()
+    if now - _remote["ts"] < 5:
+        return _remote["events"]
+    try:
+        from observability.pg import SCHEMA, PgClient
+
+        if not PgClient.configured():
+            return []
+        if _remote["client"] is None:
+            _remote["client"] = PgClient.from_env()
+        rows = _remote["client"].execute(
+            f"""SELECT trace_id, hop_seq, ts, source, target, protocol,
+                       transport_detail, status, latency_ms, platform_ref,
+                       request_payload_raw::text AS request_payload_raw,
+                       response_payload_raw::text AS response_payload_raw
+                FROM {SCHEMA}.trace_events
+                WHERE ts > :since ORDER BY ts LIMIT 2000""",
+            {"since": now - _REMOTE_WINDOW_S},
+        )
+    except Exception:
+        _remote["ts"] = now  # back off a poll interval, then retry
+        return _remote["events"]
+    for row in rows:
+        for key in ("request_payload_raw", "response_payload_raw"):
+            if isinstance(row.get(key), str):
+                try:
+                    row[key] = json.loads(row[key])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+    _remote.update(ts=now, events=rows)
+    return rows
+
+
+def _merged_events() -> list[dict]:
+    """Local jsonl + remote Aurora hops, deduped: pg_backfill copies local
+    hops into Aurora, so the same event can arrive from both stores."""
+    events = _read_events()
+    seen = {
+        (
+            e.get("trace_id"),
+            e.get("hop_seq"),
+            round(e.get("ts") or 0, 4),
+            e.get("source"),
+            e.get("target"),
+        )
+        for e in events
+    }
+    for ev in _read_remote_events():
+        key = (
+            ev.get("trace_id"),
+            ev.get("hop_seq"),
+            round(ev.get("ts") or 0, 4),
+            ev.get("source"),
+            ev.get("target"),
+        )
+        if key not in seen:
+            events.append(ev)
+    return events
+
+
 def create_console_app(registry: Registry | None = None):
     state = {"registry": registry}
     # One long-lived client per target (same rule as the bridge): they cache
@@ -406,6 +523,12 @@ def create_console_app(registry: Registry | None = None):
             headers={"content-disposition": 'attachment; filename="a2a-lab-insights.md"'},
         )
 
+    @app.get("/api/decisions")
+    async def decisions():
+        """The ADR log parsed per decision id — the UI renders D-refs as
+        chips whose popover shows the decision's markdown."""
+        return {"decisions": load_decisions()}
+
     @app.get("/api/config")
     async def config():
         reg = get_registry()
@@ -444,6 +567,12 @@ def create_console_app(registry: Registry | None = None):
             "af_channel": {
                 "tools": af_channel.CHANNEL_TOOLS,
                 "routing_block": af_channel.routing_block("a2a-shim"),
+            },
+            # Sibling exhibit for the reverse direction: the twin's outbound
+            # route (bridge = traced, direct = platform-native, untraced).
+            "af_route": {
+                "tools": af_channel.ROUTE_TOOLS,
+                "routing_block": af_channel.route_block("direct"),
             },
         }
 
@@ -575,6 +704,7 @@ def create_console_app(registry: Registry | None = None):
         # D28: which Agentforce tool the entry agent should use, echoed back
         # so the UI can badge the turn. Only meaningful on toggle scenarios.
         chosen_channel: str | None = None
+        chosen_route: str | None = None
 
         scenario_name = body.get("scenario")
         if scenario_name:
@@ -668,6 +798,13 @@ def create_console_app(registry: Registry | None = None):
                 # tools' default bias, so only a2a-shim ever injects.
                 if chosen_channel == "a2a-shim":
                     message += af_channel.routing_block("a2a-shim")
+            if spec.get("af_route_toggle"):
+                chosen_route = body.get("af_route") or "bridge"
+                if chosen_route not in af_channel.ROUTE_TOOLS:
+                    chosen_route = "bridge"
+                # bridge is the twin script's default; only direct injects.
+                if chosen_route == "direct":
+                    message += af_channel.route_block("direct")
         else:
             name = body.get("target")
         if not name:
@@ -688,6 +825,8 @@ def create_console_app(registry: Registry | None = None):
                 result = await run_via_bridge(req, name)
                 if chosen_channel:
                     result["af_channel"] = chosen_channel
+                if chosen_route:
+                    result["af_route"] = chosen_route
                 return result
             client = get_client(name)
             resp = await client.ask(req)
@@ -698,6 +837,7 @@ def create_console_app(registry: Registry | None = None):
                 "latency_ms": resp.latency_ms,
                 "session_id": resp.session_id,
                 "af_channel": chosen_channel,
+                "af_route": chosen_route,
             }
         except Exception as exc:  # surface the failure as a result, not a 500
             return {
@@ -721,7 +861,9 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/traces")
     async def traces():
-        events = _read_events()
+        # Thread: the Aurora read is blocking boto3 (and retries while a
+        # scale-to-zero cluster resumes) — keep the event loop free for SSE.
+        events = await asyncio.to_thread(_merged_events)
         grouped: dict[str, list[dict]] = {}
         for ev in events:
             grouped.setdefault(ev.get("trace_id", "unknown"), []).append(ev)
@@ -843,12 +985,16 @@ def create_console_app(registry: Registry | None = None):
             "can": [
                 "Cloud Logging entries per engine (queryable, filterable)",
                 "request + container app logs in near-real-time",
+                "Cloud Monitoring: request counts/latencies per engine",
+                "token counts per model (Vertex publisher metrics)",
+                "the billing meters themselves (vCPU-s / GiB-s allocated) → est. cost",
                 "Cloud Trace spans (OTel — not yet harvested)",
             ],
             "cannot": [
                 "session/turn read API (preview A2A surface)",
                 "A2A contextIds in default logs",
                 "agent-semantic events (tool calls) without custom instrumentation",
+                "token metrics per engine (project+model granularity only)",
             ],
         },
     }
