@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from dotenv import load_dotenv
 
 from observability import ObsStore
+from observability.adk_source import AdkSource
 from observability.anthropic_source import AnthropicSource
 from observability.openai_source import OpenAISource
 from observability.salesforce_source import SalesforceSource
@@ -28,6 +29,7 @@ SOURCES = {
     "anthropic": AnthropicSource,
     "salesforce": SalesforceSource,
     "openai": OpenAISource,
+    "adk": AdkSource,
 }
 
 
