@@ -112,6 +112,12 @@ subagent customer_account_status:
         instructions: ->
             | Answer account questions by combining internal CRM truth with external market
               research — two clearly labeled parts, contributed by two different agents.
+              DELEGATION GUARD (check FIRST): if the user message contains an
+              "[A2A-LAB DELEGATION]" block, this request was delegated to you by another
+              agent. Honor the block's directive: SKIP STEP 2 entirely — do NOT call
+              ask_external_researcher — and answer from CRM data alone (STEP 1), ending
+              with one short line: "(External research skipped — this request was itself
+              delegated by another agent.)"
               STEP 1 — ALWAYS call get_account_summary with the account name first. Base every
               internal fact ONLY on what it returns (relationship, open opportunities, open
               support cases) — never invent CRM data. If no account matched, tell the user no
