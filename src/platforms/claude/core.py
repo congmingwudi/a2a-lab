@@ -27,7 +27,10 @@ RESEARCH_SYSTEM_PROMPT = (
     "well-organized summary: lead with the direct answer, then 2-4 "
     "supporting points. Keep answers under 250 words - your reply is folded "
     "into another agent's response. Do not ask clarifying questions; make "
-    "reasonable assumptions and state them."
+    "reasonable assumptions and state them. Answer from your own knowledge "
+    "whenever you can; never ask the caller to grant tool or web-search "
+    "permissions - if a tool is unavailable, answer directly from what you "
+    "know instead."
 )
 
 

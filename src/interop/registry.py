@@ -25,6 +25,7 @@ class Target:
     auth: dict[str, Any] = field(default_factory=dict)
     status: str = "native"  # native | via-bridge | via-shim | blocked-beta
     options: dict[str, Any] = field(default_factory=dict)
+    aliases: list[str] = field(default_factory=list)
 
 
 _ENV_REF = re.compile(r"\$\{(\w+)\}")
@@ -48,6 +49,10 @@ class Registry:
     def __init__(self, targets: dict[str, Target], modes: dict[str, dict[str, str]] | None = None):
         self.targets = targets
         self.modes = modes or {}
+        # Renamed targets keep answering to their old names (aliases in
+        # targets.yaml): platform-side callers pin target names in places
+        # the lab can't hot-swap (the Agentforce twins' published scripts).
+        self.aliases = {alias: t.name for t in targets.values() for alias in t.aliases}
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_TARGETS_PATH) -> "Registry":
@@ -63,10 +68,12 @@ class Registry:
                 auth=spec.get("auth") or {},
                 status=spec.get("status", "native"),
                 options=spec.get("options") or {},
+                aliases=spec.get("aliases") or [],
             )
         return cls(targets, modes=raw.get("modes") or {})
 
     def get(self, name: str) -> Target:
+        name = self.aliases.get(name, name)
         if name not in self.targets:
             raise KeyError(f"unknown target '{name}' — known targets: {sorted(self.targets)}")
         return self.targets[name]
@@ -80,7 +87,9 @@ class Registry:
         local -> hosted): the bridge, custom tools, and console scenario runs
         follow the remap so one env flip repoints every experiment at the
         hosted runtimes without touching Salesforce or scenario config.
-        Unknown mode or unmapped target resolves to itself."""
+        Unknown mode or unmapped target resolves to itself; aliases resolve
+        to their canonical name first."""
+        name = self.aliases.get(name, name)
         return self.modes.get(self.mode, {}).get(name, name)
 
     def client_for(self, name: str, *, exact: bool = False):

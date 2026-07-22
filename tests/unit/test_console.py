@@ -174,9 +174,9 @@ def test_scenarios_include_adk_pair(tmp_path, monkeypatch):
     data = client.get("/api/scenarios").json()
     names = {s["name"]: s for s in data["scenarios"]}
     assert names["adk-to-agentforce"]["group"] == "adk-agentforce"
-    assert names["adk-to-agentforce"]["target"] == "adk-a2a"
+    assert names["adk-to-agentforce"]["target"] == "google-adk-a2a"
     assert names["agentforce-to-adk"]["group"] == "adk-agentforce"
-    assert names["agentforce-to-adk"]["target"] == "agentforce-adk-rest"
+    assert names["agentforce-to-adk"]["target"] == "agentforce-google-adk-rest"
     assert "adk" in [c["kind"] for c in names["adk-to-agentforce"]["components"]]
 
 
@@ -451,8 +451,8 @@ def test_run_af_route_direct_block(tmp_path, monkeypatch):
     block for the twin's script; bridge (the script's default) never
     injects."""
     registry = FakeRegistry()
-    registry.targets["agentforce-adk-rest"] = Target(
-        name="agentforce-adk-rest", platform="agentforce", protocol="agentforce-api"
+    registry.targets["agentforce-google-adk-rest"] = Target(
+        name="agentforce-google-adk-rest", platform="agentforce", protocol="agentforce-api"
     )
     app = make_app(tmp_path / "traces", monkeypatch, registry)
     client = TestClient(app)
@@ -469,3 +469,23 @@ def test_run_af_route_direct_block(tmp_path, monkeypatch):
     ).json()
     assert data["af_route"] == "bridge"
     assert "[A2A-LAB ROUTING]" not in registry.fake_client.requests[1].message
+
+
+def test_targets_carry_cell_details(tmp_path, monkeypatch):
+    """Every protocol cell ships a specific blurb, a planned flow (with the
+    untraced interior legs), and a default question the agent can answer
+    alone — CRM question only for Agentforce cells."""
+    import console.app as console_app
+
+    app = make_app(tmp_path / "traces", monkeypatch, None)
+    client = TestClient(app)
+    targets = {t["name"]: t for t in client.get("/api/targets").json()["targets"]}
+    claude = targets["claude-rest"]
+    assert "matrix" not in claude["blurb"].lower()
+    assert "Managed Agents" in claude["blurb"]
+    assert claude["question"] == console_app.CELL_RESEARCH_QUESTION
+    assert [h["target"] for h in claude["flow"]][0] == "claude-rest"
+    shim = targets["agentforce-a2a"]
+    assert "shim" in shim["blurb"]
+    assert shim["question"] == console_app.DEFAULT_QUESTION
+    assert any(h["protocol"] == "internal" for h in shim["flow"])  # untraced interior leg

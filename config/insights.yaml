@@ -135,10 +135,19 @@ insights:
     status: observed
     headline: Native protocol support across enterprise platforms is sparser than the marketing suggests
     evidence: >
-      The lab's honest matrix: Agentforce outbound is REST-only (every
-      protocol experiment rides an Apex callout through our bridge), inbound
-      MCP is gated beta, inbound A2A doesn't exist — so those cells run
-      via shims. The all-native cells today are the ones we host ourselves.
+      The lab's honest matrix, platform by platform (inbound surfaces,
+      measured): Salesforce Agentforce — GA Agent API only; no MCP or A2A
+      inbound (MCP is gated beta, A2A doesn't exist), so those cells run
+      via lab shims, and outbound is REST-only (every protocol experiment
+      rides an Apex callout through the bridge). Anthropic Managed Agents —
+      its own API only; no MCP or A2A inbound, so the lab serves both
+      protocols itself in front of the agent it hosts (the "native" cells
+      are native because the AGENT is ours, not because the platform speaks
+      the protocol). OpenAI — no inbound agent endpoint of any kind; the
+      lab's servers are the only door to that agent. Google Vertex AI Agent
+      Engine — the one platform measured that speaks A2A natively (no MCP
+      serving). Four platforms in, exactly one platform-native protocol
+      endpoint exists — everything else is the lab's own plumbing.
     advisory: >
       Plan for bridges and adapters as permanent, first-class, observable
       components of an interop program — not temporary scaffolding. Ask every
@@ -188,12 +197,20 @@ insights:
       scale-to-zero) cold ~34s / warm 2.6s — every serverless agent runtime
       trades idle cost for a cold start that a sync delegation budget must
       absorb or pre-warm away.
+      The fork shows up in tool governance too (2026-07-21): the SAME Claude
+      agent asked the same question answered cleanly on Managed Agents (its
+      sandbox runs tools under the platform's own policy) but stalled
+      self-hosted — the Agent SDK ships built-in tools permission-gated, and
+      inside a headless turn the model hit the WebSearch permission wall and
+      asked the caller for access instead of answering. Self-hosting means
+      owning the permission model, not just the infrastructure.
     advisory: >
       Managed runtimes buy speed-to-value and push security posture to the
       vendor; self-hosting buys VPC/data-residency control and portability at
-      the cost of owning scaling, secrets, and observability. Decide this per
-      agent — it's a bigger architectural fork than which frontier model runs
-      inside.
+      the cost of owning scaling, secrets, observability — and the agent's
+      tool permission model, which will surface as behavior bugs, not config
+      errors, if left on defaults. Decide this per agent — it's a bigger
+      architectural fork than which frontier model runs inside.
     refs: [D9, D24, D26]
 
   - id: sdk-footprint

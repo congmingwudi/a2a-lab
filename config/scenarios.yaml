@@ -558,7 +558,7 @@ scenarios:
       through its ask_agentforce tool, a cross-cloud GCP → Salesforce hop
       from inside the Agent Engine container. The outbound question carries
       the D27 delegation rider.
-    target: adk-a2a
+    target: google-adk-a2a
     via_bridge: false
     status: live
     tags: [adk, gemini, agent-engine, agentforce, agent-api]
@@ -586,7 +586,7 @@ scenarios:
       and builds a minimal card locally.
     flow:
       - source: remote-caller
-        target: adk-a2a
+        target: google-adk-a2a
         protocol: a2a
         detail: >-
           You (the console) send an A2A message:send to the Agent Engine
@@ -610,7 +610,7 @@ scenarios:
           outbound question, targeting the ADK-paired twin (D25).
     agents:
       - title: ADK research agent (Agent Engine)
-        target: adk-a2a
+        target: google-adk-a2a
         caption: >-
           Platform-served A2A. The public card route 404s in the current
           preview, so the lab pins transport and builds a minimal card —
@@ -638,7 +638,7 @@ scenarios:
       is a platform speaking A2A itself (bridge still required: Agentforce
       outbound is REST-only, so honest status stays via-bridge on the
       Salesforce leg, native on the ADK leg).
-    target: agentforce-adk-rest
+    target: agentforce-google-adk-rest
     via_bridge: false
     status: live
     tags: [agentforce, agent-api, bridge, adk, gemini, agent-engine]
@@ -671,7 +671,7 @@ scenarios:
           Agent (ADK) action POSTs through the Named Credential and tunnel
           to the lab bridge with target=adk-a2a.
       - source: client
-        target: adk-a2a
+        target: google-adk-a2a
         protocol: a2a
         detail: >-
           The bridge resolves adk-a2a and speaks A2A to the Agent Engine
@@ -692,7 +692,7 @@ scenarios:
           Shim card — the lab's shim proxies inbound A2A to the GA Agent
           API. Honest status: via-shim.
       - title: ADK research agent (Agent Engine)
-        target: adk-a2a
+        target: google-adk-a2a
         caption: >-
           Platform-served A2A (preview): transport pinned, minimal card
           built locally — the card route 404s today, recorded honestly.

@@ -107,7 +107,8 @@ targets:
 
   # The ADK-paired Agentforce twin (ADR D25): same org/credentials,
   # different agent — its external-research action targets adk-a2a.
-  agentforce-adk-rest:
+  agentforce-google-adk-rest:
+    aliases: [agentforce-adk-rest]
     platform: agentforce
     protocol: agentforce-api
     status: native
@@ -122,7 +123,8 @@ targets:
   # both ends native, no bridge, no shim. IAM data plane (google-adc
   # bearer), card served at /v1/card (not /.well-known). Scale-to-zero
   # (min_instances=0, personal GCP account) — hence warmup.
-  adk-a2a:
+  google-adk-a2a:
+    aliases: [adk-a2a]  # the ADK twin's published script pins this bridge target
     platform: adk
     protocol: a2a
     endpoint: "${ADK_A2A_ENDPOINT}"
