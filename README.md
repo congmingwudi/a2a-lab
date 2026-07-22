@@ -148,6 +148,36 @@ event stream and is executed **host-side** by `AgentforceClient`; the sandbox
 never sees Salesforce credentials. The via-shim cells (any MCP/A2A client →
 shim → Agent API) cover the same direction for protocol comparison.
 
+### Bridge vs shims — the two adapters around Agentforce
+
+They solve opposite halves of the same problem: Agentforce can't speak the
+lab's protocols in either direction. The **bridge** fixes its *outbound* gap;
+the **shims** fix its *inbound* gap.
+
+- **Bridge (:8100) — REST in, any protocol out.** Agentforce's only outbound
+  is a REST callout from Apex; it cannot originate an MCP or A2A call, and
+  hard-coding endpoints in Apex would mean a Salesforce deploy per change. So
+  the twin's action always makes one simple POST to the bridge, and the
+  bridge fans out to any target over any protocol per `config/targets.yaml`.
+  As a lab component it also records every hop — that's the "via bridge
+  (traced)" route, and why D30's *direct* route exists as its counterpoint
+  (skip the bridge, gain independence, lose the trace).
+- **Shims (:8021/:8023 + the hosted Lambda, D28) — MCP/A2A in, Agent API
+  out.** External agents that want to reach Agentforce over MCP or A2A can't:
+  Salesforce exposes no GA inbound surface for either. The shim speaks the
+  protocol on Salesforce's behalf — a real MCP or A2A endpoint, agent card
+  and all — and proxies each call to the Agent API underneath. Those matrix
+  cells are honestly `via-shim`, never `native`: the protocol conversation is
+  with the lab's proxy, not the platform.
+
+Mnemonic: **the bridge lets Agentforce call the world; the shims let the
+world call Agentforce.** And a nuance worth keeping straight: the
+Claude/OpenAI protocol servers (:8001–:8013) look shim-like but aren't shims
+— there's no platform being proxied. The lab hosts those agents itself, so
+its servers are the agents' own front door (which is why those cells count
+as native). A shim specifically means a protocol face bolted onto someone
+else's closed platform.
+
 Every hop records a `TraceEvent` with the raw wire bytes (REST at handler
 level; MCP/A2A via the WireTap ASGI middleware, since the JSON-RPC envelopes
 live inside the frameworks). Where events go is pluggable (ADR D13/D19,

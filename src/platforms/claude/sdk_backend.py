@@ -123,6 +123,12 @@ class SdkBackend:
             system_prompt=RESEARCH_SYSTEM_PROMPT,
             max_turns=int(os.environ.get("CLAUDE_MAX_TURNS", "3")),
             model=os.environ.get("CLAUDE_AGENT_MODEL"),
+            # No built-in tools: they arrive permission-gated, and inside a
+            # headless 40s turn the model hits the permission wall and asks
+            # the caller for WebSearch access instead of answering (observed
+            # live). The sync researcher's only tools are the Agentforce
+            # MCP tools below — everything else is model knowledge.
+            tools=[],
         )
         if self.enable_agentforce_tool:
             depth = delegation.depth_of(req)

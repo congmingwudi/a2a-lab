@@ -654,10 +654,6 @@
     <details class="acc" id="accCells">
       <summary>Protocol calls <span class="count" id="cellCount"></span></summary>
       <div class="acc-body">
-        <div class="cells-controls">
-          <label title="Route through the bridge like the Agentforce Apex action does — the trace then shows the full loop">
-            <input type="checkbox" id="viaBridge"> via bridge</label>
-        </div>
         <div id="targets"></div>
       </div>
     </details>
@@ -702,6 +698,7 @@ let chats = {};
 let drafts = {};          // key -> composer draft (survives re-renders)
 let afChannels = {};      // key -> "agent-api" | "a2a-shim" (D28 channel radio)
 let afRoutes = {};        // key -> "bridge" | "direct" (Agentforce outbound route radio)
+let viaBridges = {};      // key -> bool (protocol cells: route via the lab bridge)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
 // turn's call path.
@@ -1044,7 +1041,7 @@ function routeFlow(flow, afRoute) {
   for (const step of flow) {
     if (step.target === "bridge") {
       out.push({
-        source: "agentforce-apex", target: "adk-a2a", protocol: "a2a",
+        source: "agentforce-apex", target: "google-adk-a2a", protocol: "a2a",
         detail: "Direct route: the twin's Apex action calls Vertex AI Agent Engine's "
           + "platform-native A2A endpoint itself (message:send, a2a-version 1.0, Google OAuth "
           + "via the JWT-bearer named credential) — no lab bridge, so the lab records nothing "
@@ -1817,6 +1814,38 @@ function afChannelRowHtml(key) {
   </div>`;
 }
 
+// Protocol cells: per-cell "via bridge" toggle (lives in the Run tab).
+window.setViaBridge = on => {
+  if (!view || view.type !== "experiment") return;
+  viaBridges[expKey(view.kind, view.name)] = on;
+  renderMain(true); // the Details diagram gains/loses the bridge leg
+};
+
+function bridgeRowHtml(key) {
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Route</span>
+    <label><input type="checkbox" ${viaBridges[key] ? "checked" : ""}
+      onchange="setViaBridge(this.checked)"> via bridge</label>
+    <span class="chan-hint">Route this call through the lab bridge — exactly the path the Agentforce
+      Apex action uses — so the trace shows the full loop. Unchecked: the client calls the target
+      directly.</span>
+  </div>`;
+}
+
+// A cell's planned flow (server-built, untraced interior legs included),
+// optionally prefixed with the bridge leg when the operator routes via it.
+function cellFlow(t, bridged) {
+  if (!t || !t.flow) return null;
+  if (!bridged) return t.flow;
+  return [{
+    source: "remote-caller", target: "bridge", protocol: "rest",
+    detail: "POST /invoke/" + t.name + " on the lab bridge — the same path the Agentforce Apex "
+      + "action uses (Agentforce outbound is REST-only); the bridge fans out to the target over "
+      + "its own protocol.",
+  }, ...t.flow];
+}
+
 // The reverse-direction sibling: how the Agentforce twin's Apex reaches
 // the remote agent — via the lab bridge (traced) or straight at the
 // platform-native endpoint (bridgeless — deliberately dark to the lab; the
@@ -2336,7 +2365,12 @@ window.openExperiment = (kind, name, tab) => {
   activeTab = tab || "run";
   const key = expKey(kind, name);
   if (!chats[key]) chats[key] = { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false };
-  if (drafts[key] === undefined) drafts[key] = defaultQuestion;
+  if (drafts[key] === undefined) {
+    // Cells prefill with a question their agent answers alone (the target's
+    // server-provided default); scenarios keep the CRM demo question.
+    const exp = currentExperiment();
+    drafts[key] = (exp && exp.question) || defaultQuestion;
+  }
   // Restore this experiment's own trace selection (fall back to its last
   // turn) — switching experiments must not lose another one's call path.
   const chat = chats[key];
@@ -2422,7 +2456,7 @@ async function sendTurn(kind, name, message) {
     if (spec && spec.af_route_toggle) body.af_route = afRoutes[key] || "bridge";
   } else {
     body.target = name;
-    body.via_bridge = document.getElementById("viaBridge")?.checked || false;
+    body.via_bridge = !!viaBridges[key];
   }
 
   let result;
@@ -2442,7 +2476,7 @@ async function sendTurn(kind, name, message) {
   if (result.ok) {
     chat.turns.push({ role: "agent", text: result.text || "(empty response)",
       latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null,
-      af_route: result.af_route || null });
+      af_route: result.af_route || null, via_bridge: result.via_bridge || false });
     runState[key] = { state: "ok", note: result.latency_ms != null
       ? `PASS · ${result.latency_ms} ms` : (result.async ? "running async" : "PASS") };
   } else {
@@ -2462,7 +2496,8 @@ window.sendChat = () => {
   if (!view || view.type !== "experiment") return;
   const key = expKey(view.kind, view.name);
   const input = document.getElementById("chatInput");
-  const message = (input ? input.value : "").trim() || defaultQuestion;
+  const exp = currentExperiment();
+  const message = (input ? input.value : "").trim() || (exp && exp.question) || defaultQuestion;
   drafts[key] = "";
   if (input) input.value = "";
   sendTurn(view.kind, view.name, message);
@@ -2596,17 +2631,28 @@ function detailsTabHtml() {
   if (view.kind === "cell") {
     const t = currentExperiment();
     if (!t) return `<div class="empty">Unknown target.</div>`;
+    const key = expKey(view.kind, view.name);
+    const flow = cellFlow(t, viaBridges[key]) || [];
     const agents = t.protocol === "a2a" ? [{ title: t.name, target: t.name, caption:
       "Live AgentCard published by this A2A endpoint — generated at runtime by the server, not a file." }] : [];
     return `
       <div class="flow">
         <h3>Protocol call</h3>
-        <div class="desc">One hop of the matrix: <b>${esc(t.name)}</b> — platform <b>${esc(t.platform)}</b>,
-          protocol <span class="badge ${esc(t.protocol)}">${esc(t.protocol)}</span>,
-          honest status <b>${esc(t.status)}</b> (see config/targets.yaml and plan/02-matrix.md).
-          <br><span class="stat">Tick "via bridge" in the Protocol calls panel before sending to route this
-          call through the bridge exactly like the Agentforce Apex action does.</span></div>
+        <div class="desc">${esc(t.blurb || "")}
+          <br><span class="stat">Protocol <span class="badge ${esc(t.protocol)}">${esc(t.protocol)}</span>
+          · honest status <b>${esc(t.status)}</b>${viaBridges[key]
+            ? " · routed via the bridge (toggle in the Run tab)"
+            : " · direct — toggle “via bridge” in the Run tab to route it like the Agentforce Apex action"}</span></div>
+        ${flow.length ? `<div class="svgwrap">${renderDiagram({ hops: flow })}</div>` : ""}
       </div>
+      ${flow.length ? `<div class="flow">
+        <h3>What happens, step by step</h3>
+        <ol class="steps">${flow.map(h => `
+          <li><span class="badge ${esc(h.protocol)}">${esc(h.protocol)}</span>
+              <span class="who">${esc(h.source)} → ${esc(h.target)}</span>${h.protocol === "internal"
+                ? ` <span class="ghost-tag" title="${esc(GHOST_TIP)}">platform-interior · untraced</span>` : ""}<br>${esc(h.detail || "")}</li>`).join("")}
+        </ol>
+      </div>` : ""}
       ${agents.length ? `<div class="flow">
         <h3>Agent card</h3>
         <div class="desc"><span class="stat">A2A AgentCards are generated at runtime by each running server and
@@ -2618,7 +2664,9 @@ function detailsTabHtml() {
 
   const s = currentExperiment();
   if (!s) return `<div class="empty">Unknown scenario.</div>`;
-  const flow = s.flow || [];
+  const sKey = expKey(view.kind, view.name);
+  // The planned path honors the Run tab's current channel/route picks.
+  const flow = routeFlow(channelFlow(s.flow || [], afChannels[sKey]), afRoutes[sKey]) || [];
   return `
     <div class="flow">
       <h3>Planned call path</h3>
@@ -2633,7 +2681,8 @@ function detailsTabHtml() {
       <h3>What happens, step by step</h3>
       <ol class="steps">${flow.map(h => `
         <li><span class="badge ${esc(h.protocol)}">${esc(h.protocol)}</span>
-            <span class="who">${esc(h.source)} → ${esc(h.target)}</span><br>${esc(h.detail || "")}</li>`).join("")}
+            <span class="who">${esc(h.source)} → ${esc(h.target)}</span>${h.protocol === "internal"
+              ? ` <span class="ghost-tag" title="${esc(GHOST_TIP)}">platform-interior · untraced</span>` : ""}<br>${esc(h.detail || "")}</li>`).join("")}
       </ol>
     </div>` : ""}
     ${(s.agents || []).length ? `<div class="flow">
@@ -2732,6 +2781,7 @@ function renderMain(force) {
           </div>
           ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_route_toggle ? afRouteRowHtml(key) : ""}
+          ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
             <span class="mono">A2ALAB_MODE=${esc(exp.requires_mode)}</span> in .env and restart the
@@ -2740,7 +2790,9 @@ function renderMain(force) {
             <textarea id="chatInput" rows="3" ${blocked ? "disabled" : ""}
               placeholder="${soon ? "This experiment isn't runnable yet — see the Details tab."
                 : modeBlocked ? "Runs are refused in the wrong deployment mode — see the notice above."
-                : "Message the agent — Enter to send, Shift+Enter for a new line."}"
+                : view.kind === "cell" && exp && exp.question
+                  ? `Enter to send the default: ${esc(exp.question)}`
+                  : "Message the agent — Enter to send, Shift+Enter for a new line."}"
               oninput="draftChanged(this)" onkeydown="chatKeydown(event)"></textarea>
             <button class="primary" id="sendBtn" onclick="sendChat()" ${blocked ? "disabled" : ""}>Send</button>
           </div>
@@ -2767,8 +2819,13 @@ function renderMain(force) {
     // are excluded entirely: their /api/run acks immediately while hops
     // stream for minutes, so "post-run" never means "path complete".
     const selTurn = chat.turns.find(turn => turn.trace_id === selected);
-    const ghostFlow = view.kind === "scenario" && exp && !chat.running && exp.mode !== "async"
-      ? routeFlow(channelFlow(exp.flow, selTurn && selTurn.af_channel), selTurn && selTurn.af_route) : null;
+    const ghostFlow = !chat.running && exp
+      ? (view.kind === "scenario"
+          ? (exp.mode !== "async"
+              ? routeFlow(channelFlow(exp.flow, selTurn && selTurn.af_channel), selTurn && selTurn.af_route)
+              : null)
+          : cellFlow(exp, selTurn && selTurn.via_bridge))
+      : null;
     document.getElementById("traceArea").innerHTML = owned || chat.running
       ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn", ghostFlow)
       : `<div class="flow"><h3>Call path</h3><div class="desc"><span class="stat">Send a turn — its live

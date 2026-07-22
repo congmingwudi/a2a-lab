@@ -115,6 +115,279 @@ DEFAULT_QUESTION = (
     "Tell me what you know about account Omega, Inc. — a short summary of their current state."
 )
 
+# The single-hop protocol cells run without the two-sections prompt suffix,
+# so their default question must be one each research agent answers alone
+# (from its own knowledge — no Agentforce consult): the same
+# protocol-comparison utterance the matrix sweep uses. Agentforce cells
+# keep the CRM question — account status IS what those agents do alone.
+CELL_RESEARCH_QUESTION = (
+    "In two sentences: what is the difference between the MCP and A2A "
+    "protocols for agent interoperability?"
+)
+
+
+# ---- Protocol-call cells: blurb + planned flow per target ------------------
+# The Details tab shows what a single cell WILL execute: the entry hop plus
+# the platform-interior legs behind it — untraced ones included honestly
+# (they render as ghosts in the post-run call path too).
+
+_TWIN_BY_TARGET = {
+    "agentforce-rest": "Claude-paired",
+    "agentforce-openai-rest": "OpenAI-paired",
+    "agentforce-google-adk-rest": "Google ADK-paired",
+}
+
+_SF_INTERIOR = {
+    "source": "agentforce",
+    "target": "agentforce-apex",
+    "protocol": "internal",
+    "detail": (
+        "The twin's topic planner and Apex actions run inside Salesforce — "
+        "platform-interior; visible only through harvested execution logs "
+        "(Observability section), never on the wire."
+    ),
+}
+
+
+def _lab_server_entry(t, agent_label: str) -> dict:
+    transport = {
+        "rest": (
+            "POST /invoke on the lab's REST server — AgentRequest JSON in, "
+            "AgentResponse out, trace id in the X-Trace-Id header."
+        ),
+        "mcp": (
+            'tools/call "ask" on the lab\'s MCP server (streamable-http) — '
+            "session_id and trace_id ride as tool arguments because MCP has "
+            "no session semantics of its own."
+        ),
+        "a2a": (
+            "A2A message/send on the lab's A2A server — the agent publishes "
+            "its own AgentCard at /.well-known/agent-card.json; contextId "
+            "carries the session, trace id rides message metadata."
+        ),
+    }[t.protocol]
+    return {
+        "source": "remote-caller",
+        "target": t.name,
+        "protocol": t.protocol,
+        "detail": f"{transport} Behind it: {agent_label}.",
+    }
+
+
+def _claude_interior() -> dict:
+    if os.environ.get("CLAUDE_BACKEND", "managed") == "managed":
+        return {
+            "source": "claude-researcher",
+            "target": "anthropic-managed-agents",
+            "protocol": "managed-agents-api",
+            "detail": (
+                "The adapter answers on Anthropic Managed Agents (the Claude "
+                "API's hosted-agents beta): session create + turn — recorded "
+                "as a real hop."
+            ),
+        }
+    return {
+        "source": "claude-researcher",
+        "target": "claude-agent-sdk",
+        "protocol": "internal",
+        "detail": (
+            "Self-hosted claude-agent-sdk turn in the lab process — the "
+            "model calls to the Claude API are platform-interior."
+        ),
+    }
+
+
+def cell_details(t) -> dict:
+    """blurb (what this call actually is), flow (planned hops, untraced
+    interior included), question (a default the agent answers alone)."""
+    name, platform, proto = t.name, t.platform, t.protocol
+    question = DEFAULT_QUESTION if platform == "agentforce" else CELL_RESEARCH_QUESTION
+
+    if platform == "claude" and proto in ("rest", "mcp", "a2a"):
+        via = {
+            "rest": "over REST",
+            "mcp": (
+                "over MCP — Managed Agents has no MCP inbound surface of its "
+                "own, so the lab serves the protocol in front of the agent "
+                "it hosts (one adapter, three protocol servers)"
+            ),
+            "a2a": (
+                "over the A2A protocol — Managed Agents has no A2A inbound "
+                "surface of its own, so the lab serves the protocol (with a "
+                "live AgentCard) in front of the agent it hosts"
+            ),
+        }[proto]
+        return {
+            "blurb": (
+                f"The client calls the lab's Claude research agent {via}. "
+                "Inside, the adapter answers on Anthropic Managed Agents — "
+                "the Claude API's hosted-agents platform."
+            ),
+            "flow": [_lab_server_entry(t, "the Claude research agent"), _claude_interior()],
+            "question": question,
+        }
+    if platform == "openai" and proto in ("rest", "mcp", "a2a"):
+        return {
+            "blurb": (
+                f"The client calls the lab's OpenAI research agent "
+                f"{'over ' + proto.upper() if proto != 'rest' else 'over REST'} "
+                "(OpenAI Agents SDK, Responses API underneath). OpenAI hosts "
+                "no inbound agent endpoint at all — the lab's servers are "
+                "the only door to this agent."
+            ),
+            "flow": [
+                _lab_server_entry(t, "the OpenAI research agent"),
+                {
+                    "source": "openai-researcher",
+                    "target": "openai-platform",
+                    "protocol": "internal",
+                    "detail": (
+                        "OpenAI Agents SDK turn against the Responses API — "
+                        "platform-interior, and OpenAI's trace dashboard is "
+                        "write-only (no read API), so this leg is dark."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    if proto == "agentcore-http":
+        agent = "Claude (claude-agent-sdk)" if platform == "claude" else "OpenAI (Agents SDK)"
+        inner = (
+            {
+                "source": "claude-researcher",
+                "target": "claude-agent-sdk",
+                "protocol": "internal",
+                "detail": (
+                    "claude-agent-sdk turn inside the container (the sdk "
+                    "backend — Managed Agents is the laptop default; the "
+                    "container ships the self-hosted fallback)."
+                ),
+            }
+            if platform == "claude"
+            else {
+                "source": "openai-researcher",
+                "target": "openai-platform",
+                "protocol": "internal",
+                "detail": "OpenAI Agents SDK turn against the Responses API inside the container.",
+            }
+        )
+        return {
+            "blurb": (
+                f"The client invokes the {agent} research agent self-hosted "
+                "on Bedrock AgentCore Runtime. There is no public URL — the "
+                "call is an IAM-signed invoke_agent_runtime that lands on "
+                "the container's POST /invocations. The container writes its "
+                "interior hops to the Aurora trace store; the console merges "
+                "them into the call path."
+            ),
+            "flow": [
+                {
+                    "source": "remote-caller",
+                    "target": name,
+                    "protocol": "agentcore-http",
+                    "detail": (
+                        "boto3 invoke_agent_runtime (SigV4) — cloud IAM is "
+                        "the only door; the JSON payload lands on the "
+                        "container's POST /invocations."
+                    ),
+                },
+                inner,
+            ],
+            "question": question,
+        }
+    if platform == "agentforce" and proto == "agentforce-api":
+        twin = _TWIN_BY_TARGET.get(name, "lab")
+        return {
+            "blurb": (
+                f"The client talks to the Agentforce service agent (the "
+                f"{twin} twin) over Salesforce's GA Agent API: OAuth "
+                "client-credentials, session create, then the message turn."
+            ),
+            "flow": [
+                {
+                    "source": "agentforce-client",
+                    "target": "agentforce",
+                    "protocol": "agentforce-api",
+                    "detail": (
+                        f"OAuth + session + message against the GA Agent API "
+                        f"— the {twin} twin (closed two-platform pairing)."
+                    ),
+                },
+                _SF_INTERIOR,
+            ],
+            "question": question,
+        }
+    if platform == "agentforce" and proto in ("mcp", "a2a"):
+        return {
+            "blurb": (
+                f"The client calls Agentforce over {proto.upper()} — which "
+                "Salesforce does not offer: the platform has no GA "
+                f"{proto.upper()} inbound surface, so the lab's shim speaks "
+                "the protocol and proxies each call to the Agent API. "
+                "Honest status: via-shim, never native."
+            ),
+            "flow": [
+                {
+                    "source": "remote-caller",
+                    "target": name,
+                    "protocol": proto,
+                    "detail": (
+                        f"The lab's {proto.upper()} shim serves the protocol "
+                        "surface Salesforce lacks."
+                    ),
+                },
+                {
+                    "source": "agentforce-client",
+                    "target": "agentforce",
+                    "protocol": "agentforce-api",
+                    "detail": (
+                        "The shim proxies to the GA Agent API — OAuth + "
+                        "session + message, recorded as real hops."
+                    ),
+                },
+                _SF_INTERIOR,
+            ],
+            "question": question,
+        }
+    if platform == "adk":
+        return {
+            "blurb": (
+                "The client calls the Google ADK research agent through "
+                "Vertex AI Agent Engine's own A2A endpoint — the platform "
+                "itself speaks the protocol; no lab server or shim in the "
+                "path. Auth is Google IAM (ADC bearer), transport pinned to "
+                "HTTP+JSON because the preview card route 404s."
+            ),
+            "flow": [
+                {
+                    "source": "remote-caller",
+                    "target": name,
+                    "protocol": "a2a",
+                    "detail": (
+                        "message:send against the Agent Engine A2A endpoint "
+                        "— IAM bearer (google-adc), a2a-version 1.0, "
+                        "minimal AgentCard built locally (preview gap)."
+                    ),
+                },
+                {
+                    "source": "adk-researcher",
+                    "target": "gemini",
+                    "protocol": "internal",
+                    "detail": (
+                        "ADK Runner + Gemini inside the Agent Engine "
+                        "container — request-level Cloud Logging/Monitoring "
+                        "only (Observability section); no session/turn API."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    return {
+        "blurb": f"Single protocol call to {name} ({platform} over {proto}).",
+        "flow": [{"source": "remote-caller", "target": name, "protocol": proto, "detail": ""}],
+        "question": question,
+    }
+
 
 async def run_via_bridge(req: AgentRequest, target: str) -> dict:
     """Route a run through the bridge (Path A shape) so the trace shows the
@@ -479,19 +752,27 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/targets")
     async def targets():
-        return {
-            "targets": [
+        reg = get_registry()
+        out = []
+        for t in reg.targets.values():
+            resolved_name = reg.resolve_name(t.name)
+            details = cell_details(reg.get(resolved_name))
+            if resolved_name != t.name:
+                details["blurb"] += (
+                    f" (A2ALAB_MODE={reg.mode} remaps this call to {resolved_name} — "
+                    "the hosted runtime answers instead of the local server.)"
+                )
+            out.append(
                 {
                     "name": t.name,
                     "platform": t.platform,
                     "protocol": t.protocol,
                     "status": t.status,
                     "components": components_for(_PLATFORM_TAGS.get(t.platform, set())),
+                    **details,
                 }
-                for t in get_registry().targets.values()
-            ],
-            "default_question": DEFAULT_QUESTION,
-        }
+            )
+        return {"targets": out, "default_question": DEFAULT_QUESTION}
 
     @app.get("/api/scenarios")
     async def scenarios():

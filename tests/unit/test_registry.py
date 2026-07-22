@@ -92,3 +92,25 @@ def test_mode_remap_client_and_exact(registry, monkeypatch):
     # target it actually talks to; exact=True (the matrix harness) doesn't.
     assert registry.client_for("echo-rest").target_name == "echo-hosted"
     assert registry.client_for("echo-rest", exact=True).target_name == "echo-rest"
+
+
+def test_alias_resolves_to_canonical_target(tmp_path):
+    """Renamed targets keep answering to their old names: platform-side
+    callers (the Agentforce twins' published scripts) pin bridge target
+    names the lab cannot hot-swap."""
+    cfg = tmp_path / "targets.yaml"
+    cfg.write_text(
+        """
+targets:
+  google-adk-a2a:
+    aliases: [adk-a2a]
+    platform: adk
+    protocol: a2a
+    endpoint: http://localhost:9
+"""
+    )
+    from interop.registry import Registry
+
+    reg = Registry.load(cfg)
+    assert reg.get("adk-a2a").name == "google-adk-a2a"
+    assert reg.resolve_name("adk-a2a") == "google-adk-a2a"
