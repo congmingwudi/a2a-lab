@@ -306,6 +306,10 @@ Anthropic direct). Decision on scheduling after WS4.
 
 ## Lab Guide — embedded Q&A agent for the console (idea, 2026-07-22)
 
+**Scheduling (user decision 2026-07-22): after WS3** — the Azure Foundry
+interop builds first; the guide then has the fifth platform's story to
+tell.
+
 A "Lab Guide" chat in the console, mirroring the mega-demo's Solution
 Guide pattern (~/projects/tdx26/mega-demo: `AskClaude.tsx` drawer +
 `server.js` streaming proxy + curated-context system prompt + suggested
