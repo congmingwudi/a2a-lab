@@ -1,18 +1,21 @@
-# Build brief: OpenAI Agents SDK backend for the A2A Interop Lab
+# Build brief: OpenAI side of the A2A Interop Lab (round 2 — updates)
 
-Audience: an OpenAI Codex agent (or any engineer) implementing the OpenAI
-side of this lab. The scaffold, protocol servers, tracing layer, and tests
-around your work already exist and are green — your deliverable is **one
-backend class plus its tests**. Everything you need to know is in this file;
-pointers to the wider repo are context, not prerequisites.
+Audience: an OpenAI Codex agent (or any engineer) updating the OpenAI side
+of this lab. Round 1 of this brief (build `AgentsSdkBackend` from scratch)
+was delivered, accepted, and is live — the backend now runs containerized
+on Bedrock AgentCore (D24/D26). This document is the **standing contract**
+for OpenAI-side work: current state, the seams that moved since round 1,
+and the rules that have not.
+
+Work from branch **`lab-scaffold-m0-m4`** (the live branch; `main` lags).
 
 ## 1. What this repo is (60 seconds)
 
 A cross-platform agent-interop lab: the same research-assistant scenario
-runs between Salesforce Agentforce, Anthropic Claude, and (your part) an
-OpenAI-platform agent, over three protocols (REST, MCP, A2A), with the raw
-wire payloads of every hop recorded and compared. Two seams make that work,
-and both are already built:
+runs between Salesforce Agentforce, Anthropic Claude, an OpenAI-platform
+agent (your part), and a Google ADK/Gemini agent on Vertex AI Agent
+Engine — over REST, MCP, and the A2A protocol, with the raw wire payloads
+of every hop recorded and compared. Two seams make that work:
 
 - **Inbound**: `interop.adapter.AgentAdapter` — an agent implements
   `handle(AgentRequest) -> AgentResponse` once; `serve(...)` mounts it
@@ -21,145 +24,134 @@ and both are already built:
   `session_id`, `trace_id`, `metadata`) and `AgentResponse` (`text`,
   `session_id`, `latency_ms`, `raw`).
 
-The OpenAI adapter (`src/platforms/openai/core.py`) already routes to a
-backend selected by `OPENAI_BACKEND`: `stub` (working placeholder) or
-`agents-sdk` (**yours**).
+## 2. Current state of your surface
 
-## 2. Your deliverable
+`src/platforms/openai/agents_backend.py` (yours, delivered round 1):
 
-Implement `AgentsSdkBackend` in `src/platforms/openai/agents_backend.py`:
+- `AgentsSdkBackend` — one Agents SDK turn per request, system prompt
+  imported from `platforms.openai.core`, model via `OPENAI_MODEL`,
+  40s self-cap via `OPENAI_ANSWER_TIMEOUT_S`.
+- Two function tools, built per-request and closed over the inbound
+  delegation depth (D27):
+  - `ask_agentforce` — GA Agent API via `AgentforceClient` (one
+    module-level client; credentials only from env).
+  - `ask_agentforce_a2a` (D28) — same twin over the A2A protocol through
+    the lab's AWS-hosted shim, via `interop.af_channel.ask_via_shim`.
+    The operator picks the channel per run with a `[A2A-LAB ROUTING]`
+    block injected into the prompt; honor it as the tool docstrings say.
+- Tracing: the run is wrapped in an `interop.trace.Hop` with
+  `platform_ref` = the OpenAI response id (captured at emit time — OpenAI
+  has no trace read API, so this id is the only join key; ADR D18). Ids
+  are appended to `.a2alab/openai_responses.json`.
+- Tests in `tests/unit/test_openai_agents_backend.py` (SDK mocked; one
+  `@pytest.mark.live` end-to-end).
 
-```python
-class AgentsSdkBackend:
-    backend_name = "agents-sdk"
+## 3. What moved since round 1 — honor these
 
-    async def answer(self, req: AgentRequest) -> AgentResponse: ...
-```
+1. **`af_channel.ask_via_shim` grew a `trace_id` parameter**:
+   `ask_via_shim(message, metadata, trace_id=None)`. When the caller's
+   trace id is passed, the shim's interior hops land in the Aurora trace
+   store **under the same trace id** and the console merges them into the
+   live call path. The ADK backend threads it end to end
+   (`src/platforms/adk/core.py` + `agent.py` — tools closed over
+   `(inbound_depth, trace_id)`); **the OpenAI backend does not yet** — its
+   tools call `ask_via_shim(message, meta)` and
+   `AgentforceClient.ask(AgentRequest(...))` without a trace id. Closing
+   that gap is a standing work item: thread `req.trace_id` into both
+   tools' outbound `AgentRequest`s / `ask_via_shim` calls, mirroring the
+   ADK pattern.
+2. **Shim credential naming**: inside hosted runtimes the shim token is
+   env `AF_SHIM_TOKEN` — `ask_via_shim` reads it first and falls back to
+   `A2ALAB_TOKEN` locally. Never introduce `A2ALAB_TOKEN` into runtime
+   env or code paths that run in the container: setting it flips on the
+   container's own inbound bearer auth, which `invoke_agent_runtime`
+   cannot satisfy — every invoke 401s (learned live, 2026-07-20).
+3. **Shim timeout discipline**: `AF_SHIM_TIMEOUT_S` defaults to 34 in
+   code but is deployed as **28** — just under API Gateway's hard 29s
+   ceiling, so a doomed attempt fails fast and the one retry still fits
+   the runtime's interior budget. Don't add retries on top of
+   `ask_via_shim` (it retries once internally).
+4. **Delegation guard is unchanged and non-negotiable** (D27): every
+   outbound delegation goes through `interop.delegation` —
+   `delegate()` to compose (rider + metadata), `max_depth()`/`refusal()`
+   to stop. Any new tool path must do the same.
+5. **Runtime trace sink**: the AgentCore containers write hops to the
+   Aurora Postgres store (`A2ALAB_TRACE_SINK=postgres`, writer secret) —
+   your `Hop` records become visible in the console's merged view when
+   they carry the caller's trace id. Nothing to do beyond passing
+   `req.trace_id` (item 1).
+6. **Tool-governance lesson from the Claude side** (context, likely
+   no-op for you): the Claude Agent SDK ships built-in tools
+   permission-gated; a headless agent asked the model to grant WebSearch
+   instead of answering, fixed with `tools=[]`. The OpenAI Agents SDK has
+   no implicit built-ins, but keep the principle: the sync researcher's
+   toolset is exactly the two Agentforce tools — nothing that can stall a
+   headless 40s turn waiting on a permission or a long fetch.
+7. **Target renames** (display-level, aliases keep old names resolving):
+   `adk-a2a` → `google-adk-a2a`, `agentforce-adk-rest` →
+   `agentforce-google-adk-rest`. No OpenAI-side impact; mentioned so
+   diffs in `config/` don't surprise you.
 
-Requirements, in priority order:
-
-1. **One turn of an OpenAI Agents SDK agent** (the `openai-agents`
-   package), system prompt = `OPENAI_RESEARCH_SYSTEM_PROMPT` from
-   `platforms.openai.core` (import it — do not copy the text). Model from
-   env `OPENAI_MODEL` (pick a sensible current default; make it
-   env-overridable). API key from env `OPENAI_API_KEY` (already the SDK
-   default). `req.message` is the user turn.
-
-2. **The `ask_agentforce` function tool** — the Path C collaboration.
-   Declare a tool named `ask_agentforce` (description: ask the Salesforce
-   Agentforce agent a question; use for accounts/opportunities/cases/org
-   data). Its implementation calls:
-
-   ```python
-   from platforms.agentforce.client import AgentforceClient
-   resp = await AgentforceClient.from_env().ask(AgentRequest(message=question))
-   return resp.text
-   ```
-
-   Keep ONE module-level client instance (see the pattern and the comment
-   explaining why in `src/platforms/claude/sdk_backend.py` — mirror it).
-   Salesforce credentials come from env (`SF_*` via `.env`); they must
-   never appear in prompts or tool descriptions.
-
-3. **Tracing — this is the lab's core requirement, not optional.**
-   - Wrap the whole agent run in a hop:
-
-     ```python
-     from interop.trace import Hop
-     with Hop(trace_id, source="openai-researcher", target="openai-platform",
-              protocol="internal", transport_detail="agents-sdk run",
-              request_payload=req.to_dict()) as hop:
-         ... run the agent ...
-         hop.platform_ref = <OpenAI response id or trace id>
-         hop.response_payload = {"text": ..., "response_id": ...}
-     ```
-
-     `trace_id = req.trace_id or interop.models.new_trace_id()`.
-   - **`hop.platform_ref` must carry the OpenAI-native id** (the response
-     id, or the Agents SDK trace id — whichever your implementation can
-     obtain; prefer the one visible in the OpenAI traces dashboard).
-     OpenAI exposes no API to read traces back later, so ids captured at
-     emit time are the only join key the observability layer will ever
-     have. This is a hard requirement (ADR D18/M9 in
-     `plan/00-decisions.md`).
-   - **Persist every captured id** by appending JSON records to
-     `.a2alab/openai_responses.json` (create if absent; list of objects:
-     `{"response_id": ..., "trace_id": ..., "session_id": ..., "ts": ...}`).
-     Mirror of `.a2alab/cma_sessions.json` used for the Anthropic side.
-
-4. **Timeout budget**: wrap the run in
-   `asyncio.wait_for(..., float(os.environ.get("OPENAI_ANSWER_TIMEOUT_S", "40")))`.
-   The upstream bridge gives up at 45s — your agent must answer inside 40.
-   Keep it fast: concise prompt is already given; avoid multi-round
-   tool-chatter where one round does.
-
-5. **Return** `AgentResponse(text=final_text, session_id=req.session_id,
-   latency_ms=<measured>, raw={"response_id": ..., "model": ...})`.
-   If Agentforce delegation fails, still answer (say the CRM lookup
-   failed) — never raise for a tool failure.
-
-## 3. Files you may touch
+## 4. Files you may touch
 
 | File | What |
 |---|---|
-| `src/platforms/openai/agents_backend.py` | Replace the skeleton with your implementation |
-| `tests/unit/test_openai_agents_backend.py` | NEW — your unit tests (mock the SDK; no network in default test runs) |
-| `pyproject.toml` | Add the dependency ONLY as an extra: `[project.optional-dependencies] openai = ["openai-agents>=<floor you tested>"]` |
-| `uv.lock` | Regenerated by `uv sync` |
+| `src/platforms/openai/agents_backend.py` | Your backend |
+| `src/platforms/openai/core.py` | Prompt/adapter tweaks if the task requires (keep the adapter contract) |
+| `tests/unit/test_openai_agents_backend.py` | Your tests |
+| `tests/unit/test_openai_platform.py` | Only if adapter behavior legitimately changes |
+| `pyproject.toml` / `uv.lock` | Dependency floor bumps inside the `openai` extra only |
 
-**Do not modify anything else** — in particular `src/interop/**` (the
-shared seams), `src/platforms/claude/**`, `src/platforms/agentforce/**`
-(read them, don't edit), `src/console/**`, `config/targets.yaml`, or
-existing tests. If something in the contract seems to require touching
-those, stop and flag it in your handback notes instead.
+**Do not modify anything else** — in particular `src/interop/**` (shared
+seams: models, delegation, af_channel, trace, clients, servers),
+`src/platforms/{claude,agentforce,adk}/**`, `src/console/**`,
+`config/targets.yaml`, `deploy/**`, or other tests. If a task seems to
+require touching those, stop and flag it in your handback notes instead.
 
-## 4. Working in this environment
+## 5. Working in this environment
 
 ```sh
-uv sync --extra openai            # after you add the extra
+uv sync --extra openai
 uv run pytest                     # must stay green (live tests deselected by default)
 uv run ruff check . && uv run ruff format .   # line-length 100
 uv run pytest tests/unit/test_openai_agents_backend.py -k <name>
 
-# local manual run: starts a local REST server that calls OpenAI and,
-# when the model chooses the tool, the Salesforce Agentforce agent.
+# local manual run (REST server in front of your backend):
 OPENAI_BACKEND=agents-sdk uv run python -m platforms.openai --protocol rest --port 8011
-
 curl -s -X POST http://127.0.0.1:8011/invoke \
   -H 'content-type: application/json' \
-  -d '{"message":"What is the status of account Omega, Inc.?"}'
+  -d '{"message":"In two sentences: what is the difference between the MCP and A2A protocols?"}'
 ```
 
 - Imports are package-prefix-free (`from interop.models import ...`);
-  tests get `src/` on `sys.path` via `tests/conftest.py`, scripts run with
-  `PYTHONPATH=src`.
-- `.env` at the repo root holds `OPENAI_API_KEY` (add it), `SF_*`
-  (present), `A2ALAB_TOKEN` (protocol servers enforce it when set — send
-  header `x-lab-token` if you curl a running server).
-- Tests marked `@pytest.mark.live` may hit real APIs and are deselected by
-  default — add ONE live test that runs a real end-to-end answer
-  (assert non-empty text and a captured `response_id`), marked live.
-- Trace events land in `traces/YYYY-MM-DD.jsonl` + `traces/lab.db` — after
-  a manual run, verify your hop appears with `platform_ref` set:
+  tests get `src/` on `sys.path` via `tests/conftest.py`.
+- `.env` holds `OPENAI_API_KEY`, `SF_*`, `AF_SHIM_A2A_URL`,
+  `A2ALAB_TOKEN` (local only — see §3.2), `AF_SHIM_TIMEOUT_S`.
+- Trace events land in `traces/YYYY-MM-DD.jsonl` + `traces/lab.db`;
+  verify hops with
   `sqlite3 traces/lab.db "SELECT source,target,platform_ref FROM trace_events ORDER BY ts DESC LIMIT 5"`.
+- Deploys are lab-side: after your handback the owner runs
+  `deploy/agentcore/deploy.sh openai` to ship the container.
 
-## 5. Acceptance checklist (your handback must state each)
+## 6. Acceptance checklist (state each in your handback)
 
-- [ ] `uv run pytest` fully green, including your new unit tests
+- [ ] `uv run pytest` fully green, including your tests
 - [ ] `uv run ruff check .` clean; `uv run ruff format .` applied
-- [ ] Manual REST run answers a research question in < 40s
-- [ ] A question like "what's the status of account Omega, Inc.?" triggers
-      the `ask_agentforce` tool and the answer attributes the CRM portion
-- [ ] The run's trace hop has `platform_ref` = OpenAI response/trace id,
-      and the id is appended to `.a2alab/openai_responses.json`
-- [ ] No new required dependency outside the `openai` extra; no edits
-      outside §3's file list
-- [ ] Handback notes: model chosen + why, SDK version pinned, anything
-      about the contract that didn't fit (rather than worked around)
+- [ ] Manual REST run answers the protocol question in < 40s without
+      calling Agentforce; an Omega, Inc. question triggers
+      `ask_agentforce` and attributes the CRM portion
+- [ ] Outbound tool calls carry `req.trace_id` (§3.1) and the run hop has
+      `platform_ref` = OpenAI response id, appended to
+      `.a2alab/openai_responses.json`
+- [ ] All delegation paths go through `interop.delegation`; the
+      `[A2A-LAB ROUTING]` channel block is honored
+- [ ] No edits outside §4's file list; no new required dependency outside
+      the `openai` extra
+- [ ] Handback notes: what changed, versions pinned, anything that didn't
+      fit the contract (flagged, not worked around)
 
-## 6. Explicitly out of scope for you
+## 7. Explicitly out of scope
 
-Protocol servers, A2A/MCP wiring, `targets.yaml`, Bedrock AgentCore
-deployment (`deploy/agentcore/openai.Dockerfile` exists; the lab owner
-deploys), console/scenario surfacing, and the Agentforce→OpenAI reverse
-direction. All of that is handled on the lab side after your handback.
+Protocol servers, A2A/MCP wiring, `targets.yaml`, AgentCore deployment,
+console/scenario surfacing, the Agentforce→OpenAI reverse direction, and
+anything Salesforce/GCP-side. All handled on the lab side after handback.
