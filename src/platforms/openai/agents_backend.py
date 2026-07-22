@@ -107,7 +107,9 @@ def _response_id_from_result(result: Any) -> str | None:
     return None
 
 
-def _build_agentforce_tool(inbound_depth: int = 0):
+def _build_agentforce_tool(inbound_depth: int = 0, trace_id: str | None = None):
+    """Build the direct Agentforce tool for one request, closed over the
+    delegation depth and effective run trace id."""
     from agents import function_tool
 
     @function_tool(
@@ -130,7 +132,9 @@ def _build_agentforce_tool(inbound_depth: int = 0):
         )
         try:
             resp = await asyncio.wait_for(
-                _get_agentforce_client().ask(AgentRequest(message=message, metadata=meta)),
+                _get_agentforce_client().ask(
+                    AgentRequest(message=message, metadata=meta, trace_id=trace_id)
+                ),
                 float(
                     os.environ.get(
                         "OPENAI_AGENTFORCE_TOOL_TIMEOUT_S",
@@ -145,7 +149,7 @@ def _build_agentforce_tool(inbound_depth: int = 0):
     return ask_agentforce
 
 
-def _build_agentforce_a2a_tool(inbound_depth: int = 0):
+def _build_agentforce_a2a_tool(inbound_depth: int = 0, trace_id: str | None = None):
     """The channel twin of ask_agentforce (D28): same Agentforce agent, but
     over the A2A protocol through the lab's hosted shim — used when the
     operator's routing block selects the a2a-shim channel."""
@@ -173,7 +177,7 @@ def _build_agentforce_a2a_tool(inbound_depth: int = 0):
         )
         try:
             return await asyncio.wait_for(
-                af_channel.ask_via_shim(message, meta),
+                af_channel.ask_via_shim(message, meta, trace_id=trace_id),
                 float(
                     os.environ.get(
                         "OPENAI_AGENTFORCE_TOOL_TIMEOUT_S",
@@ -193,7 +197,7 @@ class AgentsSdkBackend:
     def __init__(self, model: str | None = None):
         self.model = model or os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
 
-    def _agent(self, inbound_depth: int = 0):
+    def _agent(self, inbound_depth: int = 0, trace_id: str | None = None):
         from agents import Agent, ModelSettings
 
         settings_kwargs: dict[str, Any] = {
@@ -222,16 +226,16 @@ class AgentsSdkBackend:
             # research — the Path C collaboration contract. Budget still
             # fits: tool leg capped at 34s inside the 40s run cap.
             tools=[
-                _build_agentforce_tool(inbound_depth),
-                _build_agentforce_a2a_tool(inbound_depth),
+                _build_agentforce_tool(inbound_depth, trace_id),
+                _build_agentforce_a2a_tool(inbound_depth, trace_id),
             ],
         )
 
-    async def _run(self, req: AgentRequest):
+    async def _run(self, req: AgentRequest, trace_id: str):
         from agents import Runner
 
         return await Runner.run(
-            self._agent(delegation.depth_of(req)),
+            self._agent(delegation.depth_of(req), trace_id),
             req.message,
             max_turns=int(os.environ.get("OPENAI_MAX_TURNS", "3")),
         )
@@ -250,7 +254,7 @@ class AgentsSdkBackend:
             request_payload=req.to_dict(),
         ) as hop:
             result = await asyncio.wait_for(
-                self._run(req),
+                self._run(req, trace_id),
                 float(os.environ.get("OPENAI_ANSWER_TIMEOUT_S", DEFAULT_TIMEOUT_S)),
             )
             final_text = str(getattr(result, "final_output", "") or "").strip()
