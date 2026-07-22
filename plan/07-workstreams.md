@@ -332,9 +332,27 @@ Design sketch (adapting the pattern to this stack):
   it.
 - **Suggested questions** seeded per section (Insights → "how was the
   interop tax measured?", a cell → "why is this via-shim?").
+- **Read tools** (a small server-side tool-use loop, not just stuffed
+  context — three read-only tools executed in the console process against
+  data access it already has):
+  - `list_briefs` / `read_brief` — the hosted analyst's findings briefs
+    from Aurora (`PgObsStore.list_briefs`, the same source as
+    `/api/obs/briefs`), so "what did the analyst conclude about cold
+    starts?" is answerable with citations.
+  - `get_trace(trace_id)` — a run's full hop list from the merged
+    local+Aurora view (`_merged_events`), payloads clipped to budget, so
+    "why did this run take 35s?" or "which twin answered?" reads the
+    actual wire record. The UI passes the currently-selected trace id
+    with the view context, so "explain this trace" needs no id typed.
+  - `list_recent_runs(experiment?)` — recent trace ids grouped per
+    scenario/cell, so questions about "the last Agentforce→ADK run"
+    resolve to a concrete trace before reading it.
+  All tools read-only; no SQL surface (that stays the analyst's, D23) —
+  the guide gets curated accessors, not the store.
 - **Not** the obs analyst (D22/D23): the analyst interprets harvested
-  run data through SQL; the guide explains the lab itself from its docs.
-  Keep them separate; the guide may LINK to analyst briefs.
+  run data through SQL and writes briefs; the guide explains the lab from
+  its docs and can now READ those briefs and individual traces — it
+  consumes the analyst's output, never replaces it.
 - Demo-facing polish item for the ~Aug 1 public cutover: the guide turns
   the console from an exhibit into a docent.
 
