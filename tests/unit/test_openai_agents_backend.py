@@ -171,7 +171,7 @@ async def test_agentforce_tool_uses_module_level_client(fake_agents_module, monk
             return AgentResponse(text="from crm")
 
     monkeypatch.setattr(backend_mod, "_agentforce_client", FakeClient())
-    tool = backend_mod._build_agentforce_tool()
+    tool = backend_mod._build_agentforce_tool(trace_id="trace-direct")
 
     assert await tool("what is account Omega status?") == "from crm"
     # The outbound question carries the D27 delegation rider at depth 1.
@@ -179,6 +179,56 @@ async def test_agentforce_tool_uses_module_level_client(fake_agents_module, monk
     assert calls[0].message.startswith("what is account Omega status?")
     assert delegation.MARKER in calls[0].message
     assert calls[0].metadata["delegation"]["depth"] == 1
+    assert calls[0].trace_id == "trace-direct"
+
+
+async def test_agentforce_a2a_tool_forwards_trace_id(fake_agents_module, monkeypatch):
+    from interop import af_channel
+
+    calls = []
+
+    async def fake_ask_via_shim(message, metadata, trace_id=None):
+        calls.append((message, metadata, trace_id))
+        return "from shim"
+
+    monkeypatch.setattr(af_channel, "ask_via_shim", fake_ask_via_shim)
+    tool = backend_mod._build_agentforce_a2a_tool(trace_id="trace-a2a")
+
+    assert await tool("what is account Omega status?") == "from shim"
+    assert len(calls) == 1
+    message, metadata, trace_id = calls[0]
+    assert message.startswith("what is account Omega status?")
+    assert delegation.MARKER in message
+    assert metadata["delegation"]["depth"] == 1
+    assert trace_id == "trace-a2a"
+
+
+async def test_answer_threads_generated_trace_id_to_tool_builders(
+    fake_agents_module, isolated_traces, tmp_path, monkeypatch
+):
+    captured = []
+
+    def fake_direct_builder(inbound_depth=0, trace_id=None):
+        captured.append(("direct", inbound_depth, trace_id))
+        return "direct-tool"
+
+    def fake_a2a_builder(inbound_depth=0, trace_id=None):
+        captured.append(("a2a", inbound_depth, trace_id))
+        return "a2a-tool"
+
+    monkeypatch.setenv("A2ALAB_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(backend_mod, "new_trace_id", lambda: "trace-generated")
+    monkeypatch.setattr(backend_mod, "_build_agentforce_tool", fake_direct_builder)
+    monkeypatch.setattr(backend_mod, "_build_agentforce_a2a_tool", fake_a2a_builder)
+
+    await AgentsSdkBackend(model="gpt-local").answer(AgentRequest(message="hi"))
+
+    assert captured == [
+        ("direct", 0, "trace-generated"),
+        ("a2a", 0, "trace-generated"),
+    ]
+    records = json.loads((tmp_path / "state" / "openai_responses.json").read_text())
+    assert records[0]["trace_id"] == "trace-generated"
 
 
 @pytest.mark.live

@@ -52,14 +52,16 @@ of every hop recorded and compared. Two seams make that work:
    `ask_via_shim(message, metadata, trace_id=None)`. When the caller's
    trace id is passed, the shim's interior hops land in the Aurora trace
    store **under the same trace id** and the console merges them into the
-   live call path. The ADK backend threads it end to end
-   (`src/platforms/adk/core.py` + `agent.py` — tools closed over
-   `(inbound_depth, trace_id)`); **the OpenAI backend does not yet** — its
-   tools call `ask_via_shim(message, meta)` and
-   `AgentforceClient.ask(AgentRequest(...))` without a trace id. Closing
-   that gap is a standing work item: thread `req.trace_id` into both
-   tools' outbound `AgentRequest`s / `ask_via_shim` calls, mirroring the
-   ADK pattern.
+   live call path. The ADK and OpenAI backends both thread it end to end
+   (tools closed over `(inbound_depth, trace_id)`). Keep the OpenAI
+   implementation aligned with this contract:
+   - close both per-request tool builders over the effective trace id
+     (`req.trace_id`, or the run's generated fallback), alongside
+     `inbound_depth`;
+   - set `trace_id` on the direct `AgentforceClient` request and pass it
+     as the named `trace_id` argument to `ask_via_shim`; and
+   - extend the backend unit tests to prove both tools forward that same
+     id without changing delegation metadata or routing behavior.
 2. **Shim credential naming**: inside hosted runtimes the shim token is
    env `AF_SHIM_TOKEN` — `ask_via_shim` reads it first and falls back to
    `A2ALAB_TOKEN` locally. Never introduce `A2ALAB_TOKEN` into runtime
@@ -140,8 +142,11 @@ curl -s -X POST http://127.0.0.1:8011/invoke \
 - [ ] Manual REST run answers the protocol question in < 40s without
       calling Agentforce; an Omega, Inc. question triggers
       `ask_agentforce` and attributes the CRM portion
-- [ ] Outbound tool calls carry `req.trace_id` (§3.1) and the run hop has
-      `platform_ref` = OpenAI response id, appended to
+- [ ] Direct and A2A-shim tool tests prove both outbound calls carry the
+      effective run trace id (§3.1); a traced shim call's interior hops
+      and OpenAI run hop therefore appear under one trace in the console's
+      merged call path
+- [ ] The run hop has `platform_ref` = OpenAI response id, appended to
       `.a2alab/openai_responses.json`
 - [ ] All delegation paths go through `interop.delegation`; the
       `[A2A-LAB ROUTING]` channel block is honored
