@@ -353,6 +353,24 @@ Design sketch (adapting the pattern to this stack):
   run data through SQL and writes briefs; the guide explains the lab from
   its docs and can now READ those briefs and individual traces — it
   consumes the analyst's output, never replaces it.
+- **MCP wrapper — the meta exhibit**: implement the guide's interior as
+  an `AgentAdapter` (`handle(AgentRequest) -> AgentResponse`) and the
+  lab's own inbound seam serves it over REST, MCP, AND A2A for free
+  (`serve(guide_adapter, protocol, port)` — say :8031/:8032/:8033) —
+  the Lab Guide becomes just another lab agent, demonstrable from
+  Claude Desktop (or any MCP client) as a source of insights about the
+  very experiments that built it. Two tool shapes to demo, deliberately:
+  - `ask_lab_guide(question)` — agent-as-a-tool: the lab-side model runs
+    the whole guide loop (docs + briefs + traces) and returns a grounded
+    answer. One call, works in any MCP client.
+  - The raw read tools (`read_brief`, `get_trace`, `list_recent_runs`,
+    `get_decision`, `get_insights`) exposed directly on the same MCP
+    server — the CLIENT's model does the reasoning over lab data. The
+    side-by-side (whose model reasons: the lab's or the caller's?) is
+    itself insight material — same question, two integration shapes.
+  Local demo: Claude Desktop → streamable-http on localhost. Public
+  demo: the cloudflared tunnel pattern (D20) publishes it like the
+  other lab servers; x-lab-token app auth as everywhere.
 - Demo-facing polish item for the ~Aug 1 public cutover: the guide turns
   the console from an exhibit into a docent.
 
