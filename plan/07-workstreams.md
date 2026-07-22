@@ -304,6 +304,40 @@ Anthropic direct). Decision on scheduling after WS4.
 
 ---
 
+## Lab Guide — embedded Q&A agent for the console (idea, 2026-07-22)
+
+A "Lab Guide" chat in the console, mirroring the mega-demo's Solution
+Guide pattern (~/projects/tdx26/mega-demo: `AskClaude.tsx` drawer +
+`server.js` streaming proxy + curated-context system prompt + suggested
+questions): visitors ask probing questions about how the lab was built —
+call paths and protocol seams, the bridge/shim/direct routes, how each
+platform's observability API works, the hosted analyst agent, the
+insights and how they were measured, how each agent is written and
+hosted.
+
+Design sketch (adapting the pattern to this stack):
+- **Grounding**: the lab documents itself — README, the ADR log (already
+  parsed per-decision by `/api/decisions`), plan/01-architecture,
+  02-matrix, 05-observability, 07-workstreams, 08-insights,
+  config/targets.yaml + scenarios.yaml. Server-side prompt assembly from
+  a curated subset; no separate knowledge base to maintain — the corpus
+  IS the repo's plan/ discipline paying off.
+- **Endpoint**: console `POST /api/guide` streaming (SSE, same shape as
+  the run tail) → `anthropic.messages.stream` with ANTHROPIC_API_KEY
+  already in .env. Haiku-tier by default; no session infra needed
+  (stateless turns with client-held history, like the mega-demo).
+- **Context-aware**: include the operator's current view (open scenario /
+  cell / insight) in the system prompt the way the mega-demo injects the
+  current slide — "explain THIS call path" works without the user naming
+  it.
+- **Suggested questions** seeded per section (Insights → "how was the
+  interop tax measured?", a cell → "why is this via-shim?").
+- **Not** the obs analyst (D22/D23): the analyst interprets harvested
+  run data through SQL; the guide explains the lab itself from its docs.
+  Keep them separate; the guide may LINK to analyst briefs.
+- Demo-facing polish item for the ~Aug 1 public cutover: the guide turns
+  the console from an exhibit into a docent.
+
 ## Cross-cutting experiment backlog (platform-independent)
 
 - ✅ **Delegation guard (D27, 2026-07-19):** standard caller/depth rider +
