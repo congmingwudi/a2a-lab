@@ -38,14 +38,16 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
 
     sources = {
         "claude": AnthropicSource,
-        "anthropic": AnthropicSource,  # legacy alias for hosted invokes
         "salesforce": SalesforceSource,
         "openai": OpenAISource,
         # No GCP credentials in the hosted Lambda — reports blocked/error,
         # which the coverage panel renders honestly (local harvests cover adk).
         "adk": AdkSource,
     }
-    wanted = [event.get("platform")] if isinstance(event, dict) and event.get("platform") else None
+    asked = event.get("platform") if isinstance(event, dict) else None
+    if asked == "anthropic":  # legacy alias for hosted invokes
+        asked = "claude"
+    wanted = [asked] if asked else None
     wanted = wanted or list(sources)
     if any(w not in sources for w in wanted):
         return {"ok": False, "error": f"unknown platform(s): {wanted}"}
