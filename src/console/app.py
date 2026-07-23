@@ -138,18 +138,6 @@ _TWIN_BY_TARGET = {
     "agentforce-foundry-rest": "Foundry-paired",
 }
 
-_SF_INTERIOR = {
-    "source": "agentforce",
-    "target": "agentforce-apex",
-    "protocol": "internal",
-    "detail": (
-        "The twin's topic planner and Apex actions run inside Salesforce — "
-        "platform-interior; visible only through harvested execution logs "
-        "(Observability section), never on the wire."
-    ),
-}
-
-
 def _lab_server_entry(t, agent_label: str) -> dict:
     transport = {
         "rest": (
@@ -311,10 +299,11 @@ def cell_details(t) -> dict:
                     "protocol": "agentforce-api",
                     "detail": (
                         f"OAuth + session + message against the GA Agent API "
-                        f"— the {twin} twin (closed two-platform pairing)."
+                        f"— the {twin} twin (closed two-platform pairing). How "
+                        "the twin fulfills the request inside Salesforce is its "
+                        "own business — the experiment measures the wire."
                     ),
                 },
-                _SF_INTERIOR,
             ],
             "question": question,
         }
@@ -346,7 +335,6 @@ def cell_details(t) -> dict:
                         "session + message, recorded as real hops."
                     ),
                 },
-                _SF_INTERIOR,
             ],
             "question": question,
         }

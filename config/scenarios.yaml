@@ -752,12 +752,9 @@ scenarios:
       protocol: agentforce-api
       detail: "The shim proxies to the GA Agent API — OAuth + session + message
         against the Foundry-paired twin (rider-text routing), recorded to the Aurora
-        store and merged into this view."
-    - source: agentforce
-      target: agentforce-apex
-      protocol: internal
-      detail: "The twin's topic planner and Apex actions run inside Salesforce —
-        visible only through harvested execution logs (Observability section)."
+        store and merged into this view. How the twin fulfills the request inside
+        Salesforce (topics, actions) is its own business — see the Observability
+        section for its interior view."
 
   agentforce-to-foundry:
     title: "Agentforce → Microsoft Foundry"
