@@ -28,6 +28,8 @@ groups:
     title: "Google ADK - Agentforce"
   - id: foundry-agentforce
     title: "Microsoft Foundry - Agentforce"
+  - id: cross-cloud
+    title: "Cross-hyperscaler (Google × Microsoft)"
   - id: langgraph-agentforce
     title: "LangGraph - Agentforce"
     upcoming: WS4
@@ -812,3 +814,65 @@ scenarios:
       protocol: internal
       detail: "The prompt agent answers from model knowledge (the rider guard skips
         its own tools) inside Foundry Agent Service — platform-interior."
+
+  google-adk-to-foundry:
+    title: "Google ADK → Microsoft Foundry"
+    group: cross-cloud
+    summary: "The Gemini agent on Vertex AI Agent Engine consults the gpt-5-mini agent
+      on Foundry Agent Service — BOTH ends platform-native A2A, no lab server in the
+      cross-cloud path."
+    description: "The cell the lab is named for, across hyperscalers: you invoke the
+      Google ADK agent through Agent Engine's native A2A endpoint, and mid-answer it
+      calls the Microsoft Foundry agent through Foundry's native incoming A2A —
+      GCP-hosted Gemini talking to Azure-hosted gpt-5-mini with no bridge and no shim
+      anywhere in the cross-cloud leg. Auth is the asymmetric part: the GCP container
+      holds an Entra service principal (the sanctioned service-identity pattern) to
+      mint Azure tokens; the REVERSE direction is auth-blocked — Foundry connections
+      cannot mint Google IAM tokens. Cloud identity, not the protocol, decides who
+      may call whom."
+    target: google-adk-a2a
+    via_bridge: false
+    status: live
+    prompt_suffix: " Answer in two labeled sections: \"From the Google ADK agent
+      (Gemini):\" with your own brief take, then consult the Microsoft Foundry
+      research agent with your ask_foundry_agent tool and summarize its answer under
+      \"From Microsoft Foundry (gpt-5-mini):\"."
+    tags:
+    - adk
+    - gemini
+    - agent-engine
+    - foundry
+    - azure
+    - gpt-5-mini
+    - a2a
+    note: "The D27 rider rides the delegated question, so the Foundry agent answers
+      from model knowledge without calling its own tools onward — depth 1, closed
+      chain. The cross-cloud leg's client hop lives only inside the GCP container
+      (ghost here), but BOTH platforms' interiors are harvested: Agent Engine logs
+      (google-adk obs column) and Foundry's App Insights spans, whose invoke_agent
+      records the arrival of this exact call."
+    flow:
+    - source: remote-caller
+      target: google-adk-a2a
+      protocol: a2a
+      detail: "You call Agent Engine's platform-native A2A endpoint — Google IAM
+        bearer (ADC), pinned HTTP+JSON transport, a2a-version 1.0."
+    - source: adk-researcher
+      target: gemini-2.5-flash-lite
+      protocol: internal
+      detail: "The ADK Runner drives Gemini inside the Agent Engine container —
+        platform-interior."
+    - source: adk
+      target: foundry-a2a
+      protocol: a2a
+      detail: "The cross-hyperscaler hop: the GCP container's A2A client calls
+        Foundry's incoming A2A endpoint — Entra service-principal bearer, v1.0 card
+        from agentCard/v1.0, D27 rider stamped. Untraced by the lab client-side
+        (the container keeps no durable sink) — but Foundry's App Insights records
+        the arrival as an invoke_agent span (Observability → Microsoft Foundry)."
+    - source: foundry-researcher
+      target: gpt-5-mini
+      protocol: internal
+      detail: "The Foundry prompt agent answers from model knowledge (the rider
+        guard skips its tools) — platform-interior, token usage visible in the
+        harvested spans."

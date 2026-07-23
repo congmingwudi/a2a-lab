@@ -43,6 +43,8 @@ REQUIREMENTS = [
     # unpickling deps the SDK checks for explicitly
     "cloudpickle>=3",
     "pydantic>=2",
+    # cross-hyperscaler cell (WS3): Entra SP auth for calling Foundry A2A
+    "azure-identity>=1.20",
 ]
 
 # Env the container needs: the Agentforce twin credentials (ask_agentforce
@@ -60,6 +62,11 @@ ENV_KEYS = [
     "AF_SHIM_A2A_URL",
     "AF_SHIM_TIMEOUT_S",
     "A2ALAB_MAX_DELEGATION_DEPTH",
+    # cross-hyperscaler: Foundry incoming A2A + the Entra SP that calls it
+    "FOUNDRY_A2A_ENDPOINT",
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
 ]
 
 DISPLAY_NAME = "a2alab-adk-researcher"

@@ -360,9 +360,20 @@ Status 2026-07-22 (environment + first answer):
    trace↔session join works out of the box. Coverage panel updated;
    observability-fragmentation insight extended (best column yet;
    "five platforms, five answers").
-11. Next: Foundry↔ADK cross-hyperscaler cell (the two platform-native
-   A2A endpoints calling each other); component/screenshot rows; final
-   03-results sweep; WS3 close-out insights pass.
+11. ✅ CROSS-HYPERSCALER CELL LIVE (2026-07-23): google-adk-to-foundry —
+   GCP Gemini (Agent Engine) consulting Azure gpt-5-mini (Foundry) over
+   BOTH platforms' native A2A endpoints, 16.9s, both sections labeled,
+   D27 rider honored. Auth: Entra service principal
+   (a2alab-adk-caller, Foundry User role on the account) in the engine
+   env — DefaultAzureCredential's EnvironmentCredential path; the lab
+   A2AClient's azure-ad scheme works unchanged from inside GCP. The
+   REVERSE direction (Foundry→ADK) is auth-blocked and recorded as such:
+   Foundry connections cannot mint Google IAM tokens. New ask_foundry_agent
+   tool (D27-guarded) + cross-cloud nav group + scenario; insight
+   capstone added to native-a2a-young ("cloud identity decides who may
+   call whom; the card says nothing about it").
+12. Remaining for WS3 close-out: component/screenshot rows; final
+   03-results sweep; insights pass over the full workstream.
 
 ---
 
