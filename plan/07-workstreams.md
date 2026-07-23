@@ -237,6 +237,33 @@ Work items:
 Foundry↔ADK native A2A cross-hyperscaler demo cell; App Insights obs
 source; insights updated.
 
+Status 2026-07-22 (environment + first answer):
+1. ✅ Foundry project `a2a-lab` (RG `a2a-lab`, eastus) created minimal —
+   the "recommended resources" bundle deliberately declined (AI Search
+   idle-billing trap); one AI Services resource + project, nothing else.
+2. ✅ `gpt-5-mini` deployed GlobalStandard 50K-TPM — the SAME model the
+   lab's OpenAI Agents SDK researcher runs: a same-model×two-platforms
+   cell that isolates the platform variable (WS5 isolates framework).
+3. ✅ .env: AZURE_* block; deps `azure-ai-projects azure-identity` as the
+   `azure` extra; `az login` ADC verified against the project.
+4. ✅ API surface mapped — azure-ai-projects 2.3.0 speaks the NEW Foundry
+   agent model: agent VERSIONS + PromptAgentDefinition + sessions (not
+   the older assistants-style threads/runs — generation-gap finding).
+   A2A/MCP are first-class in the SDK: `A2APreviewTool` (outbound — a
+   Foundry agent calling external A2A agents), `A2AProtocolConfiguration`
+   / `McpProtocolConfiguration` on agent endpoints (inbound), and
+   `ProtocolVersionRecord` (the predicted version-negotiation surface).
+5. ✅ `a2alab-foundry-researcher` v1 created (prompt agent); first live
+   answer via the project's Responses surface with an `agent_reference`
+   (13.7s, response id captured). API quirk logged: the `agent` property
+   is already deprecated in favor of typed `agent_reference` — preview
+   surfaces move fast.
+6. Next: outbound leg design — `A2APreviewTool` pointed at the hosted
+   Agentforce A2A shim (the twin consult happens PLATFORM-SIDE over A2A,
+   no client tool loop); inbound A2A endpoint config; then
+   `src/platforms/foundry/`, targets, SF_FOUNDRY_AGENT_ID twin,
+   `foundry_source.py` (App Insights/KQL).
+
 ---
 
 ## WS4 — LangGraph on LangGraph Platform
