@@ -28,7 +28,6 @@ groups:
     title: "Google ADK - Agentforce"
   - id: foundry-agentforce
     title: "Microsoft Foundry - Agentforce"
-    upcoming: WS3
   - id: langgraph-agentforce
     title: "LangGraph - Agentforce"
     upcoming: WS4
@@ -696,3 +695,65 @@ scenarios:
         caption: >-
           Platform-served A2A (preview): transport pinned, minimal card
           built locally — the card route 404s today, recorded honestly.
+
+  foundry-to-agentforce:
+    title: "Microsoft Foundry → Agentforce"
+    group: foundry-agentforce
+    summary: "The gpt-5-mini agent on Foundry Agent Service calls the Agentforce Agent
+      mid-answer — the twin consult happens PLATFORM-SIDE over A2A through the lab's
+      hosted shim."
+    description: "The lab's second platform whose agent tooling speaks A2A itself: you
+      invoke the Foundry prompt agent through the platform's own Responses surface
+      (agent_reference — no lab server in front), and mid-answer Foundry's A2A tool
+      calls the lab's AWS-hosted Agentforce shim — the platform composes the A2A call,
+      so the D27 delegation rider rides the prompt (the instructions append it), which
+      also routes the shim to the Foundry-paired twin. Foundry speaks the 0.3 A2A
+      dialect; the shim's compatibility layer translates to the 1.x envelope and back."
+    target: foundry-rest
+    via_bridge: false
+    status: live
+    prompt_suffix: " For the CRM picture you MUST use your A2A tool to ask the Agentforce
+      agent — do not answer account questions from memory; attribute that section
+      \"From the CRM (via Agentforce):\"."
+    tags:
+    - foundry
+    - azure
+    - gpt-5-mini
+    - agentforce
+    - a2a
+    note: "Same model (gpt-5-mini) as the lab's OpenAI Agents SDK researcher — a
+      same-model×two-platforms comparison. Warm the shim first for demos: Foundry's
+      A2A tool does NOT retry, so a cold twin account turn behind API Gateway's 29s
+      ceiling fails the tool call (and note the fabricated-attribution insight this
+      produced). The shim's interior Agent-API hops merge into the call path from the
+      Aurora trace store under their own trace id."
+    flow:
+    - source: remote-caller
+      target: foundry
+      protocol: foundry-api
+      detail: "You call the Foundry project's Responses surface with an agent_reference
+        — the platform's own front door (Entra ADC bearer; response id captured as the
+        platform-native join key)."
+    - source: foundry-researcher
+      target: gpt-5-mini
+      protocol: internal
+      detail: "The prompt agent runs platform-side (Foundry Agent Service) — the lab
+        has no seam inside; the response id is retrievable via the Responses API."
+    - source: foundry
+      target: agentforce-a2a-shim
+      protocol: a2a
+      detail: "Foundry's A2APreviewTool sends message/send (A2A 0.3 dialect) to the
+        lab's hosted shim — RemoteA2A connection carries x-lab-token; the shim's
+        compat layer translates 0.3 → 1.x. Platform-side: the lab records nothing
+        until the request reaches the shim."
+    - source: agentforce-client
+      target: agentforce
+      protocol: agentforce-api
+      detail: "The shim proxies to the GA Agent API — OAuth + session + message
+        against the Foundry-paired twin (rider-text routing), recorded to the Aurora
+        store and merged into this view."
+    - source: agentforce
+      target: agentforce-apex
+      protocol: internal
+      detail: "The twin's topic planner and Apex actions run inside Salesforce —
+        visible only through harvested execution logs (Observability section)."

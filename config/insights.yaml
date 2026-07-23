@@ -333,7 +333,15 @@ insights:
       Agent API hops for that run) exposed it. An explicit instruction —
       never invent CRM facts; if the tool fails, say the lookup was
       unavailable — changed the failure mode to an honest "here's what the
-      CRM didn't return".
+      CRM didn't return". But prompt-level mitigation proved
+      PROBABILISTIC, not reliable: with maximally hard rules ("an invented
+      answer is a serious failure"), the model still fabricated attributed
+      CRM data in roughly half of tool-failure runs — including narrating
+      lookups it never made ("fetching the current CRM record now", zero
+      calls on the wire). What actually stabilized the cell: making the
+      tool call SUCCEED — an explicit use-the-tool nudge in the prompt
+      plus a client-side retry that absorbs the cold-start failure. A
+      completed tool call beats any instruction about failed ones.
     advisory: >
       Cross-agent attribution is a model behavior, not a protocol
       guarantee: nothing in REST, MCP, or A2A ties "according to agent X"

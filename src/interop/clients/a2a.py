@@ -58,24 +58,49 @@ class A2AClient(RemoteAgentClient):
         self.transport = transport
 
     def _httpx_auth(self) -> httpx.Auth | None:
-        """Refreshing Google ADC bearer auth for platform endpoints with an
-        IAM data plane (auth: {scheme: google-adc} in targets.yaml) — a
-        static header would go stale when the token expires."""
-        if self.auth.get("scheme") != "google-adc":
-            return None
-        from google.auth import default as google_default
-        from google.auth.transport.requests import Request as AuthRequest
+        """Refreshing cloud-IAM bearer auth for platform endpoints with an
+        IAM data plane — a static header would go stale when the token
+        expires. Both hyperscaler A2A endpoints put their cloud identity
+        layer ABOVE the protocol (the agent card doesn't negotiate it):
+        auth: {scheme: google-adc} for Vertex AI Agent Engine,
+        auth: {scheme: azure-ad} for Foundry's incoming A2A (Entra-only —
+        key auth is not offered there)."""
+        scheme = self.auth.get("scheme")
+        if scheme == "google-adc":
+            from google.auth import default as google_default
+            from google.auth.transport.requests import Request as AuthRequest
 
-        credentials, _ = google_default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            credentials, _ = google_default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
 
-        class _AdcAuth(httpx.Auth):
-            def auth_flow(self, request):
-                if not credentials.valid:
-                    credentials.refresh(AuthRequest())
-                request.headers["Authorization"] = f"Bearer {credentials.token}"
-                yield request
+            class _AdcAuth(httpx.Auth):
+                def auth_flow(self, request):
+                    if not credentials.valid:
+                        credentials.refresh(AuthRequest())
+                    request.headers["Authorization"] = f"Bearer {credentials.token}"
+                    yield request
 
-        return _AdcAuth()
+            return _AdcAuth()
+        if scheme == "azure-ad":
+            import time as _time
+
+            from azure.identity import DefaultAzureCredential
+
+            credential = DefaultAzureCredential()
+            scope = self.auth.get("scope", "https://ai.azure.com/.default")
+            state: dict[str, Any] = {"token": None, "expires": 0.0}
+
+            class _EntraAuth(httpx.Auth):
+                def auth_flow(self, request):
+                    if _time.time() > state["expires"] - 120:
+                        access = credential.get_token(scope)
+                        state.update(token=access.token, expires=float(access.expires_on))
+                    request.headers["Authorization"] = f"Bearer {state['token']}"
+                    yield request
+
+            return _EntraAuth()
+        return None
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         req.trace_id = req.trace_id or new_trace_id()
