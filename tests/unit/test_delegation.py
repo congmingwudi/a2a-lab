@@ -76,3 +76,27 @@ def test_max_depth_env(monkeypatch):
 def test_refusal_names_seam_and_is_instructive():
     text = delegation.refusal("bridge")
     assert "bridge" in text and "circular" in text
+
+
+def test_lab_trace_line_in_rider():
+    # The lab-trace line (D27 extension) travels as rider text so the remote
+    # PLATFORM's own logs record which lab run caused the delegated turn.
+    message, meta = delegation.delegate(
+        "who owns the Apple account?",
+        caller="claude-sdk-agent",
+        platform="claude",
+        inbound_depth=0,
+        trace_id="abc123def4567890",
+    )
+    assert "lab-trace: abc123def4567890" in message
+    # rider parsing is unaffected by the extra line
+    req = AgentRequest(message=message)
+    assert delegation.depth_of(req) == 1
+    assert delegation.platform_of(req) == "claude"
+
+
+def test_no_trace_id_no_lab_trace_line():
+    message, _ = delegation.delegate(
+        "q", caller="c", platform="claude", inbound_depth=0, trace_id=None
+    )
+    assert "lab-trace" not in message

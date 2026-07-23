@@ -70,7 +70,7 @@ def _summarize(event: Any) -> tuple[str | None, Any]:
 
 
 class AnthropicSource(PlatformLogSource):
-    name = "anthropic"
+    name = "claude"  # renamed from "anthropic" (D33 naming pass); source module name unchanged
 
     def __init__(self, client=None, max_sessions: int | None = None):
         self._client = client

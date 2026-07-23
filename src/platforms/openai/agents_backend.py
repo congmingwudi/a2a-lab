@@ -129,6 +129,7 @@ def _build_agentforce_tool(inbound_depth: int = 0, trace_id: str | None = None):
             caller="openai-agents-sdk-agent",
             platform="openai",
             inbound_depth=inbound_depth,
+            trace_id=trace_id,
         )
         try:
             resp = await asyncio.wait_for(
@@ -174,6 +175,7 @@ def _build_agentforce_a2a_tool(inbound_depth: int = 0, trace_id: str | None = No
             caller="openai-agents-sdk-agent",
             platform="openai",
             inbound_depth=inbound_depth,
+            trace_id=trace_id,
         )
         try:
             return await asyncio.wait_for(

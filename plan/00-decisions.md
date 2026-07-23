@@ -654,3 +654,42 @@ With five platform pairs live, the console's demo ergonomics got a pass:
   not the experiment's — the lab-built outbound action stays visible in
   Agentforce→X directions where its bridge hop is a real traced event);
   the hosted shim renders as an explicit network node.
+
+## 2026-07-23 — D34: lab-trace rider line — text-level trace propagation into platform logs
+
+**Decision.** Extend the D27 delegation rider with a `lab-trace: <trace_id>`
+line, stamped by `delegation.delegate(..., trace_id=...)` at every
+delegation seam (the three ask_agentforce tool paths, the bridge, the ADK
+agent's outbound tools, the OpenAI backend, and the Apex direct invocable
+`A2ALabInvokeAgentEngine.withRider`). The observability harvester
+regex-extracts the id back out of each platform's raw logs
+(`ObsStore.session_lab_traces()`), and the console's executions table shows
+it as an "Experiment" column linking a platform's private session log to
+the lab run that caused it.
+
+**Why text, not protocol.** Protocol-level correlation already exists
+(X-Trace-Id header on REST, tool argument on MCP, metadata.trace_id on A2A)
+but dies at platform boundaries — the D28 incident proved at least one A2A
+client silently drops metadata, and no platform propagates a foreign header
+into its own execution logs. The message text is the only channel every
+platform preserves AND logs, so the trace id travels the same way the
+caller identity does: as words in the prompt.
+
+**Honest limits.**
+- Foundry's outbound rider is composed into static agent instructions
+  (PromptAgentDefinition), so it self-identifies (`caller-platform:
+  foundry`) but cannot carry a per-run id — its column can be joined by
+  response id (platform_ref) instead.
+- The id only appears in the logs of platforms that RECEIVED a delegated
+  turn; direct (non-delegated) runs still join via platform_ref only.
+- Salesforce session logs lag harvest by minutes-to-hours; the link
+  appears when the platform's own pipeline catches up.
+
+**Also in this change-set:** obs platform key renamed `anthropic` →
+`claude` (sessions/events/harvest rows migrated in sqlite + Aurora);
+executions table gains Experiment / Model / Tokens in-out columns (the
+common fields the five platforms' logs actually share: input/output tokens
+exist for claude, openai, adk, foundry — never salesforce; a model name is
+logged only by openai and foundry); insight file-ref chips now open the
+rendered doc via the whitelisted `/api/docs/{name}` endpoint (same popover
+as decision chips).

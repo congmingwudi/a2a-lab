@@ -860,11 +860,31 @@ function closeDecisionPopover() {
 function openDecisionPopover(chip) {
   const d = decisionLog[chip.textContent];
   if (!d) return;
+  showPopover(chip, d.id, d.markdown);
+}
+
+// Insight file-ref chips (plan/03-results.md, …) — same popover, but the
+// body is the whole whitelisted doc fetched from /api/docs (cached).
+const docCache = {};
+
+async function openDocPopover(chip) {
+  const name = chip.dataset.doc;
+  if (!(name in docCache)) {
+    try {
+      const r = await fetch(apiUrl("/api/docs/" + name));
+      docCache[name] = r.ok ? (await r.json()).markdown : null;
+    } catch { docCache[name] = null; }
+  }
+  if (docCache[name] == null) return;
+  showPopover(chip, name, docCache[name]);
+}
+
+function showPopover(chip, label, markdown) {
   const pop = document.createElement("div");
   pop.className = "dpopover";
-  pop.innerHTML = `<div class="dpop-head"><span class="dchip">${d.id}</span>`
+  pop.innerHTML = `<div class="dpop-head"><span class="dchip">${esc(label)}</span>`
     + `<button type="button" class="dpop-close" title="Close">×</button></div>`
-    + mdToHtml(d.markdown);
+    + mdToHtml(markdown);
   pop.addEventListener("click", ev => ev.stopPropagation());
   pop.querySelector(".dpop-close").addEventListener("click", closeDecisionPopover);
   document.body.appendChild(pop);
@@ -882,7 +902,8 @@ document.addEventListener("click", ev => {
   if (!chip) return;
   ev.preventDefault();  // chips inside <summary> must not toggle the details
   ev.stopPropagation();
-  openDecisionPopover(chip);
+  if (chip.dataset.doc) openDocPopover(chip);
+  else openDecisionPopover(chip);
 });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeDecisionPopover(); });
 
@@ -1753,7 +1774,7 @@ function obsDashboardHtml() {
 
 // Executions table state: sortable by any column, free-text filter.
 const obsTbl = { sort: "created_at", dir: -1, q: "" };
-const OBS_PLATFORM_CHIP = { anthropic: "claude", salesforce: "agentforce" };
+const OBS_PLATFORM_CHIP = { claude: "claude", salesforce: "agentforce" };
 
 window.obsTblSort = key => {
   if (obsTbl.sort === key) obsTbl.dir = -obsTbl.dir;
@@ -1771,11 +1792,14 @@ function obsSessionsHtml(platform) {
   let rows = obs.sessions.filter(s => !platform || s.platform === platform);
   const q = obsTbl.q.trim().toLowerCase();
   if (q) rows = rows.filter(s =>
-    [s.platform, s.native_id, s.title, s.status, s.caller_agent, s.created_at]
+    [s.platform, s.native_id, s.title, s.status, s.caller_agent, s.created_at,
+     s.lab_trace_id, s.model]
       .some(v => String(v || "").toLowerCase().includes(q)));
   const cols = [
     ["platform", "Platform"], ["native_id", "Native session"], ["title", "Title"],
-    ["caller_agent", "Caller agent"], ["status", "Status"], ["created_at", "Started"],
+    ["caller_agent", "Caller agent"], ["lab_trace_id", "Experiment"],
+    ["model", "Model"], ["tokens_in", "Tokens in/out"],
+    ["status", "Status"], ["created_at", "Started"],
     ["event_count", "Events"], ["lab_trace_count", "Lab traces"],
   ];
   const key = obsTbl.sort;
@@ -1801,6 +1825,13 @@ function obsSessionsHtml(platform) {
           <td class="fmono">${esc((s.native_id || "").slice(0, 22))}…</td>
           <td>${esc(s.title || "")}</td>
           <td class="fmono">${s.caller_agent ? esc(s.caller_agent) : "—"}</td>
+          <td>${s.lab_trace_id
+            ? `<a href="#" class="fmono" onclick="openTrace('${esc(s.lab_trace_id)}'); event.stopPropagation(); return false;">${esc(s.lab_trace_id.slice(0, 12))}…</a>`
+            : `<span class="fmono">—</span>`}</td>
+          <td class="fmono">${s.model ? esc(s.model) : "—"}</td>
+          <td class="fmono">${s.tokens_in != null || s.tokens_out != null
+            ? `${(s.tokens_in ?? 0).toLocaleString()} / ${(s.tokens_out ?? 0).toLocaleString()}`
+            : "—"}</td>
           <td>${esc(s.status || "")}</td>
           <td class="fmono">${esc((s.created_at || "").slice(0, 19))}</td>
           <td>${s.event_count || 0}</td>
@@ -2089,7 +2120,9 @@ function insightCardHtml(ins) {
       <p>${esc(prose(ins.advisory))}</p>
     </div>
     ${(ins.refs || []).length ? `<div class="refs">${ins.refs.map(r =>
-      `<span class="badge internal">${esc(r)}</span>`).join("")}</div>` : ""}
+      r.endsWith(".md")
+        ? `<button type="button" class="dchip docchip" data-doc="${esc(r)}">${esc(r)}</button>`
+        : `<span class="badge internal">${esc(r)}</span>`).join("")}</div>` : ""}
   </div>`;
 }
 

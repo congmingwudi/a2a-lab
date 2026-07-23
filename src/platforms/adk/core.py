@@ -153,6 +153,7 @@ def make_ask_agentforce(inbound_depth: int = 0, trace_id: str | None = None):
             caller="adk-gemini-agent",
             platform="adk",
             inbound_depth=inbound_depth,
+            trace_id=trace_id,
         )
         resp = await _get_agentforce_client().ask(
             AgentRequest(message=message, metadata=meta, trace_id=trace_id)
@@ -181,6 +182,7 @@ def make_ask_agentforce_a2a(inbound_depth: int = 0, trace_id: str | None = None)
             caller="adk-gemini-agent",
             platform="adk",
             inbound_depth=inbound_depth,
+            trace_id=trace_id,
         )
         try:
             return await af_channel.ask_via_shim(message, meta, trace_id=trace_id)
@@ -233,6 +235,7 @@ def make_ask_foundry_agent(inbound_depth: int = 0, trace_id: str | None = None):
             caller="adk-gemini-agent",
             platform="adk",
             inbound_depth=inbound_depth,
+            trace_id=trace_id,
         )
         resp = await _get_foundry_client().ask(
             AgentRequest(message=message, metadata=meta, trace_id=trace_id)

@@ -134,6 +134,7 @@ class ManagedBackend:
                     caller="claude-managed-agent",
                     platform="claude",
                     inbound_depth=inbound_depth,
+                    trace_id=trace_id,
                 )
                 client = self._get_agentforce_client()
                 resp = await client.ask(

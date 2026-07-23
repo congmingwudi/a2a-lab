@@ -72,7 +72,7 @@ def test_sqlite_sink_error_hop(tmp_path):
 def test_obs_store_upserts_and_summary(tmp_path):
     store = ObsStore(db_path=tmp_path / "lab.db")
     store.upsert_session(
-        "anthropic",
+        "claude",
         "sesn_1",
         title="a2a-lab s1",
         status="idle",
@@ -82,27 +82,27 @@ def test_obs_store_upserts_and_summary(tmp_path):
         raw={"id": "sesn_1"},
     )
     # second upsert replaces, not duplicates
-    store.upsert_session("anthropic", "sesn_1", title="a2a-lab s1", status="terminated")
+    store.upsert_session("claude", "sesn_1", title="a2a-lab s1", status="terminated")
     store.upsert_event(
-        "anthropic",
+        "claude",
         "sesn_1",
         "sevt_1",
         event_type="agent.message",
         summary="hello",
         raw={"type": "agent.message"},
     )
-    store.set_harvest_status("anthropic", "ok", "capped at 50")
+    store.set_harvest_status("claude", "ok", "capped at 50")
 
     summary = store.summary()
-    plat = summary["platforms"]["anthropic"]
+    plat = summary["platforms"]["claude"]
     assert plat["sessions"] == 1
     assert plat["events"] == 1
     assert plat["harvest"]["status"] == "ok"
 
-    sessions = store.list_sessions("anthropic")
+    sessions = store.list_sessions("claude")
     assert sessions[0]["status"] == "terminated"
     assert sessions[0]["event_count"] == 1
-    events = store.list_events("anthropic", "sesn_1")
+    events = store.list_events("claude", "sesn_1")
     assert events[0]["summary"] == "hello"
     store.close()
 
@@ -122,9 +122,9 @@ def test_obs_store_joins_lab_traces_via_platform_ref(tmp_path):
         hop.platform_ref = "sesn_joined"
 
     store = ObsStore(db_path=db)
-    store.upsert_session("anthropic", "sesn_joined", title="t")
+    store.upsert_session("claude", "sesn_joined", title="t")
     assert store.lab_traces_for("sesn_joined") == ["trace-9"]
-    assert store.list_sessions("anthropic")[0]["lab_trace_count"] == 1
+    assert store.list_sessions("claude")[0]["lab_trace_count"] == 1
     store.close()
 
 
@@ -184,9 +184,9 @@ def test_anthropic_source_harvests_sessions_and_events(tmp_path, monkeypatch):
     assert result.status == "ok"
     assert result.sessions == 1
     assert result.events == 2
-    sessions = store.list_sessions("anthropic")
+    sessions = store.list_sessions("claude")
     assert sessions[0]["native_id"] == "sesn_fake"
-    events = store.list_events("anthropic", "sesn_fake")
+    events = store.list_events("claude", "sesn_fake")
     types = {e["event_type"] for e in events}
     assert types == {"agent.message", "span.model_request_end"}
     msg = next(e for e in events if e["event_type"] == "agent.message")
@@ -220,7 +220,7 @@ def test_anthropic_source_reports_error_not_raise(tmp_path):
     result = AnthropicSource(client=ExplodingClient()).harvest(store)
     assert result.status == "error"
     assert "no api key" in result.detail
-    assert store.summary()["platforms"]["anthropic"]["harvest"]["status"] == "error"
+    assert store.summary()["platforms"]["claude"]["harvest"]["status"] == "error"
     store.close()
 
 
@@ -256,7 +256,7 @@ def test_analyst_sql_guard_and_readonly(tmp_path):
 
     db = tmp_path / "lab.db"
     store = ObsStore(db_path=db)
-    store.upsert_session("anthropic", "sesn_x", title="t")
+    store.upsert_session("claude", "sesn_x", title="t")
     store.close()
 
     ok = json.loads(_run_readonly_sql("SELECT COUNT(*) AS n FROM obs_sessions", db))
@@ -347,3 +347,22 @@ def test_summary_rolls_up_est_cost(tmp_path, monkeypatch):
     store.close()
     assert plat["tokens"] == 15
     assert plat["est_cost_usd"] == 0.0416
+
+
+def test_obs_store_extracts_caller_and_lab_trace_from_rider(tmp_path):
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    store.upsert_session("foundry", "resp_1", title="run")
+    # rider text as a platform logs it: embedded in a JSON-escaped blob
+    store.upsert_event(
+        "foundry",
+        "resp_1",
+        "evt_1",
+        event_type="invoke_agent",
+        raw={
+            "input": "question\n[A2A-LAB DELEGATION]\ncaller-agent: adk-researcher\n"
+            "caller-platform: adk\ndelegation-depth: 1\nlab-trace: abc123def4567890\n"
+        },
+    )
+    assert store.session_callers() == {"foundry:resp_1": "adk-researcher"}
+    assert store.session_lab_traces() == {"foundry:resp_1": "abc123def4567890"}
+    store.close()
