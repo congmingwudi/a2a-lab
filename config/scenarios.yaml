@@ -728,8 +728,8 @@ scenarios:
       produced). The shim's interior Agent-API hops merge into the call path from the
       Aurora trace store under their own trace id."
     flow:
-    - source: remote-caller
-      target: foundry
+    - source: foundry-client
+      target: foundry-rest
       protocol: foundry-api
       detail: "You call the Foundry project's Responses surface with an agent_reference
         — the platform's own front door (Entra ADC bearer; response id captured as the

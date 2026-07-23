@@ -395,7 +395,7 @@ def cell_details(t) -> dict:
             "flow": [
                 {
                     "source": "foundry-client",
-                    "target": "foundry",
+                    "target": name,
                     "protocol": "foundry-api",
                     "detail": (
                         "responses.create with an agent_reference on the "
@@ -842,12 +842,37 @@ def create_console_app(registry: Registry | None = None):
             )
         return {"targets": out, "default_question": DEFAULT_QUESTION}
 
+    # The delegating seam's identity per scenario — the rider exhibit shows
+    # the RESOLVED block this experiment injects, not placeholders.
+    def _scenario_rider(name: str) -> str | None:
+        if name.startswith("agentforce-to-"):
+            return delegation.rider_for("agentforce-twin-via-bridge", "agentforce")
+        by_name = {
+            "claude-to-agentforce": (
+                "claude-managed-agent"
+                if os.environ.get("CLAUDE_BACKEND", "managed") == "managed"
+                else "claude-sdk-agent",
+                "claude",
+            ),
+            "claude-aws-to-agentforce": ("claude-sdk-agent", "claude"),
+            "chatgpt-to-agentforce": ("openai-agents-sdk-agent", "openai"),
+            "adk-to-agentforce": ("adk-gemini-agent", "adk"),
+            "foundry-to-agentforce": ("foundry-agent", "foundry"),
+        }
+        pair = by_name.get(name)
+        return delegation.rider_for(*pair) if pair else None
+
     @app.get("/api/scenarios")
     async def scenarios():
         return {
             "groups": load_groups(),
             "scenarios": [
-                {"name": name, **spec, "components": components_for(set(spec.get("tags") or []))}
+                {
+                    "name": name,
+                    **spec,
+                    "components": components_for(set(spec.get("tags") or [])),
+                    **({"rider": r} if (r := _scenario_rider(name)) else {}),
+                }
                 for name, spec in load_scenarios().items()
             ],
         }

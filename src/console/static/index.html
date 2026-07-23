@@ -1012,10 +1012,17 @@ function mergedTurnTrace(t) {
   const lo = (w ? w.start : t.started || 0) - 2;
   const hi = ((w && w.end) || Date.now() / 1000) + 2;
   const owned = ownedTraceIds();
+  // Leg heads the lab recognizes: Apex-initiated bridge legs, the hosted
+  // shim's envelope + proxy hops (Aurora-merged, own trace ids), and
+  // rider-labeled platform callers.
+  const LEG_SOURCES = new Set(["agentforce-apex", "agentforce-client",
+    "foundry", "adk", "claude", "openai"]);
   const legs = traces.filter(x =>
     x.trace_id !== t.trace_id && !owned.has(x.trace_id) &&
     (x.started || 0) >= lo && (x.started || 0) <= hi &&
-    x.hops.length && (x.hops[0].target === "bridge" || x.hops[0].source === "agentforce-apex"));
+    x.hops.length && (x.hops[0].target === "bridge"
+      || x.hops[0].target === "agentforce-service-agent"
+      || LEG_SOURCES.has(x.hops[0].source)));
   if (!legs.length) return t;
   const hops = [...t.hops, ...legs.flatMap(l => l.hops.map(h => ({ ...h, _leg: l.trace_id })))]
     .sort((a, b) => (a.ts - b.ts) || ((a.hop_seq || 0) - (b.hop_seq || 0)));
@@ -1914,6 +1921,9 @@ function routingSectionHtml(key) {
 function riderSectionHtml() {
   const d = labConfig && labConfig.delegation;
   if (!d) return "";
+  const exp = currentExperiment();
+  const rider = (exp && exp.rider) || d.rider;
+  const resolved = !!(exp && exp.rider);
   return `
   <div class="flow">
     <details>
@@ -1922,8 +1932,11 @@ function riderSectionHtml() {
         seams (${(d.seams || []).map(esc).join(", ")}) to every cross-agent call — it carries the caller's
         identity and the delegation depth with a do-not-call-back directive, max depth ${d.max_depth}.
         A design-decision exhibit (ADR D27), not an editable prompt.</span></div>
-      <pre class="rider-block" aria-readonly="true">${esc(d.rider)}</pre>
-      ${d.callers ? `<div class="desc"><span class="stat">The &lt;placeholders&gt; are display-only —
+      <pre class="rider-block" aria-readonly="true">${esc(rider)}</pre>
+      ${resolved ? `<div class="desc"><span class="stat">Resolved for THIS experiment's delegating
+        seam — this is the exact block its outbound question carries (verify it in any delegated
+        hop's raw request payload).</span></div>`
+      : d.callers ? `<div class="desc"><span class="stat">The &lt;placeholders&gt; are display-only —
         real injected blocks name the delegating seam explicitly: ${d.callers.map(esc).join(" · ")}.
         See any delegated hop's raw request payload for the block as sent on the wire.</span></div>` : ""}
     </details>

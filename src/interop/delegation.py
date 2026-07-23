@@ -105,6 +105,12 @@ def refusal(seam: str) -> str:
     )
 
 
+def rider_for(caller: str, platform: str, depth: int = 1) -> str:
+    """The exact rider a given seam injects — display surfaces show the
+    resolved block for the experiment at hand."""
+    return _RIDER_TEMPLATE.format(caller=caller, platform=platform, depth=depth).strip()
+
+
 def example_rider() -> str:
     """The rider with placeholder values — for display surfaces (the console
     shows it read-only in the run panel so the injection is a visible design
