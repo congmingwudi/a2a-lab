@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from observability import ObsStore
 from observability.adk_source import AdkSource
+from observability.foundry_source import FoundrySource
 from observability.anthropic_source import AnthropicSource
 from observability.openai_source import OpenAISource
 from observability.salesforce_source import SalesforceSource
@@ -30,6 +31,7 @@ SOURCES = {
     "salesforce": SalesforceSource,
     "openai": OpenAISource,
     "adk": AdkSource,
+    "foundry": FoundrySource,
 }
 
 
