@@ -123,6 +123,31 @@ targets:
   # both ends native, no bridge, no shim. IAM data plane (google-adc
   # bearer), card served at /v1/card (not /.well-known). Scale-to-zero
   # (min_instances=0, personal GCP account) — hence warmup.
+  foundry-rest:
+    platform: foundry
+    protocol: foundry-api
+    # The platform's own front door (D15 entry): the project's Responses
+    # surface with an agent_reference. No endpoint here — the client builds
+    # it from AZURE_FOUNDRY_PROJECT_ENDPOINT (Entra ADC auth). 100s: the
+    # client retries a failed platform-side tool call once (cold shim leg
+    # ~30s + warmed retry ~40s must both fit).
+    status: native
+    options:
+      timeout: 100
+      agent_name: a2alab-foundry-researcher
+  foundry-a2a:
+    platform: foundry
+    protocol: a2a
+    # Foundry Agent Service incoming A2A (preview): platform-native
+    # endpoint, Entra-only auth (no key option), JSONRPC binding, cards
+    # served per protocol version (v1.0 / v0.3) at custom paths.
+    endpoint: ${AZURE_FOUNDRY_PROJECT_ENDPOINT}/agents/a2alab-foundry-researcher/endpoint/protocols/a2a
+    status: native
+    options:
+      timeout: 65
+      card_path: agentCard/v1.0
+    auth:
+      scheme: azure-ad
   google-adk-a2a:
     aliases: [adk-a2a]  # the ADK twin's published script pins this bridge target
     platform: adk

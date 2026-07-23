@@ -126,4 +126,8 @@ class Registry:
             from interop.clients.agentcore import AgentCoreClient
 
             return AgentCoreClient.from_target(target)
+        if target.protocol == "foundry-api":
+            from platforms.foundry.client import FoundryClient
+
+            return FoundryClient.from_target(target)
         raise ValueError(f"no client for protocol '{target.protocol}'")

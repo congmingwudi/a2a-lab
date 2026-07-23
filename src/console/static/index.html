@@ -25,7 +25,7 @@
        lab=gray, aws=solid squid-ink. Protocol badges above are separate. */
     --chip-agentforce: var(--agentforce-api); --chip-claude: #d97757;
     --chip-openai: #ececec; --chip-google: #34a853;
-    --chip-lab: #969696; --chip-aws: #232f3e;
+    --chip-lab: #969696; --chip-aws: #232f3e; --chip-foundry: #0078d4;
     /* labs.agentforce.com hero tokens */
     --hero-sub: #8fc0e8; --hero-body: rgba(244, 249, 255, .9); --hero-link: #57a9f5;
     --wordmark-grad: linear-gradient(100deg, #09decb 0%, #3fc7d8 22%, #7db9e8 48%, #a8a2ec 74%, #c99df0 100%);
@@ -120,6 +120,7 @@
   .badge.claude, .badge.managed-agents, .badge.agent-sdk { --tag: var(--chip-claude); }
   .badge.openai, .badge.agents-sdk { --tag: var(--chip-openai); }
   .badge.adk, .badge.gemini, .badge.agent-engine { --tag: var(--chip-google); }
+  .badge.foundry, .badge.azure, .badge.foundry-api, .badge.gpt-5-mini { --tag: var(--chip-foundry); }
   .badge.bridge, .badge.daily-brief { --tag: var(--chip-lab); }
   /* AWS chips break the tinted formula on purpose: an AWS-console-style
      SOLID squid-ink pill with near-white text — legible on both themes; the
@@ -863,7 +864,7 @@ async function loadDecisions() {
 const PROTO_COLOR = {
   rest: "var(--rest)", mcp: "var(--mcp)", a2a: "var(--a2a)",
   "agentforce-api": "var(--agentforce-api)", "managed-agents-api": "var(--managed-agents-api)",
-  internal: "var(--internal)",
+  "foundry-api": "var(--chip-foundry)", internal: "var(--internal)",
 };
 
 function participantsOf(t) {

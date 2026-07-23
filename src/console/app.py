@@ -349,6 +349,72 @@ def cell_details(t) -> dict:
             ],
             "question": question,
         }
+    if platform == "foundry" and proto == "a2a":
+        return {
+            "blurb": (
+                "The client calls the Foundry research agent through Foundry "
+                "Agent Service's own incoming A2A endpoint — the lab's second "
+                "platform-native A2A cell. Auth is Microsoft Entra only (no "
+                "key option), the binding is JSONRPC, and the platform "
+                "serves version-specific agent cards (v1.0 and v0.3) — the "
+                "same version spectrum the lab bridges in its own servers."
+            ),
+            "flow": [
+                {
+                    "source": "remote-caller",
+                    "target": name,
+                    "protocol": "a2a",
+                    "detail": (
+                        "message/send against the agent's A2A endpoint — "
+                        "Entra bearer (azure-ad ADC), v1.0 card fetched from "
+                        "the version-specific path agentCard/v1.0."
+                    ),
+                },
+                {
+                    "source": "foundry-researcher",
+                    "target": "gpt-5-mini",
+                    "protocol": "internal",
+                    "detail": (
+                        "The prompt agent runs inside Foundry Agent Service "
+                        "— platform-interior; the response id is the "
+                        "retrievable join key."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    if proto == "foundry-api":
+        return {
+            "blurb": (
+                "The client calls the Foundry research agent through the "
+                "platform's own Responses surface (agent_reference) — the "
+                "native front door, sibling of the Agent API cells. Entra "
+                "ADC auth; the response id rides as platform_ref."
+            ),
+            "flow": [
+                {
+                    "source": "foundry-client",
+                    "target": "foundry",
+                    "protocol": "foundry-api",
+                    "detail": (
+                        "responses.create with an agent_reference on the "
+                        "project endpoint — Entra bearer, "
+                        "previous_response_id chains the conversation."
+                    ),
+                },
+                {
+                    "source": "foundry-researcher",
+                    "target": "gpt-5-mini",
+                    "protocol": "internal",
+                    "detail": (
+                        "The prompt agent runs inside Foundry Agent Service "
+                        "— platform-interior; tool calls (the Agentforce "
+                        "A2A consult) happen platform-side."
+                    ),
+                },
+            ],
+            "question": question,
+        }
     if platform == "adk":
         return {
             "blurb": (
@@ -589,6 +655,7 @@ _PLATFORM_TAGS = {
     "claude": {"claude", "managed-agents"},
     "agentforce": {"agentforce"},
     "openai": {"openai"},
+    "foundry": {"foundry", "azure"},
 }
 
 

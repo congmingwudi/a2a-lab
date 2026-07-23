@@ -295,12 +295,39 @@ Status 2026-07-22 (environment + first answer):
      unauthenticated until 2026-07-22. Fixed + env-gated header debug
      added. Foundry twin routing entry added to the shim proxy
      (rider-text channel; SF_FOUNDRY_AGENT_ID once the twin exists).
-7. Next: `src/platforms/foundry/` outbound client + `foundry-a2a`/
-   `foundry-rest` targets (inbound: "Enable incoming A2A on a Foundry
-   agent" — the second platform-native A2A endpoint); Foundry-paired
-   twin (SF_FOUNDRY_AGENT_ID); console scenarios; `foundry_source.py`
-   (App Insights/KQL); matrix cells; insights (version spectrum,
-   fabrication, connection-category trap).
+7. ✅ INBOUND LEG + PLATFORM PACKAGE (2026-07-22 second session):
+   - Incoming A2A enabled on the agent (PATCH card + protocol config —
+     portal/SDK can't set the card yet): the lab's SECOND platform-native
+     A2A endpoint. Foundry serves BOTH protocol versions with
+     version-specific cards (agentCard/v1.0 + v0.3, one authored card
+     projected into both shapes — the same dual-generation answer the lab
+     built for its own servers), defaults to 0.3 without a version
+     header, Entra-only auth (no key option — cloud IAM above the
+     protocol AGAIN, Microsoft edition).
+   - `foundry-a2a` cell GREEN via the lab's generic A2AClient + new
+     azure-ad auth scheme (17.4s). `foundry-rest` native entry via new
+     `src/platforms/foundry/client.py` (Responses surface,
+     agent_reference, previous_response_id sessions, response id as
+     platform_ref).
+   - `deploy/foundry/provision_foundry.py` codifies the whole Azure side
+     (connection + agent version from core.FOUNDRY_INSTRUCTIONS + card/
+     endpoint PATCH) — validated by provisioning v4 live.
+   - Console: foundry-to-agentforce scenario (group live), foundry-api
+     protocol badge + Azure-blue chips, cell blurbs/flows.
+   - Reliability learnings: gpt-5-mini SKIPS the A2A tool call for CRM
+     questions ~half the time under default tool_choice (roleplayed
+     lookups, honest refusals, or fabrication — see the updated
+     fabricated-attribution insight: hard rules alone stayed ~50%
+     fabrication under tool failure). Fixed operationally: scenario
+     prompt_suffix mandating the tool + FoundryClient one-retry on
+     platform-side tool failure (absorbs the cold shim leg under the
+     API GW 29s ceiling). Verified: repeated runs return REAL Omega CRM
+     data in 36-44s.
+8. Next: Foundry-paired twin (SF_FOUNDRY_AGENT_ID + Agent Script clone,
+   action → bridge target foundry-a2a) for the Agentforce→Foundry
+   direction; `foundry_source.py` obs (needs App Insights attached to
+   the project — deliberately not provisioned yet); Foundry↔ADK
+   cross-hyperscaler cell; matrix cells recorded → 03-results.
 
 ---
 

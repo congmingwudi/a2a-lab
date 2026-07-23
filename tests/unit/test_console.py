@@ -147,8 +147,8 @@ def test_scenarios_listed(tmp_path, monkeypatch):
 
 
 def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
-    """The two-level Experiments nav: yaml-ordered groups (3 live pairs +
-    3 upcoming workstream placeholders), every scenario bucketed into one."""
+    """The two-level Experiments nav: yaml-ordered groups (4 live pairs +
+    2 upcoming workstream placeholders), every scenario bucketed into one."""
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
     data = client.get("/api/scenarios").json()
@@ -160,7 +160,7 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "langgraph-agentforce",
         "strands-agentforce",
     ]
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 3 + [True] * 3
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 4 + [True] * 2
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
