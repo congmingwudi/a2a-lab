@@ -112,6 +112,7 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
                 caller="agentforce-twin-via-bridge",
                 platform="agentforce",
                 inbound_depth=inbound_depth,
+                trace_id=req.trace_id,
             )
             req.metadata = {**(req.metadata or {}), **meta}
             resp = await get_client(target_name).ask(req)

@@ -86,11 +86,30 @@ def allowed(req: AgentRequest) -> bool:
     return depth_of(req) < max_depth()
 
 
-def delegate(message: str, *, caller: str, platform: str, inbound_depth: int) -> tuple[str, dict]:
+def delegate(
+    message: str,
+    *,
+    caller: str,
+    platform: str,
+    inbound_depth: int,
+    trace_id: str | None = None,
+) -> tuple[str, dict]:
     """Compose an outbound delegation: (message + rider, metadata) at
-    depth inbound_depth + 1. Callers check ``allowed()`` first."""
+    depth inbound_depth + 1. Callers check ``allowed()`` first.
+
+    When ``trace_id`` is given, the rider carries a ``lab-trace:`` line —
+    TEXT-level trace propagation through platforms that support no tracing
+    headers: the experiment's trace id lands verbatim in the remote
+    platform's own logs (Agent API messages, Foundry span inputs, CMA
+    events), where the obs harvest extracts it and links each platform's
+    native session back to the lab run that caused it."""
     depth = inbound_depth + 1
     rider = _RIDER_TEMPLATE.format(caller=caller, platform=platform, depth=depth)
+    if trace_id:
+        rider = rider.replace(
+            f"delegation-depth: {depth}\n",
+            f"delegation-depth: {depth}\nlab-trace: {trace_id}\n",
+        )
     meta = {"delegation": {"caller": caller, "platform": platform, "depth": depth}}
     return message + rider, meta
 

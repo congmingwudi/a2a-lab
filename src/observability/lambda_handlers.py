@@ -37,7 +37,8 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
     from observability.salesforce_source import SalesforceSource
 
     sources = {
-        "anthropic": AnthropicSource,
+        "claude": AnthropicSource,
+        "anthropic": AnthropicSource,  # legacy alias for hosted invokes
         "salesforce": SalesforceSource,
         "openai": OpenAISource,
         # No GCP credentials in the hosted Lambda — reports blocked/error,

@@ -27,7 +27,7 @@ from observability.openai_source import OpenAISource
 from observability.salesforce_source import SalesforceSource
 
 SOURCES = {
-    "anthropic": AnthropicSource,
+    "claude": AnthropicSource,
     "salesforce": SalesforceSource,
     "openai": OpenAISource,
     "adk": AdkSource,

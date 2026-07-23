@@ -234,6 +234,25 @@ class ObsStore:
                     out[key] = match.group(1)
         return out
 
+    def session_lab_traces(self) -> dict[str, str]:
+        """(platform:native_id) -> lab trace id, extracted from the
+        `lab-trace:` rider line (D27 extension) visible inside harvested
+        events — the text-level join between a platform's own execution
+        logs and the lab run that caused them, surviving hops where no
+        header or metadata field does."""
+        rider = re.compile(r"lab-trace:\\?n?\s*([0-9a-fA-F-]{8,})")
+        out: dict[str, str] = {}
+        for row in self._conn.execute(
+            """SELECT platform, native_session_id, raw_json FROM obs_events
+               WHERE raw_json LIKE '%lab-trace%'"""
+        ):
+            key = f"{row['platform']}:{row['native_session_id']}"
+            if key not in out:
+                match = rider.search(row["raw_json"] or "")
+                if match:
+                    out[key] = match.group(1)
+        return out
+
     def list_sessions(self, platform: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         q = """SELECT s.*, (
                  SELECT COUNT(*) FROM obs_events e

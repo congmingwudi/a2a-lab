@@ -61,7 +61,7 @@ public with sharing class A2ALabInvokeAgentEngine {
             'messageId' => generateTraceId(),
             'role' => 'ROLE_USER',
             'parts' => new List<Object>{
-                new Map<String, Object>{ 'text' => withRider(req.question) }
+                new Map<String, Object>{ 'text' => withRider(req.question, traceId) }
             },
             'metadata' => new Map<String, Object>{
                 'trace_id' => traceId,
@@ -133,12 +133,13 @@ public with sharing class A2ALabInvokeAgentEngine {
      * emits, so the remote seams' depth checks and the prompt-level
      * do-not-call-back directive both keep working on the bridgeless path.
      */
-    private static String withRider(String question) {
+    private static String withRider(String question, String traceId) {
         return question
             + '\n\n[A2A-LAB DELEGATION]\n'
             + 'caller-agent: agentforce-twin-direct\n'
             + 'caller-platform: agentforce\n'
             + 'delegation-depth: 1\n'
+            + 'lab-trace: ' + traceId + '\n'
             + 'directive: You are the delegated agent for this request. Answer it\n'
             + 'yourself from your own knowledge, tools, and data. Do NOT call back\n'
             + 'to the calling agent and do NOT delegate this request onward to any\n'

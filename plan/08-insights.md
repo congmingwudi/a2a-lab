@@ -154,6 +154,22 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** "Can you audit what your agents did across platforms?" is usually unanswerable today. Any multi-platform agent estate needs its own trace layer: a correlation id on every hop, raw payloads recorded, platform logs harvested where APIs exist. Budget for this on day one.
 
+### A caller-identity rider makes remote platforms' own logs attribute who really asked — provenance you get without any platform cooperation
+
+*Status: measured · refs: D27, D34, plan/05-observability.md*
+
+**What the lab showed:** Every delegated request in the lab carries a plain-text rider naming the calling agent and platform (the D27 delegation guard). Because the rider rides inside the message text, it lands verbatim in the RECEIVING platform's own execution logs — no integration, no agreement, no platform feature required. Harvested across five platforms (2026-07-23): 61 of 212 platform-logged sessions self-attribute their caller (58 in Salesforce's session logs, where the rider appears in 141 logged events; 3 in Anthropic's) — exactly the sessions that were delegated turns rather than direct ones. The console surfaces this as a first-class "caller agent" column over logs the lab never wrote.
+
+**Advisor take:** In a multi-vendor agent estate, assume the remote platform's audit trail will say a generic integration user asked — unless your requests say otherwise. A caller-identity convention in the message text is the cheapest provenance mechanism that exists: it needs no partner cooperation and it survives every hop, because the message text is the one channel every platform preserves and logs.
+
+### A trace id carried in the message text links each platform's private logs back to the exact cross-platform run that caused them
+
+*Status: observed · refs: D27, D34, plan/05-observability.md*
+
+**What the lab showed:** Protocol-level correlation dies at platform boundaries — REST headers, MCP arguments, and A2A metadata are each dropped by at least one hop in the lab (one A2A client silently discarded metadata entirely, D28). So the lab extended the delegation rider with a `lab-trace:` line: the originating run's trace id, as message text (D34). Every delegation seam stamps it — the Python seams, the Apex invocable, even the GCP-hosted ADK agent calling Azure — and the harvester regex-extracts it from whatever shape each platform's logs take. The result is one historical view the platforms themselves can't offer: pick a lab experiment and see the private execution logs it left behind inside Salesforce, Anthropic, and Azure, joined by a value that traveled only as words in the prompt. Known honest gap: a platform whose agent identity is a static prompt (Foundry's prompt-composed rider) can identify itself but cannot carry a per-run id outbound.
+
+**Advisor take:** Distributed tracing for agent estates won't come from the protocols soon — none of REST, MCP, or A2A propagates a correlation id end-to-end today, and platforms drop what they don't understand. Put the correlation id in the message text as a convention and harvest it back out of each platform's logs. It's inelegant and it works — and it's the only mechanism the lab found that survives every seam, including ones you don't operate.
+
 ## Method
 
 ### Interop claims deserve wire-level evidence — insist that demos enter through the real platform agent

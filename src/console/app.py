@@ -896,6 +896,20 @@ def create_console_app(registry: Registry | None = None):
         chips whose popover shows the decision's markdown."""
         return {"decisions": load_decisions()}
 
+    @app.get("/api/docs/{name:path}")
+    async def doc(name: str):
+        """Whitelisted lab docs (plan/*.md + README.md) as raw markdown —
+        the UI renders insight file-ref chips into popovers from these,
+        same pattern as the decision chips."""
+        repo = Path.cwd().resolve()
+        candidate = (repo / name).resolve()
+        allowed = candidate == repo / "README.md" or (
+            candidate.parent == repo / "plan" and candidate.suffix == ".md"
+        )
+        if not allowed or not candidate.exists():
+            raise HTTPException(status_code=404, detail=f"unknown doc: {name}")
+        return {"name": name, "markdown": candidate.read_text(encoding="utf-8")}
+
     @app.get("/api/config")
     async def config():
         reg = get_registry()
@@ -1327,7 +1341,7 @@ def create_console_app(registry: Registry | None = None):
     # The honest capability matrix (plan/05-observability.md) — rendered
     # live in the coverage panel next to what was actually harvested.
     OBS_CAPABILITIES = {
-        "anthropic": {
+        "claude": {
             "label": "Claude Managed Agents",
             "can": [
                 "list sessions (paginated)",
@@ -1414,10 +1428,28 @@ def create_console_app(registry: Registry | None = None):
             # D27 rider self-identification, as recorded by the platforms'
             # own logs — surfaced as a first-class column.
             callers = store.session_callers() if hasattr(store, "session_callers") else {}
+            lab_traces = store.session_lab_traces() if hasattr(store, "session_lab_traces") else {}
             for s_row in sessions:
-                s_row["caller_agent"] = callers.get(
-                    f"{s_row.get('platform')}:{s_row.get('native_id')}"
-                )
+                key = f"{s_row.get('platform')}:{s_row.get('native_id')}"
+                s_row["caller_agent"] = callers.get(key)
+                # The lab-trace rider line (text-level join) beats platform_ref
+                # counting: it survives into platforms the lab never traced.
+                s_row["lab_trace_id"] = lab_traces.get(key)
+                # Cross-platform common fields (survey: input/output tokens
+                # exist for claude/openai/adk/foundry; model only where the
+                # platform logs it — openai/foundry session raw).
+                try:
+                    usage = json.loads(s_row.get("usage_json") or "{}")
+                    tin, tout = usage.get("input_tokens"), usage.get("output_tokens")
+                    s_row["tokens_in"] = int(tin) if tin is not None else None
+                    s_row["tokens_out"] = int(tout) if tout is not None else None
+                except (ValueError, TypeError):
+                    s_row["tokens_in"] = s_row["tokens_out"] = None
+                try:
+                    raw = json.loads(s_row.get("raw_json") or "{}")
+                    s_row["model"] = (raw.get("model") or None) if isinstance(raw, dict) else None
+                except (ValueError, TypeError):
+                    s_row["model"] = None
             return {"sessions": sessions}
         finally:
             store.close()
@@ -1441,7 +1473,7 @@ def create_console_app(registry: Registry | None = None):
         from observability.salesforce_source import SalesforceSource
 
         sources = {
-            "anthropic": AnthropicSource,
+            "claude": AnthropicSource,
             "salesforce": SalesforceSource,
             "openai": OpenAISource,
             "adk": AdkSource,
