@@ -989,8 +989,25 @@ def create_console_app(registry: Registry | None = None):
             # sessions. A timeout is recorded, not raised — a >65s cold start
             # IS a data point.
             client = get_registry().client_for(name, exact=True)
+            # warmup_delegated_platform: compose the ping as a delegated
+            # request from that platform — the hosted shim keys its shared
+            # Salesforce sessions by rider platform, so this pre-creates
+            # the exact session the platform's next real call will ride
+            # (and the rider guard keeps the twin's answer fast: no
+            # external-research step on delegated turns).
+            ping = WARMUP_PING
+            ping_meta: dict = {}
+            if target.options.get("warmup_delegated_platform"):
+                ping, ping_meta = delegation.delegate(
+                    WARMUP_PING,
+                    caller="console-warmup",
+                    platform=str(target.options["warmup_delegated_platform"]),
+                    inbound_depth=0,
+                )
             try:
-                resp = await client.ask(AgentRequest(message=WARMUP_PING, trace_id=new_trace_id()))
+                resp = await client.ask(
+                    AgentRequest(message=ping, metadata=ping_meta, trace_id=new_trace_id())
+                )
                 ok, note = True, (resp.text or "").strip()
             finally:
                 await client.aclose()

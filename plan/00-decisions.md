@@ -594,3 +594,36 @@ Insight updated: observability-fragmentation now records the punchline
 that GCP is the inverse shape — no session/turn API, but the only platform
 handing over token counts AND its actual billing meters, making the GCP
 agent the only one the lab can price per day.
+
+## 2026-07-23 — D32: Warm-up coverage & the serverless split — what colds, what doesn't
+
+The console's warm-up panel covers exactly the targets backed by
+**scale-to-zero containers** — the runtimes that pay a measured cold
+start (warm figures from plan/03-results.md):
+
+| runtime | cold | warm p50 |
+|---|---|---|
+| claude-agentcore (Bedrock AgentCore) | ~56s | 8.4s |
+| openai-agentcore (Bedrock AgentCore) | ~31s | 10.3s |
+| google-adk-a2a (Vertex AI Agent Engine, min-instances=0) | ~34s | 2.6s |
+
+**Foundry is deliberately absent**: prompt agents are serverless on the
+platform's always-on model pool (billed per token) — measured cold ≈ warm
+(10–17s either way), nothing of ours to wake. Same class as Anthropic
+Managed Agents (whose ~5–10s first-turn cost is session provisioning,
+not a runtime cold start). The split matters architecturally:
+container-backed serverless (AgentCore, Agent Engine) trades idle cost
+for cold starts; token-serverless prompt platforms (Foundry, CMA) trade
+runtime control for no-cold-start serving.
+
+The Foundry **direction** still has a cold element — not the agent, the
+**hosted shim leg**: Lambda init ~2s + a fresh Salesforce session + the
+twin's first account turn (~20–27s) straddles API Gateway's hard 29s
+ceiling, and third-party callers (Foundry's A2A tool) don't retry.
+Mitigations, layered: the FoundryClient one-retry (rides the warmed
+session) and — this decision — **warm-the-shim as a first-class panel
+entry**: `agentforce-a2a-shim` is now a real target (cell + warm-up), and
+its warm-up ping is composed as a *delegated* request
+(`options.warmup_delegated_platform: foundry`) so it pre-creates the
+platform-keyed twin session the next real call will ride; the D27 rider
+on the ping keeps the twin's answer fast (no external-research step).

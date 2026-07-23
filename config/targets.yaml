@@ -123,6 +123,22 @@ targets:
   # both ends native, no bridge, no shim. IAM data plane (google-adc
   # bearer), card served at /v1/card (not /.well-known). Scale-to-zero
   # (min_instances=0, personal GCP account) — hence warmup.
+  agentforce-a2a-shim:
+    platform: agentforce
+    protocol: a2a
+    # The AWS-hosted shim (D28) as a first-class cell + warm-up entry: the
+    # fail-safe for demo cold starts on platform-side tool calls (Foundry's
+    # A2A tool does not retry). The delegated warm-up ping pre-creates the
+    # foundry-keyed twin session behind API Gateway's 29s ceiling.
+    endpoint: ${AF_SHIM_A2A_URL}
+    status: via-shim
+    options:
+      timeout: 35
+      warmup: true
+      warmup_delegated_platform: foundry
+    auth:
+      header_name: x-lab-token
+      header_value: ${A2ALAB_TOKEN}
   agentforce-foundry-rest:
     platform: agentforce
     protocol: agentforce-api
