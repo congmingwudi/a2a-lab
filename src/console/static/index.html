@@ -2401,6 +2401,7 @@ function landingHtml() {
 window.goHome = () => { view = null; renderSidebar(); renderMain(); };
 
 window.browseCells = () => {
+  ensureSideOpen();
   const acc = document.getElementById("accCells");
   acc.open = true;
   acc.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -2410,6 +2411,7 @@ window.browseCells = () => {
 // Experiment workspace (main canvas)
 // ---------------------------------------------------------------------------
 window.openExperiment = (kind, name, tab) => {
+  ensureSideOpen();
   pushNav();
   view = { type: "experiment", kind, name };
   activeTab = tab || "run";
@@ -2982,6 +2984,16 @@ window.setTheme = theme => {
 window.toggleSide = () => {
   const closed = document.querySelector("main").classList.toggle("side-closed");
   try { localStorage.setItem("a2a-side-open", closed ? "0" : "1"); } catch (e) { /* ignore */ }
+};
+
+// Navigation from the landing canvas implies wanting the panel: opening an
+// experiment or browsing protocol calls auto-opens the Control Panel.
+window.ensureSideOpen = () => {
+  const main = document.querySelector("main");
+  if (main.classList.contains("side-closed")) {
+    main.classList.remove("side-closed");
+    try { localStorage.setItem("a2a-side-open", "1"); } catch (e) { /* ignore */ }
+  }
 };
 (() => {
   let saved = null;
