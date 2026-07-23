@@ -138,6 +138,7 @@ _TWIN_BY_TARGET = {
     "agentforce-foundry-rest": "Foundry-paired",
 }
 
+
 def _lab_server_entry(t, agent_label: str) -> dict:
     transport = {
         "rest": (
@@ -1366,13 +1367,14 @@ def create_console_app(registry: Registry | None = None):
         "foundry": {
             "label": "Microsoft Foundry",
             "can": [
-                "response retrieval by id (Responses API — the join key the client captures)",
-                "App Insights + KQL over agent runs (once attached — deliberately not provisioned yet)",
-                "agent/version/session admin APIs (list, get, session log streams)",
+                "agent-semantic OTel spans via App Insights KQL (invoke_agent / chat / execute_tool)",
+                "token usage per model call (gen_ai.usage.*) + full input/output messages",
+                "the platform's OWN record of its A2A tool calls (execute_tool spans, durations)",
+                "response id = the lab's platform_ref — turns join to wire traces out of the box",
             ],
             "cannot": [
-                "anything harvested yet — foundry_source.py lands with App Insights (WS3 next)",
-                "per-call A2A tool telemetry on the preview surface",
+                "raw wire bytes of the A2A tool call (span metadata only — the shim's wiretap has those)",
+                "~2-4 min ingestion lag (App Insights pipeline)",
             ],
         },
         "adk": {

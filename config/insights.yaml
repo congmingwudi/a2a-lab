@@ -186,7 +186,15 @@ insights:
       counts per model AND the literal billing meters (vCPU-seconds /
       GiB-seconds of allocated compute), so the lab's dashboard can show an
       estimated dollar cost per day for the GCP agent while the platforms
-      with rich session APIs expose no cost surface at all.
+      with rich session APIs expose no cost surface at all. Microsoft's
+      column (2026-07-23) is the one WS3 hoped for and the field's best so
+      far: connect App Insights and every agent run emits AGENT-SEMANTIC
+      OpenTelemetry gen_ai spans queryable over KQL — invoke_agent, chat
+      (with per-call token usage and full input/output messages), and
+      execute_tool: the platform's own timed record of calling the lab's
+      A2A shim. The response id doubles as the lab's platform_ref, so
+      platform-interior spans join to wire traces with no extra plumbing.
+      Five platforms, five different answers to "what did my agent do?".
     advisory: >
       "Can you audit what your agents did across platforms?" is usually
       unanswerable today. Any multi-platform agent estate needs its own trace

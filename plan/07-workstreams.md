@@ -349,10 +349,20 @@ Status 2026-07-22 (environment + first answer):
    tool_choice=required (target option) — the deterministic fix for the
    ~50% skipped-delegation flake; verified 3/3 runs firing the tool with
    envelopes on the wire.
-10. Next: `foundry_source.py` obs (attach App Insights first);
-   Foundry↔ADK cross-hyperscaler cell; App Insights + matrix numbers
-   into 03-results (initial cells recorded this session); Foundry
-   entry in the components/screenshot rows.
+10. ✅ OBS COLUMN LIVE (2026-07-23): App Insights (a2a-lab-appinsights →
+   workspace a2a-lab-logs, workspace-based, free-tier volume) attached to
+   the project via an AppInsights-category connection; agent runs emit
+   AGENT-SEMANTIC OTel gen_ai spans — invoke_agent, chat (token usage +
+   full messages), execute_tool (the platform's own timed record of
+   calling the lab's shim). `foundry_source.py` harvests over KQL
+   (azure-monitor-query; AZURE_LOGS_WORKSPACE_ID); sessions keyed by
+   gen_ai.response.id = the lab's platform_ref, so the store's
+   trace↔session join works out of the box. Coverage panel updated;
+   observability-fragmentation insight extended (best column yet;
+   "five platforms, five answers").
+11. Next: Foundry↔ADK cross-hyperscaler cell (the two platform-native
+   A2A endpoints calling each other); component/screenshot rows; final
+   03-results sweep; WS3 close-out insights pass.
 
 ---
 

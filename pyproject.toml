@@ -28,6 +28,7 @@ gcp = [
 azure = [
     "azure-ai-projects>=2.3.0",
     "azure-identity>=1.25.3",
+    "azure-monitor-query>=2.0.0",
 ]
 
 [dependency-groups]
