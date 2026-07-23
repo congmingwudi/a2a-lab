@@ -238,3 +238,22 @@ it explicitly; symptom if it regresses: session idle `requires_action` on
 DynamoDB one — needs the cluster endpoint reachable from Salesforce IP
 ranges (extend the SG), TLS, and a `lab_reader`-style user scoped to the
 `lab` schema. Set up in Data 360 UI; not automatable here.
+
+## 9. Saved audit workflows (.claude/workflows/)
+
+Registered multi-agent sweeps — invoke from a Claude Code session by name
+(the `ultracode` keyword or an explicit "run the <name> workflow" opts in;
+they fan out many subagents, so they cost real tokens):
+
+- **matrix-honesty-sweep** — one agent per cell/ledger claim in
+  plan/02-matrix.md, cross-checked against config/targets.yaml,
+  plan/03-results.md, and src/; claimed discrepancies pass an adversarial
+  refutation stage before being reported.
+- **insights-audit** — one agent per config/insights.yaml entry: measured
+  numbers must trace to plan/03-results.md or a dated ADR, observed claims
+  to plan/*.md, refs to docs that discuss the topic; problems are
+  adversarially verified.
+
+Both are read-only (report, don't edit) and best run before demos or
+publishing. Headless subagents can't do interactive auth, so keep deploys
+and org operations out of workflow scripts.
