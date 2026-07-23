@@ -337,7 +337,19 @@ Status 2026-07-22 (environment + first answer):
    APIs noted as the pullable surface). Bridge restarted to pick up the
    foundry-a2a target + azure-ad scheme (full stack restart still
    pending for console UI).
-9. Next: `foundry_source.py` obs (attach App Insights first);
+9. ✅ Shim envelope capture (2026-07-22 evening): the WireTap was
+   rewritten buffer-and-replay (its passive receive() tee hung under
+   Mangum's single-shot bodies — post-replay receives now delegate to the
+   real channel under uvicorn for SSE-disconnect semantics and fabricate
+   the disconnect only under Lambda) and enabled on the hosted shim: the
+   raw inbound A2A envelope — including Foundry's actual 0.3 message/send
+   bytes WITH the model-composed D27 rider — now lands in the Aurora
+   store next to the proxy's Agent API hops. The foundry→shim leg is dark
+   only on Microsoft's side of the wire. Also: foundry-rest now forces
+   tool_choice=required (target option) — the deterministic fix for the
+   ~50% skipped-delegation flake; verified 3/3 runs firing the tool with
+   envelopes on the wire.
+10. Next: `foundry_source.py` obs (attach App Insights first);
    Foundry↔ADK cross-hyperscaler cell; App Insights + matrix numbers
    into 03-results (initial cells recorded this session); Foundry
    entry in the components/screenshot rows.

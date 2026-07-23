@@ -26,9 +26,11 @@ from platforms.agentforce.proxy import AgentforceProxyAdapter  # noqa: E402
 app = create_a2a_app(
     AgentforceProxyAdapter(session_reuse=True),
     public_url=os.environ.get("AF_SHIM_PUBLIC_URL", "https://unset.invalid/"),
-    # Mangum's single-shot body receive hangs the WireTap middleware; the
-    # adapter-level Hops still record (D28).
-    wiretap=False,
+    # WireTap ON: since its buffer-and-replay rewrite it runs under Mangum,
+    # so the shim captures the raw inbound A2A envelope (e.g. Foundry's 0.3
+    # message/send) alongside the adapter-level Agent API hops — the
+    # foundry→shim leg stops being dark at the server side.
+    wiretap=True,
 )
 
 # App-layer bearer auth, explicitly: build_app() applies this wrapper for

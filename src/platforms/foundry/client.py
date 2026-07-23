@@ -33,11 +33,17 @@ class FoundryClient(RemoteAgentClient):
         target_name: str = "foundry",
         source_name: str = "foundry-client",
         timeout: float = DEFAULT_TIMEOUT,
+        tool_choice: str | None = None,
     ):
         self.agent_name = agent_name
         self.target_name = target_name
         self.source_name = source_name
         self.timeout = timeout
+        # "required" forces the platform-side tool call: gpt-5-mini skips
+        # its A2A delegation ~half the time under the default (and may
+        # fabricate the skipped call's answer — fabricated-attribution
+        # insight). The deterministic fix Foundry offers.
+        self.tool_choice = tool_choice
         self._openai = None
         # lab session id -> last response id (previous_response_id chain)
         self._sessions: dict[str, str] = {}
@@ -49,6 +55,8 @@ class FoundryClient(RemoteAgentClient):
             kwargs["agent_name"] = target.options["agent_name"]
         if (target.options or {}).get("timeout"):
             kwargs["timeout"] = float(target.options["timeout"])
+        if (target.options or {}).get("tool_choice"):
+            kwargs["tool_choice"] = target.options["tool_choice"]
         return cls(**kwargs)
 
     def _client(self):
@@ -61,6 +69,8 @@ class FoundryClient(RemoteAgentClient):
             "input": req.message,
             "extra_body": {"agent_reference": {"type": "agent_reference", "name": self.agent_name}},
         }
+        if self.tool_choice:
+            kwargs["tool_choice"] = self.tool_choice
         if req.session_id and req.session_id in self._sessions:
             kwargs["previous_response_id"] = self._sessions[req.session_id]
         return self._client().responses.create(**kwargs)

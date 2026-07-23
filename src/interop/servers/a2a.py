@@ -113,10 +113,9 @@ class AdapterExecutor(AgentExecutor):
 def create_a2a_app(
     adapter: AgentAdapter, public_url: str = "http://localhost/", wiretap: bool = True
 ):
-    """wiretap=False for ASGI hosts whose receive-channel semantics the
-    middleware mishandles (Lambda/Mangum single-shot bodies — the hosted
-    shim, D28); the adapter-level Hops still record, so only the raw
-    envelope capture is lost on that host."""
+    """wiretap=True everywhere since the WireTap buffer-and-replay rewrite
+    (it previously hung under Mangum single-shot bodies); the flag remains
+    for tests or hosts that want envelope capture off."""
     card = build_agent_card(adapter, public_url)
     handler = DefaultRequestHandler(
         agent_executor=AdapterExecutor(adapter),

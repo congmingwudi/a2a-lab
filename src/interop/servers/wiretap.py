@@ -62,16 +62,42 @@ class WireTapMiddleware:
 
         method = scope.get("method", "")
         path = scope.get("path", "")
-        req_chunks: list[bytes] = []
         resp_chunks: list[bytes] = []
         resp_status: dict[str, Any] = {}
         start = time.perf_counter()
 
-        async def tee_receive():
+        # Buffer the request body up front, then replay it once to the
+        # inner app. Passively teeing receive() hangs under Mangum (its
+        # single-shot receive never yields again when the framework polls
+        # for disconnect) — buffer-and-replay works under both Mangum and
+        # uvicorn (same technique as A2A03CompatMiddleware), which is what
+        # lets the hosted shim run the wiretap. Lab payloads are small
+        # JSON envelopes; buffering them whole is fine.
+        req_chunks: list[bytes] = []
+        while True:
             message = await receive()
-            if message["type"] == "http.request":
-                req_chunks.append(message.get("body", b""))
-            return message
+            if message["type"] != "http.request":
+                break
+            req_chunks.append(message.get("body", b""))
+            if not message.get("more_body"):
+                break
+        buffered = b"".join(req_chunks)
+        replayed = False
+
+        async def replay_receive():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": buffered, "more_body": False}
+            # After the replay: under Mangum (aws.event in scope) the real
+            # channel never yields again — fabricate the disconnect (no
+            # streaming exists on Lambda). Under uvicorn, delegate to the
+            # real channel: SSE servers (MCP streamable-http) long-poll it
+            # for client disconnect, and a fabricated instant disconnect
+            # kills their stream mid-response.
+            if "aws.event" in scope:
+                return {"type": "http.disconnect"}
+            return await receive()
 
         async def tee_send(message):
             if message["type"] == "http.response.start":
@@ -82,7 +108,7 @@ class WireTapMiddleware:
             await send(message)
 
         try:
-            await self.app(scope, tee_receive, tee_send)
+            await self.app(scope, replay_receive, tee_send)
         finally:
             body = b"".join(req_chunks)
             # Only record exchanges that carry a payload (skips GETs for

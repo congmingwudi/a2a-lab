@@ -144,6 +144,9 @@ targets:
     options:
       timeout: 100
       agent_name: a2alab-foundry-researcher
+      # Force the platform-side tool call: the model skips its delegation
+      # ~half the time otherwise (and can fabricate the skipped answer).
+      tool_choice: required
   foundry-a2a:
     platform: foundry
     protocol: a2a
