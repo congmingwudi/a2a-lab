@@ -1016,12 +1016,13 @@ function mergedTurnTrace(t) {
   // shim's envelope + proxy hops (Aurora-merged, own trace ids), and
   // rider-labeled platform callers.
   const LEG_SOURCES = new Set(["agentforce-apex", "agentforce-client",
-    "foundry", "adk", "claude", "openai"]);
+    "agentforce-a2a-shim", "foundry", "adk", "claude", "openai"]);
   const legs = traces.filter(x =>
     x.trace_id !== t.trace_id && !owned.has(x.trace_id) &&
     (x.started || 0) >= lo && (x.started || 0) <= hi &&
     x.hops.length && (x.hops[0].target === "bridge"
       || x.hops[0].target === "agentforce-service-agent"
+      || x.hops[0].target === "agentforce-a2a-shim"
       || LEG_SOURCES.has(x.hops[0].source)));
   if (!legs.length) return t;
   const hops = [...t.hops, ...legs.flatMap(l => l.hops.map(h => ({ ...h, _leg: l.trace_id })))]
@@ -1079,7 +1080,7 @@ function channelFlow(flow, afChannel) {
           + "Agent API — x-lab-token auth, D27 rider on the outbound question.",
       });
       out.push({
-        source: "agentforce-client", target: "agentforce", protocol: "agentforce-api",
+        source: "agentforce-a2a-shim", target: "agentforce", protocol: "agentforce-api",
         detail: "Inside the Lambda the shim proxies the A2A task to the GA Agent API — OAuth + "
           + "session + message against the calling platform's paired twin (D25 twin routing via "
           + "the delegation rider). The shim records these hops to the Aurora trace store; the "

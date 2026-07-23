@@ -155,4 +155,5 @@ def create_a2a_app(
     app = A2A03CompatMiddleware(app)
     if not wiretap:
         return app
-    return WireTapMiddleware(app, protocol="a2a", service=adapter.name)
+    service = getattr(adapter, "hop_label", None) or adapter.name
+    return WireTapMiddleware(app, protocol="a2a", service=service)

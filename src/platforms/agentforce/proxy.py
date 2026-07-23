@@ -33,6 +33,10 @@ TWIN_ENV_BY_PLATFORM = {
 
 class AgentforceProxyAdapter:
     name = "agentforce-service-agent"
+    # Hop/wiretap label: the network node callers actually hit. The hosted
+    # Lambda sets this to "agentforce-a2a-shim" so call paths show the shim
+    # explicitly (the adapter name above stays the agent-card identity).
+    hop_label = "agentforce-service-agent"
     description = (
         "Salesforce Agentforce service agent (A2A interop lab), reached via "
         "a protocol shim that proxies to the GA Agent API. Ask it questions "
@@ -51,6 +55,7 @@ class AgentforceProxyAdapter:
     def client(self) -> AgentforceClient:
         if self._client is None:
             self._client = AgentforceClient.from_env()
+            self._client.source_name = self.hop_label
         return self._client
 
     async def handle(self, req: AgentRequest) -> AgentResponse:
@@ -66,6 +71,7 @@ class AgentforceProxyAdapter:
             if client is None:
                 client = AgentforceClient.from_env()
                 client.agent_id = twin_id
+                client.source_name = self.hop_label
                 self._twin_clients[twin_id] = client
             return await client.ask(req)
         return await self.client.ask(req)

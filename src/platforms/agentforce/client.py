@@ -41,7 +41,12 @@ class AgentforceClient(RemoteAgentClient):
         agent_id: str,
         api_base: str = API_BASE,
         timeout: float = DEFAULT_TIMEOUT,
+        source_name: str = "agentforce-client",
     ):
+        # The hop label for this client's Agent API calls — the hosted shim
+        # passes its own name so the diagram shows the shim as a network
+        # node (foundry -> shim -> agentforce), not a generic client.
+        self.source_name = source_name
         self.my_domain = my_domain.rstrip("/")
         if not self.my_domain.startswith("https://"):
             self.my_domain = f"https://{self.my_domain}"
@@ -116,7 +121,7 @@ class AgentforceClient(RemoteAgentClient):
         }
         with Hop(
             trace_id,
-            source="agentforce-client",
+            source=self.source_name,
             target="agentforce",
             protocol="agentforce-api",
             transport_detail=f"POST /agents/{self.agent_id}/sessions",
@@ -161,7 +166,7 @@ class AgentforceClient(RemoteAgentClient):
             }
             with Hop(
                 trace_id,
-                source="agentforce-client",
+                source=self.source_name,
                 target="agentforce",
                 protocol="agentforce-api",
                 transport_detail=f"POST /sessions/{session['id']}/messages",
@@ -200,7 +205,7 @@ class AgentforceClient(RemoteAgentClient):
     async def _delete_session(self, sf_session_id: str, trace_id: str) -> None:
         with Hop(
             trace_id,
-            source="agentforce-client",
+            source=self.source_name,
             target="agentforce",
             protocol="agentforce-api",
             transport_detail=f"DELETE /sessions/{sf_session_id}",
