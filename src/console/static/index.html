@@ -77,11 +77,22 @@
   main.side-closed { grid-template-columns: 0 1fr; }
   main.side-closed #side { display: none; }
   #side { border-right: 1px solid var(--border); overflow-y: auto; background: var(--sidebar); }
-  .side-toggle { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px;
-                 padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px;
-                 background: none; color: var(--fg); font: 600 12px var(--font-ui); cursor: pointer; }
-  .side-toggle:hover { border-color: var(--border-hi); color: var(--fg-hi); }
-  .side-toggle.on { background: var(--card2); }
+  /* Control Panel edge handle: a slim chevron on the left edge when the
+     drawer is closed; the drawer itself carries the title + close arrow. */
+  .side-handle { position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 10;
+                 width: 22px; height: 72px; display: none; align-items: center; justify-content: center;
+                 border: 1px solid var(--border); border-left: none; border-radius: 0 8px 8px 0;
+                 background: var(--sidebar); color: var(--muted); font-size: 13px; cursor: pointer;
+                 box-shadow: 2px 0 8px var(--shadow); }
+  .side-handle:hover { color: var(--fg-hi); border-color: var(--border-hi); }
+  main.side-closed .side-handle { display: flex; }
+  .side-head { display: flex; align-items: center; justify-content: space-between;
+               padding: 10px 14px; border-bottom: 1px solid var(--border);
+               font: 700 12px var(--font-head); letter-spacing: 1px; text-transform: uppercase;
+               color: var(--muted); position: sticky; top: 0; background: var(--sidebar); z-index: 3; }
+  .side-head .x { border: none; background: none; color: var(--muted); font-size: 13px;
+                  cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+  .side-head .x:hover { color: var(--fg-hi); background: var(--card2); }
 
   /* --- sidebar accordion sections ------------------------------------- */
   details.acc { border-bottom: 1px solid var(--border); }
@@ -610,9 +621,6 @@
 </head>
 <body>
 <header>
-  <button class="side-toggle" id="sideToggle" onclick="toggleSide()"
-    title="Open or close the Control Panel (experiments, observability, insights, protocol calls, traces)"
-    aria-label="Toggle Control Panel">☰ Control Panel</button>
   <div class="brand" onclick="goHome()" title="Back to the lab overview">
     <span class="brandmark"></span>
     <h1>A2A Interop Lab</h1>
@@ -632,7 +640,13 @@
   </div>
 </header>
 <main>
+  <button class="side-handle" onclick="toggleSide()" title="Open the Control Panel"
+    aria-label="Open the Control Panel">❯</button>
   <div id="side">
+    <div class="side-head">Control Panel
+      <button class="x" onclick="toggleSide()" title="Close the Control Panel"
+        aria-label="Close the Control Panel">❮</button>
+    </div>
     <details class="acc" id="accExperiments" open>
       <summary>Experiments <span class="count" id="expCount"></span></summary>
       <div class="acc-body">
@@ -2967,14 +2981,12 @@ window.setTheme = theme => {
 // whole story); the operator opens it at will and the choice persists.
 window.toggleSide = () => {
   const closed = document.querySelector("main").classList.toggle("side-closed");
-  document.getElementById("sideToggle")?.classList.toggle("on", !closed);
   try { localStorage.setItem("a2a-side-open", closed ? "0" : "1"); } catch (e) { /* ignore */ }
 };
 (() => {
   let saved = null;
   try { saved = localStorage.getItem("a2a-side-open"); } catch (e) { /* ignore */ }
   if (saved !== "1") document.querySelector("main").classList.add("side-closed");
-  else document.getElementById("sideToggle")?.classList.add("on");
 })();
 
 load().then(connectStream);
