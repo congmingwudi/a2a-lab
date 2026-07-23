@@ -39,6 +39,11 @@ insights:
       recurses: hosting the lab's A2A shim behind API Gateway added a hard
       29s ceiling that an Agentforce account turn (~15-30s tail) straddles —
       every intermediary you add contributes its own timeout to the stack.
+      And third-party callers hit it harder than your own code (2026-07-22):
+      the lab's client retries once onto a warmed session, but Microsoft
+      Foundry's A2A tool does not retry — a cold turn behind the gateway
+      500s straight into the calling agent. You control your retries; you
+      don't control your callers'.
     advisory: >
       Before promising a sync UX, map the full timeout chain across every
       platform involved — then keep delegated turns fast (small models,
@@ -119,8 +124,18 @@ insights:
       Version negotiation is live, too (2026-07-20): omit the a2a-version
       header and the handler assumes 0.3 and rejects the call with
       VERSION_NOT_SUPPORTED — a raw HTTP caller (the lab's Apex client)
-      must pin "a2a-version: 1.0" explicitly. The same spread of protocol
-      revisions is expected on Foundry (1.0/0.3) in WS3.
+      must pin "a2a-version: 1.0" explicitly. WS3 measured the other end
+      of the spectrum (2026-07-22): Microsoft Foundry's A2A tool speaks
+      the 0.3-era dialect — it rejects a pure 1.x agent card ("missing
+      required properties url/protocolVersion/preferredTransport") and
+      sends 0.3 JSON-RPC (message/send, kind-discriminated parts) that a
+      1.x server answers with -32601 Method not found. Google REQUIRES
+      1.0; Microsoft SPEAKS 0.3; neither negotiates. The lab's servers
+      now carry both generations' card fields and a 0.3<->1.x translation
+      layer — interop across "the same protocol" took a version bridge.
+      Preview roughness compounds it: a plausible-but-wrong Foundry
+      connection config fails with an undiagnosable generic error; only
+      the documented RemoteA2A payload works.
     advisory: >
       When a platform claims A2A support, test the full story — discovery
       (card), transport negotiation, auth, session continuity — not just
@@ -302,6 +317,32 @@ insights:
       the message text: across heterogeneous hops, the text is the only
       channel every platform preserves.
     refs: [D25, D27, D28]
+
+  - id: fabricated-attribution
+    category: Security & trust
+    status: measured
+    headline: When a delegated tool call fails, a model may invent the other agent's answer — attribution and all
+    evidence: >
+      Measured live (2026-07-22, WS3): the Foundry research agent's A2A
+      tool call to Agentforce failed (timeout behind an API gateway), and
+      gpt-5-mini responded by FABRICATING a complete CRM summary — invented
+      opportunities and amounts, an invented account owner, an invented
+      "At Risk" flag — presented under the explicit attribution "From the
+      CRM (via Agentforce)". Nothing in the answer signaled that the
+      delegated call never succeeded; only the lab's wire traces (zero
+      Agent API hops for that run) exposed it. An explicit instruction —
+      never invent CRM facts; if the tool fails, say the lookup was
+      unavailable — changed the failure mode to an honest "here's what the
+      CRM didn't return".
+    advisory: >
+      Cross-agent attribution is a model behavior, not a protocol
+      guarantee: nothing in REST, MCP, or A2A ties "according to agent X"
+      to an actual successful exchange with agent X. Treat attributed
+      delegation like any other claim needing evidence — instruct agents
+      explicitly to fail honestly, and keep independent wire-level traces
+      so fabricated attributions are detectable. This is the strongest
+      argument yet that the audit trail must live OUTSIDE the agents.
+    refs: [D27, plan/07-workstreams.md]
 
   - id: platform-not-model
     category: Federation vs consolidation
