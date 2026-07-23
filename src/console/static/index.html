@@ -74,7 +74,14 @@
   .theme-switch .tbtn.on { background: var(--elevated); color: var(--fg); }
 
   main { display: grid; grid-template-columns: 380px 1fr; height: calc(100vh - 50px); }
+  main.side-closed { grid-template-columns: 0 1fr; }
+  main.side-closed #side { display: none; }
   #side { border-right: 1px solid var(--border); overflow-y: auto; background: var(--sidebar); }
+  .side-toggle { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px;
+                 padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px;
+                 background: none; color: var(--fg); font: 600 12px var(--font-ui); cursor: pointer; }
+  .side-toggle:hover { border-color: var(--border-hi); color: var(--fg-hi); }
+  .side-toggle.on { background: var(--card2); }
 
   /* --- sidebar accordion sections ------------------------------------- */
   details.acc { border-bottom: 1px solid var(--border); }
@@ -603,6 +610,9 @@
 </head>
 <body>
 <header>
+  <button class="side-toggle" id="sideToggle" onclick="toggleSide()"
+    title="Open or close the Control Panel (experiments, observability, insights, protocol calls, traces)"
+    aria-label="Toggle Control Panel">☰ Control Panel</button>
   <div class="brand" onclick="goHome()" title="Back to the lab overview">
     <span class="brandmark"></span>
     <h1>A2A Interop Lab</h1>
@@ -1206,10 +1216,16 @@ function scenarioCardHtml(s) {
 
 // One chip per tag; agentcore carries the hosting tooltip itself (an extra
 // "aws" chip next to it would render as a same-styled near-duplicate).
+// Display labels for platform chips — raw ids stay as CSS classes and in
+// config; the label says which vendor's platform is meant.
+const CHIP_LABELS = { adk: "google-adk", "agent-engine": "google-agent-engine",
+  foundry: "ms-foundry", gemini: "google-gemini" };
+const chipLabel = t => CHIP_LABELS[t] || t;
+
 function tagChipsHtml(tags) {
   return (tags || []).map(t => t === "agentcore"
     ? `<span class="badge agentcore" title="The Claude end runs self-hosted on AWS Bedrock AgentCore (D26)">${esc(t)}</span>`
-    : `<span class="badge ${t}">${esc(t)}</span>`).join("");
+    : `<span class="badge ${t}">${esc(chipLabel(t))}</span>`).join("");
 }
 
 // Scenarios bucketed into the yaml-ordered nav groups; a missing/unknown
@@ -1237,9 +1253,9 @@ function renderScenarios() {
   if (!scenarioGroups.length) {
     el.innerHTML = scenarios.map(scenarioCardHtml).join("");
   } else {
-    // Groups with scenarios start expanded; upcoming placeholders collapsed.
-    if (openGroups === null)
-      openGroups = new Set(groups.filter(g => g.scenarios.length).map(g => g.id));
+    // All groups start collapsed — the Control Panel opens to category
+    // level; the operator drills into a platform pair deliberately.
+    if (openGroups === null) openGroups = new Set();
     el.innerHTML = groups.map(g => {
       if (g.upcoming) return `
       <div class="nav-group upcoming" title="Roadmap workstream ${esc(g.upcoming)} — plan/07-workstreams.md">
@@ -2099,9 +2115,14 @@ function warmRowHtml(t, anyBusy) {
   } else {
     lastHtml = `<span class="wlast">never warmed</span>`;
   }
+  // The chip names what is being WARMED: the hosted shim row is the AWS
+  // Lambda + twin session, not "agentforce" the platform.
+  const isShim = t.name === "agentforce-a2a-shim";
+  const chipClass = isShim ? "aws" : t.platform;
+  const chipText = isShim ? "aws-shim" : chipLabel(t.platform);
   return `
   <div class="warm-row">
-    <span class="badge ${esc(t.platform)}">${esc(t.platform)}</span>
+    <span class="badge ${esc(chipClass)}">${esc(chipText)}</span>
     <span class="wname" title="${esc(t.name)} · ${esc(t.protocol)}">${esc(t.name)}</span>
     ${lastHtml}
     <button class="ghost" onclick="warmTarget('${esc(t.name)}')"
@@ -2940,6 +2961,20 @@ window.setTheme = theme => {
   try { saved = localStorage.getItem("a2a-theme-v2"); } catch { /* ignore */ }
   // Light is the default; dark only when explicitly chosen.
   applyTheme(saved === "dark" ? "dark" : "light");
+})();
+
+// Control Panel drawer: closed on first visit (the landing page is the
+// whole story); the operator opens it at will and the choice persists.
+window.toggleSide = () => {
+  const closed = document.querySelector("main").classList.toggle("side-closed");
+  document.getElementById("sideToggle")?.classList.toggle("on", !closed);
+  try { localStorage.setItem("a2a-side-open", closed ? "0" : "1"); } catch (e) { /* ignore */ }
+};
+(() => {
+  let saved = null;
+  try { saved = localStorage.getItem("a2a-side-open"); } catch (e) { /* ignore */ }
+  if (saved !== "1") document.querySelector("main").classList.add("side-closed");
+  else document.getElementById("sideToggle")?.classList.add("on");
 })();
 
 load().then(connectStream);

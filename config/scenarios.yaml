@@ -65,8 +65,9 @@ scenarios:
         target: anthropic-managed-agents
         protocol: managed-agents-api
         detail: >-
-          The adapter drives a hosted Anthropic Managed Agents session — open
-          the event stream, send the message, collect the answer. The API key
+          The adapter drives a hosted Anthropic Managed Agents session —
+          model claude-haiku-4-5; open the event stream, send the message,
+          collect the answer. The API key
           stays on the lab host; the sandbox holds no credentials.
       - source: agentforce-client
         target: agentforce
@@ -151,7 +152,7 @@ scenarios:
         target: anthropic-managed-agents
         protocol: managed-agents-api
         detail: >-
-          Claude produces the market research in a hosted Managed Agents
+          Claude (model claude-haiku-4-5) produces the market research in a hosted Managed Agents
           session and does NOT call its ask_agentforce tool back — a
           recursive loop would add nothing. The research returns up the same
           path, and the Agentforce agent folds it into a reply with two
@@ -213,8 +214,9 @@ scenarios:
         target: claude-agent-sdk
         protocol: internal
         detail: >-
-          Inside the container the adapter drives the Claude Agent SDK,
-          which spawns the Claude Code CLI (Node) as a subprocess — the
+          Inside the container the adapter drives the Claude Agent SDK —
+          model claude-haiku-4-5 — which spawns the Claude Code CLI (Node)
+          as a subprocess — the
           full agent harness runs in the container, calling the Anthropic
           API with the key from the runtime env.
       - source: agentforce-client
@@ -301,8 +303,8 @@ scenarios:
         target: claude-agent-sdk
         protocol: internal
         detail: >-
-          The containerized Claude Agent SDK produces the market research
-          and does NOT call back to Agentforce — the rider's directive and
+          The containerized Claude Agent SDK (model claude-haiku-4-5)
+          produces the market research and does NOT call back to Agentforce — the rider's directive and
           the depth guard both stand between this leg and a circular
           claude→agentforce→claude chain (D27).
     agents:
@@ -438,8 +440,8 @@ scenarios:
         target: openai-platform
         protocol: internal
         detail: >-
-          The Agents SDK runs the turn on the OpenAI platform (model from
-          OPENAI_MODEL). The hop records the OpenAI response id as
+          The Agents SDK runs the turn on the OpenAI platform — model
+          gpt-5-mini (the same model the Foundry researcher runs). The hop records the OpenAI response id as
           platform_ref — captured at emit time because OpenAI exposes no
           trace read-back API (D18/M9).
       - source: agentforce-client
@@ -522,7 +524,7 @@ scenarios:
         target: openai-platform
         protocol: internal
         detail: >-
-          The OpenAI agent produces the market research (Agents SDK run,
+          The OpenAI agent (model gpt-5-mini) produces the market research (Agents SDK run,
           response id recorded as platform_ref) and does NOT call its
           ask_agentforce tool back — the question explicitly says CRM data
           is already in hand. The research returns up the same path, and
@@ -593,7 +595,7 @@ scenarios:
           contextId carries the session. This is the platform's OWN A2A
           surface: both ends native, the cell the lab is named for.
       - source: adk-researcher
-        target: gemini
+        target: gemini-2.5-flash-lite
         protocol: internal
         detail: >-
           Inside the container an a2a-sdk executor (mirroring the lab's
@@ -678,7 +680,7 @@ scenarios:
           stamped on the forwarded question. The remote end is the
           platform itself: no shim on this leg.
       - source: adk-researcher
-        target: gemini
+        target: gemini-2.5-flash-lite
         protocol: internal
         detail: >-
           The ADK/Gemini agent produces the market research and does NOT
