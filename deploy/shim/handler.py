@@ -23,8 +23,13 @@ from interop.servers.a2a import create_a2a_app  # noqa: E402
 from interop.servers.auth import TokenAuthMiddleware  # noqa: E402
 from platforms.agentforce.proxy import AgentforceProxyAdapter  # noqa: E402
 
+_adapter = AgentforceProxyAdapter(session_reuse=True)
+# The network node callers hit: envelope hops read <caller> -> shim, and
+# the proxy's Agent API hops read shim -> agentforce.
+_adapter.hop_label = "agentforce-a2a-shim"
+
 app = create_a2a_app(
-    AgentforceProxyAdapter(session_reuse=True),
+    _adapter,
     public_url=os.environ.get("AF_SHIM_PUBLIC_URL", "https://unset.invalid/"),
     # WireTap ON: since its buffer-and-replay rewrite it runs under Mangum,
     # so the shim captures the raw inbound A2A envelope (e.g. Foundry's 0.3

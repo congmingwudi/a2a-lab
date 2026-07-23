@@ -94,6 +94,10 @@ class WireTapMiddleware:
         resp_chunks: list[bytes] = []
         resp_status: dict[str, Any] = {}
         start = time.perf_counter()
+        # Wall-clock ARRIVAL time: the event is constructed at completion
+        # (finally), and its default ts would sort this inbound hop AFTER
+        # the downstream hops it caused.
+        arrived = time.time()
 
         # Buffer the request body up front, then replay it once to the
         # inner app. Passively teeing receive() hangs under Mangum (its
@@ -149,6 +153,7 @@ class WireTapMiddleware:
                 recorder.record(
                     TraceEvent(
                         trace_id=trace_id,
+                        ts=arrived,
                         source=_extract_caller(body) or "remote-caller",
                         target=self.service,
                         protocol=self.protocol,
