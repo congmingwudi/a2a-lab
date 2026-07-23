@@ -190,5 +190,57 @@ def make_ask_agentforce_a2a(inbound_depth: int = 0, trace_id: str | None = None)
     return ask_agentforce_a2a
 
 
+# One process-lifetime A2A client to the Foundry agent (cross-hyperscaler
+# cell): the GCP container authenticates to Azure with an Entra service
+# principal (AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET in env — the sanctioned
+# service-identity pattern; DefaultAzureCredential picks them up via
+# EnvironmentCredential). The reverse direction is auth-blocked: Foundry
+# connections cannot mint Google IAM tokens.
+_foundry_client = None
+
+
+def _get_foundry_client():
+    global _foundry_client
+    if _foundry_client is None:
+        from interop.clients.a2a import A2AClient
+
+        endpoint = os.environ.get("FOUNDRY_A2A_ENDPOINT", "")
+        if not endpoint:
+            raise RuntimeError("FOUNDRY_A2A_ENDPOINT unset — see WS3 cross-hyperscaler setup")
+        _foundry_client = A2AClient(
+            endpoint,
+            auth={"scheme": "azure-ad"},
+            card_path="agentCard/v1.0",
+            target_name="foundry-a2a",
+            timeout=float(os.environ.get("FOUNDRY_A2A_TIMEOUT_S", "60")),
+        )
+    return _foundry_client
+
+
+def make_ask_foundry_agent(inbound_depth: int = 0, trace_id: str | None = None):
+    """The cross-hyperscaler tool (WS3): GCP-hosted Gemini calling the
+    Azure-hosted Foundry agent over both platforms' NATIVE A2A endpoints —
+    no lab server in the path, D27-guarded like every delegation seam."""
+
+    async def ask_foundry_agent(question: str) -> str:
+        """Ask the Microsoft Foundry research agent (gpt-5-mini on Azure) a
+        question — a second research opinion from another cloud's agent.
+        Use when the request asks to consult the Foundry/Microsoft agent."""
+        if inbound_depth >= delegation.max_depth():
+            return delegation.refusal("ask_foundry_agent")
+        message, meta = delegation.delegate(
+            question,
+            caller="adk-gemini-agent",
+            platform="adk",
+            inbound_depth=inbound_depth,
+        )
+        resp = await _get_foundry_client().ask(
+            AgentRequest(message=message, metadata=meta, trace_id=trace_id)
+        )
+        return resp.text
+
+    return ask_foundry_agent
+
+
 def adk_model() -> str:
     return os.environ.get("ADK_MODEL", "gemini-2.5-flash-lite")

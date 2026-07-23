@@ -136,6 +136,15 @@ insights:
       Preview roughness compounds it: a plausible-but-wrong Foundry
       connection config fails with an undiagnosable generic error; only
       the documented RemoteA2A payload works.
+      The capstone (2026-07-23): the lab's CROSS-HYPERSCALER cell — GCP
+      Gemini (Agent Engine) consulting Azure gpt-5-mini (Foundry) over
+      both platforms' native A2A endpoints, 17s, no lab component in the
+      cross-cloud leg. What made it possible was IDENTITY, not protocol:
+      the GCP container holds an Entra service principal to mint Azure
+      tokens (the sanctioned service-identity pattern). The reverse
+      direction is auth-blocked — Foundry connections cannot mint Google
+      IAM tokens. Two clouds, one protocol, and cloud identity decides
+      who may call whom; the agent card says nothing about any of it.
     advisory: >
       When a platform claims A2A support, test the full story — discovery
       (card), transport negotiation, auth, session continuity — not just

@@ -36,6 +36,7 @@ from platforms.adk.core import (
     adk_model,
     make_ask_agentforce,
     make_ask_agentforce_a2a,
+    make_ask_foundry_agent,
     real_search_enabled,
     research_instruction,
     search_industry_news,
@@ -54,6 +55,7 @@ def build_llm_agent(inbound_depth: int = 0, trace_id: str | None = None):
     tools = [
         make_ask_agentforce(inbound_depth, trace_id),
         make_ask_agentforce_a2a(inbound_depth, trace_id),
+        make_ask_foundry_agent(inbound_depth, trace_id),
     ]
     if real_search_enabled():
         # Live grounding alongside function tools: the bypass flag is ADK's
