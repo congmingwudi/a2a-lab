@@ -488,4 +488,6 @@ def test_targets_carry_cell_details(tmp_path, monkeypatch):
     shim = targets["agentforce-a2a"]
     assert "shim" in shim["blurb"]
     assert shim["question"] == console_app.DEFAULT_QUESTION
-    assert any(h["protocol"] == "internal" for h in shim["flow"])  # untraced interior leg
+    # No internal Salesforce-interior ghost: how the twin fulfills the
+    # request is its own business — the experiment measures the wire.
+    assert not any(h["protocol"] == "internal" for h in shim["flow"])
