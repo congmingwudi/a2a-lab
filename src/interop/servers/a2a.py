@@ -16,9 +16,9 @@ from google.protobuf.json_format import MessageToDict
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.request_handlers.response_helpers import agent_card_to_dict
 from a2a.server.routes import (
     add_a2a_routes_to_fastapi,
-    create_agent_card_routes,
     create_jsonrpc_routes,
 )
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
@@ -123,12 +123,37 @@ def create_a2a_app(
         task_store=InMemoryTaskStore(),
         agent_card=card,
     )
+    # The served card is the sdk 1.x JSON plus the 0.3-era top-level fields
+    # (url / protocolVersion / preferredTransport): Microsoft Foundry's A2A
+    # tool fails card discovery without them (observed 2026-07-22 —
+    # "missing required properties" parsing a pure 1.x card), and they're
+    # additive noise to 1.x clients. The A2A version spectrum, at the
+    # discovery layer.
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    card_payload = agent_card_to_dict(card)
+    card_payload.setdefault("url", public_url)
+    card_payload.setdefault("protocolVersion", "0.3.0")
+    card_payload.setdefault("preferredTransport", "JSONRPC")
+
+    async def _compat_card(_request):
+        return JSONResponse(card_payload)
+
     app = FastAPI(title=f"{adapter.name} (A2A)")
     add_a2a_routes_to_fastapi(
         app,
-        agent_card_routes=create_agent_card_routes(card),
+        agent_card_routes=[
+            Route(path="/.well-known/agent-card.json", endpoint=_compat_card, methods=["GET"])
+        ],
         jsonrpc_routes=create_jsonrpc_routes(handler, rpc_url="/"),
     )
+    # Bilingual server (see a2a_compat): 0.3-dialect clients (Foundry's A2A
+    # tool) get translated in/out; 1.x traffic passes through. Sits inside
+    # the WireTap so raw captures show the ORIGINAL dialect on the wire.
+    from interop.servers.a2a_compat import A2A03CompatMiddleware
+
+    app = A2A03CompatMiddleware(app)
     if not wiretap:
         return app
     return WireTapMiddleware(app, protocol="a2a", service=adapter.name)

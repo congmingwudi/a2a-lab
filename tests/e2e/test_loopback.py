@@ -152,6 +152,39 @@ async def test_a2a_delegation_metadata_round_trip(echo_servers):
     assert resp.text == "echo: ping [delegated-by adk depth 1]"
 
 
+async def test_a2a_03_dialect_round_trip(echo_servers):
+    """A 0.3-era client (Foundry's A2A tool) speaks message/send with
+    kind-discriminated parts — the compat middleware must serve it a
+    0.3-shaped completed Task from the same 1.x server."""
+    async with httpx.AsyncClient() as hc:
+        r = await hc.post(
+            f"http://127.0.0.1:{echo_servers['a2a']}/",
+            json={
+                "jsonrpc": "2.0",
+                "id": "compat-1",
+                "method": "message/send",
+                "params": {
+                    "message": {
+                        "kind": "message",
+                        "messageId": "m-03",
+                        "role": "user",
+                        "parts": [{"kind": "text", "text": "ping"}],
+                    }
+                },
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["id"] == "compat-1"
+        task = body["result"]
+        assert task["kind"] == "task"
+        assert task["status"]["state"] == "completed"
+        texts = [
+            p["text"] for a in task["artifacts"] for p in a["parts"] if p.get("kind") == "text"
+        ]
+        assert texts == ["echo: ping"]
+
+
 async def test_a2a_agent_card_published(echo_servers):
     async with httpx.AsyncClient() as hc:
         r = await hc.get(f"http://127.0.0.1:{echo_servers['a2a']}/.well-known/agent-card.json")
@@ -160,6 +193,8 @@ async def test_a2a_agent_card_published(echo_servers):
         assert card["name"] == "echo"
         skills = card.get("skills", [])
         assert skills and skills[0]["id"] == "ask"
+        # 0.3-era compatibility fields (Foundry's A2A tool requires them)
+        assert card["url"] and card["protocolVersion"] and card["preferredTransport"]
 
 
 async def test_concurrent_protocols(echo_servers):
