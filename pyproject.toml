@@ -25,6 +25,10 @@ gcp = [
     "google-adk>=1.29,<2",
     "google-cloud-aiplatform[agent_engines,adk]>=1.156",
 ]
+azure = [
+    "azure-ai-projects>=2.3.0",
+    "azure-identity>=1.25.3",
+]
 
 [dependency-groups]
 dev = [
