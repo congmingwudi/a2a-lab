@@ -15,6 +15,7 @@ import asyncio
 import time
 from typing import Any
 
+from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 from platforms.foundry.core import AGENT_NAME, make_project_client
@@ -22,7 +23,7 @@ from platforms.foundry.core import AGENT_NAME, make_project_client
 DEFAULT_TIMEOUT = 65.0
 
 
-class FoundryClient:
+class FoundryClient(RemoteAgentClient):
     protocol = "foundry-api"
 
     def __init__(

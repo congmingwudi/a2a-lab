@@ -123,6 +123,15 @@ targets:
   # both ends native, no bridge, no shim. IAM data plane (google-adc
   # bearer), card served at /v1/card (not /.well-known). Scale-to-zero
   # (min_instances=0, personal GCP account) — hence warmup.
+  agentforce-foundry-rest:
+    platform: agentforce
+    protocol: agentforce-api
+    status: native
+    auth:
+      my_domain: ${SF_MY_DOMAIN}
+      client_id: ${SF_CLIENT_ID}
+      client_secret: ${SF_CLIENT_SECRET}
+      agent_id: ${SF_FOUNDRY_AGENT_ID}
   foundry-rest:
     platform: foundry
     protocol: foundry-api

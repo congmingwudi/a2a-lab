@@ -135,6 +135,7 @@ _TWIN_BY_TARGET = {
     "agentforce-rest": "Claude-paired",
     "agentforce-openai-rest": "OpenAI-paired",
     "agentforce-google-adk-rest": "Google ADK-paired",
+    "agentforce-foundry-rest": "Foundry-paired",
 }
 
 _SF_INTERIOR = {
@@ -1326,6 +1327,18 @@ def create_console_app(registry: Registry | None = None):
             "cannot": [
                 "read/list traces (dashboard is ingestion-only)",
                 "list responses — ids must be captured at emit time",
+            ],
+        },
+        "foundry": {
+            "label": "Microsoft Foundry",
+            "can": [
+                "response retrieval by id (Responses API — the join key the client captures)",
+                "App Insights + KQL over agent runs (once attached — deliberately not provisioned yet)",
+                "agent/version/session admin APIs (list, get, session log streams)",
+            ],
+            "cannot": [
+                "anything harvested yet — foundry_source.py lands with App Insights (WS3 next)",
+                "per-call A2A tool telemetry on the preview surface",
             ],
         },
         "adk": {

@@ -132,3 +132,13 @@ target             platform    protocol        status       result   p50ms  p95m
 -----------------------------------------------------------------------------------------
 agentforce-adk-rest agentforce  agentforce-api  native       PASS      8375   9606  The MCP (Message Coordination Protocol) is a message-based protocol used for orchestrating complex, multi-step interacti
 ```
+
+## Matrix run — 2026-07-22 20:03:31 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+foundry-a2a        foundry     a2a             native       PASS     11874  12773  MCP is a lightweight message/transport specification that standardizes how agents exchange envelopes, content parts, and
+foundry-rest       foundry     foundry-api     native       PASS     10375  11909  MCP is a brokered, message-centric interoperability protocol designed to route, mediate, and multiplex agent communicati
+agentforce-foundry-rest agentforce  agentforce-api  native       PASS      7227   8819  The MCP (Message Communication Protocol) is a message-based protocol designed for asynchronous, decoupled agent communic
+```

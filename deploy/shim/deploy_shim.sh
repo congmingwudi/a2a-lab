@@ -36,7 +36,7 @@ ROLE_ARN=$(aws iam get-role --role-name a2alab-shim-lambda --query 'Role.Arn' --
 ENV_JSON=$(python3 - <<'PY'
 import json, os
 keys = ["SF_MY_DOMAIN", "SF_CLIENT_ID", "SF_CLIENT_SECRET", "SF_AGENT_ID",
-        "SF_OPENAI_AGENT_ID", "SF_ADK_AGENT_ID", "A2ALAB_TOKEN"]
+        "SF_OPENAI_AGENT_ID", "SF_ADK_AGENT_ID", "SF_FOUNDRY_AGENT_ID", "A2ALAB_TOKEN"]
 env = {k: os.environ[k] for k in keys if os.environ.get(k)}
 env["A2ALAB_TRACE_DIR"] = "/tmp/traces"
 env["A2ALAB_TRACE_SINK"] = "jsonl"
