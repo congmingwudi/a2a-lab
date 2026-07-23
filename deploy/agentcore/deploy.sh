@@ -39,9 +39,12 @@ case "$PLATFORM" in
     DOCKERFILE=deploy/agentcore/openai.Dockerfile
     RUNTIME_NAME=a2alab_openai
     ARN_VAR=OPENAI_AGENTCORE_ARN
-    # SF_OPENAI_AGENT_ID: the OpenAI-paired Agentforce twin (D25)
+    # SF_OPENAI_AGENT_ID: the OpenAI-paired Agentforce twin (D25).
+    # SF_AGENT_ID must ship too: AgentforceClient.from_env() requires it
+    # before the twin id overrides it (learned when a scripted redeploy
+    # wiped it off the runtime and every hosted Agentforce consult broke).
     ENV_KEYS=(OPENAI_API_KEY OPENAI_MODEL OPENAI_ANSWER_TIMEOUT_S
-              SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_OPENAI_AGENT_ID
+              SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_AGENT_ID SF_OPENAI_AGENT_ID
               AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
     ;;
