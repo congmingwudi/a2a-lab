@@ -20,6 +20,7 @@ os.environ.setdefault("A2ALAB_TRACE_DIR", "/tmp/traces")
 from mangum import Mangum  # noqa: E402
 
 from interop.servers.a2a import create_a2a_app  # noqa: E402
+from interop.servers.auth import TokenAuthMiddleware  # noqa: E402
 from platforms.agentforce.proxy import AgentforceProxyAdapter  # noqa: E402
 
 app = create_a2a_app(
@@ -30,4 +31,30 @@ app = create_a2a_app(
     wiretap=False,
 )
 
-handler = Mangum(app, lifespan="off")
+# App-layer bearer auth, explicitly: build_app() applies this wrapper for
+# the locally-served apps, but this handler mounts create_a2a_app directly
+# — without it the public API Gateway URL serves JSON-RPC unauthenticated
+# (found live 2026-07-22; the card path stays exempt by design).
+app = TokenAuthMiddleware(app)
+
+
+class _HeaderLogger:
+    """A2ALAB_DEBUG_HEADERS=1: log inbound header NAMES (+ whether the lab
+    token header is present — never its value) to CloudWatch. For debugging
+    third-party callers' auth behavior (e.g. what a Foundry project
+    connection actually sends); off by default."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and os.environ.get("A2ALAB_DEBUG_HEADERS"):
+            names = [k.decode("latin-1").lower() for k, v in scope.get("headers", [])]
+            print(
+                f"[hdr-debug] {scope.get('method')} {scope.get('path')} "
+                f"headers={sorted(names)} x-lab-token={'x-lab-token' in names}"
+            )
+        await self.inner(scope, receive, send)
+
+
+handler = Mangum(_HeaderLogger(app), lifespan="off")

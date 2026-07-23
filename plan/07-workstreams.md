@@ -258,11 +258,49 @@ Status 2026-07-22 (environment + first answer):
    (13.7s, response id captured). API quirk logged: the `agent` property
    is already deprecated in favor of typed `agent_reference` — preview
    surfaces move fast.
-6. Next: outbound leg design — `A2APreviewTool` pointed at the hosted
-   Agentforce A2A shim (the twin consult happens PLATFORM-SIDE over A2A,
-   no client tool loop); inbound A2A endpoint config; then
-   `src/platforms/foundry/`, targets, SF_FOUNDRY_AGENT_ID twin,
-   `foundry_source.py` (App Insights/KQL).
+6. ✅ OUTBOUND LEG LIVE (same session): Foundry agent → hosted A2A shim
+   → Agent API twin, real Omega CRM data attributed, 40s total. The twin
+   consult happens PLATFORM-SIDE (A2APreviewTool) — no client tool loop.
+   What it took (each one insight material):
+   - **RemoteA2A connection**: the docs' exact ARM payload (category
+     RemoteA2A + authType CustomKeys, api-version 2025-04-01-preview,
+     tool references the FULL connection id). A hand-guessed
+     CustomKeys-category connection resolves but the tool fails with an
+     undiagnosable generic 424 — preview error surfaces are poor.
+     The connection DOES send custom keys as headers (x-lab-token
+     verified on the wire).
+   - **0.3-era card compatibility**: Foundry's .NET A2A client rejects a
+     pure 1.x card ("missing required properties url/protocolVersion/
+     preferredTransport") — lab A2A servers now serve both generations'
+     fields on one card (servers/a2a.py).
+   - **0.3 JSON-RPC dialect**: Foundry sends message/send +
+     kind-discriminated parts; a2a-sdk 1.x servers answer -32601. New
+     `servers/a2a_compat.py` middleware makes every lab A2A server
+     bilingual (translates request in, Task out; stamps a2a-version 1.0
+     inward). The full version spectrum: Google requires 1.0, Microsoft
+     speaks 0.3 — the lab now bridges both.
+   - **29s API Gateway ceiling bites Foundry**: no client-side retry on
+     their side; a cold twin account turn 500s (surfaced as
+     tool_user_error with the target URL — good detail when the call
+     actually fires). Warmed shim sessions fit. Demo rule: warm first.
+   - **Fabrication under tool failure** (v2, before the anti-fabrication
+     instruction): when the tool errored, gpt-5-mini INVENTED a CRM
+     answer with full "From the CRM (via Agentforce)" attribution —
+     wrong opps, wrong owner, marked "At Risk". v3's instructions forbid
+     inventing CRM facts; the honest run then listed what the CRM didn't
+     return instead. Trust-boundary insight material, measured.
+   - Shim hardening found live: the Lambda handler had never applied
+     TokenAuthMiddleware (build_app does it; the handler mounts
+     create_a2a_app directly) — the public URL served JSON-RPC
+     unauthenticated until 2026-07-22. Fixed + env-gated header debug
+     added. Foundry twin routing entry added to the shim proxy
+     (rider-text channel; SF_FOUNDRY_AGENT_ID once the twin exists).
+7. Next: `src/platforms/foundry/` outbound client + `foundry-a2a`/
+   `foundry-rest` targets (inbound: "Enable incoming A2A on a Foundry
+   agent" — the second platform-native A2A endpoint); Foundry-paired
+   twin (SF_FOUNDRY_AGENT_ID); console scenarios; `foundry_source.py`
+   (App Insights/KQL); matrix cells; insights (version spectrum,
+   fabrication, connection-category trap).
 
 ---
 

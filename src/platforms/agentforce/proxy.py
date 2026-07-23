@@ -23,6 +23,11 @@ TWIN_ENV_BY_PLATFORM = {
     "claude": "SF_AGENT_ID",
     "openai": "SF_OPENAI_AGENT_ID",
     "adk": "SF_ADK_AGENT_ID",
+    # WS3: the Foundry agent's A2A tool cannot attach lab metadata, so its
+    # caller-platform arrives via the rider TEXT the agent is instructed to
+    # append (platform_of's fallback). Unset env -> default twin until the
+    # Foundry-paired twin is published.
+    "foundry": "SF_FOUNDRY_AGENT_ID",
 }
 
 
