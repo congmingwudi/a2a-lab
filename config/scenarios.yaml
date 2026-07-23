@@ -739,13 +739,14 @@ scenarios:
       protocol: internal
       detail: "The prompt agent runs platform-side (Foundry Agent Service) — the lab
         has no seam inside; the response id is retrievable via the Responses API."
-    - source: foundry
-      target: agentforce-a2a-shim
+    - source: remote-caller
+      target: agentforce-service-agent
       protocol: a2a
       detail: "Foundry's A2APreviewTool sends message/send (A2A 0.3 dialect) to the
         lab's hosted shim — RemoteA2A connection carries x-lab-token; the shim's
-        compat layer translates 0.3 → 1.x. Platform-side: the lab records nothing
-        until the request reaches the shim."
+        compat layer translates 0.3 → 1.x. The SEND is platform-interior, but the
+        ARRIVAL is captured: the shim's wiretap records the raw inbound envelope
+        to the Aurora store."
     - source: agentforce-client
       target: agentforce
       protocol: agentforce-api
