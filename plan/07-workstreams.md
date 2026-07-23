@@ -323,11 +323,24 @@ Status 2026-07-22 (environment + first answer):
      platform-side tool failure (absorbs the cold shim leg under the
      API GW 29s ceiling). Verified: repeated runs return REAL Omega CRM
      data in 36-44s.
-8. Next: Foundry-paired twin (SF_FOUNDRY_AGENT_ID + Agent Script clone,
-   action → bridge target foundry-a2a) for the Agentforce→Foundry
-   direction; `foundry_source.py` obs (needs App Insights attached to
-   the project — deliberately not provisioned yet); Foundry↔ADK
-   cross-hyperscaler cell; matrix cells recorded → 03-results.
+8. ✅ REVERSE DIRECTION LIVE (same session): Foundry-paired twin
+   published+activated (`A2ALab_Research_Assistant_Foundry`, agent
+   0XxKB000000xdnm0AA, v1 — ADK clone with the direct-route branch
+   stripped, action pinned to bridge target foundry-a2a);
+   `agentforce-foundry-rest` target; SF_FOUNDRY_AGENT_ID in .env + shim
+   Lambda env (twin routing live for rider-text platform=foundry).
+   Live pass 30.8s: real CRM sections + Foundry external research over
+   the bridge → platform-native A2A leg, rider guard honored (no tool
+   callback). Console: agentforce-to-foundry scenario, obs coverage
+   panel gains an honest Foundry column (nothing harvested yet — App
+   Insights deliberately not attached; response-id retrieval and admin
+   APIs noted as the pullable surface). Bridge restarted to pick up the
+   foundry-a2a target + azure-ad scheme (full stack restart still
+   pending for console UI).
+9. Next: `foundry_source.py` obs (attach App Insights first);
+   Foundry↔ADK cross-hyperscaler cell; App Insights + matrix numbers
+   into 03-results (initial cells recorded this session); Foundry
+   entry in the components/screenshot rows.
 
 ---
 

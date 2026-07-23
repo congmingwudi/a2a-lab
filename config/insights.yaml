@@ -342,6 +342,12 @@ insights:
       tool call SUCCEED — an explicit use-the-tool nudge in the prompt
       plus a client-side retry that absorbs the cold-start failure. A
       completed tool call beats any instruction about failed ones.
+      The flip side measured too: under default tool_choice the model
+      simply SKIPPED the required delegation about half the time — either
+      refusing honestly ("the lookup was unavailable") without ever
+      calling, or role-playing a query it never sent. Delegation
+      reliability is a model behavior end to end: whether the call is
+      made, and what happens when it fails.
     advisory: >
       Cross-agent attribution is a model behavior, not a protocol
       guarantee: nothing in REST, MCP, or A2A ties "according to agent X"

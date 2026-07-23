@@ -757,3 +757,58 @@ scenarios:
       protocol: internal
       detail: "The twin's topic planner and Apex actions run inside Salesforce —
         visible only through harvested execution logs (Observability section)."
+
+  agentforce-to-foundry:
+    title: "Agentforce → Microsoft Foundry"
+    group: foundry-agentforce
+    summary: "The Agentforce Agent delegates research through the bridge to the Microsoft
+      Foundry agent's native A2A endpoint and waits for a response."
+    description: "The reverse direction of the Foundry pair: you talk to the
+      Foundry-paired Agentforce twin (ADR D25), which answers the account question
+      from its own Salesforce data (Apex action), then delegates outside-in market
+      research through the lab bridge to the Foundry agent's PLATFORM-NATIVE A2A
+      endpoint — Entra-authenticated, JSONRPC 1.0, the lab's second native remote
+      A2A leg (bridge still required: Agentforce outbound is REST-only, so honest
+      status stays via-bridge on the Salesforce leg, native on the Foundry leg)."
+    target: agentforce-foundry-rest
+    via_bridge: false
+    status: live
+    tags:
+    - agentforce
+    - agent-api
+    - bridge
+    - foundry
+    - azure
+    - gpt-5-mini
+    note: "The delegated request carries the D27 rider, so the Foundry agent's
+      instructions guard answers from model knowledge without calling its own A2A
+      tool back toward Agentforce — the closed-loop stop, prompt-level on both ends.
+      The agent's action passes bridge target \"foundry-a2a\" explicitly."
+    flow:
+    - source: agentforce-client
+      target: agentforce
+      protocol: agentforce-api
+      detail: "You talk to the Foundry-paired Agentforce twin over the GA Agent API
+        (session + message). Its Customer account status topic owns the whole answer."
+    - source: agentforce
+      target: agentforce-apex
+      protocol: internal
+      detail: "The twin's planner runs STEP 1 (Apex account summary from live CRM)
+        then STEP 2 (delegate external research) — platform-interior."
+    - source: agentforce-apex
+      target: bridge
+      protocol: rest
+      detail: "The invocable POSTs through the Named Credential and tunnel to the lab
+        bridge with target=foundry-a2a — Agentforce outbound is REST-only (D8), so
+        the Salesforce leg stays honestly via-bridge."
+    - source: client
+      target: foundry-a2a
+      protocol: a2a
+      detail: "The bridge fans out over platform-native A2A: message/send against
+        Foundry Agent Service's incoming endpoint — Entra bearer (azure-ad), v1.0
+        card from the version-specific path, D27 rider stamped by the bridge."
+    - source: foundry-researcher
+      target: gpt-5-mini
+      protocol: internal
+      detail: "The prompt agent answers from model knowledge (the rider guard skips
+        its own tools) inside Foundry Agent Service — platform-interior."
