@@ -39,7 +39,7 @@ scenarios:
   claude-to-agentforce:
     af_channel_toggle: true
     group: claude-agentforce
-    title: "Claude → Agentforce"
+    title: "Claude Managed Agent → Agentforce"
     summary: >-
       Claude Managed Agent calls an Agentforce Agent via A2A protocol.
     description: >-
@@ -92,7 +92,7 @@ scenarios:
 
   agentforce-to-claude:
     group: claude-agentforce
-    title: "Agentforce → Claude"
+    title: "Agentforce → Claude Managed Agent"
     summary: >-
       Agentforce Agent calls a Claude Managed Agent via A2A protocol and waits for a response.
     description: >-
