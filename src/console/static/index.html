@@ -665,6 +665,12 @@
     <details class="acc" id="accExperiments" open>
       <summary>Experiments <span class="count" id="expCount"></span></summary>
       <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">Sweep every live sync experiment — fresh traces for demos.</span>
+          <button class="ghost" id="runAllBtn" onclick="runAllExperiments(event)"
+            title="Run all live experiments sequentially with their default questions — checks every call path and records fresh traces">Run all</button>
+        </div>
+        <div class="hint" id="runAllMsg" style="display:none; padding: 0 12px 8px"></div>
         <div id="scenarios"></div>
       </div>
     </details>
@@ -2646,6 +2652,36 @@ window.sendChat = () => {
 
 window.chatKeydown = ev => {
   if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); sendChat(); }
+};
+
+// Run every live sync experiment sequentially with its default question —
+// the between-builds regression sweep, and the way to stock the trace log
+// with fresh runs before a demo. Sequential on purpose: parallel runs would
+// pile cold starts onto shared runtimes and hammer the Agentforce org.
+window.runAllExperiments = async ev => {
+  ev.preventDefault(); ev.stopPropagation();
+  const btn = document.getElementById("runAllBtn");
+  if (!btn || btn.disabled) return;
+  const list = scenarios.filter(s => s.status === "live" && s.mode !== "async" && !modeUnmet(s));
+  const skipped = scenarios.length - list.length;
+  const msg = document.getElementById("runAllMsg");
+  btn.disabled = true; msg.style.display = "";
+  let pass = 0; const failures = [];
+  const t0 = Date.now();
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i];
+    msg.textContent = `${i + 1}/${list.length} · ${s.title || s.name}…`;
+    const key = expKey("scenario", s.name);
+    if (!chats[key]) chats[key] = { session: "ui-chat-" + s.name + "-" + Date.now(), turns: [], running: false };
+    const ok = await sendTurn("scenario", s.name, s.question || defaultQuestion);
+    if (ok) pass++; else failures.push(s.name);
+  }
+  const secs = Math.round((Date.now() - t0) / 1000);
+  msg.textContent = `${pass} PASS · ${failures.length} FAIL`
+    + (failures.length ? ` (${failures.join(", ")})` : "")
+    + ` · ${secs}s`
+    + (skipped ? ` · ${skipped} skipped (async / upcoming / wrong mode)` : "");
+  btn.disabled = false;
 };
 
 window.draftChanged = el => {
