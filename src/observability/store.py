@@ -10,6 +10,7 @@ platform payload alongside the normalized columns.
 from __future__ import annotations
 
 import json
+import re
 import os
 import sqlite3
 import threading
@@ -214,6 +215,23 @@ class ObsStore:
                     )
             except (ValueError, TypeError, AttributeError):
                 pass
+        return out
+
+    def session_callers(self) -> dict[str, str]:
+        """(platform:native_id) -> caller-agent, extracted from the D27
+        rider text visible inside harvested events — the delegating agent's
+        self-identification, as recorded by the PLATFORM's own logs."""
+        rider = re.compile(r"caller-agent:\\?n?\s*([\w-]+)")
+        out: dict[str, str] = {}
+        for row in self._conn.execute(
+            """SELECT platform, native_session_id, raw_json FROM obs_events
+               WHERE raw_json LIKE '%caller-agent%'"""
+        ):
+            key = f"{row['platform']}:{row['native_session_id']}"
+            if key not in out:
+                match = rider.search(row["raw_json"] or "")
+                if match:
+                    out[key] = match.group(1)
         return out
 
     def list_sessions(self, platform: str | None = None, limit: int = 200) -> list[dict[str, Any]]:

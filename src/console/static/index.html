@@ -616,6 +616,16 @@
   .warm-foot .note { flex: 1; font-size: 10.5px; color: var(--muted); line-height: 1.45; }
 
   /* in-canvas navigation (back + breadcrumbs) */
+  .obs-search { float: right; width: 220px; padding: 3px 9px; font: 12px var(--font-ui);
+                color: var(--fg); background: var(--card2); border: 1px solid var(--border);
+                border-radius: 7px; text-transform: none; letter-spacing: 0; }
+  .obs-search:focus { outline: none; border-color: var(--border-hi); }
+  .obs-tbl th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  .obs-tbl th.sortable:hover { color: var(--fg-hi); }
+  .analyzing { display: block; padding: 4px 16px 8px; font-size: 12px; color: var(--muted); }
+  .analyzing::before { content: "●"; color: var(--a2a); margin-right: 5px;
+                       animation: apulse 1.2s ease-in-out infinite; display: inline-block; }
+  @keyframes apulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
   .crumbs { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 12.5px; }
   .crumbs .sep { color: var(--muted); }
   .crumb { color: var(--muted); cursor: pointer; }
@@ -669,6 +679,7 @@
             title="Fire the hosted analyst agent (D23): a manual deployment run reads the Aurora store through the obs MCP server and saves a findings brief">Analyze</button>
         </div>
         <div class="hint" id="obsMsg" style="display:none; padding: 0 12px 8px"></div>
+        <span id="obsAnalyzing" class="analyzing" style="display:none">analyzing…</span>
         <div id="obsSide"></div>
       </div>
     </details>
@@ -1405,6 +1416,7 @@ async function loadBriefs() {
     if (obs.briefs.length > had && obs.analysisRunning) {
       // The awaited brief arrived — stop watching and show it.
       obs.analysisRunning = false;
+      renderObsSide();
       if (obs.briefWatch) { clearInterval(obs.briefWatch); obs.briefWatch = null; }
       obs.tab = "brief";
       obsMsg("");
@@ -1495,6 +1507,7 @@ window.runAnalysis = async ev => {
     obsMsg(`${who} is running — the brief appears in the Analysis brief tab in a few minutes.`);
     obs.analysisRunning = true;
     obs.analysisAgent = who;
+    renderObsSide();
     obs.tab = "brief";
     if (!view || view.type !== "obs") obsSummaryNav();
     else renderMain(true);
@@ -1514,6 +1527,8 @@ window.runAnalysis = async ev => {
 };
 
 function renderObsSide() {
+  const ind = document.getElementById("obsAnalyzing");
+  if (ind) ind.style.display = obs.analysisRunning ? "" : "none";
   const el = document.getElementById("obsSide");
   if (!el) return;
   const plats = (obs.summary && obs.summary.capabilities) ? Object.keys(obs.summary.capabilities) : [];
@@ -1736,28 +1751,64 @@ function obsDashboardHtml() {
   </div>`;
 }
 
+// Executions table state: sortable by any column, free-text filter.
+const obsTbl = { sort: "created_at", dir: -1, q: "" };
+const OBS_PLATFORM_CHIP = { anthropic: "claude", salesforce: "agentforce" };
+
+window.obsTblSort = key => {
+  if (obsTbl.sort === key) obsTbl.dir = -obsTbl.dir;
+  else { obsTbl.sort = key; obsTbl.dir = 1; }
+  renderMain(true);
+};
+window.obsTblSearch = el => {
+  obsTbl.q = el.value;
+  renderMain(true);
+  const input = document.getElementById("obsTblQ");
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+};
+
 function obsSessionsHtml(platform) {
-  const rows = obs.sessions.filter(s => !platform || s.platform === platform);
-  if (!rows.length) return `<div class="flow"><h3>Executions</h3>
-    <div class="desc"><span class="stat">Nothing harvested${platform ? " for this platform" : ""} yet — hit Harvest in the sidebar.</span></div></div>`;
+  let rows = obs.sessions.filter(s => !platform || s.platform === platform);
+  const q = obsTbl.q.trim().toLowerCase();
+  if (q) rows = rows.filter(s =>
+    [s.platform, s.native_id, s.title, s.status, s.caller_agent, s.created_at]
+      .some(v => String(v || "").toLowerCase().includes(q)));
+  const cols = [
+    ["platform", "Platform"], ["native_id", "Native session"], ["title", "Title"],
+    ["caller_agent", "Caller agent"], ["status", "Status"], ["created_at", "Started"],
+    ["event_count", "Events"], ["lab_trace_count", "Lab traces"],
+  ];
+  const key = obsTbl.sort;
+  rows = [...rows].sort((a, b) => {
+    const av = a[key], bv = b[key];
+    if (typeof av === "number" || typeof bv === "number") return ((av || 0) - (bv || 0)) * obsTbl.dir;
+    return String(av || "").localeCompare(String(bv || "")) * obsTbl.dir;
+  });
+  const arrow = k => obsTbl.sort === k ? (obsTbl.dir === 1 ? " ▲" : " ▼") : "";
   return `
   <div class="flow">
-    <h3>Executions ${platform ? "— " + esc(platform) : ""}</h3>
+    <h3>Executions ${platform ? "— " + esc(platform) : ""}
+      <input id="obsTblQ" class="obs-search" type="search" placeholder="filter… (any column)"
+        value="${esc(obsTbl.q)}" oninput="obsTblSearch(this)" onclick="event.stopPropagation()"></h3>
+    ${rows.length ? `
     <table class="obs-tbl">
-      <thead><tr><th>Platform</th><th>Native session</th><th>Title</th><th>Status</th><th>Started</th><th>Events</th><th>Lab traces</th></tr></thead>
+      <thead><tr>${cols.map(([k, label]) =>
+        `<th class="sortable" onclick="obsTblSort('${k}')">${label}${arrow(k)}</th>`).join("")}</tr></thead>
       <tbody>
       ${rows.map(s => `
         <tr class="rowlink" onclick="openObsSession('${esc(s.platform)}', '${esc(s.native_id)}')">
-          <td><span class="badge ${s.platform === "anthropic" ? "claude" : s.platform === "salesforce" ? "agentforce" : "openai"}">${esc(s.platform)}</span></td>
+          <td><span class="badge ${esc(OBS_PLATFORM_CHIP[s.platform] || s.platform)}">${esc(chipLabel(s.platform))}</span></td>
           <td class="fmono">${esc((s.native_id || "").slice(0, 22))}…</td>
           <td>${esc(s.title || "")}</td>
+          <td class="fmono">${s.caller_agent ? esc(s.caller_agent) : "—"}</td>
           <td>${esc(s.status || "")}</td>
           <td class="fmono">${esc((s.created_at || "").slice(0, 19))}</td>
           <td>${s.event_count || 0}</td>
           <td>${s.lab_trace_count ? `<span class="badge rest">${s.lab_trace_count} linked</span>` : `<span class="fmono">—</span>`}</td>
         </tr>`).join("")}
       </tbody>
-    </table>
+    </table>` : `<div class="desc"><span class="stat">${q
+      ? "No executions match the filter." : "Nothing harvested yet — hit Harvest in the sidebar."}</span></div>`}
   </div>`;
 }
 

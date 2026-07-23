@@ -1410,7 +1410,15 @@ def create_console_app(registry: Registry | None = None):
     async def obs_sessions(platform: str | None = None):
         store = _obs_store()
         try:
-            return {"sessions": store.list_sessions(platform)}
+            sessions = store.list_sessions(platform)
+            # D27 rider self-identification, as recorded by the platforms'
+            # own logs — surfaced as a first-class column.
+            callers = store.session_callers() if hasattr(store, "session_callers") else {}
+            for s_row in sessions:
+                s_row["caller_agent"] = callers.get(
+                    f"{s_row.get('platform')}:{s_row.get('native_id')}"
+                )
+            return {"sessions": sessions}
         finally:
             store.close()
 
