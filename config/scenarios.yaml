@@ -739,7 +739,7 @@ scenarios:
       protocol: internal
       detail: "The prompt agent runs platform-side (Foundry Agent Service) — the lab
         has no seam inside; the response id is retrievable via the Responses API."
-    - source: remote-caller
+    - source: foundry
       target: agentforce-service-agent
       protocol: a2a
       detail: "Foundry's A2APreviewTool sends message/send (A2A 0.3 dialect) to the

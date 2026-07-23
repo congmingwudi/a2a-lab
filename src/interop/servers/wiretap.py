@@ -11,6 +11,7 @@ with the actual bytes on the wire.
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -18,6 +19,34 @@ from interop.models import new_trace_id
 from interop.trace import TraceEvent, get_recorder
 
 _MAX_CAPTURE = 200_000
+_RIDER_PLATFORM_RE = re.compile(r"caller-platform:\s*([\w.-]+)")
+
+
+def _extract_caller(body: bytes) -> str | None:
+    """Name the hop's source from the delegation context when the envelope
+    carries it (metadata.delegation.platform, else the rider text in a
+    message part) — inbound envelopes at the shim then read
+    foundry→shim / adk→shim instead of the anonymous remote-caller."""
+    try:
+        envelope = json.loads(body)
+    except Exception:
+        return None
+    params = envelope.get("params") if isinstance(envelope, dict) else None
+    message = params.get("message") if isinstance(params, dict) else None
+    if not isinstance(message, dict):
+        return None
+    meta = message.get("metadata")
+    if isinstance(meta, dict):
+        delegation = meta.get("delegation")
+        if isinstance(delegation, dict) and delegation.get("platform"):
+            return str(delegation["platform"])
+    for part in message.get("parts") or []:
+        text = part.get("text") if isinstance(part, dict) else None
+        if text and "[A2A-LAB DELEGATION]" in text:
+            match = _RIDER_PLATFORM_RE.search(text)
+            if match:
+                return match.group(1)
+    return None
 
 
 def _extract_trace_id(body: bytes) -> str | None:
@@ -120,7 +149,7 @@ class WireTapMiddleware:
                 recorder.record(
                     TraceEvent(
                         trace_id=trace_id,
-                        source="remote-caller",
+                        source=_extract_caller(body) or "remote-caller",
                         target=self.service,
                         protocol=self.protocol,
                         transport_detail=f"{method} {path}",
