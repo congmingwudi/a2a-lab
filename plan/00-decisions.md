@@ -627,3 +627,30 @@ its warm-up ping is composed as a *delegated* request
 (`options.warmup_delegated_platform: foundry`) so it pre-creates the
 platform-keyed twin session the next real call will ride; the D27 rider
 on the ping keeps the twin's answer fast (no external-research step).
+
+## 2026-07-23 — D33: Console navigation & naming overhaul (Control Panel, vendor-qualified chips, models on the path)
+
+With five platform pairs live, the console's demo ergonomics got a pass:
+
+- **Control Panel drawer**: the left nav is a collapsible drawer, closed
+  on first visit — the landing canvas is the whole first impression, with
+  a labeled edge tab (☰ + vertical "Control Panel") to open it; landing
+  navigation (experiment tiles, protocol-call links) auto-opens it.
+  First-open defaults: Experiments/Observability/Insights expanded,
+  platform groups collapsed, Protocol calls + Traces closed. State
+  persists per browser.
+- **Vendor-qualified chips** (display labels only — raw ids stay as
+  config/CSS keys): adk → google-adk, foundry → ms-foundry, gemini →
+  google-gemini; the warm-up shim row reads **aws-shim** (what's being
+  warmed is the Lambda + twin session, not Agentforce).
+- **Models visible on every call path** (gpt-5-mini, claude-haiku-4-5,
+  gemini-2.5-flash-lite) — as ghost node names where no real hop
+  constrains naming, as detail text where one does. The Agentforce twins'
+  reasoning model is deliberately NOT shown (a reasoning-model
+  comparison — OpenAI vs Claude models inside Agentforce — is reserved
+  as a future experiment).
+- **Sequence-diagram honesty rules**: inbound-to-Agentforce flows no
+  longer show the twin's interior Apex/action execution (its business,
+  not the experiment's — the lab-built outbound action stays visible in
+  Agentforce→X directions where its bridge hop is a real traced event);
+  the hosted shim renders as an explicit network node.
