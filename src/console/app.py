@@ -171,8 +171,8 @@ def _claude_interior() -> dict:
             "protocol": "managed-agents-api",
             "detail": (
                 "The adapter answers on Anthropic Managed Agents (the Claude "
-                "API's hosted-agents beta): session create + turn — recorded "
-                "as a real hop."
+                "API's hosted-agents beta, model claude-haiku-4-5): session "
+                "create + turn — recorded as a real hop."
             ),
         }
     return {
@@ -180,8 +180,9 @@ def _claude_interior() -> dict:
         "target": "claude-agent-sdk",
         "protocol": "internal",
         "detail": (
-            "Self-hosted claude-agent-sdk turn in the lab process — the "
-            "model calls to the Claude API are platform-interior."
+            "Self-hosted claude-agent-sdk turn in the lab process (model "
+            "claude-haiku-4-5) — the calls to the Claude API are "
+            "platform-interior."
         ),
     }
 
@@ -231,9 +232,10 @@ def cell_details(t) -> dict:
                     "target": "openai-platform",
                     "protocol": "internal",
                     "detail": (
-                        "OpenAI Agents SDK turn against the Responses API — "
-                        "platform-interior, and OpenAI's trace dashboard is "
-                        "write-only (no read API), so this leg is dark."
+                        "OpenAI Agents SDK turn against the Responses API (model "
+                        "gpt-5-mini) — platform-interior, and OpenAI's trace "
+                        "dashboard is write-only (no read API), so this leg "
+                        "is dark."
                     ),
                 },
             ],
@@ -248,8 +250,9 @@ def cell_details(t) -> dict:
                 "protocol": "internal",
                 "detail": (
                     "claude-agent-sdk turn inside the container (the sdk "
-                    "backend — Managed Agents is the laptop default; the "
-                    "container ships the self-hosted fallback)."
+                    "backend, model claude-haiku-4-5 — Managed Agents is "
+                    "the laptop default; the container ships the "
+                    "self-hosted fallback)."
                 ),
             }
             if platform == "claude"
@@ -257,7 +260,7 @@ def cell_details(t) -> dict:
                 "source": "openai-researcher",
                 "target": "openai-platform",
                 "protocol": "internal",
-                "detail": "OpenAI Agents SDK turn against the Responses API inside the container.",
+                "detail": "OpenAI Agents SDK turn (model gpt-5-mini) against the Responses API inside the container.",
             }
         )
         return {
@@ -426,12 +429,13 @@ def cell_details(t) -> dict:
                 },
                 {
                     "source": "adk-researcher",
-                    "target": "gemini",
+                    "target": "gemini-2.5-flash-lite",
                     "protocol": "internal",
                     "detail": (
-                        "ADK Runner + Gemini inside the Agent Engine "
-                        "container — request-level Cloud Logging/Monitoring "
-                        "only (Observability section); no session/turn API."
+                        "ADK Runner + Gemini (model gemini-2.5-flash-lite) inside "
+                        "the Agent Engine container — request-level Cloud "
+                        "Logging/Monitoring only (Observability section); no "
+                        "session/turn API."
                     ),
                 },
             ],
