@@ -1,9 +1,13 @@
 # A2A Interop Lab
 
-Cross-platform agent-to-agent interoperability experiments: Salesforce
-Agentforce ↔ Claude (↔ OpenAI on AWS later), with each direction runnable
-over platform-native REST, MCP, and the A2A protocol — same scenario, same
-question, protocols compared side by side with the raw wire payloads visible.
+Cross-platform agent-to-agent interoperability experiments across five
+platforms — Salesforce **Agentforce**, Anthropic **Claude** (Managed Agents
+and self-hosted SDK on Bedrock AgentCore), **OpenAI** (Agents SDK on
+AgentCore), **Google ADK** (Gemini on Vertex AI Agent Engine), and
+**Microsoft Foundry** (gpt-5-mini on Foundry Agent Service) — with each
+direction runnable over platform-native REST, MCP, and the A2A protocol:
+same scenario, same question, protocols compared side by side with the raw
+wire payloads visible.
 
 - **Plan & decisions:** [plan/](plan/) — decision log, architecture +
   protocol mapping rules, honest protocol matrix, results, runbooks.
@@ -16,14 +20,32 @@ question, protocols compared side by side with the raw wire payloads visible.
   truth, published with `sf agent validate|publish|activate`. Account answers
   are grounded in real CRM records via an Apex action
   (`A2ALabGetAccountSummary` — Account + open Opportunities + Cases).
+- **OpenAI agent:** `src/platforms/openai/` — OpenAI Agents SDK backend
+  (gpt-5-mini, built by Codex under the D24 contract), self-hosted on
+  Bedrock AgentCore alongside the Claude sdk twin.
+- **Google ADK agent:** `src/platforms/adk/` — Gemini
+  (gemini-2.5-flash-lite) on Vertex AI Agent Engine, the lab's first
+  platform-native A2A endpoint; synthetic market-signals tool by default,
+  live Google Search grounding behind `ADK_REAL_SEARCH=1`.
+- **Microsoft Foundry agent:** `src/platforms/foundry/` — a prompt agent
+  (gpt-5-mini) whose Agentforce consult happens PLATFORM-SIDE via
+  Foundry's A2A tool against the lab's hosted shim; incoming A2A enabled
+  (the second platform-native A2A endpoint, Entra-only). Provisioned by
+  `deploy/foundry/provision_foundry.py`.
 - **Bridge:** `src/bridge/` — Agentforce's REST callout fans out to any
   target/protocol per `config/targets.yaml`; no Salesforce redeploy to switch.
 - **Lab console:** `src/console/` (:8200) — an experiment workspace styled
   after labs.agentforce.com (navy hero, gradient wordmark, experiment
   tiles with per-scenario call-path strips). The landing page explains the
-  lab and its business cases; the sidebar has top-level accordions for
-  Experiments, Protocol calls (single hops, with a plain "via bridge"
-  toggle), and Traces. Pick a scenario, chat with it multi-turn (**Run**
+  lab and its business cases; a collapsible **Control Panel** drawer
+  (closed on first visit — landing navigation auto-opens it) holds
+  Experiments (per-platform-pair groups), Observability (harvested
+  platform logs + token/cost metrics), Insights, Protocol calls (single
+  hops with per-cell "via bridge" toggles and answerable default
+  prompts), and Traces. ADR references anywhere in the UI render as
+  clickable decision chips (popover shows the decision's markdown); a
+  runtime warm-up panel pre-warms the scale-to-zero containers and the
+  hosted shim (D32). Pick a scenario, chat with it multi-turn (**Run**
   tab — each turn's live call-path diagram + raw wire hops beneath;
   platform-initiated legs are folded in by time correlation, errors are
   quoted per failing hop and auto-expanded), or study it first (**Details**
@@ -43,7 +65,13 @@ question, protocols compared side by side with the raw wire payloads visible.
 
 **Every experiment enters through the real designated agent on its own
 platform, exactly as a human or API caller would** — it is then that
-platform's job to initiate the cross-platform hop. Three live scenarios:
+platform's job to initiate the cross-platform hop. Live experiment pairs
+(each platform gets its own Agentforce twin, D25, so every pair stays a
+closed two-platform system): **Claude Managed Agent ↔ Agentforce**,
+**Claude (AWS/AgentCore) ↔ Agentforce**, **OpenAI (AWS) ↔ Agentforce**,
+**Google ADK ↔ Agentforce** (with an operator-selectable direct-vs-bridge
+route, D30), and **Microsoft Foundry ↔ Agentforce** — plus the async
+**Account Intelligence Brief**. The originals in detail:
 
 - **Claude → Agentforce** — Claude consults the Agentforce agent mid-answer
   for CRM truth (Path B).
@@ -224,6 +252,8 @@ situations hide behind the one protocol label:
 | Cell | Who speaks A2A | Status |
 |---|---|---|
 | `claude-a2a` (:8003) | both ends — our client ↔ our a2a-sdk server | native |
+| `google-adk-a2a` | the PLATFORM speaks A2A (Vertex AI Agent Engine's own endpoint, IAM bearer) | native |
+| `foundry-a2a` | the PLATFORM speaks A2A (Foundry Agent Service incoming A2A, Entra-only) | native |
 | Path A "A2A" | only the bridge's `A2AClient`; Agentforce reaches it via a plain REST callout | via-bridge |
 | `agentforce-a2a` (:8023) | only our shim, which proxies inbound A2A to the GA Agent API | via-shim |
 | Agentforce → A2A native | nobody — Agentforce has no A2A client or server surface | blocked |
@@ -260,6 +290,25 @@ Two implementation notes:
 - The agent card advertises `streaming: true`, but the lab client runs
   `ClientConfig(streaming=False)`: streaming is out of scope for v1 (Apex
   callouts are buffered); one SSE demo exists as a capability comparison only.
+
+### The A2A version spectrum — and the lab's compatibility layer
+
+"Speaks A2A" spans protocol generations, measured live: Vertex AI Agent
+Engine **requires** `a2a-version: 1.0` (rejects the 0.3 default with
+VERSION_NOT_SUPPORTED), while Microsoft Foundry's A2A tool **speaks the
+0.3 dialect** — it rejects a pure 1.x agent card (missing
+`url`/`protocolVersion`/`preferredTransport`) and sends 0.3 JSON-RPC
+(`message/send`, `kind`-discriminated parts) that a 1.x server answers
+with `-32601`. Neither negotiates. Every lab A2A server is therefore
+**bilingual**: the served card carries both generations' fields
+(`servers/a2a.py`), and `servers/a2a_compat.py` translates 0.3 requests
+to the 1.x envelope and the completed Task back — 1.x traffic passes
+through untouched. The hosted shim additionally runs the WireTap under
+Lambda (buffer-and-replay receive), so the **raw inbound envelope** —
+including Foundry's actual 0.3 bytes with the model-composed D27 rider —
+lands in the Aurora trace store, source-labeled by the rider's
+caller-platform (`foundry → agentforce-a2a-shim → agentforce` in the
+console's merged call path).
 
 ## Security model, hop by hop
 
