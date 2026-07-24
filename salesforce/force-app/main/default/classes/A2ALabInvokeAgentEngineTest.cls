@@ -1,7 +1,8 @@
 /**
  * Tests for A2ALabInvokeAgentEngine. Production deploys require running
  * tests with >=75% coverage; covers the success, non-2xx, no-task,
- * custom-path, rider-stamping, and batch-refusal (F8) paths.
+ * custom-path, rider-stamping, batch-refusal (F8), and Custom Metadata
+ * engine-path resolution + fallback (F5) paths.
  */
 @IsTest
 private class A2ALabInvokeAgentEngineTest {
@@ -125,6 +126,47 @@ private class A2ALabInvokeAgentEngineTest {
             mock.lastRequest.getEndpoint().contains('/reasoningEngines/42/a2a'),
             mock.lastRequest.getEndpoint()
         );
+    }
+
+    @IsTest
+    static void readsEnginePathFromCustomMetadata() {
+        // F5: the deployed A2ALab_Setting.Agent_Engine record is the source of
+        // truth for the target engine — Custom Metadata is visible to tests
+        // without seeAllData, so this asserts against the real org record.
+        A2ALab_Setting__mdt setting = A2ALab_Setting__mdt.getInstance('Agent_Engine');
+        System.assertNotEquals(null, setting,
+            'the A2ALab_Setting.Agent_Engine record must be deployed');
+
+        EngineMock mock = new EngineMock(200, TASK_JSON);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        A2ALabInvokeAgentEngine.ask(
+            new List<A2ALabInvokeAgentEngine.Request>{ makeRequest('q', null) }
+        );
+        Test.stopTest();
+
+        System.assert(
+            mock.lastRequest.getEndpoint().contains(setting.Engine_Path__c),
+            'the configured path must drive the callout: '
+                + mock.lastRequest.getEndpoint()
+        );
+    }
+
+    @IsTest
+    static void fallsBackToConstantWhenSettingMissing() {
+        // F5: a missing record degrades to the compiled-in last-known-good
+        // path rather than firing a callout at a blank endpoint.
+        String original = A2ALabInvokeAgentEngine.settingName;
+        A2ALabInvokeAgentEngine.settingName = 'A2ALab_No_Such_Setting';
+        try {
+            String resolved = A2ALabInvokeAgentEngine.configuredEnginePath();
+            System.assert(resolved.startsWith('/v1beta1/projects/'),
+                'fallback must be the compiled-in engine path: ' + resolved);
+            System.assert(resolved.endsWith('/a2a'), resolved);
+        } finally {
+            A2ALabInvokeAgentEngine.settingName = original;
+        }
     }
 
     @IsTest

@@ -16,7 +16,13 @@
  */
 public with sharing class A2ALabInvokeAgentEngine {
 
-    // The ADK research agent (WS2) on Vertex AI Agent Engine.
+    // F5: the ADK research agent's (WS2) resource path is org configuration,
+    // not code — it lives in A2ALab_Setting__mdt.Agent_Engine.Engine_Path__c so
+    // redeploying the Agent Engine is a Custom Metadata edit, not an Apex
+    // deploy (which on this production org means a test run at >=75% coverage).
+    // The constant below is the last-known-good fallback if the record is
+    // missing, so the action degrades to "stale target" rather than "no target".
+    @TestVisible private static String settingName = 'Agent_Engine';
     private static final String DEFAULT_ENGINE_PATH =
         '/v1beta1/projects/536083661167/locations/us-central1/reasoningEngines/1360159105477509120/a2a';
     private static final Integer TIMEOUT_MS = 110000; // Apex callout cap is 120s
@@ -69,9 +75,22 @@ public with sharing class A2ALabInvokeAgentEngine {
         return out;
     }
 
+    /**
+     * The configured Agent Engine A2A base path (F5): Custom Metadata first,
+     * the compiled-in constant only as a fallback.
+     */
+    @TestVisible
+    private static String configuredEnginePath() {
+        A2ALab_Setting__mdt setting = A2ALab_Setting__mdt.getInstance(settingName);
+        if (setting != null && String.isNotBlank(setting.Engine_Path__c)) {
+            return setting.Engine_Path__c;
+        }
+        return DEFAULT_ENGINE_PATH;
+    }
+
     private static Response askOne(Request req) {
         String enginePath = String.isBlank(req.enginePath)
-            ? DEFAULT_ENGINE_PATH : req.enginePath;
+            ? configuredEnginePath() : req.enginePath;
         String traceId = generateTraceId();
 
         Map<String, Object> message = new Map<String, Object>{
