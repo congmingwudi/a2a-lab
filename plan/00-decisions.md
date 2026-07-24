@@ -776,12 +776,17 @@ unaffected. This is the console half of WS6 U3 — per-user trace scoping
 
 ## 2026-07-24 — D37: Anti-pattern remediation pass — what the lab fixed on itself
 
-**Decision.** `tmp-docs/antipattern-analysis.md` scored the lab against a
-colleague's "Headless 360 Anti-Patterns" deck and produced a backlog of
-eight validly-flagged debts (F1–F8). Six shipped; two are org-side work
-deferred to a human. The point of recording it as an ADR: the lab is the
-thing being audited, so the remediation is itself a measured result — a
-"practiced, not preached" line for the readout deck.
+**Decision.** A colleague's "Headless 360 Anti-Patterns" deck — 34 claims
+across security, secrets, OAuth, PII, agent design, and guardrails — was
+scored claim-by-claim against the lab's five-platform evidence, backed by
+two code audits with `file:line` citations. It produced a backlog of eight
+validly-flagged debts (F1–F8). Six shipped; two are identity fixes on the
+org side. The point of recording it as an ADR: the lab is the thing being
+audited, so the remediation is itself a measured result — a "practiced,
+not preached" line for the readout deck. The six experiments the audit
+also proposed (E1–E6) live in plan/07-workstreams.md; the four insights it
+drafted are published in config/insights.yaml (`antipattern-lens`,
+`remediation-tax`, `text-rider-legitimacy`, `versioning-not-negotiation`).
 
 **Shipped:**
 - **F1 — hosted credentials → Secrets Manager.** The two AgentCore
@@ -820,10 +825,37 @@ thing being audited, so the remediation is itself a measured result — a
   the Apex 120s cumulative budget. Batches are refused outright — one
   refusal Response per request, zero callouts — not silently split.
 
-**Deferred (org-side, needs the human):** F3 (External Client App scope
-diet — drop `api`/`refresh_token`, keep `chatbot_api`) and F6 (per-twin
-ECAs so Salesforce logs attribute per caller). Both change org config the
-lab's scripts don't own, and F3's blast radius is every SF-touching cell.
+**Deferred — and a correction (2026-07-24, same day).** F3 (External
+Client App scope diet) and F6 (per-twin ECAs so Salesforce logs attribute
+per caller) were first recorded here as "org config no lab script owns."
+That is wrong, and checking it against Salesforce's own skills library
+(`forcedotcom/sf-skills`,
+`integration-connectivity-connected-app-configure`) is what corrected it:
+ECA configuration is source-controlled metadata across six types
+(`ExternalClientApplication`, `ExtlClntAppOauthSettings`,
+`ExtlClntAppGlobalOauthSettings`, `ExtlClntAppOauthSecuritySettings`,
+`ExtlClntAppOauthConfigurablePolicies`, `ExtlClntAppConfigurablePolicies`),
+and this org's `a2a_lab_app` retrieves cleanly. So both fixes are
+deployable, not click-ops. What actually defers them:
+
+- **F3 is a one-line change with a real trade behind it.**
+  `commaSeparatedOauthScopes` is `Api, RefreshToken, Chatbot,
+  SFApiPlatform`. `RefreshToken` is dead weight — the app enables only the
+  client-credentials and named-user-JWT flows, neither of which issues a
+  refresh token — so dropping it is free. Dropping `Api` is NOT free: the
+  M11 harvest reads the Data Cloud DMOs through
+  `/services/data/vXX/query` (`observability/salesforce_source.py`) on the
+  same client-credentials token, so least-privilege here costs the
+  Salesforce observability column. That trade is exactly what E3 exists to
+  measure, and it should be measured deliberately, not discovered during a
+  demo.
+- **F6 needs a human once per twin.** The ECA metadata is deployable, but
+  the consumer key is generated post-deploy and the consumer secret cannot
+  be read back through the Metadata API at all — each new twin app needs
+  its secret pulled from Setup by hand and placed in the runtime secret.
+
+Not committed to source: the retrieved ECA files carry the consumer key
+and this repo is public — an F3/F6 branch has to decide that first.
 
 **Verified (2026-07-24).** F5: deployed to the production org,
 `A2ALabInvokeAgentEngineTest` 8/8, 99% class coverage. F1: after redeploy,

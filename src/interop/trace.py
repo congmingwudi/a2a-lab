@@ -70,7 +70,7 @@ def _clip(payload: Any) -> Any:
     return payload
 
 
-# ---- credential scrub (F2, tmp-docs antipattern analysis S2) ---------------
+# ---- credential scrub (F2, the D37 anti-pattern audit) ---------------------
 # Credentials-only redaction: the raw-evidence ethos for payload CONTENT
 # survives — what gets scrubbed is bearer tokens, API keys, JWTs, OAuth
 # secrets, and Salesforce session ids, wherever they appear in a payload

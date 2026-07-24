@@ -441,12 +441,12 @@ and obs tables) are authorized per user. (2) The **research question**
 this lab exists to ask: can USER context propagate across platform
 boundaries over REST/MCP/A2A — verifiably, not just as words — and can a
 remote platform act *on behalf of* that user? This picks up the
-antipattern analysis directly (tmp-docs/antipattern-analysis.md): O1's
-measured harm (one shared integration user, every remote audit trail
-attributing a generic identity), F6 (per-caller identities), E3 (identity
-& scope measurement), and the capstone observation that *agent identity
-lives outside every agent protocol today* — WS6 tests whether USER
-identity does too.
+anti-pattern audit directly (D37): its measured harm of one shared
+integration user (every remote audit trail attributing a generic
+identity), F6 (per-caller identities), E3 (identity & scope measurement,
+in the experiment backlog below), and the capstone observation that
+*agent identity lives outside every agent protocol today* — WS6 tests
+whether USER identity does too.
 
 **Current baseline (honest).** One shared app token (`A2ALAB_TOKEN`,
 `x-lab-token` header / `?token=` query) authenticates *callers to lab
@@ -655,6 +655,38 @@ Design sketch (adapting the pattern to this stack):
   scheduled pipeline (their SDK has no scheduled hosting — that asymmetry
   is itself the finding).
 - **M6 probes:** the empty timeout table (10/30/60/90s) in 03-results.
+
+### From the anti-pattern audit (D37) — measure the claims, don't just assert them
+
+The self-audit that produced the F1–F8 remediation pass (D37) also left six
+experiments, each designed to generate raw data for or against a specific
+anti-pattern claim rather than to settle it by argument:
+
+- **E1 — Trust Layer wire test** (tests: "the platform masks PII for you").
+  Seed known-shape synthetic PII in CRM, run every delegation path, diff the
+  raw wire payloads the wiretap already captures against the masking claim.
+  Output: a measured per-path answer to what is actually masked on the wire.
+- **E2 — `input-required` handoff cell** (tests: A2A's task-state model is
+  usable in practice). Emit `TASK_STATE_INPUT_REQUIRED` on a delegation
+  failure or guard refusal and survey which platform A2A clients handle it.
+  Expected finding: none do — which extends the maturity spectrum in
+  `native-a2a-young` with a second concrete axis.
+- **E3 — Identity & scope diet measurement** (tests: least-privilege is
+  reachable). Deploy the minimal-scope ECA (F3) and per-twin ECAs (F6),
+  record what breaks and how Salesforce session logs attribute each caller.
+  Output: measured deltas + a matrix ledger entry. **Known before starting:**
+  the harvest's Data Cloud queries go through `/services/data/vXX/query`, so
+  dropping the `Api` scope trades the Salesforce observability column for the
+  tighter grant — that trade IS the experiment's first result.
+- **E4 — Per-user session isolation cost** (tests: multi-tenant remediation
+  is free). User-keyed vs platform-keyed warm sessions, cold-start multiplier
+  under N users. Prices the remediation in seconds against D32's 31–56s.
+- **E5 — Output-schema enforcement survey** (tests: declaring a schema means
+  callers honor it). Now that MCP `ask` publishes an output schema and
+  contract version (F4), test which calling platforms validate or consume it.
+  Expected finding: declaration outpaces enforcement.
+- **E6 — Interop tax lanes** — the M11.4 item above, listed here because it
+  is the same question asked with money instead of latency.
 
 ## Insights pipeline (how findings reach the deck)
 

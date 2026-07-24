@@ -33,8 +33,8 @@ END_MARKER = "[/A2A-LAB DELEGATION]"
 _DEPTH_RE = re.compile(r"delegation-depth:\s*(\d+)")
 _PLATFORM_RE = re.compile(r"caller-platform:\s*([\w.-]+)")
 
-# The rider grammar is a versioned text contract (F7, tmp-docs antipattern
-# analysis A2): `key: value` lines between the markers, one per line.
+# The rider grammar is a versioned text contract (F7, the D37 anti-pattern
+# audit): `key: value` lines between the markers, one per line.
 # Parsers scan for the keys they know and MUST tolerate unknown lines —
 # that tolerance is what lets the grammar grow (lab-trace arrived in v1
 # unannounced; on-behalf-of lands in v2 with WS6). Bump RIDER_VERSION when

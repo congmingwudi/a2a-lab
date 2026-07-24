@@ -32,6 +32,14 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Federation isn't free even when it's right. Price the interop tax into the business case: if a delegation crosses platforms mainly for organizational convenience, consolidation may pay for itself in latency and cost alone. Numbers to follow from the lab.
 
+### Security remediations are intermediaries too — each one levies the same timeout and cold-start tax as any other hop
+
+*Status: measured · refs: D37, D28, D32, plan/02-matrix.md*
+
+**What the lab showed:** The lab hosted its Agentforce shim behind an API gateway (the textbook remediation for "don't expose a raw wrapper"), and the gateway's hard 29s ceiling straddled the twin's first account turn (~20–27s, D32) — a non-retrying caller (Foundry's A2A tool) 500'd straight into the calling agent. Per-user session isolation (the remediation for shared warm sessions) multiplies exposure to the measured 31–56s container cold starts that platform-keyed warm pools absorb. A second, different tax showed up when the lab remediated itself (D37): of eight self-audited debts, the six that were code — secrets to Secrets Manager, credential scrub, output schema and version, config out of Apex, rider versioning, batch guard — were hours of ordinary work inside abstractions the lab already had. The two still outstanding are the org-side identity fixes, because those are the ones no script owns.
+
+**Advisor take:** Price remediations like hops: every gateway, broker, or isolation boundary added for security contributes its own timeout, latency, and cold-start economics to the chain — budget the stack with the remediation IN it before promising a sync UX. And when you plan a hardening pass, expect the cost to land on whichever side of the seam your automation doesn't reach; in most estates that is the identity and app-registration layer, not the code.
+
 ## Delegation patterns
 
 ### Synchronous agent-to-agent delegation is real and fast enough for conversational use
@@ -91,6 +99,22 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** The lab's honest matrix, platform by platform (inbound surfaces, measured): Salesforce Agentforce — GA Agent API only; no MCP or A2A inbound (MCP is gated beta, A2A doesn't exist), so those cells run via lab shims, and outbound is REST-only — every protocol experiment rides an Apex callout, through the bridge or (the D30 direct route) straight to a remote platform's A2A endpoint. Anthropic Managed Agents — its own API only; no MCP or A2A inbound, so the lab serves both protocols itself in front of the agent it hosts (the "native" cells are native because the AGENT is ours, not because the platform speaks the protocol). OpenAI — no inbound agent endpoint of any kind; the lab's servers are the only door to that agent. Google Vertex AI Agent Engine speaks A2A natively (no MCP serving); Microsoft Foundry became the second platform-native A2A endpoint (2026-07-22, Entra-only). Five platforms in, exactly two platform-native protocol endpoints exist — everything else is the lab's own plumbing.
 
 **Advisor take:** Plan for bridges and adapters as permanent, first-class, observable components of an interop program — not temporary scaffolding. Ask every vendor "which protocols do you speak natively, in which direction, GA or beta?" and demand wire-level evidence.
+
+### "Never scrape text" is single-platform advice — cross-platform, a versioned text rider is a contract, not a hack
+
+*Status: observed · refs: D27, D34, D37*
+
+**What the lab showed:** Against platform APIs the lab parses structure only — typed message filters, JSON deserialization, never prose scraping. But for cross-platform correlation and provenance the structured channels all failed in practice: headers, tool arguments, and A2A metadata were each dropped by at least one hop. The delimited [A2A-LAB DELEGATION] rider in message text survived every seam and lands verbatim in remote platforms' own logs (the measured attribution and trace-linkage results are recorded under rider-provenance and text-trace-linkage). The distinction that matters is not text versus structure — it is arbitrary prose versus a delimited, versioned grammar. The lab made that explicit rather than implied (F7/D37): a `rider-version:` line, fixed keys, and a documented rule that parsers must tolerate unknown lines, which is what lets the grammar grow.
+
+**Advisor take:** Split the rule instead of repeating it. Scraping identifiers out of free-form model prose is fragile and deserves the condemnation; carrying a small, delimited, versioned convention in message text is currently the only transport every platform preserves. If you ship one, treat it as a spec — fixed grammar, version line, documented tolerance for unknown keys — and parse it like one.
+
+### Contract versioning is necessary and insufficient — shipped dialects don't negotiate, so budget for a translation layer you own
+
+*Status: measured · refs: D29, D30, plan/03-results.md*
+
+**What the lab showed:** Both hyperscalers version their A2A surfaces; neither negotiates. Google's Agent Engine hard-requires `a2a-version: 1.0` — omit the header and the handler assumes 0.3 and rejects the call with VERSION_NOT_SUPPORTED. Microsoft Foundry speaks the 0.3 dialect and rejects a pure 1.x agent card, while a 1.x server answers its calls with -32601. Interop across what is nominally "the same protocol" took the lab's dual-dialect agent card plus a 0.3↔1.x translation middleware at the shim.
+
+**Advisor take:** Version every tool and agent contract you publish — and still assume the counterparty ships a different generation with no negotiation path between you. A translation seam you own is part of the real interop architecture, not a temporary shim, and it should be staffed and tested like one.
 
 ## Hosting models
 
@@ -179,4 +203,12 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** Lab rule D15: every experiment enters through the actual platform agent (a real Agentforce conversation, a real managed session) — no console simulation of a platform leg — and every hop records its raw wire payload. The rule has caught more architectural truth than any feature matrix, including the emergent-topology incident.
 
 **Advisor take:** When evaluating vendor interop claims, require the demo to start inside the real product surface and show the wire. "Our platform speaks A2A" and "a slide says our platform speaks A2A" are different facts.
+
+### Production anti-pattern guidance assumes surfaces that cross-platform reality doesn't have yet
+
+*Status: observed · refs: D37, plan/02-matrix.md, D27, D28, D34*
+
+**What the lab showed:** Scoring 34 single-vendor anti-pattern claims against the lab's five-platform evidence (D37): most hold, and several are confirmed by the lab's own measurements — runaway delegation loops, sync patterns applied to long-running work, reactive token refresh inside a timeout chain. But the claims that fail, fail in one consistent direction: they assume structured, governed, negotiated surfaces exist end to end. Measured counterexamples: "use the hosted MCP server" (one native protocol endpoint across five platforms; the hosted alternative is gated beta or absent); "never regex-scrape text" (every structured channel was dropped by at least one hop, while a text rider survived all of them); "version your contracts" (both hyperscalers version their A2A dialects and neither negotiates — interop still required a translation layer the lab had to own).
+
+**Advisor take:** Read single-vendor best-practice decks as a target state, not a current-state playbook. For every "use the platform's governed surface" rule, ask: does that surface exist, in GA, on every platform in my estate, in the direction I need? Where it doesn't, the disciplined move is the labeled workaround — honest status, armed migration trigger — not abstinence.
 

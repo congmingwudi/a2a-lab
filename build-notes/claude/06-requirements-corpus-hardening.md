@@ -10,14 +10,16 @@ A trusted source — a colleague's internal "Headless 360 Anti-Patterns &
 Remediation Tips" deck — arrived as **two slide screenshots** (5 categories,
 34 anti-pattern bullets covering security, secrets, OAuth, PII, agent design,
 and guardrails). Instead of treating it as a checklist to nod along to, the
-slides were dropped into `tmp-docs/` and Claude was asked to **analyze the
-whole corpus through the lens of the lab**: does each claim hold, and does the
+slides were handed to Claude as a scratch corpus with the ask: **analyze the
+whole thing through the lens of the lab** — does each claim hold, and does the
 lab commit it?
 
-The result is `tmp-docs/antipattern-analysis.md` — a working document built
-from **two code audits with `file:line` evidence** (security/auth/trace, and
-Apex/MCP/guardrails), cross-referenced against `config/insights.yaml`,
-`plan/02-matrix.md`, and ADRs D7–D34.
+The result was a working document built from **two code audits with
+`file:line` evidence** (security/auth/trace, and Apex/MCP/guardrails),
+cross-referenced against `config/insights.yaml`, `plan/02-matrix.md`, and
+ADRs D7–D34. Everything durable from it now lives in the plan: the audit and
+its remediation pass as **D37**, the six follow-on experiments in
+`plan/07-workstreams.md`, and four published insights.
 
 ## What made the analysis honest instead of performative
 
@@ -71,11 +73,13 @@ against real milestones (F1 lands before the hosted public-demo cutover).
 
 ## Session continuity
 
-`tmp-docs/` is scratch space, not `plan/` — so a **memory entry** records the
-doc's role and the agreed sequencing, with the instruction "work from its
-F*/E*/I-A2A-* IDs". Any later session that touches fixes, insights, the
-readout deck, or the lab guide starts by re-reading the working doc, not by
-re-deriving the analysis.
+The analysis was written to scratch space, not `plan/` — so while the work was
+in flight a **memory entry** carried the doc's role and the agreed sequencing,
+with the instruction "work from its F*/E*/I-A2A-* IDs", and later sessions
+resumed from it instead of re-deriving the analysis. That scaffolding came
+down once the durable output landed in `plan/`: an ADR for the audit and its
+remediation, the experiments in the workstream backlog, the insights
+published. A scratch doc earns its keep by emptying itself into the record.
 
 ## Teaching points for the deck
 
