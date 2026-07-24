@@ -928,6 +928,36 @@ def create_console_app(registry: Registry | None = None):
         chips whose popover shows the decision's markdown."""
         return {"decisions": load_decisions()}
 
+    @app.get("/api/users")
+    async def users():
+        """The lab user directory (WS6 U1) — feeds the console's sign-in
+        picker. Demo-scale IdP: no passwords, the experiment is identity
+        PROPAGATION and authorization, not credential UX."""
+        from interop import identity
+
+        return {
+            "users": [
+                {"username": u, "name": e.get("name") or u, "role": e.get("role") or "viewer"}
+                for u, e in identity.load_users().items()
+            ]
+        }
+
+    @app.post("/api/login")
+    async def login(request: Request):
+        """Issue a lab JWT (RS256) for a directory user. The browser sends
+        it as Authorization: Bearer on every API call; any seam verifies
+        with the public key alone."""
+        from interop import identity
+
+        body = await request.json()
+        username = (body.get("username") or "").strip()
+        try:
+            token = identity.issue_token(username)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        claims = identity.verify_token(token) or {}
+        return {"token": token, "user": identity.user_context(claims)}
+
     @app.post("/api/guide")
     async def guide(request: Request):
         """The Lab Guide chat (plan/07, Lab Guide): stateless streaming turns
@@ -1284,6 +1314,14 @@ def create_console_app(registry: Registry | None = None):
             trace_id=body.get("trace_id") or new_trace_id(),
             session_id=body.get("session_id") or None,
         )
+        # WS6 U1: a signed-in operator's verified identity rides the origin
+        # request — visible in the first hop's wire record today; the seams
+        # forward it onward in U2.
+        lab_user = request.scope.get("state", {}).get("lab_user")
+        if lab_user:
+            from interop import identity
+
+            req.metadata["user_context"] = identity.user_context(lab_user)
         try:
             if via_bridge:
                 result = await run_via_bridge(req, name)

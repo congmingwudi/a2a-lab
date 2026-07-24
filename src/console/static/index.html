@@ -703,6 +703,11 @@
     <button class="tbtn" id="themeLight" onclick="setTheme('light')" title="Light mode" aria-label="Switch to light mode">☀</button>
     <button class="tbtn" id="themeDark" onclick="setTheme('dark')" title="Dark mode" aria-label="Switch to dark mode">☾</button>
   </div>
+  <div class="user-wrap" style="position:relative">
+    <button class="guide-btn" id="userBtn" onclick="toggleUserPanel(event)"
+      title="Sign in as a lab user — runs carry your identity (WS6)">👤 Sign in</button>
+    <div id="userPanel" class="warm-panel user-panel" style="display:none" onclick="event.stopPropagation()"></div>
+  </div>
   <button class="guide-btn" id="guideBtn" onclick="toggleGuide()"
     title="Ask the Lab Guide — the console's docent — how the lab was built">🧭 Lab Guide</button>
   <div class="gear-wrap">
@@ -838,6 +843,81 @@ const expKey = (kind, name) => (kind === "scenario" ? "scn:" : "cell:") + name;
 // arrives as ?token=... on the page URL and must ride along on API calls
 // (EventSource can't set headers, hence query param).
 const apiUrl = path => path + window.location.search;
+
+// ---------------------------------------------------------------------------
+// Lab user session (WS6 U1): sign in as a directory user, hold the lab JWT
+// client-side, and send it as Authorization: Bearer on every API call — the
+// per-user credential rides headers; the legacy ?token= stays only for
+// EventSource (which cannot set headers).
+// ---------------------------------------------------------------------------
+let labUser = null;
+try { labUser = JSON.parse(localStorage.getItem("a2a-user") || "null"); } catch (e) { /* */ }
+
+function labJwt() {
+  try { return localStorage.getItem("a2a-user-jwt"); } catch (e) { return null; }
+}
+
+const _rawFetch = window.fetch.bind(window);
+window.fetch = (url, opts = {}) => {
+  const jwt = labJwt();
+  if (jwt && typeof url === "string" && url.startsWith("/api")) {
+    opts = Object.assign({}, opts);
+    opts.headers = Object.assign({}, opts.headers, { Authorization: "Bearer " + jwt });
+  }
+  return _rawFetch(url, opts);
+};
+
+function renderUserBtn() {
+  const btn = document.getElementById("userBtn");
+  if (!btn) return;
+  btn.innerHTML = labUser
+    ? `👤 ${esc(labUser.name || labUser.sub)} <span class="badge internal">${esc(labUser.role || "")}</span>`
+    : "👤 Sign in";
+}
+
+window.toggleUserPanel = async ev => {
+  ev.stopPropagation();
+  const panel = document.getElementById("userPanel");
+  if (panel.style.display !== "none") { panel.style.display = "none"; return; }
+  let users = [];
+  try { users = (await (await fetch(apiUrl("/api/users"))).json()).users || []; }
+  catch (e) { /* directory unavailable — panel just shows sign-out */ }
+  panel.innerHTML = `<h3>Lab users <span class="hint" style="text-transform:none;letter-spacing:0">runs carry your identity</span>
+      <button class="x" onclick="document.getElementById('userPanel').style.display='none'">✕</button></h3>`
+    + users.map(u => `
+      <div class="warm-row" style="cursor:pointer" onclick="labSignIn('${esc(u.username)}')">
+        <span class="wname">${esc(u.name)}</span>
+        <span class="warm-tag ${u.role === "operator" ? "warm" : "cold"}">${esc(u.role)}</span>
+      </div>`).join("")
+    + (labUser ? `<div class="warm-foot"><span class="note">signed in as ${esc(labUser.sub)}</span>
+        <button class="ghost" onclick="labSignOut()">Sign out</button></div>` : "");
+  panel.style.display = "";
+};
+
+window.labSignIn = async username => {
+  try {
+    const r = await fetch(apiUrl("/api/login"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username }),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const d = await r.json();
+    localStorage.setItem("a2a-user-jwt", d.token);
+    localStorage.setItem("a2a-user", JSON.stringify(d.user));
+    labUser = d.user;
+  } catch (e) { alert("Sign-in failed: " + e.message); }
+  document.getElementById("userPanel").style.display = "none";
+  renderUserBtn();
+};
+
+window.labSignOut = () => {
+  localStorage.removeItem("a2a-user-jwt");
+  localStorage.removeItem("a2a-user");
+  labUser = null;
+  document.getElementById("userPanel").style.display = "none";
+  renderUserBtn();
+};
 
 const newTraceId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "")
   : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join(""));
@@ -3428,6 +3508,7 @@ loadInsights();
 loadConfig();
 loadWarmup();
 loadDecisions();
+renderUserBtn();
 </script>
 </body>
 </html>
