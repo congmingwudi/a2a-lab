@@ -95,9 +95,20 @@ fi
 # One secret per runtime, a JSON object of env vars — the same shape the
 # harvest Lambda has used since D23. Rotating a key is a put-secret-value
 # plus a container restart, not a redeploy.
-SECRET_JSON=$(python3 - "${SECRET_KEYS[@]}" <<'PY'
+SECRET_JSON=$(A2ALAB_PLATFORM="$PLATFORM" python3 - "${SECRET_KEYS[@]}" <<'PY'
 import json, os, sys
 env = {k: os.environ[k] for k in sys.argv[1:] if os.environ.get(k)}
+# F6 per-caller Salesforce identity: if .env carries SF_CLIENT_ID_CLAUDE /
+# SF_CLIENT_SECRET_CLAUDE (this runtime's own External Client App), ship
+# those instead of the shared pair, so Salesforce login history attributes
+# this caller by its own app. Falls back to the shared app when unset —
+# which is also what keeps this script the single source of the runtime
+# secret: a redeploy can't silently revert a hand-wired identity.
+suffix = os.environ["A2ALAB_PLATFORM"].upper()
+for key in ("SF_CLIENT_ID", "SF_CLIENT_SECRET"):
+    override = os.environ.get(f"{key}_{suffix}")
+    if override:
+        env[key] = override
 # The shim credential rides as AF_SHIM_TOKEN, never A2ALAB_TOKEN: setting
 # A2ALAB_TOKEN in the runtime flips on the container's own inbound bearer
 # auth, which invoke_agent_runtime cannot satisfy — every invoke 401s.

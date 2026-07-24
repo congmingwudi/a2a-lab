@@ -75,13 +75,24 @@ host the agent, with a note that the platform itself lacks A2A).
   sessions / 9 interaction events). OpenAI: nothing to pull by design
   (traces write-only). The coverage panel renders each platform's live
   harvest state.
-- Anti-pattern remediation pass (D37, 2026-07-24): six of eight
-  self-audited debts shipped (F1 hosted credentials → Secrets Manager,
-  F2 trace credential scrub, F4 versioned MCP ask contract, F5 Agent
-  Engine path → Custom Metadata, F7 versioned rider grammar, F8 Apex
-  batch guard). No matrix cell changed status — every fix was internal to
-  a seam the matrix already claimed, which is itself the finding: the
-  honest-status discipline held under an audit it did not anticipate. The
-  two that did NOT ship (F3 ECA scope diet, F6 per-twin ECAs) are both
-  org-side config no lab script owns — the remediation tax landed on the
-  platform side, not the code side.
+- Anti-pattern remediation pass (D37, 2026-07-24): all eight self-audited
+  debts shipped (F1 hosted credentials → Secrets Manager, F2 trace
+  credential scrub, F3 scope diet, F4 versioned MCP ask contract, F5 Agent
+  Engine path → Custom Metadata, F6 per-caller ECAs, F7 versioned rider
+  grammar, F8 Apex batch guard). No matrix cell changed status — every fix
+  was internal to a seam the matrix already claimed, which is itself the
+  finding: the honest-status discipline held under an audit it did not
+  anticipate.
+- Scope diet, the real shape of it (F3/F6, measured 2026-07-24): the
+  shared External Client App held `Api, RefreshToken, Chatbot,
+  SFApiPlatform` because that was the UNION of four callers' needs, so
+  auditing the scope list was never the fix. `RefreshToken` was simply
+  dead (client-credentials and JWT-bearer flows issue none; no lab code
+  reads one) and dropped. `Api` is load-bearing for exactly ONE caller —
+  the M11 harvest's Data Cloud DMO reads through `/services/data/vXX/query`
+  — and is kept deliberately: least privilege is not worth the org's only
+  window into its own agent logs. Splitting the callers into per-app
+  identities (F6) is what actually shrank the grants: the three agent
+  callers reach only the Agent API and now carry `Chatbot, SFApiPlatform`
+  with no `Api` at all. Least privilege was an identity-modelling problem
+  wearing a scope-configuration costume.

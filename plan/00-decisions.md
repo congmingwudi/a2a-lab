@@ -788,7 +788,7 @@ also proposed (E1–E6) live in plan/07-workstreams.md; the four insights it
 drafted are published in config/insights.yaml (`antipattern-lens`,
 `remediation-tax`, `text-rider-legitimacy`, `versioning-not-negotiation`).
 
-**Shipped:**
+**Shipped (all eight — six the same day, F3/F6 later that evening):**
 - **F1 — hosted credentials → Secrets Manager.** The two AgentCore
   runtimes and the shim Lambda carried API keys, the Salesforce connected-
   app client id/secret, and the lab bearer token as plaintext environment
@@ -825,9 +825,9 @@ drafted are published in config/insights.yaml (`antipattern-lens`,
   the Apex 120s cumulative budget. Batches are refused outright — one
   refusal Response per request, zero callouts — not silently split.
 
-**Deferred — and a correction (2026-07-24, same day).** F3 (External
-Client App scope diet) and F6 (per-twin ECAs so Salesforce logs attribute
-per caller) were first recorded here as "org config no lab script owns."
+**F3 and F6 — the correction, and then they shipped too (2026-07-24,
+same day).** Both were first recorded here as "org config no lab script
+owns."
 That is wrong, and checking it against Salesforce's own skills library
 (`forcedotcom/sf-skills`,
 `integration-connectivity-connected-app-configure`) is what corrected it:
@@ -835,27 +835,44 @@ ECA configuration is source-controlled metadata across six types
 (`ExternalClientApplication`, `ExtlClntAppOauthSettings`,
 `ExtlClntAppGlobalOauthSettings`, `ExtlClntAppOauthSecuritySettings`,
 `ExtlClntAppOauthConfigurablePolicies`, `ExtlClntAppConfigurablePolicies`),
-and this org's `a2a_lab_app` retrieves cleanly. So both fixes are
-deployable, not click-ops. What actually defers them:
+and this org's `a2a_lab_app` retrieves cleanly. So both were deployable,
+not click-ops, and both then shipped:
 
-- **F3 is a one-line change with a real trade behind it.**
-  `commaSeparatedOauthScopes` is `Api, RefreshToken, Chatbot,
-  SFApiPlatform`. `RefreshToken` is dead weight — the app enables only the
-  client-credentials and named-user-JWT flows, neither of which issues a
-  refresh token — so dropping it is free. Dropping `Api` is NOT free: the
-  M11 harvest reads the Data Cloud DMOs through
-  `/services/data/vXX/query` (`observability/salesforce_source.py`) on the
-  same client-credentials token, so least-privilege here costs the
-  Salesforce observability column. That trade is exactly what E3 exists to
-  measure, and it should be measured deliberately, not discovered during a
-  demo.
-- **F6 needs a human once per twin.** The ECA metadata is deployable, but
-  the consumer key is generated post-deploy and the consumer secret cannot
-  be read back through the Metadata API at all — each new twin app needs
-  its secret pulled from Setup by hand and placed in the runtime secret.
+- **F3 — `RefreshToken` dropped; `Api` kept, deliberately.** Scopes were
+  `Api, RefreshToken, Chatbot, SFApiPlatform`. `RefreshToken` was dead
+  weight: the app enables only the client-credentials and named-user-JWT
+  flows, neither of which issues a refresh token, and no lab code reads
+  one (the only `refresh_token` strings in the codebase are F2's scrub
+  patterns). Dropped and verified — token mint, an `Api`-scoped Data Cloud
+  query, and a full Agentforce consult all still pass. **`Api` stays on
+  the shared app by decision, not omission**: the M11 harvest reads the
+  agent-session DMOs through `/services/data/vXX/query`
+  (`observability/salesforce_source.py`) on the same client-credentials
+  token, so dropping it would trade the Salesforce observability column —
+  the lab's only window into what the org logs about its own agents — for
+  a tighter grant on an app that already only serves the lab. The
+  observability is worth more.
+- **F6 — four per-caller ECAs, which is where the scope diet actually
+  landed.** `a2a_lab_claude`, `a2a_lab_openai`, `a2a_lab_shim` (scoped
+  `Chatbot, SFApiPlatform`) and `a2a_lab_obs` (scoped `Api`); the shared
+  `a2a_lab_app` stays as the local-development identity. The agent callers
+  hit `api.salesforce.com/einstein/ai-agent/v1` and need no `Api` scope at
+  all — only the harvest does. **That is the finding worth keeping: with
+  one shared app, the grant is the UNION of every caller's needs, so the
+  scope diet was never really about the scopes. Separating callers is what
+  let each grant shrink.** F1 made the wiring nearly free — every hosted
+  seam already had its own Secrets Manager secret, so per-caller identity
+  is just a different `SF_CLIENT_ID`/`SF_CLIENT_SECRET` pair inside it;
+  the deploy scripts take an optional `SF_CLIENT_ID_<SEAM>` from `.env`
+  and fall back to the shared app, so no redeploy can silently revert an
+  identity. Remaining human step, once per app: the consumer secret cannot
+  be read through the Metadata API — it comes from Setup by hand.
 
-Not committed to source: the retrieved ECA files carry the consumer key
-and this repo is public — an F3/F6 branch has to decide that first.
+**Not in source, on purpose:** `ExtlClntAppGlobalOauthSettings` carries the
+consumer key and this repo is public, so the ECA metadata is retrieved when
+needed and deleted after. The provisioning recipe lives in
+plan/04-runbooks.md §11 instead — the reproducibility without the key
+material.
 
 **Verified (2026-07-24).** F5: deployed to the production org,
 `A2ALabInvokeAgentEngineTest` 8/8, 99% class coverage. F1: after redeploy,

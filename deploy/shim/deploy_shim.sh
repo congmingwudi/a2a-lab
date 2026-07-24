@@ -37,7 +37,15 @@ SECRET_NAME=a2alab/runtime/shim
 SECRET_JSON=$(python3 - <<'PY'
 import json, os
 keys = ["SF_CLIENT_ID", "SF_CLIENT_SECRET", "A2ALAB_TOKEN"]
-print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
+env = {k: os.environ[k] for k in keys if os.environ.get(k)}
+# F6 per-caller identity: the shim's own External Client App, if .env has it
+# (SF_CLIENT_ID_SHIM / SF_CLIENT_SECRET_SHIM). Same fallback rule as the
+# AgentCore runtimes — unset means the shared app.
+for key in ("SF_CLIENT_ID", "SF_CLIENT_SECRET"):
+    override = os.environ.get(f"{key}_SHIM")
+    if override:
+        env[key] = override
+print(json.dumps(env))
 PY
 )
 if SECRET_ARN=$(aws secretsmanager describe-secret --region "$REGION" \

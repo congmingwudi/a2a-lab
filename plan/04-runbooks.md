@@ -303,3 +303,63 @@ the cache. The tool results the model reads mid-answer (get_decision,
 get_trace, …) are per-turn messages — also outside the cache, also only
 as big as the question needs (that is the corpus split's other half:
 stuff what every question needs, tool the long tail).
+
+## 11. Per-caller External Client Apps (D37 / F6)
+
+Salesforce login history attributes a client-credentials call to the
+**app**, not the code path — so one shared ECA makes every lab caller look
+like one integration user in the org's own audit trail. F6 gives each
+hosted seam its own app. The ECA metadata is deliberately **not** in the
+repo: `ExtlClntAppGlobalOauthSettings` carries the consumer key and this
+repo is public. Retrieve it when you need it; this is the recipe.
+
+**The apps** (created 2026-07-24 in `a2alab-prod`), and the scope split
+that makes each one least-privilege — which is where F3's scope diet
+actually landed:
+
+| ECA | Scopes | Caller |
+|---|---|---|
+| `a2a_lab_claude` | `Chatbot, SFApiPlatform` | Claude AgentCore runtime's `ask_agentforce` |
+| `a2a_lab_openai` | `Chatbot, SFApiPlatform` | OpenAI AgentCore runtime's `ask_agentforce` |
+| `a2a_lab_shim` | `Chatbot, SFApiPlatform` | hosted A2A shim Lambda (Foundry/ADK inbound) |
+| `a2a_lab_obs` | `Api` | M11 harvest — the only caller that queries Data Cloud DMOs |
+| `a2a_lab_app` | `Api, Chatbot, SFApiPlatform` | local development (unchanged) |
+
+Agent callers reach `api.salesforce.com/einstein/ai-agent/v1` and need no
+`Api` scope at all; only the harvest does, because it reads the DMOs
+through `/services/data/vXX/query`. Separating callers is what let the
+grant shrink — with one shared app the union of needs IS the grant.
+
+**To add another** (four files per app, under `salesforce/force-app/main/default/`):
+
+1. `externalClientApps/<name>.eca-meta.xml` — `contactEmail`,
+   `description`, `distributionState Local`, `isProtected false`, `label`.
+   Omit `orgScopedExternalApp`; the org generates it.
+2. `extlClntAppGlobalOauthSets/<name>_glbloauth.ecaGlblOauth-meta.xml` —
+   `callbackUrl`, `isClientCredentialsFlowEnabled true`, everything else
+   false, `isPkceRequired true`. **Omit `consumerKey`** — it is generated
+   on first deploy and cannot be set from metadata.
+3. `extlClntAppOauthSettings/<name>_oauth.ecaOauth-meta.xml` —
+   `commaSeparatedOauthScopes` (least privilege for that caller).
+4. `extlClntAppOauthPolicies/<name>_oauthPlcy.ecaOauthPlcy-meta.xml` —
+   `clientCredentialsFlowUser` (the run-as user),
+   `commaSeparatedProfile`, `permittedUsersPolicyType
+   AdminApprovedPreAuthorized`, `ipRelaxationPolicyType Enforce`.
+
+Deploy all four directories together (no Apex, so no test run), then
+`rm -rf` them locally — do not commit. Retrieve the generated consumer key
+with `sf project retrieve start -m ExtlClntAppGlobalOauthSettings:<name>_glbloauth`.
+The consumer **secret** cannot be read through the Metadata API at all:
+Setup → App Manager → the app → View → Manage Consumer Details.
+
+**Wiring**: no code change. Put the pair in `.env` as
+`SF_CLIENT_ID_<SEAM>` / `SF_CLIENT_SECRET_<SEAM>` (`CLAUDE`, `OPENAI`,
+`SHIM`) and redeploy that seam — `deploy/agentcore/deploy.sh` and
+`deploy/shim/deploy_shim.sh` ship the per-seam pair into that seam's own
+Secrets Manager secret (F1), falling back to the shared app when unset.
+The harvest Lambda's secret predates F1 and has no script path — edit it
+in the console or leave it on the shared app.
+
+**Verify**: run a scenario that consults Agentforce, then Setup → Identity
+→ Login History filtered by application. Each caller should appear under
+its own app name. That attribution is E3's raw data.
