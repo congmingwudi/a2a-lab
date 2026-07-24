@@ -2578,24 +2578,24 @@ function archSvg() {
     { y: 120, proto: "a2a", label: "A2A" },
   ];
   const box = (x, title, sub, sub2) => `
-    <rect x="${x}" y="40" width="184" height="104" rx="12" fill="rgba(255,255,255,.05)" stroke="rgba(143,192,232,.4)"/>
-    <text x="${x + 92}" y="78" text-anchor="middle" fill="#f4f9ff" font-size="13" font-weight="700">${title}</text>
-    <text x="${x + 92}" y="98" text-anchor="middle" fill="#8fc0e8" font-size="10.5">${sub}</text>
-    <text x="${x + 92}" y="114" text-anchor="middle" fill="#8fc0e8" font-size="10.5">${sub2}</text>`;
+    <rect x="${x}" y="40" width="210" height="104" rx="12" fill="rgba(255,255,255,.05)" stroke="rgba(143,192,232,.4)"/>
+    <text x="${x + 105}" y="78" text-anchor="middle" fill="#f4f9ff" font-size="13" font-weight="700">${title}</text>
+    <text x="${x + 105}" y="98" text-anchor="middle" fill="#8fc0e8" font-size="10">${sub}</text>
+    <text x="${x + 105}" y="114" text-anchor="middle" fill="#8fc0e8" font-size="10">${sub2}</text>`;
   const defs = lines.map(l => `
     <marker id="lnd-${l.proto}-e" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto">
       <path d="M0,0 L8,4 L0,8 z" fill="var(--${l.proto})"/></marker>
     <marker id="lnd-${l.proto}-s" viewBox="0 0 8 8" refX="1" refY="4" markerWidth="6.5" markerHeight="6.5" orient="auto">
       <path d="M8,0 L0,4 L8,8 z" fill="var(--${l.proto})"/></marker>`).join("");
   const wires = lines.map(l => `
-    <line x1="222" y1="${l.y}" x2="538" y2="${l.y}" stroke="var(--${l.proto})" stroke-width="1.6"
+    <line x1="238" y1="${l.y}" x2="522" y2="${l.y}" stroke="var(--${l.proto})" stroke-width="1.6"
       marker-start="url(#lnd-${l.proto}-s)" marker-end="url(#lnd-${l.proto}-e)"/>
     <text x="380" y="${l.y - 6}" text-anchor="middle" fill="var(--${l.proto})" font-size="10.5" font-weight="700">${l.label}</text>`).join("");
   return `<svg class="archsvg" viewBox="0 0 760 196" role="img"
       aria-label="Agentforce and the remote research agents (Claude, OpenAI, Gemini, Foundry) exchanging the same request over REST, MCP, and A2A">
     <defs>${defs}</defs>
-    ${box(30, "Salesforce Agentforce", "service agent · Agent API", "Apex action → bridge / direct A2A")}
-    ${box(546, "Research agents", "Claude · OpenAI · Gemini (GCP)", "gpt-5-mini (Azure Foundry)")}
+    ${box(22, "Salesforce Agentforce", "service agent · Agent API", "Apex → bridge / direct A2A")}
+    ${box(528, "Research agents", "Claude · OpenAI · Gemini", "gpt-5-mini (Azure Foundry)")}
     ${wires}
     <text x="380" y="172" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
       five platforms, three clouds — same scenario over each protocol, every raw wire payload recorded</text>
