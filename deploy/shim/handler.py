@@ -17,6 +17,13 @@ import os
 
 os.environ.setdefault("A2ALAB_TRACE_DIR", "/tmp/traces")
 
+from interop.secret_env import load_secret_env_and_log  # noqa: E402
+
+# F1: the Salesforce connected-app credentials and the lab bearer token come
+# from Secrets Manager (A2ALAB_RUNTIME_SECRET_ARN), loaded at cold start —
+# before AgentforceProxyAdapter reads SF_* out of the environment below.
+load_secret_env_and_log("af-shim")
+
 from mangum import Mangum  # noqa: E402
 
 from interop.servers.a2a import create_a2a_app  # noqa: E402

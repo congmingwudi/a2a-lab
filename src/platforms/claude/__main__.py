@@ -13,6 +13,7 @@ import argparse
 from dotenv import load_dotenv
 
 from interop.adapter import serve
+from interop.secret_env import load_secret_env_and_log
 from platforms.claude.core import make_adapter
 
 DEFAULT_PORTS = {"rest": 8001, "mcp": 8002, "a2a": 8003}
@@ -20,6 +21,9 @@ DEFAULT_PORTS = {"rest": 8001, "mcp": 8002, "a2a": 8003}
 
 def main() -> None:
     load_dotenv()
+    # F1: hosted (AgentCore) runs get their credentials from Secrets Manager
+    # before the adapter reads os.environ; a no-op locally, where .env rules.
+    load_secret_env_and_log("claude")
     parser = argparse.ArgumentParser(description="Claude research agent server")
     parser.add_argument("--protocol", choices=["rest", "mcp", "a2a"], default="rest")
     parser.add_argument("--port", type=int, default=None)

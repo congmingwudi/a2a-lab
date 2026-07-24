@@ -28,15 +28,41 @@ ROLE_ARN=$(aws iam get-role --role-name a2alab-shim-lambda --query 'Role.Arn' --
   sleep 10  # IAM propagation before first create-function
 }
 
+# ---- credentials -> Secrets Manager (F1) -----------------------------------
+# The connected-app secret and the lab bearer token leave the function
+# configuration: they live in a2alab/runtime/shim and handler.py loads them
+# at cold start (interop.secret_env). Agent ids and the my-domain stay plain
+# config — they are addressing, not credentials.
+SECRET_NAME=a2alab/runtime/shim
+SECRET_JSON=$(python3 - <<'PY'
+import json, os
+keys = ["SF_CLIENT_ID", "SF_CLIENT_SECRET", "A2ALAB_TOKEN"]
+print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
+PY
+)
+if SECRET_ARN=$(aws secretsmanager describe-secret --region "$REGION" \
+      --secret-id "$SECRET_NAME" --query ARN --output text 2>/dev/null); then
+  aws secretsmanager put-secret-value --region "$REGION" \
+    --secret-id "$SECRET_NAME" --secret-string "$SECRET_JSON" >/dev/null
+  echo "updated secret $SECRET_NAME"
+else
+  SECRET_ARN=$(aws secretsmanager create-secret --region "$REGION" --name "$SECRET_NAME" \
+    --description "A2A lab: credentials for the hosted Agentforce A2A shim (F1)" \
+    --secret-string "$SECRET_JSON" --query ARN --output text)
+  echo "created secret $SECRET_NAME"
+fi
+aws iam put-role-policy --role-name a2alab-shim-lambda --policy-name read-runtime-secret \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"$SECRET_ARN\"}]}"
+
 # Env as JSON — the CLI's shorthand Variables={...} syntax can't carry
 # comma-valued vars (A2ALAB_TRACE_SINK=jsonl,postgres). Trace hops go to the
 # Aurora store over the RDS Data API (writer secret — same rule as the
 # AgentCore runtimes: the secret IS the role selection) so the console can
 # merge the shim's interior legs into the live trace view.
-ENV_JSON=$(python3 - <<'PY'
+ENV_JSON=$(A2ALAB_RUNTIME_SECRET_ARN="$SECRET_ARN" python3 - <<'PY'
 import json, os
-keys = ["SF_MY_DOMAIN", "SF_CLIENT_ID", "SF_CLIENT_SECRET", "SF_AGENT_ID",
-        "SF_OPENAI_AGENT_ID", "SF_ADK_AGENT_ID", "SF_FOUNDRY_AGENT_ID", "A2ALAB_TOKEN"]
+keys = ["SF_MY_DOMAIN", "SF_AGENT_ID", "SF_OPENAI_AGENT_ID", "SF_ADK_AGENT_ID",
+        "SF_FOUNDRY_AGENT_ID", "A2ALAB_RUNTIME_SECRET_ARN"]
 env = {k: os.environ[k] for k in keys if os.environ.get(k)}
 env["A2ALAB_TRACE_DIR"] = "/tmp/traces"
 env["A2ALAB_TRACE_SINK"] = "jsonl"
