@@ -75,3 +75,13 @@ host the agent, with a note that the platform itself lacks A2A).
   sessions / 9 interaction events). OpenAI: nothing to pull by design
   (traces write-only). The coverage panel renders each platform's live
   harvest state.
+- Anti-pattern remediation pass (D37, 2026-07-24): six of eight
+  self-audited debts shipped (F1 hosted credentials → Secrets Manager,
+  F2 trace credential scrub, F4 versioned MCP ask contract, F5 Agent
+  Engine path → Custom Metadata, F7 versioned rider grammar, F8 Apex
+  batch guard). No matrix cell changed status — every fix was internal to
+  a seam the matrix already claimed, which is itself the finding: the
+  honest-status discipline held under an audit it did not anticipate. The
+  two that did NOT ship (F3 ECA scope diet, F6 per-twin ECAs) are both
+  org-side config no lab script owns — the remediation tax landed on the
+  platform side, not the code side.

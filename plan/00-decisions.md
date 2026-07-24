@@ -773,3 +773,69 @@ middleware in the console (the UI hides what a role can't do, but the
 403 is the guard); the header-borne service token carries no user and is
 unaffected. This is the console half of WS6 U3 — per-user trace scoping
 (operators seeing whose run is whose) remains.
+
+## 2026-07-24 — D37: Anti-pattern remediation pass — what the lab fixed on itself
+
+**Decision.** `tmp-docs/antipattern-analysis.md` scored the lab against a
+colleague's "Headless 360 Anti-Patterns" deck and produced a backlog of
+eight validly-flagged debts (F1–F8). Six shipped; two are org-side work
+deferred to a human. The point of recording it as an ADR: the lab is the
+thing being audited, so the remediation is itself a measured result — a
+"practiced, not preached" line for the readout deck.
+
+**Shipped:**
+- **F1 — hosted credentials → Secrets Manager.** The two AgentCore
+  runtimes and the shim Lambda carried API keys, the Salesforce connected-
+  app client id/secret, and the lab bearer token as plaintext environment
+  variables on the runtime/function config. `interop.secret_env` ports the
+  harvest Lambda's loader (D23): one secret per runtime
+  (`a2alab/runtime/{claude,openai,shim}`), a JSON object of env vars,
+  resolved at container start from `A2ALAB_RUNTIME_SECRET_ARN`. A no-op
+  without that ARN, so local development is untouched; a failed fetch
+  raises rather than booting a credential-less runtime. Plain config —
+  model names, timeouts, twin ids, endpoints — deliberately stays on the
+  runtime description, where it helps debugging. Execution roles get
+  `secretsmanager:GetSecretValue` on exactly the one ARN, under
+  per-platform policy names (the two runtimes share one role, so a single
+  policy name would have each deploy revoking the other's access).
+- **F2 — credential scrub in the trace/obs sinks.** Regex redaction of
+  bearer tokens, `access_token`, `client_secret`, `sk-…` before write.
+  Raw-evidence ethos survives for payload *content*; only credentials go.
+- **F4 — versioned MCP ask contract.** Declared output schema for
+  `AgentResponse` + a contract version, and defensive validation in
+  `AgentRequest.from_dict`.
+- **F5 — Agent Engine path → Custom Metadata.** The ADK engine's resource
+  path was a compiled-in constant in `A2ALabInvokeAgentEngine`, so
+  redeploying the engine meant an Apex deploy — which on this production
+  org means a test run at ≥75% coverage. It now reads
+  `A2ALab_Setting__mdt.Agent_Engine.Engine_Path__c`, keeping the constant
+  as a last-known-good fallback so a missing record degrades to "stale
+  target" rather than "no target".
+- **F7 — versioned rider grammar.** `rider-version:` in the
+  `[A2A-LAB DELEGATION]` block, documented as a mini-spec — which reframes
+  the seam from "scraping text" to "parsing a versioned text contract"
+  (the honest answer to the A2 critique).
+- **F8 — batch guard on both Apex invocables.** Each request costs one
+  serial callout of up to 110s, so a multi-request batch would stack past
+  the Apex 120s cumulative budget. Batches are refused outright — one
+  refusal Response per request, zero callouts — not silently split.
+
+**Deferred (org-side, needs the human):** F3 (External Client App scope
+diet — drop `api`/`refresh_token`, keep `chatbot_api`) and F6 (per-twin
+ECAs so Salesforce logs attribute per caller). Both change org config the
+lab's scripts don't own, and F3's blast radius is every SF-touching cell.
+
+**Verified (2026-07-24).** F5: deployed to the production org,
+`A2ALabInvokeAgentEngineTest` 8/8, 99% class coverage. F1: after redeploy,
+no credential-bearing key remains in either runtime's
+`environmentVariables` or the Lambda's config — only ARNs, twin ids and
+tuning; `matrix.py claude-agentcore openai-agentcore` both PASS (7.3s /
+9.9s); `chatgpt-to-agentforce` returns real CRM content over both the
+agent-api (18.5s) and a2a-shim (20.7s) channels, which is the path that
+actually exercises the moved SF credentials on both seams at once.
+
+**The finding worth keeping:** the remediation tax was asymmetric and not
+in the direction the deck implies. The code-side fixes (F1/F2/F4/F7) were
+hours of ordinary work inside abstractions the lab already had — one
+loader module, one middleware pass. The org-side fixes (F3/F6) are the
+ones still outstanding, because they are the ones no script owns.
