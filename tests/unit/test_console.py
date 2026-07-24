@@ -550,3 +550,16 @@ def test_service_token_unaffected_by_role_gate(tmp_path, monkeypatch):
     client = TestClient(app)
     r = client.get("/api/traces", headers={"x-lab-token": "sekrit"})
     assert r.status_code == 200
+
+
+def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
+    # D36: signed-out visitors get the landing exhibit (tiles, chips) but
+    # nothing live — no traces, obs, runs, or guide.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    for path in ("/api/scenarios", "/api/targets", "/api/decisions", "/api/users"):
+        assert client.get(path).status_code == 200, path
+    assert client.get("/api/docs/plan/02-matrix.md").status_code == 200
+    for path in ("/api/traces", "/api/insights", "/api/obs/sessions", "/api/config"):
+        assert client.get(path).status_code == 401, path

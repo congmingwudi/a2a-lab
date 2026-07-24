@@ -54,18 +54,25 @@ class TokenAuthMiddleware:
         token: str | None = None,
         allow_query_param: bool = False,
         exempt_paths: tuple[str, ...] = EXEMPT_PATHS,
+        exempt_prefixes: tuple[str, ...] = (),
     ):
         self.app = app
         self._token = token
         self.allow_query_param = allow_query_param
         self.exempt_paths = exempt_paths
+        self.exempt_prefixes = exempt_prefixes
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         expected = self._token if self._token is not None else os.environ.get(TOKEN_ENV)
-        if not expected or scope.get("path", "") in self.exempt_paths:
+        path = scope.get("path", "")
+        if (
+            not expected
+            or path in self.exempt_paths
+            or any(path.startswith(p) for p in self.exempt_prefixes)
+        ):
             await self.app(scope, receive, send)
             return
 

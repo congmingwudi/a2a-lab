@@ -1712,7 +1712,22 @@ def create_console_app(registry: Registry | None = None):
     # A2ALAB_TOKEN is unset.
     from interop.servers.auth import TokenAuthMiddleware
 
-    return TokenAuthMiddleware(app, exempt_paths=("/", "/api/users", "/api/login"))
+    # Public surface = the landing exhibit: the shell plus the
+    # documentation-class GETs it renders (experiment tiles, protocol
+    # lists, decision/doc chips) — all repo content, no wire or org data.
+    # Live data (traces, obs, runs, guide) stays behind the persona JWT.
+    return TokenAuthMiddleware(
+        app,
+        exempt_paths=(
+            "/",
+            "/api/users",
+            "/api/login",
+            "/api/scenarios",
+            "/api/targets",
+            "/api/decisions",
+        ),
+        exempt_prefixes=("/api/docs/",),
+    )
 
 
 def main() -> None:
