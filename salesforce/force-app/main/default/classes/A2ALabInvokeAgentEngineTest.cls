@@ -1,7 +1,7 @@
 /**
  * Tests for A2ALabInvokeAgentEngine. Production deploys require running
  * tests with >=75% coverage; covers the success, non-2xx, no-task,
- * default-path, rider-stamping, and bulk paths.
+ * custom-path, rider-stamping, and batch-refusal (F8) paths.
  */
 @IsTest
 private class A2ALabInvokeAgentEngineTest {
@@ -108,24 +108,47 @@ private class A2ALabInvokeAgentEngineTest {
     }
 
     @IsTest
-    static void handlesBulkAndCustomPath() {
+    static void handlesCustomPath() {
+        EngineMock mock = new EngineMock(200, TASK_JSON);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        List<A2ALabInvokeAgentEngine.Response> out = A2ALabInvokeAgentEngine.ask(
+            new List<A2ALabInvokeAgentEngine.Request>{
+                makeRequest('q', '/v1beta1/projects/p/locations/l/reasoningEngines/42/a2a')
+            }
+        );
+        Test.stopTest();
+
+        System.assertEquals(1, out.size());
+        System.assert(
+            mock.lastRequest.getEndpoint().contains('/reasoningEngines/42/a2a'),
+            mock.lastRequest.getEndpoint()
+        );
+    }
+
+    @IsTest
+    static void refusesBulkRequestsWithoutCallouts() {
+        // F8 batch guard: >1 request would stack serial 110s callouts past
+        // Apex limits — every request gets a refusal and no callout happens.
         EngineMock mock = new EngineMock(200, TASK_JSON);
         Test.setMock(HttpCalloutMock.class, mock);
 
         List<A2ALabInvokeAgentEngine.Request> reqs =
             new List<A2ALabInvokeAgentEngine.Request>();
         for (Integer i = 0; i < 2; i++) {
-            reqs.add(makeRequest('q' + i, '/v1beta1/projects/p/locations/l/reasoningEngines/42/a2a'));
+            reqs.add(makeRequest('q' + i, null));
         }
 
         Test.startTest();
         List<A2ALabInvokeAgentEngine.Response> out = A2ALabInvokeAgentEngine.ask(reqs);
         Test.stopTest();
 
-        System.assertEquals(2, out.size());
-        System.assert(
-            mock.lastRequest.getEndpoint().contains('/reasoningEngines/42/a2a'),
-            mock.lastRequest.getEndpoint()
-        );
+        System.assertEquals(2, out.size(), 'one Response per request');
+        for (A2ALabInvokeAgentEngine.Response resp : out) {
+            System.assertEquals(A2ALabInvokeAgentEngine.BATCH_REFUSAL, resp.answer);
+        }
+        System.assertEquals(null, mock.lastRequest,
+            'a refused batch must make no callouts');
     }
 }

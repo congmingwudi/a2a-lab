@@ -21,6 +21,13 @@ public with sharing class A2ALabInvokeAgentEngine {
         '/v1beta1/projects/536083661167/locations/us-central1/reasoningEngines/1360159105477509120/a2a';
     private static final Integer TIMEOUT_MS = 110000; // Apex callout cap is 120s
 
+    // F8: each request costs one serial HTTP callout of up to 110s, so a
+    // multi-request batch would stack callouts far past the Apex transaction
+    // limits (120s cumulative callout budget). Batches are refused, not split.
+    private static final Integer MAX_BATCH_SIZE = 1;
+    @TestVisible private static final String BATCH_REFUSAL =
+        'batch invocations capped at 1 — serial callouts stack past Apex limits';
+
     public class Request {
         @InvocableVariable(required=true label='Question'
             description='The research question to delegate to the Agent Engine agent')
@@ -46,6 +53,16 @@ public with sharing class A2ALabInvokeAgentEngine {
     )
     public static List<Response> ask(List<Request> requests) {
         List<Response> out = new List<Response>();
+        // F8 batch guard: refuse multi-request batches outright (one refusal
+        // Response per request, zero callouts) — see MAX_BATCH_SIZE above.
+        if (requests.size() > MAX_BATCH_SIZE) {
+            for (Request req : requests) {
+                Response refused = new Response();
+                refused.answer = BATCH_REFUSAL;
+                out.add(refused);
+            }
+            return out;
+        }
         for (Request req : requests) {
             out.add(askOne(req));
         }
