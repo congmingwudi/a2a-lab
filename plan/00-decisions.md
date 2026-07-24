@@ -764,9 +764,11 @@ recorded deliberately. A real IdP federation (Cognito/Entra via
 OIDC + RFC 8693 token exchange) is a planned WS6 U6 experiment — as a
 measured cell, not invisible plumbing.
 
-**Role model addendum (same day):** viewer = insights + the observability
-dashboard read-only + the Lab Guide; runs, warm-ups, harvest/analyze, and
-raw wire traces are operator-only. Enforced server-side by a role-gate
+**Role model addendum (same day, revised):** viewer = insights, the
+observability dashboard read-only, the Lab Guide, experiment Details
+tabs, AND the wire traces + live tail (the org serves dummy demo data
+only — the wire record is the exhibit); runs, warm-ups, and
+harvest/analyze are operator-only. Enforced server-side by a role-gate
 middleware in the console (the UI hides what a role can't do, but the
 403 is the guard); the header-borne service token carries no user and is
 unaffected. This is the console half of WS6 U3 — per-user trace scoping

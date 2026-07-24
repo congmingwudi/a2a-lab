@@ -812,12 +812,13 @@ def _merged_events() -> list[dict]:
 # everything — runs, warm-ups, harvest/analyze, raw traces. Enforced
 # server-side; the UI hides what a role can't do, but the 403 is the guard.
 
+# Traces stay viewer-visible on purpose: the org serves dummy demo data
+# only, and the wire record IS the exhibit.
 _OPERATOR_ONLY = {
     "run experiments": ("/api/run",),
     "warm up runtimes": ("/api/warmup",),
     "harvest platform logs": ("/api/obs/harvest",),
     "fire the analyst": ("/api/obs/analysis",),
-    "read raw wire traces": ("/api/traces", "/api/stream"),
 }
 
 

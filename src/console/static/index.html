@@ -971,8 +971,6 @@ function applyAuthGating() {
       const el = document.getElementById(id);
       if (el) el.style.display = "none";
     }
-    const acc = document.getElementById("accTraces");
-    if (acc) acc.style.display = "none";
   }
 }
 
@@ -2732,7 +2730,9 @@ window.openExperiment = (kind, name, tab) => {
   ensureSideOpen();
   pushNav();
   view = { type: "experiment", kind, name };
-  activeTab = tab || "run";
+  // Viewers land on Details — the run composer is disabled for them, and
+  // the call-path walkthrough is the content they came for.
+  activeTab = tab || (labUser && labUser.role === "viewer" ? "details" : "run");
   const key = expKey(kind, name);
   if (!chats[key]) chats[key] = { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false };
   if (drafts[key] === undefined) {
@@ -3311,10 +3311,6 @@ async function connectStream() {
       live.textContent = "sign in for live"; live.classList.remove("on");
       await new Promise(r => setTimeout(r, 3000));
       continue;
-    }
-    if (labUser.role === "viewer") {  // raw trace tail is operator-only
-      live.textContent = "live tail: operator-only"; live.classList.remove("on");
-      return;
     }
     try {
       const r = await fetch(apiUrl("/api/stream"));

@@ -2,8 +2,9 @@
 # Login = persona + that ROLE's shared password from .env (D36:
 # A2ALAB_OPERATOR_PASSWORD / A2ALAB_VIEWER_PASSWORD). Roles:
 #   operator — everything: runs, warm-ups, harvest/analyze, raw traces
-#   viewer   — insights, the obs dashboard read-only, and the Lab Guide;
-#              execution and raw wire traces are operator-only
+#   viewer   — everything read-only: insights, obs dashboard, Lab Guide,
+#              experiment details, wire traces; execution (runs,
+#              warm-ups, harvest/analyze) is operator-only
 users:
   ryan:
     name: Ryan Cox

@@ -516,8 +516,6 @@ def test_viewer_403_on_operator_surfaces(tmp_path, monkeypatch):
         ("/api/warmup/claude-agentcore", "post"),
         ("/api/obs/harvest", "post"),
         ("/api/obs/analysis/run", "post"),
-        ("/api/traces", "get"),
-        ("/api/stream", "get"),
     ]:
         r = getattr(client, method)(
             path, headers=headers, **({"json": {}} if method == "post" else {})
@@ -538,6 +536,7 @@ def test_viewer_allowed_surfaces(tmp_path, monkeypatch):
         "/api/decisions",
         "/api/scenarios",
         "/api/config",
+        "/api/traces",  # dummy demo data only — the wire record IS the exhibit
     ):
         r = client.get(path, headers=headers)
         assert r.status_code == 200, f"{path} blocked a viewer: {r.status_code}"
