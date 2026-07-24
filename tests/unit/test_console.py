@@ -492,3 +492,62 @@ def test_targets_carry_cell_details(tmp_path, monkeypatch):
     # No internal Salesforce-interior ghost: how the twin fulfills the
     # request is its own business — the experiment measures the wire.
     assert not any(h["protocol"] == "internal" for h in shim["flow"])
+
+
+# ---- viewer role enforcement (WS6 U3 console half, role model per D36) -----
+
+
+def _viewer_headers(monkeypatch, tmp_path):
+    from interop import identity
+
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    users = {"vic": {"name": "Vic", "role": "viewer"}}
+    token = identity.issue_token("vic", users=users)
+    return {"authorization": f"Bearer {token}"}
+
+
+def test_viewer_403_on_operator_surfaces(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    headers = _viewer_headers(monkeypatch, tmp_path)
+    for path, method in [
+        ("/api/run", "post"),
+        ("/api/warmup/claude-agentcore", "post"),
+        ("/api/obs/harvest", "post"),
+        ("/api/obs/analysis/run", "post"),
+        ("/api/traces", "get"),
+        ("/api/stream", "get"),
+    ]:
+        r = getattr(client, method)(
+            path, headers=headers, **({"json": {}} if method == "post" else {})
+        )
+        assert r.status_code == 403, f"{path} let a viewer in: {r.status_code}"
+        assert "operator-only" in r.json()["detail"]
+
+
+def test_viewer_allowed_surfaces(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    headers = _viewer_headers(monkeypatch, tmp_path)
+    for path in (
+        "/api/insights",
+        "/api/obs/summary",
+        "/api/obs/sessions",
+        "/api/decisions",
+        "/api/scenarios",
+        "/api/config",
+    ):
+        r = client.get(path, headers=headers)
+        assert r.status_code == 200, f"{path} blocked a viewer: {r.status_code}"
+
+
+def test_service_token_unaffected_by_role_gate(tmp_path, monkeypatch):
+    # The header-borne shared token carries no user — full access (it's the
+    # service credential for matrix.py, the bridge, and scripts).
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    r = client.get("/api/traces", headers={"x-lab-token": "sekrit"})
+    assert r.status_code == 200

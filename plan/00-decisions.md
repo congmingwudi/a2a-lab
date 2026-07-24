@@ -763,3 +763,11 @@ no per-user revocation and no rotation story — the demo-scale trade,
 recorded deliberately. A real IdP federation (Cognito/Entra via
 OIDC + RFC 8693 token exchange) is a planned WS6 U6 experiment — as a
 measured cell, not invisible plumbing.
+
+**Role model addendum (same day):** viewer = insights + the observability
+dashboard read-only + the Lab Guide; runs, warm-ups, harvest/analyze, and
+raw wire traces are operator-only. Enforced server-side by a role-gate
+middleware in the console (the UI hides what a role can't do, but the
+403 is the guard); the header-borne service token carries no user and is
+unaffected. This is the console half of WS6 U3 — per-user trace scoping
+(operators seeing whose run is whose) remains.

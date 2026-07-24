@@ -1,8 +1,9 @@
 # Lab users (WS6 U1) — the demo-scale identity provider's directory.
-# No passwords: the console login is a user picker (demo ethos — the point
-# is propagation and authorization, not credential UX). Roles:
-#   operator — runs experiments, sees all traces/obs data
-#   viewer   — runs experiments, sees only their own runs (enforced in U3)
+# Login = persona + that ROLE's shared password from .env (D36:
+# A2ALAB_OPERATOR_PASSWORD / A2ALAB_VIEWER_PASSWORD). Roles:
+#   operator — everything: runs, warm-ups, harvest/analyze, raw traces
+#   viewer   — insights, the obs dashboard read-only, and the Lab Guide;
+#              execution and raw wire traces are operator-only
 users:
   ryan:
     name: Ryan Cox

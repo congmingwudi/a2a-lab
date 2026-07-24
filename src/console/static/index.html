@@ -954,12 +954,26 @@ function requireSignIn() {
 }
 
 function applyAuthGating() {
-  if (labUser) return;
-  document.getElementById("guideBtn").style.display = "none";
-  document.getElementById("gearBtn").style.display = "none";
-  const handle = document.querySelector(".side-handle");
-  if (handle) handle.style.display = "none";
-  document.querySelector("main").classList.add("side-closed");
+  if (!labUser) {
+    document.getElementById("guideBtn").style.display = "none";
+    document.getElementById("gearBtn").style.display = "none";
+    const handle = document.querySelector(".side-handle");
+    if (handle) handle.style.display = "none";
+    document.querySelector("main").classList.add("side-closed");
+    return;
+  }
+  if (labUser.role === "viewer") {
+    // Viewer (D36 role model): insights + obs dashboard + Lab Guide.
+    // Execution and raw traces are operator-only — the server 403s; the
+    // UI just doesn't offer them.
+    document.getElementById("gearBtn").style.display = "none";
+    for (const id of ["harvestBtn", "analyzeBtn"]) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = "none";
+    }
+    const acc = document.getElementById("accTraces");
+    if (acc) acc.style.display = "none";
+  }
 }
 
 const newTraceId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "")
@@ -3141,7 +3155,8 @@ function renderMain(force) {
   // and disable Send instead of letting the demo hit the refusal blind.
   // Same modeUnmet condition as the sidebar/tile chips.
   const modeBlocked = view.kind === "scenario" && modeUnmet(exp);
-  const blocked = soon || modeBlocked;
+  const viewerRole = labUser && labUser.role === "viewer";
+  const blocked = soon || modeBlocked || viewerRole;
   const skeletonKey = `exp:${key}:${activeTab}`;
 
   if (mainKey !== skeletonKey || force) {
@@ -3175,6 +3190,7 @@ function renderMain(force) {
           <div class="composer">
             <textarea id="chatInput" rows="3" ${blocked ? "disabled" : ""}
               placeholder="${soon ? "This experiment isn't runnable yet — see the Details tab."
+                : viewerRole ? "Viewer role — running experiments is operator-only. The Details tab and the Lab Guide are all yours."
                 : modeBlocked ? "Runs are refused in the wrong deployment mode — see the notice above."
                 : view.kind === "cell" && exp && exp.question
                   ? `Enter to send the default: ${esc(exp.question)}`
@@ -3295,6 +3311,10 @@ async function connectStream() {
       live.textContent = "sign in for live"; live.classList.remove("on");
       await new Promise(r => setTimeout(r, 3000));
       continue;
+    }
+    if (labUser.role === "viewer") {  // raw trace tail is operator-only
+      live.textContent = "live tail: operator-only"; live.classList.remove("on");
+      return;
     }
     try {
       const r = await fetch(apiUrl("/api/stream"));

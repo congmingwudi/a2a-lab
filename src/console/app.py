@@ -806,6 +806,34 @@ def _merged_events() -> list[dict]:
     return events
 
 
+# ---- role enforcement (WS6 U3, console half; role model per D36) -----------
+# viewer: insights, the obs dashboard READ-ONLY, and the Lab Guide.
+# operator (and the header-borne service token, which carries no user):
+# everything — runs, warm-ups, harvest/analyze, raw traces. Enforced
+# server-side; the UI hides what a role can't do, but the 403 is the guard.
+
+_OPERATOR_ONLY = {
+    "run experiments": ("/api/run",),
+    "warm up runtimes": ("/api/warmup",),
+    "harvest platform logs": ("/api/obs/harvest",),
+    "fire the analyst": ("/api/obs/analysis",),
+    "read raw wire traces": ("/api/traces", "/api/stream"),
+}
+
+
+def _viewer_forbidden(request: Request) -> None:
+    user = request.scope.get("state", {}).get("lab_user") or {}
+    if user.get("role") != "viewer":
+        return
+    path = request.url.path
+    for action, prefixes in _OPERATOR_ONLY.items():
+        if any(path.startswith(p) for p in prefixes):
+            raise HTTPException(
+                status_code=403,
+                detail=f"viewer role — '{action}' is operator-only (D36 role model)",
+            )
+
+
 def create_console_app(registry: Registry | None = None):
     state = {"registry": registry}
     # One long-lived client per target (same rule as the bridge): they cache
@@ -820,6 +848,19 @@ def create_console_app(registry: Registry | None = None):
         clients.clear()
 
     app = FastAPI(title="A2A lab console", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def role_gate(request: Request, call_next):
+        try:
+            _viewer_forbidden(request)
+        except HTTPException as exc:
+            return Response(
+                content=json.dumps({"detail": exc.detail}),
+                status_code=exc.status_code,
+                media_type="application/json",
+            )
+        return await call_next(request)
+
     # Component screenshots etc. — /static/* still requires the lab token
     # (the UI appends ?token=, same as the API calls).
     from fastapi.staticfiles import StaticFiles
