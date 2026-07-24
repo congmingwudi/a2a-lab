@@ -21,7 +21,7 @@ plan/03-results.md.
 | Cell | Status | How |
 |---|---|---|
 | Agent API (REST) | **native** | `ask_agentforce` tool → `AgentforceClient` → Agent API directly |
-| MCP | **via-shim** | Claude as MCP client → `agentforce-mcp` shim (:8021) → Agent API |
+| MCP | **via-shim** | lab harness MCP client → `agentforce-mcp` shim (:8021) → Agent API (no Claude component speaks MCP to the shim — the Claude agent's own consult uses the Agent API or A2A channels) |
 | A2A | **via-shim** | Claude as A2A client → `agentforce-a2a` shim (:8023) → Agent API |
 
 Claude backend note: each Path B cell can run under `CLAUDE_BACKEND=managed`
@@ -56,18 +56,22 @@ host the agent, with a note that the platform itself lacks A2A).
   unbounded and deliver into CRM records instead of a waiting response.
   CLAUDE_ANSWER_TIMEOUT_S=40 was too tight once Claude's turn contained an
   Agent API round trip (raised to 100; upstream chain still governs sync).
-- Salesforce Metadata API gotchas (D16/D17): new custom fields deploy with
+- Salesforce Metadata API gotchas (D15/D16): new custom fields deploy with
   NO field-level security for any profile (grant via permission set, assign
   to the API run-as user); NamedCredential metadata has no calloutOptions
-  wrapper and HttpHeader params need sequenceNumber; scheduled deployments
-  are immutable (archive + recreate to change accounts/cron).
+  wrapper and HttpHeader params need sequenceNumber (D15).
+- Anthropic Managed Agents gotcha (D17): scheduled deployments (the
+  platform-native cron) are immutable — archive + recreate to change
+  accounts/cron.
 - Observability harvest (M11, first live run 2026-07-17): CMA delivered 50
   sessions / 1043 events (thinking, tool_use, per-request token usage —
   2.09M tokens aggregated locally; no platform-side aggregation API).
-  Salesforce STDM is in a half-provisioned state worth naming: the
+  Salesforce STDM started half-provisioned — a state worth naming: the
   `ssot__AiAgentSession__dlm` DMO *entity* exists (invalid columns get clean
   parse errors) but any valid query dies with UNKNOWN_EXCEPTION — DMO shells
   ship with Data Cloud licensing, the query runtime only materializes once
-  Session Tracing/audit collection is enabled in Setup. OpenAI: nothing to
-  pull by design (traces write-only). The coverage panel renders these three
-  states verbatim.
+  Session Tracing/audit collection is enabled in Setup (enabled during the
+  same run: queries went live in ~10 min and the first pull delivered 3
+  sessions / 9 interaction events). OpenAI: nothing to pull by design
+  (traces write-only). The coverage panel renders each platform's live
+  harvest state.
