@@ -100,6 +100,12 @@ if env.get("A2ALAB_PG_CLUSTER_ARN"):
 # auth, which invoke_agent_runtime cannot satisfy — every invoke 401s.
 if os.environ.get("A2ALAB_TOKEN"):
     env["AF_SHIM_TOKEN"] = os.environ["A2ALAB_TOKEN"]
+# WS6: the lab IdP's PUBLIC key — lets the runtime verify user JWTs
+# (U3 enforcement); the signing key never leaves the laptop.
+import pathlib
+pub = pathlib.Path(".a2alab/lab_jwt_public.pem")
+if pub.exists():
+    env["A2ALAB_JWT_PUBLIC_KEY"] = pub.read_text()
 print(json.dumps(env))
 PY
 )

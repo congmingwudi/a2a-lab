@@ -137,7 +137,12 @@ def _get_agentforce_client():
     return _agentforce_client
 
 
-def make_ask_agentforce(inbound_depth: int = 0, trace_id: str | None = None):
+def make_ask_agentforce(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
     """Build the ask_agentforce tool for one request, closed over the
     inbound delegation depth (D27) — a delegated-to agent refuses to
     delegate onward instead of looping back to its caller — and the
@@ -154,6 +159,8 @@ def make_ask_agentforce(inbound_depth: int = 0, trace_id: str | None = None):
             platform="adk",
             inbound_depth=inbound_depth,
             trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
         )
         resp = await _get_agentforce_client().ask(
             AgentRequest(message=message, metadata=meta, trace_id=trace_id)
@@ -163,7 +170,12 @@ def make_ask_agentforce(inbound_depth: int = 0, trace_id: str | None = None):
     return ask_agentforce
 
 
-def make_ask_agentforce_a2a(inbound_depth: int = 0, trace_id: str | None = None):
+def make_ask_agentforce_a2a(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
     """The channel twin of ask_agentforce (D28): same Agentforce agent, but
     over the A2A protocol through the lab's hosted shim — used when the
     operator's routing block selects the a2a-shim channel."""
@@ -183,6 +195,8 @@ def make_ask_agentforce_a2a(inbound_depth: int = 0, trace_id: str | None = None)
             platform="adk",
             inbound_depth=inbound_depth,
             trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
         )
         try:
             return await af_channel.ask_via_shim(message, meta, trace_id=trace_id)
@@ -219,7 +233,12 @@ def _get_foundry_client():
     return _foundry_client
 
 
-def make_ask_foundry_agent(inbound_depth: int = 0, trace_id: str | None = None):
+def make_ask_foundry_agent(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
     """The cross-hyperscaler tool (WS3): GCP-hosted Gemini calling the
     Azure-hosted Foundry agent over both platforms' NATIVE A2A endpoints —
     no lab server in the path, D27-guarded like every delegation seam."""
@@ -236,6 +255,8 @@ def make_ask_foundry_agent(inbound_depth: int = 0, trace_id: str | None = None):
             platform="adk",
             inbound_depth=inbound_depth,
             trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
         )
         resp = await _get_foundry_client().ask(
             AgentRequest(message=message, metadata=meta, trace_id=trace_id)

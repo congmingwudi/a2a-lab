@@ -35,11 +35,26 @@ def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 
         name="ask",
         description=f"Ask the {adapter.name} agent a question. {adapter.description}",
     )
-    async def ask(message: str, session_id: str | None = None, trace_id: str | None = None) -> str:
+    async def ask(
+        message: str,
+        session_id: str | None = None,
+        trace_id: str | None = None,
+        user_context: dict | None = None,
+        user_token: str | None = None,
+    ) -> str:
+        # user_context/user_token (WS6 U2): tool arguments are MCP's only
+        # carriage for user identity — reassembled into metadata here so
+        # the adapter sees the same shape every protocol delivers.
+        metadata: dict = {}
+        if user_context is not None:
+            metadata["user_context"] = user_context
+        if user_token is not None:
+            metadata["user_token"] = user_token
         req = AgentRequest(
             message=message,
             session_id=session_id,
             trace_id=trace_id or new_trace_id(),
+            metadata=metadata,
         )
         resp = await adapter.handle(req)
         return json.dumps(resp.to_dict())

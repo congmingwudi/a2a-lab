@@ -102,6 +102,8 @@ def delegate(
     platform: str,
     inbound_depth: int,
     trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
 ) -> tuple[str, dict]:
     """Compose an outbound delegation: (message + rider, metadata) at
     depth inbound_depth + 1. Callers check ``allowed()`` first.
@@ -111,16 +113,44 @@ def delegate(
     headers: the experiment's trace id lands verbatim in the remote
     platform's own logs (Agent API messages, Foundry span inputs, CMA
     events), where the obs harvest extracts it and links each platform's
-    native session back to the lab run that caused it."""
+    native session back to the lab run that caused it.
+
+    User context (WS6 U2) rides the same two-channel split, deliberately:
+    ``on-behalf-of:`` in the rider is the TEXT channel — it survives every
+    hop and lands in the remote platform's own logs, but any caller can
+    type it (asserted-only). ``user_token`` in the metadata is the
+    VERIFIABLE channel — a lab-signed JWT any seam can check with the
+    public key, but it only survives hops that preserve metadata. The
+    asymmetry between the two is the WS6 experiment."""
     depth = inbound_depth + 1
     rider = _RIDER_TEMPLATE.format(caller=caller, platform=platform, depth=depth)
+    extra_lines = ""
     if trace_id:
+        extra_lines += f"lab-trace: {trace_id}\n"
+    sub = (user_context or {}).get("sub")
+    if sub:
+        extra_lines += f"on-behalf-of: {sub}\n"
+    if extra_lines:
         rider = rider.replace(
             f"delegation-depth: {depth}\n",
-            f"delegation-depth: {depth}\nlab-trace: {trace_id}\n",
+            f"delegation-depth: {depth}\n{extra_lines}",
         )
-    meta = {"delegation": {"caller": caller, "platform": platform, "depth": depth}}
+    meta: dict = {"delegation": {"caller": caller, "platform": platform, "depth": depth}}
+    if user_context:
+        meta["user_context"] = user_context
+    if user_token:
+        meta["user_token"] = user_token
     return message + rider, meta
+
+
+def user_of(req: AgentRequest) -> tuple[dict | None, str | None]:
+    """(user_context, user_token) as they arrived on a request — the seam
+    helper for forwarding both channels onward (U2). Returns (None, None)
+    on requests that carried no user."""
+    meta = req.metadata or {}
+    ctx = meta.get("user_context")
+    token = meta.get("user_token")
+    return (ctx if isinstance(ctx, dict) else None), (token if isinstance(token, str) else None)
 
 
 def refusal(seam: str) -> str:

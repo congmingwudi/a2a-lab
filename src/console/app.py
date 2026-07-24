@@ -1314,14 +1314,18 @@ def create_console_app(registry: Registry | None = None):
             trace_id=body.get("trace_id") or new_trace_id(),
             session_id=body.get("session_id") or None,
         )
-        # WS6 U1: a signed-in operator's verified identity rides the origin
-        # request — visible in the first hop's wire record today; the seams
-        # forward it onward in U2.
+        # WS6 U1/U2: a signed-in operator's identity rides the origin
+        # request on both channels — user_context (display/log, visible in
+        # wire records) and user_token (the JWT, the verifiable channel the
+        # seams forward; the F2 redactor keeps it out of the traces).
         lab_user = request.scope.get("state", {}).get("lab_user")
         if lab_user:
             from interop import identity
 
             req.metadata["user_context"] = identity.user_context(lab_user)
+            authz = request.headers.get("authorization", "")
+            if authz.startswith("Bearer "):
+                req.metadata["user_token"] = authz[len("Bearer ") :]
         try:
             if via_bridge:
                 result = await run_via_bridge(req, name)

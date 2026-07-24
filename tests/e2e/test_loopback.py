@@ -33,6 +33,13 @@ class EchoAdapter:
         delegation_meta = req.metadata.get("delegation")
         if isinstance(delegation_meta, dict):
             text += f" [delegated-by {delegation_meta['platform']} depth {int(delegation_meta['depth'])}]"
+        # WS6 U2: embed user-arrival evidence in the TEXT — A2A responses
+        # are Tasks with text artifacts, so text is the one uniform channel
+        # every protocol round-trips.
+        user_ctx = req.metadata.get("user_context")
+        if isinstance(user_ctx, dict):
+            has_token = isinstance(req.metadata.get("user_token"), str)
+            text += f" [user {user_ctx.get('sub')} token={'yes' if has_token else 'no'}]"
         return AgentResponse(
             text=text,
             session_id=req.session_id,
@@ -211,3 +218,28 @@ async def test_concurrent_protocols(echo_servers):
     finally:
         await rest.aclose()
     assert [r.text for r in results] == ["echo: r", "echo: m", "echo: a"]
+
+
+async def test_user_context_propagates_over_all_three_protocols(echo_servers):
+    """WS6 U2 acceptance: the user's display context (and, where the
+    protocol can carry it, the verifiable token) survives client → server
+    on every protocol. The EchoAdapter returns the metadata it SAW, so
+    this asserts arrival, not just departure."""
+    user_meta = {
+        "user_context": {"sub": "vic", "name": "Vic the Visitor", "role": "viewer"},
+        "user_token": "eyJfake.header.sig",
+    }
+    clients = {
+        "rest": RestClient(f"http://127.0.0.1:{echo_servers['rest']}"),
+        "mcp": McpClient(f"http://127.0.0.1:{echo_servers['mcp']}/mcp"),
+        "a2a": A2AClient(f"http://127.0.0.1:{echo_servers['a2a']}"),
+    }
+    try:
+        for proto, client in clients.items():
+            resp = await client.ask(
+                AgentRequest(message="who am I?", metadata=dict(user_meta), trace_id=f"t-u-{proto}")
+            )
+            assert "[user vic token=yes]" in resp.text, f"{proto} dropped user context: {resp.text}"
+    finally:
+        for client in clients.values():
+            await client.aclose()

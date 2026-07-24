@@ -49,6 +49,12 @@ class McpClient(RemoteAgentClient):
             "session_id": req.session_id,
             "trace_id": req.trace_id,
         }
+        # WS6 U2 — MCP's only channel for user context is a tool argument
+        # (the protocol has no session or auth semantics to ride; metadata
+        # does not cross this hop at all — a lab finding).
+        for key in ("user_context", "user_token"):
+            if (req.metadata or {}).get(key) is not None:
+                arguments[key] = req.metadata[key]
         start = time.perf_counter()
         with Hop(
             req.trace_id,

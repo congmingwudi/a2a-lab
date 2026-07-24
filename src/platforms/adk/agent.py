@@ -46,16 +46,21 @@ APP_NAME = "a2a-lab-adk"
 USER_ID = "a2a-lab"
 
 
-def build_llm_agent(inbound_depth: int = 0, trace_id: str | None = None):
+def build_llm_agent(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
     """One LlmAgent per request: the ask_agentforce tools are closed over
     the request's delegation depth (D27) and trace id (downstream hops join
     the caller's trace), so the agent object can't be shared."""
     from google.adk.agents import LlmAgent
 
     tools = [
-        make_ask_agentforce(inbound_depth, trace_id),
-        make_ask_agentforce_a2a(inbound_depth, trace_id),
-        make_ask_foundry_agent(inbound_depth, trace_id),
+        make_ask_agentforce(inbound_depth, trace_id, user_context, user_token),
+        make_ask_agentforce_a2a(inbound_depth, trace_id, user_context, user_token),
+        make_ask_foundry_agent(inbound_depth, trace_id, user_context, user_token),
     ]
     if real_search_enabled():
         # Live grounding alongside function tools: the bypass flag is ADK's
@@ -97,13 +102,19 @@ class AdkResearchExecutor(AgentExecutor):
         return self._session_ids[key]
 
     async def _run_adk(
-        self, text: str, session_id: str, inbound_depth: int, trace_id: str | None
+        self,
+        text: str,
+        session_id: str,
+        inbound_depth: int,
+        trace_id: str | None,
+        user_context: dict | None = None,
+        user_token: str | None = None,
     ) -> str:
         from google.adk.runners import Runner
         from google.genai import types as genai_types
 
         runner = Runner(
-            agent=build_llm_agent(inbound_depth, trace_id),
+            agent=build_llm_agent(inbound_depth, trace_id, user_context, user_token),
             app_name=APP_NAME,
             session_service=self._sessions,
         )
@@ -137,7 +148,10 @@ class AdkResearchExecutor(AgentExecutor):
         await updater.start_work()
         try:
             session_id = await self._session_for(context.context_id)
-            answer = await self._run_adk(text, session_id, inbound_depth, trace_id)
+            user_ctx, user_token = delegation.user_of(AgentRequest(message=text, metadata=metadata))
+            answer = await self._run_adk(
+                text, session_id, inbound_depth, trace_id, user_ctx, user_token
+            )
         except Exception as exc:
             await updater.failed(
                 updater.new_agent_message([Part(text=f"{type(exc).__name__}: {exc}")])

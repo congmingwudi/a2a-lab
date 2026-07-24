@@ -110,3 +110,34 @@ def test_rider_carries_version_and_parsers_tolerate_it():
     req = AgentRequest(message=message)
     assert delegation.depth_of(req) == 1
     assert delegation.platform_of(req) == "claude"
+
+
+def test_user_context_rides_both_channels():
+    # WS6 U2: on-behalf-of in the rider text (asserted-only channel) +
+    # user_context/user_token in metadata (the verifiable channel).
+    ctx = {"sub": "vic", "name": "Vic the Visitor", "role": "viewer"}
+    message, meta = delegation.delegate(
+        "q",
+        caller="c",
+        platform="claude",
+        inbound_depth=0,
+        trace_id="abc123",
+        user_context=ctx,
+        user_token="eyJfake.tok.sig",
+    )
+    assert "on-behalf-of: vic" in message
+    assert meta["user_context"] == ctx
+    assert meta["user_token"] == "eyJfake.tok.sig"
+    # existing parsers indifferent to the new line
+    req = AgentRequest(message=message)
+    assert delegation.depth_of(req) == 1
+    # and the seam helper reads both back off a request
+    fwd = AgentRequest(message="q", metadata=meta)
+    assert delegation.user_of(fwd) == (ctx, "eyJfake.tok.sig")
+
+
+def test_no_user_no_lines():
+    message, meta = delegation.delegate("q", caller="c", platform="claude", inbound_depth=0)
+    assert "on-behalf-of" not in message
+    assert "user_context" not in meta and "user_token" not in meta
+    assert delegation.user_of(AgentRequest(message="q")) == (None, None)

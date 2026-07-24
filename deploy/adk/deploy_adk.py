@@ -95,6 +95,11 @@ def runtime_env() -> dict[str, str]:
     if os.environ.get("A2ALAB_TOKEN"):
         env["AF_SHIM_TOKEN"] = os.environ["A2ALAB_TOKEN"]
     env["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
+    # WS6: the lab IdP's PUBLIC key — user-JWT verification in the engine
+    # container (the signing key never leaves the laptop).
+    pub = REPO / ".a2alab" / "lab_jwt_public.pem"
+    if pub.exists():
+        env["A2ALAB_JWT_PUBLIC_KEY"] = pub.read_text()
     # The container FS: keep the trace layer writing somewhere writable —
     # these hops are ephemeral (the caller's client hop is the lab record).
     env["A2ALAB_TRACE_DIR"] = "/tmp/traces"

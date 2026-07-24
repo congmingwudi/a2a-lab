@@ -107,7 +107,12 @@ def _response_id_from_result(result: Any) -> str | None:
     return None
 
 
-def _build_agentforce_tool(inbound_depth: int = 0, trace_id: str | None = None):
+def _build_agentforce_tool(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
     """Build the direct Agentforce tool for one request, closed over the
     delegation depth and effective run trace id."""
     from agents import function_tool
@@ -130,6 +135,8 @@ def _build_agentforce_tool(inbound_depth: int = 0, trace_id: str | None = None):
             platform="openai",
             inbound_depth=inbound_depth,
             trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
         )
         try:
             resp = await asyncio.wait_for(
@@ -150,7 +157,12 @@ def _build_agentforce_tool(inbound_depth: int = 0, trace_id: str | None = None):
     return ask_agentforce
 
 
-def _build_agentforce_a2a_tool(inbound_depth: int = 0, trace_id: str | None = None):
+def _build_agentforce_a2a_tool(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
     """The channel twin of ask_agentforce (D28): same Agentforce agent, but
     over the A2A protocol through the lab's hosted shim — used when the
     operator's routing block selects the a2a-shim channel."""
@@ -176,6 +188,8 @@ def _build_agentforce_a2a_tool(inbound_depth: int = 0, trace_id: str | None = No
             platform="openai",
             inbound_depth=inbound_depth,
             trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
         )
         try:
             return await asyncio.wait_for(
@@ -199,7 +213,13 @@ class AgentsSdkBackend:
     def __init__(self, model: str | None = None):
         self.model = model or os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
 
-    def _agent(self, inbound_depth: int = 0, trace_id: str | None = None):
+    def _agent(
+        self,
+        inbound_depth: int = 0,
+        trace_id: str | None = None,
+        user_context: dict | None = None,
+        user_token: str | None = None,
+    ):
         from agents import Agent, ModelSettings
 
         settings_kwargs: dict[str, Any] = {
@@ -228,8 +248,8 @@ class AgentsSdkBackend:
             # research — the Path C collaboration contract. Budget still
             # fits: tool leg capped at 34s inside the 40s run cap.
             tools=[
-                _build_agentforce_tool(inbound_depth, trace_id),
-                _build_agentforce_a2a_tool(inbound_depth, trace_id),
+                _build_agentforce_tool(inbound_depth, trace_id, user_context, user_token),
+                _build_agentforce_a2a_tool(inbound_depth, trace_id, user_context, user_token),
             ],
         )
 
@@ -237,7 +257,7 @@ class AgentsSdkBackend:
         from agents import Runner
 
         return await Runner.run(
-            self._agent(delegation.depth_of(req), trace_id),
+            self._agent(delegation.depth_of(req), trace_id, *delegation.user_of(req)),
             req.message,
             max_turns=int(os.environ.get("OPENAI_MAX_TURNS", "3")),
         )

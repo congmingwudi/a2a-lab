@@ -208,11 +208,11 @@ async def test_answer_threads_generated_trace_id_to_tool_builders(
 ):
     captured = []
 
-    def fake_direct_builder(inbound_depth=0, trace_id=None):
+    def fake_direct_builder(inbound_depth=0, trace_id=None, user_context=None, user_token=None):
         captured.append(("direct", inbound_depth, trace_id))
         return "direct-tool"
 
-    def fake_a2a_builder(inbound_depth=0, trace_id=None):
+    def fake_a2a_builder(inbound_depth=0, trace_id=None, user_context=None, user_token=None):
         captured.append(("a2a", inbound_depth, trace_id))
         return "a2a-tool"
 

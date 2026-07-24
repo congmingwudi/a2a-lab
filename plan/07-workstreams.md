@@ -471,6 +471,19 @@ The asymmetry IS the finding: text survives everywhere and verifies
 nowhere; signatures verify but drop at hops that strip metadata. Cells
 report `verified` / `asserted-only` / `dropped` per platform × protocol.
 
+**Status:** U1 ✅ + U2 ✅ built and live-verified 2026-07-24 (hygiene
+first: F2 credential scrub + F7 rider versioning, both verified against
+tracing/obs with a live run and a retroactive Aurora/sqlite scrub of 2
+historical rows). Working now: console sign-in (users.yaml, RS256 lab
+JWTs, JWT-only auth), both channels on the wire over all three protocols
+(loopback-proven: REST body+Authorization, MCP tool arguments — the
+protocol's only carriage, A2A message metadata), on-behalf-of in the
+rider at every delegation seam, and the F2 interplay working as designed:
+the JWT rides the wire but lands in traces as [REDACTED-JWT] while
+user_context stays visible. Deploy scripts ship A2ALAB_JWT_PUBLIC_KEY to
+the runtimes (verification only — the signing key never leaves the
+laptop). Next: U3 enforcement.
+
 **Milestones:**
 
 1. **U1 — lab identity provider.** `config/users.yaml` (demo users +

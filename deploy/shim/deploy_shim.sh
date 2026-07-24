@@ -46,6 +46,11 @@ if cluster and writer:
     env["A2ALAB_TRACE_SINK"] = "jsonl,postgres"
     env["A2ALAB_PG_CLUSTER_ARN"] = cluster
     env["A2ALAB_PG_SECRET_ARN"] = writer
+# WS6: the lab IdP's PUBLIC key for user-JWT verification at the shim seam
+import pathlib
+pub = pathlib.Path(".a2alab/lab_jwt_public.pem")
+if pub.exists():
+    env["A2ALAB_JWT_PUBLIC_KEY"] = pub.read_text()
 print(json.dumps({"Variables": env}))
 PY
 )

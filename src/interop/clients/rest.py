@@ -32,8 +32,16 @@ class RestClient(RemoteAgentClient):
         self.source_name = source_name
         self._client = httpx.AsyncClient(timeout=timeout)
 
-    def _headers(self, trace_id: str) -> dict[str, str]:
-        return {"x-trace-id": trace_id, **auth_headers(self.auth)}
+    def _headers(self, trace_id: str, req: AgentRequest | None = None) -> dict[str, str]:
+        headers = {"x-trace-id": trace_id, **auth_headers(self.auth)}
+        # WS6 U2 — REST's native slot for the verifiable user channel: the
+        # lab JWT rides Authorization (app auth stays x-lab-token, so the
+        # two credentials coexist). Skipped if the target's auth config
+        # already claims that header.
+        token = (req.metadata or {}).get("user_token") if req else None
+        if isinstance(token, str) and "authorization" not in {k.lower() for k in headers}:
+            headers["authorization"] = f"Bearer {token}"
+        return headers
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         req.trace_id = req.trace_id or new_trace_id()
@@ -48,7 +56,7 @@ class RestClient(RemoteAgentClient):
             transport_detail=f"POST {url}",
             request_payload=body,
         ) as hop:
-            r = await self._client.post(url, json=body, headers=self._headers(req.trace_id))
+            r = await self._client.post(url, json=body, headers=self._headers(req.trace_id, req))
             hop.response_payload = r.text
             if r.status_code >= 400:
                 # Surface the server's error body (our REST server sends a

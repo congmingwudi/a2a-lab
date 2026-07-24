@@ -76,9 +76,16 @@ def _private_key() -> str:
     return ensure_keypair()[0].read_text()
 
 
+PUBLIC_KEY_ENV = "A2ALAB_JWT_PUBLIC_KEY"
+
+
 def public_key() -> str:
-    """The verification half — safe to hand to any seam or hosted runtime
-    (deploy scripts ship it as an env var; nothing secret about it)."""
+    """The verification half — safe to hand to any seam or hosted runtime.
+    Env wins (that's how deploy scripts ship it to containers, which have
+    no keypair and must never hold the signing key); else the local pair."""
+    from_env = os.environ.get(PUBLIC_KEY_ENV)
+    if from_env:
+        return from_env.replace("\\n", "\n")
     return ensure_keypair()[1].read_text()
 
 
