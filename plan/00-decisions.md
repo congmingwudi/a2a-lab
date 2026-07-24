@@ -730,3 +730,36 @@ citations; a trace question chained list_recent_runs → get_trace on the
 real record; guide-rest cell 6.6s via /api/run; MCP tools/list shows all
 seven tools. The guide turns the console from an exhibit into a docent —
 and is itself a lab agent whose calls are wire-traced.
+
+## 2026-07-24 — D36: Public console auth — persona passwords in, query-string credentials out
+
+**Decision.** The console's browser surface no longer accepts any
+credential in a URL. The public surface is exactly three things: the
+static landing page, the persona directory (`/api/users`), and the
+password-gated login. Everything else — experiments, Control Panel, Lab
+Guide, traces, obs — requires the RS256 persona JWT that login mints,
+sent as `Authorization: Bearer`.
+
+- **Per-ROLE passwords from .env** (`A2ALAB_OPERATOR_PASSWORD`,
+  `A2ALAB_VIEWER_PASSWORD`): hand colleagues the viewer password; the
+  raw `A2ALAB_TOKEN` never reaches a browser. Unset password = that
+  role cannot sign in (fail closed). Constant-time comparison; one
+  generic 401 (no user/password probing).
+- **Query-param auth deleted, not just discouraged**: the live tail was
+  the one surface that needed `?token=` (EventSource cannot set
+  headers) — replaced with fetch-streaming (same SSE wire format,
+  hand-parsed like the Lab Guide chat), so `allow_query_param` is gone
+  from the console wrap and a correct token in a URL now 401s.
+- **Signed-out UX**: landing page as the public exhibit; interaction
+  points (experiment tiles, Lab Guide, Control Panel) funnel to the
+  sign-in picker.
+- **Unchanged**: the shared token remains the header-borne SERVICE
+  credential (matrix.py, bridge→servers, shim); U1's JWT acceptance in
+  TokenAuthMiddleware is what makes the persona JWT sufficient
+  everywhere.
+
+**Honest limits (the U6 seam):** role passwords are shared secrets with
+no per-user revocation and no rotation story — the demo-scale trade,
+recorded deliberately. A real IdP federation (Cognito/Entra via
+OIDC + RFC 8693 token exchange) is a planned WS6 U6 experiment — as a
+measured cell, not invisible plumbing.

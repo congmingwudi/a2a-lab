@@ -110,3 +110,20 @@ def test_middleware_rejects_garbage_jwt(monkeypatch):
     client = _client_with_user_echo(monkeypatch)
     bad = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJyeWFuIn0.notarealsignature"
     assert client.get("/api/whoami", headers={"authorization": f"Bearer {bad}"}).status_code == 401
+
+
+def test_authenticate_role_passwords(monkeypatch):
+    # D36: per-ROLE passwords from env; unset role password = fail closed.
+    monkeypatch.setenv("A2ALAB_OPERATOR_PASSWORD", "op-pass")
+    monkeypatch.setenv("A2ALAB_VIEWER_PASSWORD", "view-pass")
+    token = identity.authenticate("ryan", "op-pass", users=USERS)
+    assert identity.verify_token(token)["role"] == "operator"
+    token = identity.authenticate("vic", "view-pass", users=USERS)
+    assert identity.verify_token(token)["role"] == "viewer"
+    with pytest.raises(ValueError):  # wrong-role password refused
+        identity.authenticate("ryan", "view-pass", users=USERS)
+    with pytest.raises(ValueError):
+        identity.authenticate("vic", "", users=USERS)
+    monkeypatch.delenv("A2ALAB_VIEWER_PASSWORD")
+    with pytest.raises(ValueError):  # unset password = login disabled
+        identity.authenticate("vic", "view-pass", users=USERS)

@@ -97,6 +97,32 @@ def load_users(path: str | Path = USERS_PATH) -> dict[str, dict]:
     return raw.get("users") or {}
 
 
+ROLE_PASSWORD_ENVS = {
+    "operator": "A2ALAB_OPERATOR_PASSWORD",
+    "viewer": "A2ALAB_VIEWER_PASSWORD",
+}
+
+
+def authenticate(username: str, password: str, users: dict[str, dict] | None = None) -> str:
+    """Password-gated token issue for the public console (D36): each ROLE
+    has a shared password from .env — hand colleagues the viewer password,
+    never the lab token. The JWT this returns is the browser's only
+    credential from then on. Raises ValueError on unknown user, wrong
+    password, or a role whose password is unset (fail closed — an unset
+    env var must not mean open login on a public site)."""
+    import hmac
+
+    directory = users if users is not None else load_users()
+    entry = directory.get(username)
+    if entry is None:
+        raise ValueError(f"unknown user '{username}'")
+    role = entry.get("role") or "viewer"
+    expected = os.environ.get(ROLE_PASSWORD_ENVS.get(role, ""), "")
+    if not expected or not hmac.compare_digest(password or "", expected):
+        raise ValueError("wrong password")
+    return issue_token(username, users=directory)
+
+
 def issue_token(username: str, users: dict[str, dict] | None = None) -> str:
     """A lab JWT for a directory user: {sub, name, role, iss, iat, exp}."""
     directory = users if users is not None else load_users()

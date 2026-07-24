@@ -621,6 +621,7 @@
                font: 600 12px var(--font-ui); color: var(--fg); background: var(--card2);
                border: 1px solid var(--border); border-radius: 999px; cursor: pointer; }
   .guide-btn:hover { border-color: var(--border-hi); color: var(--fg-hi); }
+  .pulse-attn { animation: apulse .4s ease-in-out 3; border-color: var(--a2a) !important; }
   .guide-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; z-index: 30;
                   display: flex; flex-direction: column; background: var(--card);
                   border-left: 1px solid var(--border); box-shadow: -14px 0 40px var(--shadow-lg); }
@@ -842,7 +843,9 @@ const expKey = (kind, name) => (kind === "scenario" ? "scn:" : "cell:") + name;
 // When the console runs behind the tunnel with A2ALAB_TOKEN set, the token
 // arrives as ?token=... on the page URL and must ride along on API calls
 // (EventSource can't set headers, hence query param).
-const apiUrl = path => path + window.location.search;
+// No query string appended (D36): credentials ride headers only — a URL
+// must never carry a secret on a public site.
+const apiUrl = path => path;
 
 // ---------------------------------------------------------------------------
 // Lab user session (WS6 U1): sign in as a directory user, hold the lab JWT
@@ -885,29 +888,49 @@ window.toggleUserPanel = async ev => {
   panel.innerHTML = `<h3>Lab users <span class="hint" style="text-transform:none;letter-spacing:0">runs carry your identity</span>
       <button class="x" onclick="document.getElementById('userPanel').style.display='none'">✕</button></h3>`
     + users.map(u => `
-      <div class="warm-row" style="cursor:pointer" onclick="labSignIn('${esc(u.username)}')">
+      <div class="warm-row" style="cursor:pointer" onclick="gdPickUser('${esc(u.username)}', '${esc(u.name)}')">
         <span class="wname">${esc(u.name)}</span>
         <span class="warm-tag ${u.role === "operator" ? "warm" : "cold"}">${esc(u.role)}</span>
       </div>`).join("")
+    + `<div class="warm-foot" id="userPwRow" style="display:none">
+         <span class="note" id="userPwWho"></span>
+         <input type="password" id="userPwInput" class="obs-search" style="float:none;width:150px"
+           placeholder="password" onkeydown="if(event.key==='Enter')labSignIn()">
+         <button class="ghost" onclick="labSignIn()">Sign in</button>
+       </div>`
     + (labUser ? `<div class="warm-foot"><span class="note">signed in as ${esc(labUser.sub)}</span>
         <button class="ghost" onclick="labSignOut()">Sign out</button></div>` : "");
   panel.style.display = "";
 };
 
-window.labSignIn = async username => {
+let pendingUser = null;
+
+window.gdPickUser = (username, name) => {
+  pendingUser = username;
+  document.getElementById("userPwRow").style.display = "";
+  document.getElementById("userPwWho").textContent = `${name} — role password:`;
+  document.getElementById("userPwInput").focus();
+};
+
+window.labSignIn = async () => {
+  if (!pendingUser) return;
+  const password = document.getElementById("userPwInput").value;
   try {
     const r = await fetch(apiUrl("/api/login"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username }),
+      body: JSON.stringify({ username: pendingUser, password }),
     });
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     const d = await r.json();
     localStorage.setItem("a2a-user-jwt", d.token);
     localStorage.setItem("a2a-user", JSON.stringify(d.user));
     labUser = d.user;
+    // Reload so every panel refetches with the new credential — the
+    // signed-out page loaded nothing but the shell.
+    window.location.reload();
+    return;
   } catch (e) { alert("Sign-in failed: " + e.message); }
-  document.getElementById("userPanel").style.display = "none";
   renderUserBtn();
 };
 
@@ -915,9 +938,29 @@ window.labSignOut = () => {
   localStorage.removeItem("a2a-user-jwt");
   localStorage.removeItem("a2a-user");
   labUser = null;
-  document.getElementById("userPanel").style.display = "none";
-  renderUserBtn();
+  window.location.reload();
 };
+
+// Signed-out gating (D36): the landing page is the public exhibit; doing
+// anything — experiments, Control Panel, the Lab Guide, traces — needs a
+// persona. One gate at the interaction points, not scattered checks.
+function requireSignIn() {
+  if (labUser) return true;
+  const btn = document.getElementById("userBtn");
+  btn.classList.add("pulse-attn");
+  setTimeout(() => btn.classList.remove("pulse-attn"), 1200);
+  toggleUserPanel(new Event("click"));
+  return false;
+}
+
+function applyAuthGating() {
+  if (labUser) return;
+  document.getElementById("guideBtn").style.display = "none";
+  document.getElementById("gearBtn").style.display = "none";
+  const handle = document.querySelector(".side-handle");
+  if (handle) handle.style.display = "none";
+  document.querySelector("main").classList.add("side-closed");
+}
 
 const newTraceId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "")
   : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, "0")).join(""));
@@ -2671,6 +2714,7 @@ window.browseCells = () => {
 // Experiment workspace (main canvas)
 // ---------------------------------------------------------------------------
 window.openExperiment = (kind, name, tab) => {
+  if (!requireSignIn()) return;
   ensureSideOpen();
   pushNav();
   view = { type: "experiment", kind, name };
@@ -3181,9 +3225,11 @@ function renderMain(force) {
 // Bootstrap: traces, launchers, SSE live tail
 // ---------------------------------------------------------------------------
 async function load() {
-  const r = await fetch(apiUrl("/api/traces"));
-  const data = await r.json();
-  traces = data.traces;
+  try {
+    const r = await fetch(apiUrl("/api/traces"));
+    const data = await r.json();
+    traces = data.traces || [];
+  } catch (e) { traces = []; }  // signed-out: landing shell only (D36)
   renderList();
   renderMain();
 }
@@ -3215,17 +3261,18 @@ async function loadLaunchers() {
   renderSidebar();
 }
 
-function connectStream() {
+// Live tail over fetch-streaming, not EventSource (D36): fetch can send the
+// Authorization header, so the last query-param credential dies here. Same
+// SSE wire format; hand-parsed like the Lab Guide stream.
+async function connectStream() {
   const live = document.getElementById("live");
-  const es = new EventSource(apiUrl("/api/stream"));
-  es.addEventListener("hello", () => {
+  const onHello = () => {
     live.textContent = "live"; live.classList.add("on");
     // Fires on reconnect too: the server tails from current EOF, so events
     // written while disconnected never arrive via SSE — backfill from disk.
     refreshTraces();
-  });
-  es.onmessage = ev => {
-    const hop = JSON.parse(ev.data);
+  };
+  const onHop = hop => {
     let t = traces.find(x => x.trace_id === hop.trace_id);
     if (!t) {
       t = { trace_id: hop.trace_id, started: hop.ts, hops: [], protocols: [] };
@@ -3243,7 +3290,33 @@ function connectStream() {
     // the currently shown turn's merged call path.
     if (selected === hop.trace_id || (view && view.type === "experiment")) renderMain();
   };
-  es.onerror = () => { live.textContent = "reconnecting…"; live.classList.remove("on"); };
+  for (;;) {
+    if (!labUser) {  // signed-out: no credentials to stream with
+      live.textContent = "sign in for live"; live.classList.remove("on");
+      await new Promise(r => setTimeout(r, 3000));
+      continue;
+    }
+    try {
+      const r = await fetch(apiUrl("/api/stream"));
+      if (!r.ok) throw new Error(String(r.status));
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          if (chunk.startsWith("event: hello")) onHello();
+          else if (chunk.startsWith("data: ")) onHop(JSON.parse(chunk.slice(6)));
+        }
+      }
+    } catch (e) { /* fall through to reconnect */ }
+    live.textContent = "reconnecting…"; live.classList.remove("on");
+    await new Promise(r => setTimeout(r, 2500));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3435,6 +3508,7 @@ function gdRender() {
 }
 
 window.toggleGuide = () => {
+  if (!requireSignIn()) return;
   gd.open = !gd.open;
   document.getElementById("guideDrawer").style.display = gd.open ? "" : "none";
   if (gd.open) {
@@ -3509,6 +3583,7 @@ loadConfig();
 loadWarmup();
 loadDecisions();
 renderUserBtn();
+applyAuthGating();
 </script>
 </body>
 </html>

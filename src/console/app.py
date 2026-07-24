@@ -944,17 +944,20 @@ def create_console_app(registry: Registry | None = None):
 
     @app.post("/api/login")
     async def login(request: Request):
-        """Issue a lab JWT (RS256) for a directory user. The browser sends
-        it as Authorization: Bearer on every API call; any seam verifies
-        with the public key alone."""
+        """Password-gated lab JWT issue (D36): persona + that ROLE's shared
+        password from .env. This endpoint (with /api/users and /) is the
+        public surface of the console — everything else needs the JWT the
+        exchange returns, sent as Authorization: Bearer. The raw lab token
+        never reaches a browser."""
         from interop import identity
 
         body = await request.json()
         username = (body.get("username") or "").strip()
         try:
-            token = identity.issue_token(username)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from None
+            token = identity.authenticate(username, str(body.get("password") or ""))
+        except ValueError:
+            # One generic 401 — no probing which of user/password was wrong.
+            raise HTTPException(status_code=401, detail="wrong user or password") from None
         claims = identity.verify_token(token) or {}
         return {"token": token, "user": identity.user_context(claims)}
 
@@ -1659,12 +1662,15 @@ def create_console_app(registry: Registry | None = None):
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     # The console is tunnel-exposed and its API returns every raw wire
-    # payload — including production-org responses. Only the static index
-    # stays open; /api/* requires the lab token (query param allowed because
-    # EventSource can't set headers). No-op while A2ALAB_TOKEN is unset.
+    # payload — including production-org responses. Public surface (D36):
+    # the static index, the persona directory, and the password-gated
+    # login. Everything else needs the JWT that login mints, sent as a
+    # header — query-param credentials are gone (the live tail streams via
+    # fetch, which can set headers; EventSource could not). No-op while
+    # A2ALAB_TOKEN is unset.
     from interop.servers.auth import TokenAuthMiddleware
 
-    return TokenAuthMiddleware(app, allow_query_param=True, exempt_paths=("/",))
+    return TokenAuthMiddleware(app, exempt_paths=("/", "/api/users", "/api/login"))
 
 
 def main() -> None:
