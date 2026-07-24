@@ -561,5 +561,6 @@ def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
     for path in ("/api/scenarios", "/api/targets", "/api/decisions", "/api/users"):
         assert client.get(path).status_code == 200, path
     assert client.get("/api/docs/plan/02-matrix.md").status_code == 200
+    assert client.get("/api/docs/docs/lab-guide-mcp.md").status_code == 200
     for path in ("/api/traces", "/api/insights", "/api/obs/sessions", "/api/config"):
         assert client.get(path).status_code == 401, path

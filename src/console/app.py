@@ -1041,8 +1041,10 @@ def create_console_app(registry: Registry | None = None):
         same pattern as the decision chips."""
         repo = Path.cwd().resolve()
         candidate = (repo / name).resolve()
-        allowed = candidate == repo / "README.md" or (
-            candidate.parent == repo / "plan" and candidate.suffix == ".md"
+        allowed = (
+            candidate == repo / "README.md"
+            or (candidate.parent == repo / "plan" and candidate.suffix == ".md")
+            or (candidate.parent == repo / "docs" and candidate.suffix == ".md")
         )
         if not allowed or not candidate.exists():
             raise HTTPException(status_code=404, detail=f"unknown doc: {name}")

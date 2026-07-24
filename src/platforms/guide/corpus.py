@@ -31,6 +31,7 @@ TOOL_DOCS = [
     "plan/07-workstreams.md",
     "config/targets.yaml",
     "config/scenarios.yaml",
+    "docs/lab-guide-mcp.md",
 ]
 
 # Same heading grammar the console's /api/decisions parser uses.

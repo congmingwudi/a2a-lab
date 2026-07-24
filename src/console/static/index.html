@@ -2720,7 +2720,9 @@ function landingHtml() {
           <p>A docent agent grounded in the lab's own docs, decision log, analyst briefs, and wire
              traces. Ask how any call path works, why a run took 35 seconds, or what the analyst
              concluded — it reads the record and cites its sources. It's also a lab agent itself,
-             callable over REST, MCP, and A2A.</p>
+             callable over REST, MCP, and A2A —
+             <button class="dchip docchip" data-doc="docs/lab-guide-mcp.md"
+               onclick="event.stopPropagation(); openDocPopover(this)">MCP instructions</button></p>
         </div>
       </div>
     </section>
