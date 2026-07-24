@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop, get_recorder
 
@@ -12,6 +14,35 @@ def test_request_round_trip():
 def test_request_defaults():
     req = AgentRequest.from_dict({"message": "hi"})
     assert req.session_id is None and req.metadata == {}
+
+
+# ---- from_dict input validation (F4) ---------------------------------------
+
+
+def test_from_dict_rejects_non_string_message():
+    with pytest.raises(ValueError, match="message is required and must be a string"):
+        AgentRequest.from_dict({"message": 42})
+    with pytest.raises(ValueError, match="message is required and must be a string"):
+        AgentRequest.from_dict({})
+
+
+def test_from_dict_rejects_non_dict_metadata():
+    with pytest.raises(ValueError, match="metadata must be an object"):
+        AgentRequest.from_dict({"message": "hi", "metadata": "not-a-dict"})
+    # absent / null metadata both normalize to {}
+    assert AgentRequest.from_dict({"message": "hi", "metadata": None}).metadata == {}
+
+
+def test_from_dict_rejects_non_object_payload():
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        AgentRequest.from_dict(["message"])
+
+
+def test_from_dict_rejects_non_string_ids():
+    with pytest.raises(ValueError, match="session_id must be a string"):
+        AgentRequest.from_dict({"message": "hi", "session_id": 7})
+    with pytest.raises(ValueError, match="trace_id must be a string"):
+        AgentRequest.from_dict({"message": "hi", "trace_id": {"nope": 1}})
 
 
 def test_response_round_trip():

@@ -4,12 +4,14 @@ streamable-http transport.
 Mapping rule (plan/01-architecture.md): MCP has no first-class session
 semantics, so session_id and trace_id ride along as ordinary tool arguments
 — that asymmetry vs. A2A's contextId is itself a lab finding. The tool
-returns the AgentResponse as JSON text so session_id round-trips.
+returns the AgentResponse both as structuredContent (declared outputSchema,
+contract v1 — F4) and as JSON text content, so session_id round-trips for
+schema-aware and legacy clients alike.
 """
 
 from __future__ import annotations
 
-import json
+from typing import Any, TypedDict
 
 from mcp.server.fastmcp import FastMCP
 
@@ -18,6 +20,23 @@ from interop.models import AgentRequest, new_trace_id
 from interop.servers.wiretap import WireTapMiddleware
 
 MCP_PATH = "/mcp"
+
+# F4 (A7/A8): the `ask` tool's output contract, versioned. Bump when the
+# shape changes incompatibly; additive fields don't bump the version.
+ASK_CONTRACT_VERSION = 1
+
+
+class AskResult(TypedDict):
+    """`ask` tool output, contract v1 — an AgentResponse plus the contract
+    version. FastMCP derives the published outputSchema from this TypedDict
+    (structured_output=True), so callers get a declared schema instead of an
+    opaque string blob; the JSON text content is kept for older clients."""
+
+    contract_version: int
+    text: str
+    session_id: str | None
+    latency_ms: int | None
+    raw: dict[str, Any] | None
 
 
 def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 8002) -> FastMCP:
@@ -33,7 +52,14 @@ def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 
 
     @mcp.tool(
         name="ask",
-        description=f"Ask the {adapter.name} agent a question. {adapter.description}",
+        description=(
+            f"Ask the {adapter.name} agent a question. {adapter.description} "
+            "Returns a structured result (contract v1, see outputSchema): "
+            "{contract_version: int, text: str, session_id: str|null, "
+            "latency_ms: int|null, raw: object|null}. The same JSON is also "
+            "returned as text content for clients that ignore structuredContent."
+        ),
+        structured_output=True,
     )
     async def ask(
         message: str,
@@ -41,7 +67,7 @@ def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 
         trace_id: str | None = None,
         user_context: dict | None = None,
         user_token: str | None = None,
-    ) -> str:
+    ) -> AskResult:
         # user_context/user_token (WS6 U2): tool arguments are MCP's only
         # carriage for user identity — reassembled into metadata here so
         # the adapter sees the same shape every protocol delivers.
@@ -57,7 +83,7 @@ def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 
             metadata=metadata,
         )
         resp = await adapter.handle(req)
-        return json.dumps(resp.to_dict())
+        return {"contract_version": ASK_CONTRACT_VERSION, **resp.to_dict()}
 
     # Adapters may publish extra read tools alongside ask (the Lab Guide's
     # raw-tools shape: the CLIENT's model reasons over lab data). Plain

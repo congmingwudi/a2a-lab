@@ -35,11 +35,39 @@ class AgentRequest:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentRequest":
+        """Build from an untrusted wire dict, validating types defensively (F4).
+
+        Raises ValueError with a clear message rather than surfacing a
+        KeyError/AttributeError from deep inside a protocol handler.
+        """
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"AgentRequest payload must be a JSON object, got {type(data).__name__}"
+            )
+        message = data.get("message")
+        if not isinstance(message, str):
+            raise ValueError(
+                "AgentRequest.message is required and must be a string, got "
+                f"{type(message).__name__}"
+            )
+        metadata = data.get("metadata")
+        if metadata is None:
+            metadata = {}
+        elif not isinstance(metadata, dict):
+            raise ValueError(
+                f"AgentRequest.metadata must be an object when present, got {type(metadata).__name__}"
+            )
+        for key in ("session_id", "trace_id"):
+            value = data.get(key)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(
+                    f"AgentRequest.{key} must be a string when present, got {type(value).__name__}"
+                )
         return cls(
-            message=data["message"],
+            message=message,
             session_id=data.get("session_id"),
             trace_id=data.get("trace_id"),
-            metadata=data.get("metadata") or {},
+            metadata=metadata,
         )
 
 

@@ -88,12 +88,15 @@ class McpClient(RemoteAgentClient):
             if result.isError:
                 raise RuntimeError(f"MCP tool error from {self.target_name}: {raw_text}")
 
+        # F4: prefer the declared structured result (contract v1) when the
+        # server publishes one; fall back to parsing the JSON text content
+        # (pre-contract lab servers), then to plain text (non-lab agents —
+        # a bare number/list raises TypeError).
+        structured = getattr(result, "structuredContent", None)
         try:
-            data = json.loads(raw_text)
+            data = structured if isinstance(structured, dict) else json.loads(raw_text)
             resp = AgentResponse.from_dict(data)
         except (json.JSONDecodeError, KeyError, TypeError):
-            # Non-lab agents may return plain text or JSON that isn't an
-            # AgentResponse dict (a bare number/list raises TypeError).
             resp = AgentResponse(text=raw_text)
         resp.latency_ms = int((time.perf_counter() - start) * 1000)
         return resp
