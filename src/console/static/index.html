@@ -627,9 +627,23 @@
   .gd-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px;
              border-bottom: 1px solid var(--border); font: 600 13px var(--font-head); }
   .gd-head .hint { font: 11px var(--font-ui); color: var(--muted); font-weight: 400; }
-  .gd-head .x { margin-left: auto; background: none; border: none; color: var(--muted);
+  .gd-head .x { background: none; border: none; color: var(--muted);
                 font-size: 15px; cursor: pointer; }
   .gd-head .x:hover { color: var(--fg); }
+  .gd-head .gd-hbtn { background: none; border: none; color: var(--muted); font-size: 13px;
+                      cursor: pointer; padding: 0 3px; }
+  .gd-head .gd-hbtn:first-of-type { margin-left: auto; }
+  .gd-head .gd-hbtn:hover { color: var(--fg); }
+  .gd-history { border-bottom: 1px solid var(--border); max-height: 40%; overflow-y: auto; }
+  .gd-hrow { display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+             border-bottom: 1px solid var(--border); cursor: pointer; font-size: 12px; }
+  .gd-hrow:hover { background: var(--card2); }
+  .gd-hrow .htitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                     white-space: nowrap; }
+  .gd-hrow .hts { color: var(--muted); font: 10.5px var(--font-mono); white-space: nowrap; }
+  .gd-hrow .hx { background: none; border: none; color: var(--muted); cursor: pointer; }
+  .gd-hrow .hx:hover { color: var(--err); }
+  .gd-hempty { padding: 10px 16px; font-size: 11.5px; color: var(--muted); }
   .gd-chat { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex;
              flex-direction: column; gap: 10px; }
   .gd-turn { max-width: 92%; padding: 8px 12px; border-radius: 12px; font-size: 12.5px;
@@ -700,7 +714,11 @@
 </header>
 <div id="guideDrawer" class="guide-drawer" style="display:none">
   <div class="gd-head">🧭 Lab Guide <span class="hint">the lab, explained by the lab</span>
+    <button class="gd-hbtn" onclick="gdHistoryToggle()" title="Past chats" aria-label="Past chats">🕘</button>
+    <button class="gd-hbtn" onclick="gdNewChat()" title="New chat (saves this one to history)" aria-label="New chat">＋</button>
+    <button class="gd-hbtn" onclick="gdClear()" title="Clear this chat (not saved)" aria-label="Clear chat">🗑</button>
     <button class="x" onclick="toggleGuide()" title="Close" aria-label="Close the Lab Guide">✕</button></div>
+  <div id="gdHistory" class="gd-history" style="display:none"></div>
   <div id="gdChat" class="gd-chat"></div>
   <div id="gdSuggest" class="gd-suggest"></div>
   <div class="gd-input">
@@ -883,12 +901,19 @@ let decisionLog = {};   // "D28" -> {id, title, date, markdown}
 
 const D_REF_RE = /\b(D\d{1,2})\b/;
 
+// Doc refs (plan/*.md, README.md) get the same treatment as D-refs: a chip
+// whose popover renders the file via /api/docs — so the Lab Guide's cited
+// sources are one click from their text.
+const DOC_REF_RE = /\b(plan\/[\w.-]+\.md|README\.md)\b/;
+const REF_SPLIT_RE = /(\bD\d{1,2}\b|\bplan\/[\w.-]+\.md\b|\bREADME\.md\b)/;
+
 function linkifyDecisions(root) {
   if (!root || !Object.keys(decisionLog).length) return;
   if (root.nodeType !== 1 && root.nodeType !== 11) return;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      if (!D_REF_RE.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+      if (!D_REF_RE.test(node.nodeValue) && !DOC_REF_RE.test(node.nodeValue))
+        return NodeFilter.FILTER_REJECT;
       const p = node.parentElement;
       if (!p || p.closest("pre, code, script, style, textarea, .dchip, .dpopover"))
         return NodeFilter.FILTER_REJECT;
@@ -898,15 +923,20 @@ function linkifyDecisions(root) {
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
-    const parts = node.nodeValue.split(/\b(D\d{1,2})\b/);
-    // Only known decision ids become chips; anything else stays plain text.
-    if (!parts.some(p => decisionLog[p])) continue;
+    const parts = node.nodeValue.split(REF_SPLIT_RE);
+    // Only known decision ids / whitelisted doc paths become chips.
+    if (!parts.some(p => decisionLog[p] || DOC_REF_RE.test(p || ""))) continue;
     const frag = document.createDocumentFragment();
     for (const part of parts) {
       if (decisionLog[part]) {
         const b = document.createElement("button");
         b.type = "button"; b.className = "dchip"; b.textContent = part;
         b.title = decisionLog[part].title;
+        frag.appendChild(b);
+      } else if (part && DOC_REF_RE.test(part)) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "dchip docchip"; b.textContent = part;
+        b.dataset.doc = part; b.title = "Open " + part;
         frag.appendChild(b);
       } else if (part) frag.appendChild(document.createTextNode(part));
     }
@@ -3186,13 +3216,86 @@ window.ensureSideOpen = () => {
 // client holds the history; the current view rides along so "explain this"
 // resolves without naming anything (plan/07, Lab Guide).
 // ---------------------------------------------------------------------------
-const gd = { open: false, turns: [], busy: false };
+const gd = { open: false, turns: [], busy: false, showHistory: false };
+
+// Chat persistence — client-side localStorage, like the rest of the drawer's
+// state: the current chat survives a refresh, "new chat" archives it, and
+// the history keeps the last N (GUIDE_CHAT_HISTORY server env, default 10).
+function gdHistoryLimit() {
+  return (labConfig && labConfig.guide_history_limit) || 10;
+}
+
+function gdLoadState() {
+  try {
+    gd.turns = JSON.parse(localStorage.getItem("a2a-guide-current") || "[]");
+  } catch (e) { gd.turns = []; }
+}
+
+function gdPersist() {
+  try { localStorage.setItem("a2a-guide-current", JSON.stringify(gd.turns.slice(-40))); }
+  catch (e) { /* storage full — chat still works, just unpersisted */ }
+}
+
+function gdHistoryList() {
+  try { return JSON.parse(localStorage.getItem("a2a-guide-history") || "[]"); }
+  catch (e) { return []; }
+}
+
+function gdArchiveCurrent() {
+  const firstUser = gd.turns.find(t => t.role === "user");
+  if (!firstUser) return;  // nothing worth keeping
+  const list = gdHistoryList();
+  list.unshift({
+    id: Date.now(),
+    ts: new Date().toISOString().slice(0, 16).replace("T", " "),
+    title: firstUser.content.slice(0, 80),
+    turns: gd.turns,
+  });
+  try { localStorage.setItem("a2a-guide-history", JSON.stringify(list.slice(0, gdHistoryLimit()))); }
+  catch (e) { /* ignore */ }
+}
+
+window.gdNewChat = () => {
+  if (gd.busy) return;
+  gdArchiveCurrent();
+  gd.turns = []; gd.showHistory = false;
+  gdPersist(); gdRender();
+};
+
+window.gdClear = () => {
+  if (gd.busy) return;
+  gd.turns = [];
+  gdPersist(); gdRender();
+};
+
+window.gdHistoryToggle = () => {
+  gd.showHistory = !gd.showHistory;
+  gdRender();
+};
+
+window.gdLoadChat = id => {
+  const item = gdHistoryList().find(c => c.id === id);
+  if (!item) return;
+  gdArchiveCurrent();  // don't lose the chat being replaced
+  const rest = gdHistoryList().filter(c => c.id !== id);
+  try { localStorage.setItem("a2a-guide-history", JSON.stringify(rest)); } catch (e) { /* */ }
+  gd.turns = item.turns || []; gd.showHistory = false;
+  gdPersist(); gdRender();
+};
+
+window.gdDeleteChat = (ev, id) => {
+  ev.stopPropagation();
+  const rest = gdHistoryList().filter(c => c.id !== id);
+  try { localStorage.setItem("a2a-guide-history", JSON.stringify(rest)); } catch (e) { /* */ }
+  gdRender();
+};
 
 const GD_SUGGEST = {
   home: [
     "What is this lab and what does it prove?",
     "Which platforms speak A2A natively, honestly?",
     "How does the delegation guard stop agent loops?",
+    "How is the Lab Guide itself built — and why is its prompt caching cheap?",
   ],
   experiment: [
     "Explain this call path hop by hop.",
@@ -3226,6 +3329,17 @@ function gdView() {
 function gdRender() {
   const chat = document.getElementById("gdChat");
   if (!chat) return;
+  const hist = document.getElementById("gdHistory");
+  hist.style.display = gd.showHistory ? "" : "none";
+  if (gd.showHistory) {
+    const list = gdHistoryList();
+    hist.innerHTML = list.length ? list.map(c =>
+      `<div class="gd-hrow" onclick="gdLoadChat(${c.id})" title="Resume this chat">
+         <span class="htitle">${esc(c.title)}</span><span class="hts">${esc(c.ts)}</span>
+         <button class="hx" onclick="gdDeleteChat(event, ${c.id})" title="Delete">✕</button>
+       </div>`).join("")
+      : `<div class="gd-hempty">No past chats yet — ＋ archives the current one.</div>`;
+  }
   chat.innerHTML = gd.turns.map(t => {
     if (t.role === "tool") return `<div class="gd-tool">${esc(t.content)}</div>`;
     if (t.role === "user") return `<div class="gd-turn user">${esc(t.content)}</div>`;
@@ -3243,7 +3357,11 @@ function gdRender() {
 window.toggleGuide = () => {
   gd.open = !gd.open;
   document.getElementById("guideDrawer").style.display = gd.open ? "" : "none";
-  if (gd.open) { gdRender(); document.getElementById("gdInput").focus(); }
+  if (gd.open) {
+    if (!gd.turns.length) gdLoadState();  // restore across refreshes
+    gdRender();
+    document.getElementById("gdInput").focus();
+  }
 };
 
 window.gdKeydown = ev => {
@@ -3299,6 +3417,7 @@ window.gdSend = async () => {
     answer.content = "Guide unavailable: " + e.message;
   }
   gd.busy = false;
+  gdPersist();
   gdRender();
 };
 

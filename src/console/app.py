@@ -979,6 +979,9 @@ def create_console_app(registry: Registry | None = None):
         return {
             "mode": reg.mode,
             "modes": reg.modes,
+            # Lab Guide chat: how many past chats the drawer keeps
+            # (client-side localStorage; the server just sets the cap).
+            "guide_history_limit": int(os.environ.get("GUIDE_CHAT_HISTORY", "10")),
             "remapped": {
                 name: reg.resolve_name(name)
                 for name in reg.targets

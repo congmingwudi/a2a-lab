@@ -286,3 +286,20 @@ Same question both ways = whose-model-reasons comparison, live.
 
 Public cutover: publish :8032 through the cloudflared tunnel (D20) like
 the other lab servers; x-lab-token stays the app auth.
+
+**Prompt caching — the credit math.** The guide's grounding (persona +
+README + plan/01 + plan/02 + plan/08 + the ADR index, ~57KB ≈ ~15k
+tokens) is ONE system block marked `cache_control: {type: ephemeral}`.
+The Anthropic API caches the request prefix up to that breakpoint (tool
+definitions + that block). First turn in any 5-minute window WRITES the
+cache at 1.25× the base input token price; every turn after — follow-up
+questions, other visitors, the next suggested prompt — READS it at 0.1×.
+So a multi-turn chat pays the ~15k-token grounding bill roughly once,
+then ~1.5k-token-equivalent per turn for the same grounding: a ~90%
+input-cost cut on exactly the part of the prompt that never changes.
+What changes per turn (the console view-context block, the chat history,
+the question) sits deliberately AFTER the breakpoint so it never busts
+the cache. The tool results the model reads mid-answer (get_decision,
+get_trace, …) are per-turn messages — also outside the cache, also only
+as big as the question needs (that is the corpus split's other half:
+stuff what every question needs, tool the long tail).
