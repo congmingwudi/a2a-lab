@@ -2689,6 +2689,13 @@ function landingHtml() {
           <h3 class="tile-group">${esc(g.title)}</h3>
           <div class="tiles">${g.scenarios.map(tileHtml).join("")}</div>`).join("")
           + upcomingLineHtml()}
+      <div class="cells-strip" style="margin-top:18px">
+        <p><b>Prefer a single hop?</b> Every cell of the protocol matrix runs on its own — Claude over
+          REST <span class="mono">:8001</span>, MCP <span class="mono">:8002</span>, A2A
+          <span class="mono">:8003</span>, or the Agentforce shims on <span class="mono">:8021/:8023</span> —
+          with live A2A agent cards on the A2A calls.</p>
+        <button class="ghost" onclick="browseCells()">Browse protocol calls</button>
+      </div>
     </section>
 
     <section>
@@ -2740,15 +2747,6 @@ function landingHtml() {
       </div>
     </section>
 
-    <section>
-      <div class="cells-strip">
-        <p><b>Prefer a single hop?</b> Every cell of the protocol matrix runs on its own — Claude over
-          REST <span class="mono">:8001</span>, MCP <span class="mono">:8002</span>, A2A
-          <span class="mono">:8003</span>, or the Agentforce shims on <span class="mono">:8021/:8023</span> —
-          with live A2A agent cards on the A2A calls.</p>
-        <button class="ghost" onclick="browseCells()">Browse protocol calls</button>
-      </div>
-    </section>
   </div>`;
 }
 
