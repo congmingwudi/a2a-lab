@@ -100,3 +100,13 @@ def test_no_trace_id_no_lab_trace_line():
         "q", caller="c", platform="claude", inbound_depth=0, trace_id=None
     )
     assert "lab-trace" not in message
+
+
+def test_rider_carries_version_and_parsers_tolerate_it():
+    # F7: the grammar is a versioned text contract; every existing parser
+    # (depth, platform, caller extraction) must be indifferent to the line.
+    message, _ = delegation.delegate("q", caller="c", platform="claude", inbound_depth=0)
+    assert f"rider-version: {delegation.RIDER_VERSION}" in message
+    req = AgentRequest(message=message)
+    assert delegation.depth_of(req) == 1
+    assert delegation.platform_of(req) == "claude"

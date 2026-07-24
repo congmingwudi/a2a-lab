@@ -60,7 +60,13 @@ CREATE TABLE IF NOT EXISTS obs_harvest (
 
 
 def _clip_json(value: Any) -> str:
-    raw = json.dumps(value, default=str, ensure_ascii=False)
+    # Credential scrub before write (F2) — same redactor as the trace layer,
+    # so harvested platform logs (which can embed auth material in captured
+    # messages) get the same treatment as wire payloads. pg.py imports this,
+    # so sqlite and Aurora writes both pass through here.
+    from interop.trace import redact
+
+    raw = json.dumps(redact(value), default=str, ensure_ascii=False)
     if len(raw) > _MAX_RAW_CHARS:
         return json.dumps({"_clipped": True, "chars": len(raw), "head": raw[:_MAX_RAW_CHARS]})
     return raw

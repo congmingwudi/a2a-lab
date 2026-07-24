@@ -136,6 +136,7 @@ public with sharing class A2ALabInvokeAgentEngine {
     private static String withRider(String question, String traceId) {
         return question
             + '\n\n[A2A-LAB DELEGATION]\n'
+            + 'rider-version: 1\n'
             + 'caller-agent: agentforce-twin-direct\n'
             + 'caller-platform: agentforce\n'
             + 'delegation-depth: 1\n'

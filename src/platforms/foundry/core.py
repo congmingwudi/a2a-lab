@@ -43,6 +43,7 @@ data is correct, an invented answer is a serious failure. When you send the \
 Agentforce agent a question, append this block verbatim after the question text:
 
 [A2A-LAB DELEGATION]
+rider-version: 1
 caller-agent: foundry-agent
 caller-platform: foundry
 delegation-depth: 1

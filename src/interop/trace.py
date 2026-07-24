@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field, asdict
@@ -69,6 +70,81 @@ def _clip(payload: Any) -> Any:
     return payload
 
 
+# ---- credential scrub (F2, tmp-docs antipattern analysis S2) ---------------
+# Credentials-only redaction: the raw-evidence ethos for payload CONTENT
+# survives — what gets scrubbed is bearer tokens, API keys, JWTs, OAuth
+# secrets, and Salesforce session ids, wherever they appear in a payload
+# (structured keys or embedded in strings). Applied at the single choke
+# point every sink flows through (TraceEvent.to_dict) and reused by the
+# observability stores' _clip_json.
+
+_SECRET_KEYS = {
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "client_secret",
+    "authorization",
+    "api_key",
+    "x-api-key",
+    "x-lab-token",
+    "bearer_token",
+    "password",
+}
+
+_SECRET_PATTERNS = [
+    (re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [REDACTED]"),
+    # Anthropic/OpenAI-style keys (sk-ant-…, sk-proj-…, bare sk-…). The
+    # 24+-char unbroken alphanumeric run is the discriminator: real key
+    # tails have one, prose/URL slugs like "sk-hynix-another-memory-maker"
+    # don't (found live in a harvested TechCrunch URL — raw-evidence ethos
+    # says leave that alone).
+    (re.compile(r"\bsk-[A-Za-z0-9_-]*[A-Za-z0-9]{24,}[A-Za-z0-9_-]*"), "[REDACTED-KEY]"),
+    # JWTs — three base64url segments
+    (
+        re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}"),
+        "[REDACTED-JWT]",
+    ),
+    # Salesforce session ids (org-id!token)
+    (re.compile(r"\b00D[A-Za-z0-9]{12,15}![A-Za-z0-9._]+"), "[REDACTED-SF-SESSION]"),
+    # form/query-encoded OAuth params
+    (
+        re.compile(r"\b(access_token|refresh_token|client_secret|id_token)=[^&\s\"']+"),
+        r"\1=[REDACTED]",
+    ),
+]
+
+
+def _redact_str(text: str) -> str:
+    for pattern, repl in _SECRET_PATTERNS:
+        text = pattern.sub(repl, text)
+    return text
+
+
+def redact(payload: Any, _depth: int = 0) -> Any:
+    """Scrub credentials from a payload before it is written anywhere.
+    Structure-preserving; never raises into the request path (a payload
+    that defeats redaction is dropped, not written raw)."""
+    try:
+        if _depth > 8:
+            return "[REDACTED: nesting too deep]"
+        if isinstance(payload, str):
+            return _redact_str(payload)
+        if isinstance(payload, dict):
+            return {
+                k: (
+                    "[REDACTED]"
+                    if isinstance(k, str) and k.lower() in _SECRET_KEYS
+                    else redact(v, _depth + 1)
+                )
+                for k, v in payload.items()
+            }
+        if isinstance(payload, (list, tuple)):
+            return [redact(v, _depth + 1) for v in payload]
+        return payload
+    except Exception:  # noqa: BLE001 - fail closed, never into the hop
+        return "[REDACTED: unredactable payload]"
+
+
 @dataclass
 class TraceEvent:
     trace_id: str
@@ -88,8 +164,10 @@ class TraceEvent:
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
-        d["request_payload_raw"] = _clip(d["request_payload_raw"])
-        d["response_payload_raw"] = _clip(d["response_payload_raw"])
+        # redact BEFORE clip: a credential must never survive because it
+        # straddled the clip boundary (F2).
+        d["request_payload_raw"] = _clip(redact(d["request_payload_raw"]))
+        d["response_payload_raw"] = _clip(redact(d["response_payload_raw"]))
         return d
 
 
