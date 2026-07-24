@@ -293,7 +293,8 @@
   .landing .tile-upcoming { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
 
   .intro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
-  .intro-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .intro-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; cursor: pointer; }
+  .intro-card:hover { border-color: var(--border-hi); }
   .intro-card h3 { margin: 0 0 6px; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .intro-card h3 .dot { width: 8px; height: 8px; border-radius: 3px; flex: none;
                         background: linear-gradient(135deg, var(--d1, #09decb), var(--d2, #7db9e8)); }
@@ -679,6 +680,7 @@
   .obs-search:focus { outline: none; border-color: var(--border-hi); }
   .obs-tbl th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
   .obs-tbl th.sortable:hover { color: var(--fg-hi); }
+  .obs-status.running { color: var(--a2a); animation: apulse 1.2s ease-in-out infinite; }
   .analyzing { display: block; padding: 4px 16px 8px; font-size: 12px; color: var(--muted); }
   .analyzing::before { content: "●"; color: var(--a2a); margin-right: 5px;
                        animation: apulse 1.2s ease-in-out infinite; display: inline-block; }
@@ -963,14 +965,15 @@ function applyAuthGating() {
     return;
   }
   if (labUser.role === "viewer") {
-    // Viewer (D36 role model): insights + obs dashboard + Lab Guide.
-    // Execution and raw traces are operator-only — the server 403s; the
-    // UI just doesn't offer them.
+    // Viewer (D36 role model): everything read-only; execution surfaces
+    // are hidden here and 403'd server-side.
     document.getElementById("gearBtn").style.display = "none";
     for (const id of ["harvestBtn", "analyzeBtn"]) {
       const el = document.getElementById(id);
       if (el) el.style.display = "none";
     }
+    const runAll = document.getElementById("runAllBtn");
+    if (runAll) runAll.parentElement.style.display = "none";
   }
 }
 
@@ -1783,11 +1786,12 @@ function renderObsSide() {
   el.innerHTML = plats.map(p => {
     const i = info(p), h = i.harvest || {};
     const isOpen = view && view.type === "obs" && view.platform === p;
+    const st = obs.harvesting ? "running" : (h.status || "—");
     return `
     <div class="obs-plat ${isOpen ? "open" : ""}" onclick="openObservability('${p}')">
       <span class="pname">${esc(obs.summary.capabilities[p].label)}</span>
       <span class="pnums">${i.sessions || 0}s · ${i.events || 0}e</span>
-      <span class="obs-status ${esc(h.status || "")}">${esc(h.status || "—")}</span>
+      <span class="obs-status ${obs.harvesting ? "running" : esc(h.status || "")}">${esc(st)}</span>
     </div>`;
   }).join("") || `<div class="empty" style="padding:12px">Run a harvest to pull platform logs.</div>`;
   const count = document.getElementById("obsCount");
@@ -1825,6 +1829,7 @@ window.harvestObs = async ev => {
   if (ev) ev.stopPropagation();
   if (obs.harvesting) return;
   obs.harvesting = true;
+  renderObsSide();
   const btn = document.getElementById("harvestBtn");
   if (btn) { btn.textContent = "Harvesting…"; btn.disabled = true; }
   obsMsg("Pulling execution logs from each platform's API — can take ~10s per 50 sessions…");
@@ -1836,9 +1841,13 @@ window.harvestObs = async ev => {
     }
     const data = await r.json();
     if (!data.ok) { obsMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
-    const parts = data.results.map(x =>
-      `${x.platform}: ${x.status}` + (x.sessions || x.events ? ` (${x.sessions}s/${x.events}e)` : ""));
-    obsMsg("Done — " + parts.join(" · "));
+    // Per-platform outcomes live in the status chips — the message only
+    // carries what the chips can't: an all-clear or what failed.
+    const failed = data.results.filter(x => x.status !== "ok" && x.status !== "blocked");
+    obsMsg(failed.length
+      ? "Done with issues — " + failed.map(x =>
+          `${x.platform}: ${x.status}${x.detail ? " (" + x.detail.slice(0, 80) + ")" : ""}`).join(" · ")
+      : "Done — observability data harvested from all platforms.", failed.length > 0);
     await loadObs();
     // Land the user on the refreshed dashboard so the result is visible.
     if (!view || view.type === "obs") openObservability(view && view.platform);
@@ -1847,6 +1856,7 @@ window.harvestObs = async ev => {
   } finally {
     obs.harvesting = false;
     if (btn) { btn.textContent = "Harvest"; btn.disabled = false; }
+    renderObsSide();
   }
 };
 
@@ -2296,7 +2306,7 @@ function renderModeBadge() {
   el.classList.toggle("hosted", hosted);
   const maps = Object.entries(labConfig.remapped || {}).map(([a, b]) => `${a} → ${b}`);
   el.title = hosted
-    ? `Deployment mode: ${labConfig.mode} — runs hit the live hosted runtimes` +
+    ? `Deployment mode: ${labConfig.mode} — experiment runs are routed to the cloud-hosted runtimes (AgentCore etc.) instead of local servers. Unrelated to the "live" badge, which is the trace stream connection.` +
       (maps.length ? `\nRemapped targets:\n${maps.join("\n")}` : "\nNo targets remapped.")
     : "Deployment mode: local — runs hit the lab's local servers (A2ALAB_MODE flips this)";
 }
@@ -2582,13 +2592,13 @@ function archSvg() {
       marker-start="url(#lnd-${l.proto}-s)" marker-end="url(#lnd-${l.proto}-e)"/>
     <text x="380" y="${l.y - 6}" text-anchor="middle" fill="var(--${l.proto})" font-size="10.5" font-weight="700">${l.label}</text>`).join("");
   return `<svg class="archsvg" viewBox="0 0 760 196" role="img"
-      aria-label="Agentforce and Claude exchanging the same request over REST, MCP, and A2A">
+      aria-label="Agentforce and the remote research agents (Claude, OpenAI, Gemini, Foundry) exchanging the same request over REST, MCP, and A2A">
     <defs>${defs}</defs>
-    ${box(30, "Salesforce Agentforce", "service agent · Agent API", "Apex action → bridge")}
-    ${box(546, "Claude", "research agent", "Managed Agents / Agent SDK")}
+    ${box(30, "Salesforce Agentforce", "service agent · Agent API", "Apex action → bridge / direct A2A")}
+    ${box(546, "Research agents", "Claude · OpenAI · Gemini (GCP)", "gpt-5-mini (Azure Foundry)")}
     ${wires}
     <text x="380" y="172" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
-      same scenario over each protocol — every hop's raw wire payload recorded and compared</text>
+      five platforms, three clouds — same scenario over each protocol, every raw wire payload recorded</text>
   </svg>`;
 }
 
@@ -2625,13 +2635,15 @@ function landingHtml() {
         <div class="kicker">Agent interoperability · experiments</div>
         <h1 class="wordmark">A2A Interop Lab</h1>
         <p class="hero-sub">Watch agent platforms talk to each other — on the wire.</p>
-        <p class="hero-body">Salesforce Agentforce and Claude answer the same questions by consulting
-          each other mid-conversation. Each direction runs over platform-native REST, MCP, and the
-          A2A protocol — the same scenario, protocols compared side by side, with every hop's raw
-          wire payload recorded so you can see exactly what each protocol puts on the wire.</p>
+        <p class="hero-body">Five agent platforms — Salesforce Agentforce, Claude, OpenAI,
+          Google Gemini on Vertex AI Agent Engine, and Microsoft Foundry — answer the same
+          questions by consulting each other mid-conversation, across three clouds. Each
+          direction runs over REST, MCP, and the A2A protocol — the same scenario, protocols
+          compared side by side, with every hop's raw wire payload recorded so you can see
+          exactly what each protocol puts on the wire.</p>
         <div class="hero-ctas">
-          ${live.length ? `<button class="hero-cta" onclick="openExperiment('scenario', '${esc(live[0].name)}')">Run your first experiment →</button>` : ""}
-          <button class="hero-link" onclick="browseCells()">or make a single protocol call</button>
+          ${live.length ? `<button class="hero-cta" onclick="openExperiment('scenario', '${esc(live[0].name)}')">${labUser && labUser.role === "viewer" ? "Explore the experiments →" : "Run your first experiment →"}</button>` : ""}
+          <button class="hero-link" onclick="browseCells()">${labUser && labUser.role === "viewer" ? "or browse the protocol calls" : "or make a single protocol call"}</button>
         </div>
         <div class="hero-badges">
           <span class="badge rest">rest</span><span class="badge mcp">mcp</span><span class="badge a2a">a2a</span>
@@ -2677,6 +2689,33 @@ function landingHtml() {
           <h3 class="tile-group">${esc(g.title)}</h3>
           <div class="tiles">${g.scenarios.map(tileHtml).join("")}</div>`).join("")
           + upcomingLineHtml()}
+    </section>
+
+    <section>
+      <h2>Beyond the runs — what the lab keeps</h2>
+      <div class="intro-grid">
+        <div class="intro-card" style="--d1:#3fc7d8;--d2:#7db9e8" onclick="if(requireSignIn())openObservability()">
+          <h3><span class="dot"></span>Observability</h3>
+          <p>Each platform's OWN execution logs, harvested side by side — five platforms, five very
+             different answers to "what did my agent do?". Token usage, cost meters, caller
+             attribution, and links from a platform's private logs back to the exact lab run
+             that caused them.</p>
+        </div>
+        <div class="intro-card" style="--d1:#c99df0;--d2:#09decb" onclick="if(requireSignIn())openInsights()">
+          <h3><span class="dot"></span>Insights</h3>
+          <p>The lab's distilled findings — 20 and counting, each labeled honestly as
+             <b>measured</b>, <b>observed</b>, or <b>hypothesis</b>, with every number traceable
+             to a recorded run. The trusted-advisor take on protocols, timeouts, identity,
+             and the interop tax.</p>
+        </div>
+        <div class="intro-card" style="--d1:#09decb;--d2:#a8a2ec" onclick="if(requireSignIn())toggleGuide()">
+          <h3><span class="dot"></span>🧭 The Lab Guide</h3>
+          <p>A docent agent grounded in the lab's own docs, decision log, analyst briefs, and wire
+             traces. Ask how any call path works, why a run took 35 seconds, or what the analyst
+             concluded — it reads the record and cites its sources. It's also a lab agent itself,
+             callable over REST, MCP, and A2A.</p>
+        </div>
+      </div>
     </section>
 
     <section>
@@ -2728,6 +2767,7 @@ window.browseCells = () => {
 window.openExperiment = (kind, name, tab) => {
   if (!requireSignIn()) return;
   ensureSideOpen();
+  if (gd.open) setTimeout(() => { gdSyncContext(); gdRender(); }, 0);
   pushNav();
   view = { type: "experiment", kind, name };
   // Viewers land on Details — the run composer is disabled for them, and
@@ -2753,6 +2793,7 @@ window.openExperiment = (kind, name, tab) => {
 };
 
 window.openTrace = tid => {
+  if (gd.open) setTimeout(() => { gdSyncContext(); gdRender(); }, 0);
   document.getElementById("accTraces").open = true;
   pushNav();
   view = { type: "trace" }; selected = tid; renderSidebar(); renderMain();
@@ -3164,6 +3205,8 @@ function renderMain(force) {
     el.innerHTML = `
       <div class="tabbar">
         <h2>${esc(title)}</h2>
+        ${viewerRole ? `<span class="badge hosted"
+          title="Viewer role — experiments and protocol calls are view-only. Details, traces, observability, and the Lab Guide are all open.">view only</span>` : ""}
         ${exp && (exp.tags || []).includes("agentcore") ? `<span class="badge aws"
           title="The Claude end runs self-hosted on AWS Bedrock AgentCore (D26)">aws</span>` : ""}
         ${modeUnmet(exp) ? `<span class="badge hosted"
@@ -3385,7 +3428,22 @@ window.ensureSideOpen = () => {
 // client holds the history; the current view rides along so "explain this"
 // resolves without naming anything (plan/07, Lab Guide).
 // ---------------------------------------------------------------------------
-const gd = { open: false, turns: [], busy: false, showHistory: false };
+const gd = { open: false, turns: [], busy: false, showHistory: false, ctxKey: null };
+
+// The guide is context-aware per turn — but a STALE CHAT is stale context:
+// history about a trace keeps steering answers after the operator moved to
+// an experiment. When the console view changes, archive the old chat and
+// start fresh for the new context (suggested prompts follow).
+function gdSyncContext() {
+  if (gd.busy) return;
+  const key = JSON.stringify(gdView());
+  if (gd.ctxKey !== null && key !== gd.ctxKey && gd.turns.length) {
+    gdArchiveCurrent();
+    gd.turns = [];
+    gdPersist();
+  }
+  gd.ctxKey = key;
+}
 
 // Chat persistence — client-side localStorage, like the rest of the drawer's
 // state: the current chat survives a refresh, "new chat" archives it, and
@@ -3529,6 +3587,7 @@ window.toggleGuide = () => {
   document.getElementById("guideDrawer").style.display = gd.open ? "" : "none";
   if (gd.open) {
     if (!gd.turns.length) gdLoadState();  // restore across refreshes
+    gdSyncContext();
     gdRender();
     document.getElementById("gdInput").focus();
   }
@@ -3542,6 +3601,7 @@ window.gdAsk = q => { document.getElementById("gdInput").value = q; gdSend(); };
 
 window.gdSend = async () => {
   if (gd.busy) return;
+  gdSyncContext();  // the question belongs to the CURRENT view's chat
   const input = document.getElementById("gdInput");
   const message = (input.value || "").trim();
   if (!message) return;
