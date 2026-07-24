@@ -105,7 +105,9 @@ if os.environ.get("A2ALAB_TOKEN"):
 import pathlib
 pub = pathlib.Path(".a2alab/lab_jwt_public.pem")
 if pub.exists():
-    env["A2ALAB_JWT_PUBLIC_KEY"] = pub.read_text()
+    # AgentCore env vars reject control characters — ship the PEM with
+    # escaped newlines; identity.public_key() unescapes on read.
+    env["A2ALAB_JWT_PUBLIC_KEY"] = pub.read_text().replace("\n", "\\n")
 print(json.dumps(env))
 PY
 )
