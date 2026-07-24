@@ -432,6 +432,107 @@ Anthropic direct). Decision on scheduling after WS4.
 
 ---
 
+## WS6 — User identity layer: per-user experiments + cross-platform user-context propagation (planned 2026-07-24)
+
+**Goal.** Two layers, one experiment. (1) A **lab user layer**: named
+users run experiments; every run, trace, and observability row carries
+who ran it; data reads (the guide's `get_trace`, the console's traces
+and obs tables) are authorized per user. (2) The **research question**
+this lab exists to ask: can USER context propagate across platform
+boundaries over REST/MCP/A2A — verifiably, not just as words — and can a
+remote platform act *on behalf of* that user? This picks up the
+antipattern analysis directly (tmp-docs/antipattern-analysis.md): O1's
+measured harm (one shared integration user, every remote audit trail
+attributing a generic identity), F6 (per-caller identities), E3 (identity
+& scope measurement), and the capstone observation that *agent identity
+lives outside every agent protocol today* — WS6 tests whether USER
+identity does too.
+
+**Current baseline (honest).** One shared app token (`A2ALAB_TOKEN`,
+`x-lab-token` header / `?token=` query) authenticates *callers to lab
+seams* — one identity for everyone, authorization is all-or-nothing.
+Every platform credential is a SERVICE identity: Salesforce
+client-credentials ECA → single run-as integration user (`bypassUser:
+true`), AWS SSO/IAM, GCP ADC + Entra SP, Anthropic/OpenAI API keys. The
+guide's Postgres reads never touch the browser: tools run in the console
+process against the RDS Data API using host AWS credentials + secret
+ARNs; the lab token only gates the HTTP surface in front of them. There
+is no end-user concept anywhere in the stack — by design, until now.
+
+**Design principle (the D27/D34 lesson, applied to identity).** Ship user
+context on TWO channels at once and measure the difference:
+- a **verifiable channel** — a lab-issued JWT (RS256; any seam or hosted
+  runtime verifies with the public key, no shared secret) riding the
+  protocol's native slot;
+- the **text channel** — an `on-behalf-of: <user>` line in the D27 rider,
+  which survives every hop the way `caller-agent`/`lab-trace` do but
+  *proves nothing* (any caller can type it).
+The asymmetry IS the finding: text survives everywhere and verifies
+nowhere; signatures verify but drop at hops that strip metadata. Cells
+report `verified` / `asserted-only` / `dropped` per platform × protocol.
+
+**Milestones:**
+
+1. **U1 — lab identity provider.** `config/users.yaml` (demo users +
+   roles: operator / viewer), RS256 keypair under `.a2alab/`, lab-issued
+   JWTs, console login (user picker for demos; the shared token keeps
+   working as a legacy/service credential so nothing breaks).
+   `TokenAuthMiddleware` learns to accept either.
+2. **U2 — user context on the wire.** `metadata["user_context"]`
+   ({sub, name, roles}) + the JWT in each protocol's native slot —
+   `Authorization: Bearer` (REST), tool argument (MCP has no session or
+   auth semantics for this — that asymmetry again), message metadata
+   (A2A) — mirroring exactly how trace_id rides today. Rider gains
+   `on-behalf-of:`. Every delegation seam forwards both channels.
+3. **U3 — enforcement + data scoping.** Seams verify the JWT when
+   present (invalid → refuse; text-only → tag `asserted-only`).
+   `TraceEvent` gains a `user` field; the guide's `get_trace`/
+   `list_recent_runs`, console traces, and obs tables filter by
+   role (viewer: own runs; operator: all). `A2ALAB_REQUIRE_USER=1`
+   strict mode for the demo of enforcement actually refusing.
+4. **U4 — platform on-behalf-of cells (the measured comparison).**
+   Which platforms can act AS the lab user, not just be told about them:
+   - **Salesforce**: per-user JWT bearer flow (subject = the lab user)
+     so the twin session runs as that user vs the O1 baseline — F6's
+     per-caller ECAs, measured via session-log attribution (extends the
+     rider-provenance harvest from caller-agent to user).
+   - **Foundry**: Entra On-Behalf-Of — user assertion exchanged for a
+     downstream token (the one true OBO primitive in the lab's estate).
+   - **Google Agent Engine**: per-user impersonation is expected
+     BLOCKED for external identities — recorded honestly, like the
+     Foundry→ADK auth block.
+   - **Anthropic / OpenAI**: no end-user identity primitive on the API —
+     metadata-only cells, status `asserted-only` by construction.
+5. **U5 — matrix + insights.** New matrix section "user-context
+   propagation" (platform × protocol × verified/asserted/dropped); new
+   insights category **Identity & authorization**. Expected shape of the
+   findings (to be measured, not assumed): agent protocols carry
+   *conversation* identity (A2A contextId) but no *user* identity slot;
+   A2A card securitySchemes authenticate the CALLER to the ENDPOINT,
+   not the user to the chain; OBO exists only inside each cloud's own
+   IdP boundary — cross-cloud user delegation today is a trust
+   convention, not a protocol feature.
+6. **U6 (stretch) — standards alignment.** MCP's OAuth 2.1
+   resource-server auth on the guide's MCP server (real spec auth
+   replacing x-lab-token on one exhibit), RFC 8693 token exchange at the
+   bridge (the standards-shaped version of what U2 hand-rolls), A2A
+   cards advertising securitySchemes. Each one becomes a
+   convention-vs-standard comparison cell.
+
+**Hygiene folded in (from the antipattern analysis):** browser auth moves
+from `?token=` query strings to the JWT in headers (F-series); trace
+redaction pass before user-attributed traces become multi-user-visible
+(F2); Salesforce scope diet rides U4's new ECAs (F3).
+
+**Sequencing.** U1–U3 are lab-only (no platform work, ~same shape as the
+D34 trace threading — every seam already routes through
+`delegation.delegate()`). U4 is where platform reality bites and the
+deck material lives. Schedule: user decision — candidate for the next
+build day; U1–U3 in one sitting, U4 one platform at a time (Salesforce
+first: it has both the baseline harm and the richest attribution logs).
+
+---
+
 ## Flagged candidates (user decision pending — do not build)
 
 - **CrewAI (AMP)** — most-adopted OSS multi-agent framework + its new
