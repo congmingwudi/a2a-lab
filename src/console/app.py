@@ -442,6 +442,38 @@ def cell_details(t) -> dict:
             ],
             "question": question,
         }
+    if platform == "guide":
+        extra = (
+            " This MCP server also publishes the guide's raw read tools "
+            "(get_decision, get_trace, list_briefs, …) so the CALLING model "
+            "can reason over lab data itself — two integration shapes on one "
+            "endpoint."
+            if proto == "mcp"
+            else ""
+        )
+        return {
+            "blurb": (
+                "The meta exhibit: the Lab Guide — the console's own docent — "
+                f"served as just another lab agent over {proto.upper()} "
+                "through the same inbound seam every hosted agent uses. Ask "
+                "it how the lab works, from any protocol client (Claude "
+                f"Desktop included).{extra}"
+            ),
+            "flow": [
+                _lab_server_entry(t, "the Lab Guide docent"),
+                {
+                    "source": "lab-guide",
+                    "target": "anthropic-api",
+                    "protocol": "internal",
+                    "detail": (
+                        "Direct Anthropic tool-use loop (Haiku-tier) grounded "
+                        "in the lab's own docs, with read tools over the ADR "
+                        "log, results, analyst briefs, and wire traces."
+                    ),
+                },
+            ],
+            "question": "In two sentences: what is this lab and what does it prove?",
+        }
     return {
         "blurb": f"Single protocol call to {name} ({platform} over {proto}).",
         "flow": [{"source": "remote-caller", "target": name, "protocol": proto, "detail": ""}],
@@ -895,6 +927,37 @@ def create_console_app(registry: Registry | None = None):
         """The ADR log parsed per decision id — the UI renders D-refs as
         chips whose popover shows the decision's markdown."""
         return {"decisions": load_decisions()}
+
+    @app.post("/api/guide")
+    async def guide(request: Request):
+        """The Lab Guide chat (plan/07, Lab Guide): stateless streaming turns
+        — client holds history, the server streams SSE events {delta|tool|
+        done}. Same interior the guide's REST/MCP/A2A servers use."""
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise HTTPException(status_code=503, detail="guide unavailable — no ANTHROPIC_API_KEY")
+        body = await request.json()
+        message = (body.get("message") or "").strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="empty message")
+        history = body.get("history") or []
+        view_ctx = body.get("view") or None
+
+        from platforms.guide.core import make_adapter as make_guide
+
+        if state.get("guide") is None:
+            state["guide"] = make_guide()
+        guide_adapter = state["guide"]
+
+        async def gen():
+            try:
+                async for event in guide_adapter.answer_stream(
+                    message, history=history, view=view_ctx
+                ):
+                    yield f"data: {json.dumps(event)}\n\n"
+            except Exception as exc:  # surface as an SSE event, not a broken stream
+                yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
 
     @app.get("/api/docs/{name:path}")
     async def doc(name: str):

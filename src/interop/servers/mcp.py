@@ -44,6 +44,12 @@ def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 
         resp = await adapter.handle(req)
         return json.dumps(resp.to_dict())
 
+    # Adapters may publish extra read tools alongside ask (the Lab Guide's
+    # raw-tools shape: the CLIENT's model reasons over lab data). Plain
+    # typed functions — FastMCP derives schemas from signature + docstring.
+    for fn in getattr(adapter, "extra_mcp_tools", None) or []:
+        mcp.tool(name=fn.__name__.removeprefix("mcp_"))(fn)
+
     return mcp
 
 

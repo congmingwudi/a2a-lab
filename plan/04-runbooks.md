@@ -257,3 +257,32 @@ they fan out many subagents, so they cost real tokens):
 Both are read-only (report, don't edit) and best run before demos or
 publishing. Headless subagents can't do interactive auth, so keep deploys
 and org operations out of workflow scripts.
+
+## 10. Lab Guide (D35)
+
+Runs with the stack (`scripts/run_local.sh`): REST :8031, MCP :8032, A2A
+:8033; console chat via the 🧭 header button (needs `ANTHROPIC_API_KEY`).
+Model: `GUIDE_MODEL` (falls back to `CLAUDE_AGENT_MODEL`, then Haiku).
+
+**Claude Desktop / any MCP client** — streamable-http with the lab token:
+
+```json
+{
+  "mcpServers": {
+    "a2a-lab-guide": {
+      "command": "npx",
+      "args": ["mcp-remote", "http://localhost:8032/mcp",
+               "--header", "X-Lab-Token: <A2ALAB_TOKEN>"]
+    }
+  }
+}
+```
+
+Two tool shapes on the one server, deliberately (the meta exhibit):
+`ask` runs the whole guide loop lab-side (one call, grounded answer);
+`get_decision` / `read_doc` / `list_recent_runs` / `get_trace` /
+`list_briefs` / `read_brief` hand the raw lab data to the CLIENT's model.
+Same question both ways = whose-model-reasons comparison, live.
+
+Public cutover: publish :8032 through the cloudflared tunnel (D20) like
+the other lab servers; x-lab-token stays the app auth.

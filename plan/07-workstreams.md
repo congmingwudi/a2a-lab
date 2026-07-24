@@ -442,11 +442,19 @@ Anthropic direct). Decision on scheduling after WS4.
 
 ---
 
-## Lab Guide — embedded Q&A agent for the console (idea, 2026-07-22)
+## Lab Guide — embedded Q&A agent for the console (idea 2026-07-22 → ✅ BUILT 2026-07-24, D35)
 
 **Scheduling (user decision 2026-07-22): after WS3** — the Azure Foundry
 interop builds first; the guide then has the fifth platform's story to
 tell.
+
+**Status (2026-07-24):** built as designed below — `src/platforms/guide/`
+(corpus + read tools + adapter), console `POST /api/guide` SSE + header
+drawer (🧭) with per-section suggested questions, and the meta exhibit
+live: guide-rest/mcp/a2a targets on :8031–:8033 (run_local.sh), the MCP
+server carrying both `ask` and the raw read tools. ADR D35; Claude
+Desktop hookup in plan/04-runbooks.md §10. Remaining polish: publish
+through the tunnel for the ~Aug 1 public cutover (D20 pattern).
 
 A "Lab Guide" chat in the console, mirroring the mega-demo's Solution
 Guide pattern (~/projects/tdx26/mega-demo: `AskClaude.tsx` drawer +

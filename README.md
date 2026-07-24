@@ -32,6 +32,13 @@ wire payloads visible.
   Foundry's A2A tool against the lab's hosted shim; incoming A2A enabled
   (the second platform-native A2A endpoint, Entra-only). Provisioned by
   `deploy/foundry/provision_foundry.py`.
+- **Lab Guide:** `src/platforms/guide/` (:8031–:8033) — the console's
+  docent (D35): a Q&A agent grounded in the lab's own docs and ADR log,
+  with read tools over the results, analyst briefs, and wire traces.
+  Chat with it from the console header (🧭, streaming), or — the meta
+  exhibit — call it over REST/MCP/A2A like any lab agent; its MCP server
+  additionally exposes the raw read tools so the CALLING model can reason
+  over lab data (Claude Desktop-ready, plan/04-runbooks.md §10).
 - **Bridge:** `src/bridge/` — Agentforce's REST callout fans out to any
   target/protocol per `config/targets.yaml`; no Salesforce redeploy to switch.
 - **Lab console:** `src/console/` (:8200) — an experiment workspace styled

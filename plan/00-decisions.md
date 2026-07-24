@@ -693,3 +693,40 @@ exist for claude, openai, adk, foundry — never salesforce; a model name is
 logged only by openai and foundry); insight file-ref chips now open the
 rendered doc via the whitelisted `/api/docs/{name}` endpoint (same popover
 as decision chips).
+
+## 2026-07-24 — D35: Lab Guide — the console docent, served as a lab agent
+
+**Decision.** Built the Lab Guide (the plan/07 design, scheduled after
+WS3): `src/platforms/guide/` — an `AgentAdapter` whose interior is a
+direct Anthropic tool-use loop (Haiku-tier, `GUIDE_MODEL` →
+`CLAUDE_AGENT_MODEL` fallback) grounded in the lab's own docs.
+
+- **Grounding split by size:** README + 01-architecture + 02-matrix +
+  08-insights (~57KB) are stuffed into the system prompt (Anthropic
+  prompt caching makes repeat turns cheap); the long tail — the full ADR
+  log, results, runbooks, workstreams, config — sits behind read tools
+  (`get_decision`, `read_doc` whitelist) so the model pulls only what a
+  question needs. The corpus IS the repo's plan/ discipline; there is no
+  separate knowledge base.
+- **Curated read tools, not a store surface:** `list_briefs`/`read_brief`
+  (the hosted analyst's Aurora output, D23), `list_recent_runs` +
+  `get_trace` (merged local jsonl + recent Aurora hops, payloads clipped).
+  No SQL — that stays the analyst's. All accessors soft-fail honest.
+- **Console chat:** `POST /api/guide` streams SSE (delta/tool/done);
+  stateless turns with client-held history; the operator's current view
+  rides as a second uncached system block so "explain this" resolves.
+  Drawer UI in the header (🧭), suggested questions seeded per section.
+- **The meta exhibit:** `serve(adapter, protocol, port)` gives the guide
+  REST (:8031), MCP (:8032), A2A (:8033) for free — targets guide-rest/
+  mcp/a2a, status native. Two MCP shapes on one server, deliberately:
+  `ask` (agent-as-a-tool — the LAB's model runs the loop) and the raw
+  read tools (`get_decision`, `get_trace`, … — the CLIENT's model
+  reasons over lab data). Generic seam change: `create_mcp_server`
+  registers an adapter's optional `extra_mcp_tools` (names stripped of
+  their `mcp_` prefix).
+
+**Verified live (2026-07-24):** console SSE answers grounded with ADR
+citations; a trace question chained list_recent_runs → get_trace on the
+real record; guide-rest cell 6.6s via /api/run; MCP tools/list shows all
+seven tools. The guide turns the console from an exhibit into a docent —
+and is itself a lab agent whose calls are wire-traced.

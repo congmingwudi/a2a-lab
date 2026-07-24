@@ -24,6 +24,11 @@ if [[ -n "${SF_CLIENT_ID:-}" ]]; then
 else
   echo "(Agentforce shims skipped — SF_CLIENT_ID not set)"
 fi
+# Lab Guide (plan/07) — the console docent, served as a lab agent over all
+# three protocols (the meta exhibit; MCP additionally exposes raw read tools)
+run uv run python -m platforms.guide --protocol rest --port 8031
+run uv run python -m platforms.guide --protocol mcp  --port 8032
+run uv run python -m platforms.guide --protocol a2a  --port 8033
 run uv run python -m bridge --port 8100
 run uv run python -m console --port 8200
 if [[ -f .a2alab/brief.json && -n "${SF_CLIENT_ID:-}" ]]; then

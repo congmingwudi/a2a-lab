@@ -31,6 +31,28 @@ targets:
     endpoint: http://localhost:8003
     status: native
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  # ---- Lab Guide (hosted by us) — the console docent served as a lab agent
+  # over all three protocols (the meta exhibit, plan/07). Its MCP server also
+  # exposes raw read tools (get_decision, get_trace, …) for client-side
+  # reasoning — demonstrable from Claude Desktop.
+  guide-rest:
+    platform: guide
+    protocol: rest
+    endpoint: http://localhost:8031
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  guide-mcp:
+    platform: guide
+    protocol: mcp
+    endpoint: http://localhost:8032/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  guide-a2a:
+    platform: guide
+    protocol: a2a
+    endpoint: http://localhost:8033
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
   # The AWS-hosted twin (D26): the sdk backend containerized on Bedrock
   # AgentCore Runtime — the self-hosted counterpart to the Managed Agents
   # default, and the apples-to-apples peer of openai-agentcore. Same
