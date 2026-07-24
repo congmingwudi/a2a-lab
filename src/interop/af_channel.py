@@ -98,7 +98,7 @@ async def ask_via_shim(
             target_name="agentforce-a2a-shim",
             timeout=float(os.environ.get("AF_SHIM_TIMEOUT_S", "34")),
         )
-    # One retry: the twin's account turn (~15-30s tail) straddles API
+    # One retry: the twin's account turn (~20-27s tail, D32) straddles API
     # Gateway's hard 29s ceiling (D28 known bound — every intermediary adds
     # its own timeout to the stack). Second attempts ride warmed sessions.
     req = AgentRequest(message=message, metadata=metadata or {}, trace_id=trace_id)

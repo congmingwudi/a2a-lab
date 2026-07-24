@@ -142,3 +142,31 @@ foundry-a2a        foundry     a2a             native       PASS     11874  1277
 foundry-rest       foundry     foundry-api     native       PASS     10375  11909  MCP is a brokered, message-centric interoperability protocol designed to route, mediate, and multiplex agent communicati
 agentforce-foundry-rest agentforce  agentforce-api  native       PASS      7227   8819  The MCP (Message Communication Protocol) is a message-based protocol designed for asynchronous, decoupled agent communic
 ```
+
+## Cross-hyperscaler capstone — 2026-07-23 (WS3)
+
+`google-adk-to-foundry` scenario, run live from the console: GCP Gemini
+(Vertex AI Agent Engine, gemini-2.5-flash-lite) consulting Azure gpt-5-mini
+(Microsoft Foundry) over BOTH platforms' native A2A endpoints — the lab's
+first native×native cross-hyperscaler cell. **16.9s** end to end, both
+answer sections labeled, D27 rider honored. Auth: Entra service principal
+in the engine env (EnvironmentCredential); the reverse direction
+(Foundry→ADK) is auth-blocked — Foundry connections cannot mint Google IAM
+tokens. Detail in plan/07-workstreams.md WS3 item 11 and ADR D34's change-set.
+
+## Rider-provenance harvest counts — 2026-07-23 (D27/D34)
+
+Measured against traces/lab.db after the 2026-07-23 harvests (five-platform
+coverage: claude, salesforce, openai, adk, foundry):
+
+- **62 of 220** platform-logged sessions self-attribute their caller via the
+  D27 rider text visible in the platform's own logs — 58 in Salesforce's
+  session logs, 4 in Anthropic's; exactly the delegated turns.
+- **188** Salesforce-logged interaction events contain the rider text
+  verbatim.
+- **2** sessions (1 salesforce, 1 claude) additionally join to a specific
+  lab run via the D34 `lab-trace:` rider line — the first live links; the
+  count grows as post-D34 runs accumulate.
+
+Counts move with every harvest; re-measure with
+`ObsStore.session_callers()` / `session_lab_traces()` before quoting.
