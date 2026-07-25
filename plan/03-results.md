@@ -164,9 +164,16 @@ coverage: claude, salesforce, openai, adk, foundry):
   session logs, 4 in Anthropic's; exactly the delegated turns.
 - **188** Salesforce-logged interaction events contain the rider text
   verbatim.
-- **2** sessions (1 salesforce, 1 claude) additionally join to a specific
-  lab run via the D34 `lab-trace:` rider line — the first live links; the
-  count grows as post-D34 runs accumulate.
+- **9** sessions (8 salesforce, 1 claude) additionally join to a specific
+  lab run via the D34 `lab-trace:` rider line — re-counted 2026-07-24
+  against `traces/lab.db` (was 2 at the first live links; the count grows
+  as post-D34 runs accumulate).
+  **The platform set has not grown, and structurally cannot by this
+  mechanism:** foundry sessions are harvested (5 rows) but Azure Monitor
+  gives spans only — timings, tokens, model, operation ids, no prompt text
+  — so the rider regex has nothing to match and that column joins by
+  response id (`platform_ref`) instead. Only platforms that log the
+  utterance text can be joined by a text convention.
 
 Counts move with every harvest; re-measure with
 `ObsStore.session_callers()` / `session_lab_traces()` before quoting.

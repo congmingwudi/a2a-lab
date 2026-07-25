@@ -501,10 +501,18 @@ insights:
       it from whatever shape each platform's logs take. The result is one
       historical view the platforms themselves can't offer: pick a lab
       experiment and see the private execution logs it left behind inside
-      Salesforce, Anthropic, and Azure, joined by a value that traveled only
-      as words in the prompt. Known honest gap: a platform whose agent
-      identity is a static prompt (Foundry's prompt-composed rider) can
-      identify itself but cannot carry a per-run id outbound.
+      Salesforce and Anthropic, joined by a value that traveled only as
+      words in the prompt — 9 sessions so linked as of 2026-07-24 (8
+      Salesforce, 1 Anthropic; the count grows as post-D34 runs accumulate).
+      Two honest limits, both about what the text CANNOT reach. A platform
+      whose agent identity is a static prompt (Foundry's prompt-composed
+      rider) can identify itself but cannot carry a per-run id outbound.
+      And the Azure column never joins by rider at all in the other
+      direction: Foundry's harvested rows are Azure Monitor span metadata —
+      timings, token counts, model, operation ids, no prompt text — so
+      there is nothing for the regex to match, and that column is joined by
+      response id (platform_ref) instead. A text convention only works
+      where the platform logs the text.
     advisory: >
       Distributed tracing for agent estates won't come from the protocols
       soon — none of REST, MCP, or A2A propagates a correlation id
@@ -512,7 +520,10 @@ insights:
       the correlation id in the message text as a convention and harvest it
       back out of each platform's logs. It's inelegant and it works — and
       it's the only mechanism the lab found that survives every seam,
-      including ones you don't operate.
+      including ones you don't operate. Then check, per platform, whether
+      the logs you get back actually contain text: where a platform emits
+      span metadata only, plan a second join key (a response or operation
+      id) before you promise a single pane of glass.
     refs: [D27, D34, plan/03-results.md]
 
   - id: antipattern-lens
@@ -526,9 +537,11 @@ insights:
       applied to long-running work, reactive token refresh inside a timeout
       chain. But the claims that fail, fail in one consistent direction:
       they assume structured, governed, negotiated surfaces exist end to
-      end. Measured counterexamples: "use the hosted MCP server" (one
-      native protocol endpoint across five platforms; the hosted
-      alternative is gated beta or absent); "never regex-scrape text"
+      end. Measured counterexamples: "use the hosted MCP server" (five
+      platforms in, exactly two platform-native protocol endpoints exist —
+      both A2A, neither MCP; Salesforce's MCP inbound is gated beta and
+      every other MCP cell in the matrix is a shim the lab hosts); "never
+      regex-scrape text"
       (every structured channel was dropped by at least one hop, while a
       text rider survived all of them); "version your contracts" (both
       hyperscalers version their A2A dialects and neither negotiates —
@@ -559,17 +572,25 @@ insights:
       secrets to Secrets Manager, credential scrub, output schema and
       version, config out of Apex, rider versioning, batch guard — were
       hours of ordinary work inside abstractions the lab already had. The
-      two still outstanding are the org-side identity fixes, because those
-      are the ones no script owns.
+      remaining two were assumed to be the expensive ones — org-side
+      identity work "no script owns" — and that assumption turned out to be
+      the most expensive thing in the audit, because it was wrong: External
+      Client App configuration is source-controlled metadata that retrieves
+      and deploys like anything else, so both shipped the same evening once
+      somebody checked. All eight landed in a day. The irreducible manual
+      step is one per app: a consumer secret that no API will hand back,
+      read from Setup by hand.
     advisory: >
       Price remediations like hops: every gateway, broker, or isolation
       boundary added for security contributes its own timeout, latency, and
       cold-start economics to the chain — budget the stack with the
-      remediation IN it before promising a sync UX. And when you plan a
-      hardening pass, expect the cost to land on whichever side of the
-      seam your automation doesn't reach; in most estates that is the
-      identity and app-registration layer, not the code.
-    refs: [D37, D28, D32, plan/02-matrix.md]
+      remediation IN it before promising a sync UX. And before you defer a
+      hardening item as "that's platform config, not code," check whether
+      the platform exposes it as metadata — the lab deferred two fixes on
+      exactly that assumption and lost more time to the assumption than the
+      fixes cost. The genuinely irreducible work is narrower than it looks,
+      and usually it is a secret a human has to read with their own eyes.
+    refs: [D37, D28, D32, plan/02-matrix.md, plan/03-results.md]
 
   - id: text-rider-legitimacy
     category: Protocols

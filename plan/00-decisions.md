@@ -780,8 +780,9 @@ unaffected. This is the console half of WS6 U3 — per-user trace scoping
 across security, secrets, OAuth, PII, agent design, and guardrails — was
 scored claim-by-claim against the lab's five-platform evidence, backed by
 two code audits with `file:line` citations. It produced a backlog of eight
-validly-flagged debts (F1–F8). Six shipped; two are identity fixes on the
-org side. The point of recording it as an ADR: the lab is the thing being
+validly-flagged debts (F1–F8). All eight shipped the same day — six in the
+first pass, and the two identity fixes that evening, once the assumption
+that they were org-side click-ops was checked and found wrong (below). The point of recording it as an ADR: the lab is the thing being
 audited, so the remediation is itself a measured result — a "practiced,
 not preached" line for the readout deck. The six experiments the audit
 also proposed (E1–E6) live in plan/07-workstreams.md; the four insights it
@@ -883,8 +884,15 @@ tuning; `matrix.py claude-agentcore openai-agentcore` both PASS (7.3s /
 agent-api (18.5s) and a2a-shim (20.7s) channels, which is the path that
 actually exercises the moved SF credentials on both seams at once.
 
-**The finding worth keeping:** the remediation tax was asymmetric and not
-in the direction the deck implies. The code-side fixes (F1/F2/F4/F7) were
-hours of ordinary work inside abstractions the lab already had — one
-loader module, one middleware pass. The org-side fixes (F3/F6) are the
-ones still outstanding, because they are the ones no script owns.
+**The finding worth keeping** (revised once F3/F6 shipped — the first
+version of this paragraph is the mistake): the remediation tax was
+asymmetric, but not in the direction either the deck or this ADR's first
+draft assumed. The code-side fixes (F1/F2/F4/F7) were hours of ordinary
+work inside abstractions the lab already had — one loader module, one
+middleware pass. The identity fixes (F3/F6) were deferred here as "org
+config no lab script owns", and that sentence was the single most
+expensive thing in the audit: it was wrong, it went unchecked, and
+checking it took one metadata retrieve. Both shipped the same evening. So
+the real asymmetry is not code-versus-platform — it is
+verified-versus-assumed. The only irreducible manual step left is one per
+app: a consumer secret no API will return, read from Setup by hand.
