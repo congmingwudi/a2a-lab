@@ -7,8 +7,8 @@ system:
 config:
     developer_name: "A2ALab_Research_Assistant_Script"
     default_agent_user: "a2alab_research_assistant@00dkb000002u3fs2050886772.ext"
-    agent_label: "A2ALab Research Assistant (Script)"
-    description: "Research assistant for the A2A interop lab: customer account summaries grounded in CRM records via an Apex action, concise research answers, and protocol explanations. Re-implemented in Agent Script (ADR D14)."
+    agent_label: "A2ALab Research Assistant (Claude-paired)"
+    description: "Research assistant for the A2A interop lab: customer account summaries grounded in CRM records via an Apex action, concise research answers, and protocol explanations. The CLAUDE-paired twin (D25) — its external research action targets the Claude agent. Authored in Agent Script (D14); the developer_name still reads _Script from that era."
 
 variables:
     EndUserId: linked string

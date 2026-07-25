@@ -80,12 +80,19 @@ class SalesforceSource(PlatformLogSource):
         domain = os.environ["SF_MY_DOMAIN"].rstrip("/")
         if not domain.startswith("https://"):
             domain = f"https://{domain}"
+        # F6 per-caller identity: the harvest has its own External Client App
+        # (a2a_lab_obs) — the only lab caller that needs the `api` scope, since
+        # it reads the Data Cloud DMOs through /services/data. Falls back to
+        # the shared app so an unwired environment still harvests. The hosted
+        # seams get the same split through their own runtime secrets (D37).
+        client_id = os.environ.get("SF_CLIENT_ID_OBS") or os.environ["SF_CLIENT_ID"]
+        client_secret = os.environ.get("SF_CLIENT_SECRET_OBS") or os.environ["SF_CLIENT_SECRET"]
         resp = self._http.post(
             f"{domain}/services/oauth2/token",
             data={
                 "grant_type": "client_credentials",
-                "client_id": os.environ["SF_CLIENT_ID"],
-                "client_secret": os.environ["SF_CLIENT_SECRET"],
+                "client_id": client_id,
+                "client_secret": client_secret,
             },
         )
         resp.raise_for_status()

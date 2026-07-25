@@ -168,6 +168,14 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Cross-agent attribution is a model behavior, not a protocol guarantee: nothing in REST, MCP, or A2A ties "according to agent X" to an actual successful exchange with agent X. Treat attributed delegation like any other claim needing evidence — instruct agents explicitly to fail honestly, and keep independent wire-level traces so fabricated attributions are detectable. This is the strongest argument yet that the audit trail must live OUTSIDE the agents.
 
+### Least privilege in an agent estate is an identity-modelling problem wearing a scope-configuration costume
+
+*Status: observed · refs: D37, D25, plan/04-runbooks.md*
+
+**What the lab showed:** The lab ran one shared Salesforce External Client App for every caller: two hosted agent runtimes consulting the Agent API, a hosted protocol shim, and the observability harvest. Its grant — `api, refresh_token, chatbot_api, sfap_api` — looked like sloppy over-permissioning, and the obvious remediation was to trim the list. Auditing it caller by caller showed why that framing fails: the grant was the UNION of four callers' needs, so every scope on it was load bearing for SOMEBODY. `refresh_token` was genuinely dead (only client-credentials and JWT-bearer flows are enabled; neither issues one) and dropped for free. But `api` was needed by exactly one caller — the harvest, which reads Data Cloud agent-session DMOs through `/services/data/vXX/query` — and dropping it would have cost the org's only window into what it logs about its own agents. The fix was not a shorter list, it was four apps: three agent callers that reach only the Agent API now hold `chatbot_api, sfap_api` and no `api` scope at all, and the harvest holds `api` alone. Salesforce attributes client-credentials calls to the APP, so one shared app also made every lab caller look like one integration user in the org's own audit trail — the same modelling error showing up as an observability failure. Cost of the split: the per-caller apps were deployable metadata (one deploy), and because each hosted seam already had its own secrets store, wiring identity per caller took no code change at all.
+
+**Advisor take:** When a shared integration app's scope list looks bloated, don't start by trimming it — enumerate the callers behind it first. A union grant is the arithmetic of shared identity, and you cannot shrink it without splitting the identity, because every scope on it is genuinely needed by someone. Budget the split as the real remediation: one app per caller, each scoped to what that caller actually calls. You get least privilege and per-caller attribution from the same change — and the attribution is often the part the auditors were really asking for.
+
 ## Observability
 
 ### Cross-platform agent observability is radically uneven — federate agents and you own the audit trail

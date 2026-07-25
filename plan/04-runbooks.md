@@ -39,7 +39,9 @@ available. Raw `sf` CLI equivalents are noted as fallback.
    `sf org display`.
 2. **External Client App** (Setup → App Manager → New External Client App):
    - OAuth: client-credentials flow enabled; scopes `api`, `chatbot_api`,
-     `sfap_api`, `refresh_token`.
+     `sfap_api`. (`refresh_token` was dropped in F3 — the client-credentials
+     and JWT-bearer flows never issue one. This shared app is the
+     local-development identity; per-caller apps are §11.)
    - Run-as user: the dedicated `a2alab.integration` user (create it first:
      minimal profile + Agentforce permission set; API-only if available).
    - Record Consumer Key/Secret → `SF_CLIENT_ID` / `SF_CLIENT_SECRET` in
@@ -357,9 +359,23 @@ Setup → App Manager → the app → View → Manage Consumer Details.
 `SHIM`) and redeploy that seam — `deploy/agentcore/deploy.sh` and
 `deploy/shim/deploy_shim.sh` ship the per-seam pair into that seam's own
 Secrets Manager secret (F1), falling back to the shared app when unset.
-The harvest Lambda's secret predates F1 and has no script path — edit it
-in the console or leave it on the shared app.
+`SF_CLIENT_ID_OBS`/`SF_CLIENT_SECRET_OBS` needs no deploy at all — the
+harvest source reads it directly, so local harvests attribute correctly
+the moment it is set. (The hosted harvest Lambda's secret predates F1 and
+has no script path: edit it in the console or leave it shared.)
 
-**Verify**: run a scenario that consults Agentforce, then Setup → Identity
-→ Login History filtered by application. Each caller should appear under
-its own app name. That attribution is E3's raw data.
+**Verified 2026-07-24**, all three seams live under their own apps, then
+`SELECT Application, COUNT(Id) FROM LoginHistory WHERE LoginTime = TODAY
+GROUP BY Application`:
+
+```
+a2a_lab_app       6     (local dev + pre-split calls)
+a2a_lab_claude    2
+a2a_lab_openai    2
+a2a_lab_obs       1
+a2a_lab_shim      1
+```
+
+Before the split every one of those rows read `a2a_lab_app`. That table is
+E3's raw data — and the cheapest demo of why per-caller identity matters:
+the org can finally answer "which agent asked?" without the lab telling it.

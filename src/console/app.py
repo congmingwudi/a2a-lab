@@ -578,7 +578,7 @@ def components_for(tags: set[str]) -> list[dict]:
     if {"agentforce", "agent-api"} & tags:
         comps.append(
             {
-                "title": "Agentforce agent — A2ALab Research Assistant",
+                "title": "Agentforce agent — A2ALab Research Assistant (Claude-paired)",
                 "kind": "agentforce",
                 "note": "Open Agentforce Studio — topics, instructions, and the "
                 "A2ALab: Get Account Summary action live here.",

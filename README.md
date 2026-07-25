@@ -41,6 +41,23 @@ wire payloads visible.
   over lab data (Claude Desktop-ready, plan/04-runbooks.md §10).
 - **Bridge:** `src/bridge/` — Agentforce's REST callout fans out to any
   target/protocol per `config/targets.yaml`; no Salesforce redeploy to switch.
+- **Delegation guard:** `src/interop/delegation.py` (D27) — the lab wires both
+  directions of every platform pair, which makes circular execution possible
+  by construction. No agent protocol defines TTL/max-forwards semantics, so
+  every seam stamps a versioned text **rider** (caller, platform, depth, trace
+  id) plus machine-readable metadata, and refuses to forward past a depth
+  limit. The rider is also the only correlation channel that survived every
+  hop — structured ones were each dropped by at least one platform — so it
+  doubles as provenance inside remote platforms' own logs.
+- **Trace layer:** `src/interop/trace.py` — every hop records the **raw wire
+  bytes** (MCP/A2A via ASGI wiretap, since the JSON-RPC envelopes live inside
+  the frameworks), with a credential scrub before write. Sinks are pluggable:
+  jsonl locally, Aurora Postgres for the hosted seams.
+- **Honest matrix + insights:** [plan/02-matrix.md](plan/02-matrix.md) labels
+  every cell native / via-bridge / via-shim / blocked-beta and refuses to
+  claim more than the lab can back; `config/insights.yaml` is the distilled
+  findings feed (console Insights section → `plan/08-insights.md`), each entry
+  tagged measured / observed / hypothesis.
 - **Lab console:** `src/console/` (:8200) — an experiment workspace styled
   after labs.agentforce.com (navy hero, gradient wordmark, experiment
   tiles with per-scenario call-path strips). The landing page explains the
@@ -104,61 +121,99 @@ route, D30), and **Microsoft Foundry ↔ Agentforce** — plus the async
 
 ## Architecture
 
+**The platform map** — five platforms, every pair a closed two-platform
+system (D25). Solid edges are agent-to-agent calls; dotted edges are the
+lab observing itself.
+
 ```mermaid
 flowchart LR
     subgraph sforg["Salesforce prod org"]
-        AF["Agentforce agent<br/>(A2ALab Research Assistant)"]
-        APEX["Apex invocable<br/>A2ALabInvokeRemoteAgent"]
+        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+        APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
+        AGENTAPI["GA Agent API"]
+        STDM[("Session Tracing DMOs")]
+        TWINS --> APEX
+        AGENTAPI -. sessions .-> STDM
+    end
+
+    subgraph lab["Lab host — the two seams"]
+        BR["Bridge :8100<br/>REST in, any protocol out"]
+        SRV["Protocol servers<br/>REST :8001 · MCP :8002 · A2A :8003"]
+        GUIDE["Lab Guide :8031-33 (D35)"]
+        SHIMS["Agentforce shims<br/>MCP :8021 · A2A :8023"]
+        CONSOLE["Console :8200"]
+    end
+
+    subgraph aws["AWS"]
+        ACC["AgentCore: Claude sdk"]
+        ACO["AgentCore: OpenAI Agents SDK"]
+        HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
+        OBSDB[("Aurora obs + trace store (D23)")]
+    end
+
+    CMA["Anthropic<br/>Managed Agents"]
+    ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
+    FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
+
+    APEX -- "Path A: REST callout<br/>(tunnel)" --> BR
+    APEX -- "direct A2A (D30)" --> ADK
+    BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
+    BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+    BR --> ACO
+    SRV --> CMA
+    SRV -- "Path B: ask_agentforce" --> AGENTAPI
+    SHIMS --> AGENTAPI
+    ACC -- ask_agentforce --> HSHIM
+    ACO --> HSHIM
+    ADK -- A2A --> HSHIM
+    FDY -- "A2A (0.3 dialect)" --> HSHIM
+    ADK -- "cross-hyperscaler A2A" --> FDY
+    HSHIM --> AGENTAPI
+    CONSOLE -.scenarios.-> BR
+    CONSOLE -.reads.-> OBSDB
+    HSHIM -.hops.-> OBSDB
+    ACC -.hops.-> OBSDB
+    STDM -.harvest.-> OBSDB
+    CMA -.harvest.-> OBSDB
+```
+
+**One pair in detail** — the Claude ↔ Agentforce originals, both
+directions, with the local/hosted switch:
+
+```mermaid
+flowchart LR
+    subgraph sforg["Salesforce prod org"]
+        AF["Claude-paired twin<br/>A2ALab Research Assistant"]
+        APEX["Apex invocable"]
         NC["Named Credential<br/>A2ALab_Bridge"]
-        AGENTAPI["Agent API<br/>api.salesforce.com"]
-        STDM[("Session Tracing DMOs<br/>(Data Cloud STDM)")]
+        AGENTAPI["Agent API"]
         AF --> APEX --> NC
-        AGENTAPI -. "traces sessions into" .-> STDM
     end
 
-    subgraph edge["Cloudflare tunnel (public)"]
-        TUN["*-lab.agenticthings.com"]
+    TUN["Cloudflare named tunnel<br/>bridge-lab.agenticthings.com"]
+    BR["Bridge :8100"]
+
+    subgraph claude["src/platforms/claude — one adapter"]
+        REST["REST :8001"]
+        MCP["MCP :8002"]
+        A2A["A2A :8003"]
+        ADAPTER["ClaudeAdapter<br/>managed | sdk backend"]
+        REST --> ADAPTER
+        MCP --> ADAPTER
+        A2A --> ADAPTER
     end
 
-    subgraph lab["Lab host"]
-        CONSOLE["Lab console :8200<br/>traces, scenarios, live runs"]
-        BR["Bridge :8100<br/>POST /invoke/{target}"]
-        subgraph claude["src/platforms/claude"]
-            REST["REST :8001"]
-            MCP["MCP :8002"]
-            A2A["A2A :8003"]
-            ADAPTER["ClaudeAdapter<br/>(managed | sdk backend)"]
-            REST --> ADAPTER
-            MCP --> ADAPTER
-            A2A --> ADAPTER
-        end
-        subgraph shims["src/platforms/agentforce"]
-            SHIMM["MCP shim :8021"]
-            SHIMA["A2A shim :8023"]
-        end
-        TRACES[("trace sinks (D13/D19)<br/>jsonl + lab.db | DynamoDB")]
-        HARV["Obs harvester (M11)<br/>scripts/obs_harvest.py"]
-        CONSOLE -.reads / tails.-> TRACES
-        HARV --> TRACES
-        CONSOLE -- "Observability section<br/>+ Harvest button" --> HARV
-    end
+    CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
+    ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
 
-    subgraph anthropic["Anthropic"]
-        CMA["Managed Agents<br/>sandbox (beta)"]
-    end
-
-    NC -- "Path A: REST callout<br/>X-Bridge-Token" --> TUN --> BR
-    BR -- "rest | mcp | a2a<br/>per config/targets.yaml" --> REST
+    NC -- "X-Bridge-Token" --> TUN --> BR
+    BR -- "protocol per targets.yaml" --> REST
     BR --> MCP
     BR --> A2A
-    ADAPTER -- "sessions + event stream<br/>ANTHROPIC_API_KEY" --> CMA
-    CMA -. "ask_agentforce custom tool<br/>(executed host-side)" .-> ADAPTER
-    ADAPTER -- "Path B: OAuth client-credentials" --> AGENTAPI
-    SHIMM -- "proxy (no GA MCP/A2A inbound)" --> AGENTAPI
-    SHIMA --> AGENTAPI
-    CONSOLE -- "run cell / scenario" --> BR
-    HARV -- "GET /v1/sessions + events" --> CMA
-    HARV -- "SOQL over STDM" --> STDM
+    BR -. "A2ALAB_MODE=hosted" .-> ACC
+    ADAPTER -- "sessions + event stream" --> CMA
+    CMA -. "ask_agentforce tool call<br/>executed HOST-side" .-> ADAPTER
+    ADAPTER -- "OAuth client-credentials" --> AGENTAPI
 ```
 
 The stack hangs off two seams sharing the canonical `AgentRequest`/`AgentResponse`
@@ -326,26 +381,67 @@ publishes these apps on the open internet and the tunnel edge itself does
 | Secret | Protects | Sent as |
 |---|---|---|
 | `BRIDGE_TOKEN` | bridge :8100 | `X-Bridge-Token` header |
-| `A2ALAB_TOKEN` | protocol servers :8001–8003, shims :8021/:8023, console :8200 | `X-Lab-Token`, `Authorization: Bearer`, or `?token=` (console only) |
+| `A2ALAB_TOKEN` | protocol servers :8001–8003, shims :8021/:8023, console :8200 | `X-Lab-Token`, `Authorization: Bearer` |
 
 Either token **unset = auth skipped** — pass-through is for localhost dev
 only. Set both in `.env` before running `cloudflared`, or the endpoints (and
-the raw payloads in the console) are open to anyone.
+the raw payloads in the console) are open to anyone. Those are **service**
+credentials; the console's browser surface additionally requires a **user**
+sign-in (operator/viewer personas, D36) with server-side role gating, and
+credentials in query strings are rejected outright — the SSE live tail uses
+fetch-streaming precisely so no token ever rides a URL.
+
+### Who authenticates as what
+
+Every hosted seam holds its own credentials and its own Salesforce identity
+— no shared runtime env vars, no shared integration app (D37):
+
+```mermaid
+flowchart LR
+    subgraph sm["AWS Secrets Manager (F1)"]
+        SC["a2alab/runtime/claude"]
+        SO["a2alab/runtime/openai"]
+        SS["a2alab/runtime/shim"]
+    end
+
+    ACC["AgentCore: Claude"] --> SC
+    ACO["AgentCore: OpenAI"] --> SO
+    HSHIM["Hosted A2A shim"] --> SS
+    HARV["Obs harvest"] --> SH["harvest secret (D23)"]
+
+    SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
+    SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
+    SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
+    SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
+```
+
+Runtime configs carry only the secret's **ARN**; `interop.secret_env` resolves
+it at container start, and a failed fetch refuses to boot rather than running
+credential-less. Nothing in a runtime description is a credential.
+
+**The finding behind the split** (D37): the shared app's grant looked bloated,
+but it was the *union* of four callers' needs — every scope on it was load
+bearing for somebody. `refresh_token` was genuinely dead and dropped; `api`
+was needed by exactly one caller (the harvest's Data Cloud reads) and is kept
+deliberately. Shrinking the rest took **splitting the identity**, not editing
+the scope list: the three agent callers now hold no `api` scope at all, and
+Salesforce login history finally attributes each caller by its own app.
+Least privilege was an identity-modelling problem wearing a
+scope-configuration costume.
 
 ### Tokens — what is configured where
 
-| Secret | Lab host (this repo) | Salesforce org (a2alab-prod) | Anthropic |
+| Secret | Lab host (this repo) | Salesforce org (a2alab-prod) | Cloud |
 |---|---|---|---|
 | `BRIDGE_TOKEN` | `.env` — the bridge enforces it on every `/invoke` | Stored as parameter `BridgeToken` on Named Principal **A2ALabPrincipal** of External Credential **A2ALab_Bridge** (set via the Connect API `named-credentials/credential`, or Setup → Named Credentials → External Credentials — never in metadata or git). The Named Credential `A2ALab_Bridge` merges it into the `X-Bridge-Token` header at callout time; the bot user gets principal access via the `A2ALab_Agent_Actions` permission set | — |
-| `A2ALAB_TOKEN` | `.env` — enforced by servers/shims/console; clients send it per `config/targets.yaml` `auth:` blocks | — | — |
-| `ANTHROPIC_API_KEY` | `.env` — used host-side only; the managed sandbox never holds it | — | identifies the workspace the managed agent runs in |
-| `SF_CLIENT_ID` / `SF_CLIENT_SECRET` | `.env` — OAuth client-credentials for the Agent API (Path B + shims) | Consumer key/secret of the org's External Client App | — |
+| `A2ALAB_TOKEN` | `.env` — enforced by servers/shims/console; clients send it per `config/targets.yaml` `auth:` blocks | — | rides to hosted runtimes as `AF_SHIM_TOKEN` (setting `A2ALAB_TOKEN` in a runtime would switch on its own inbound auth, which `invoke_agent_runtime` cannot satisfy) |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | `.env` — used host-side only; the managed sandbox never holds it | — | in the per-runtime Secrets Manager secret, never in the runtime env |
+| `SF_CLIENT_ID` / `SF_CLIENT_SECRET` | `.env` — the shared `a2a_lab_app`, the **local-development** identity | Consumer key/secret of the org's External Client App | — |
+| `SF_CLIENT_ID_<SEAM>` / `SF_CLIENT_SECRET_<SEAM>` | `.env` — per-caller apps (`CLAUDE`, `OPENAI`, `SHIM`, `OBS`); the deploy scripts ship each pair into that seam's own secret, falling back to the shared app when unset | Four per-caller External Client Apps, each scoped to what that caller actually calls | — |
 
-The Named Credential URL currently points at an **interim TryCloudflare
-quick tunnel** (`*.trycloudflare.com`, hostname changes on every tunnel
-restart — redeploy `namedCredentials/` with the new hostname). It gets
-repointed to the stable `bridge-lab.agenticthings.com` when the M6 named
-tunnel lands, and to the AgentCore endpoint in M8.
+The Named Credential points at the stable named tunnel
+`bridge-lab.agenticthings.com` (D20 — single-level hostname on the free
+Cloudflare plan), so tunnel restarts need no redeploy.
 
 1. **Agentforce → Apex** — stays inside the org. The custom action runs as the
    org's integration user; access to the callout credential is granted via
@@ -367,22 +463,33 @@ tunnel lands, and to the AgentCore endpoint in M8.
    only. The managed sandbox holds no credentials at all: when the agent
    wants Agentforce (Path B), the `ask_agentforce` custom tool is executed on
    our side of the event stream, and only the tool *result* goes back in.
-5. **Lab host → Agent API** (Path B and the shims) — OAuth 2.0
-   client-credentials against the org's External Client App
-   (`SF_CLIENT_ID`/`SF_CLIENT_SECRET`), bearer token cached until expiry,
-   HTTPS to `api.salesforce.com`. The shims add no secrets of their own —
-   they authenticate inbound with `A2ALAB_TOKEN` and outbound with the OAuth
-   flow.
-6. **Browser → console** — same `A2ALAB_TOKEN` middleware, with `?token=`
-   additionally accepted because the SSE live tail uses `EventSource`, which
-   cannot set headers. Only `/` (the static shell) is exempt; every API route
-   requires the token.
-7. **Trace storage** — traces hold complete raw request/response payloads by
-   design. The default JSONL files (`traces/*.jsonl`) are gitignored (as are
-   `.env` and `.a2alab/`) and never leave the lab host; the console is the
-   only network reader, behind the token, and its Clear button deletes them.
-   The DynamoDB sink authenticates via the standard boto3 chain (task role on
-   AWS) and expires items via TTL (`A2ALAB_TRACE_TTL_DAYS`, default 14).
+5. **Lab host / hosted seams → Agent API** (Path B and the shims) — OAuth 2.0
+   client-credentials against an External Client App, bearer token cached
+   until expiry, HTTPS to `api.salesforce.com`. Which app depends on the
+   caller (D37/F6): each hosted seam presents its own, scoped to the Agent
+   API alone; local development presents the shared `a2a_lab_app`. The shims
+   add no secrets of their own — inbound `A2ALAB_TOKEN`, outbound OAuth.
+6. **Delegation between agents** — every delegated request carries the D27
+   rider (a delimited, versioned `[A2A-LAB DELEGATION]` block naming the
+   caller, platform, depth, and trace id) plus machine-readable
+   `metadata["delegation"]`, and every seam refuses to forward past
+   `A2ALAB_MAX_DELEGATION_DEPTH`. That is what stops two mutually-wired
+   agents from looping — none of REST, MCP, or A2A defines TTL semantics, so
+   the lab supplies its own. New delegation paths must route through
+   `interop.delegation`.
+7. **Browser → console** — `A2ALAB_TOKEN` for service callers; browsers sign
+   in as a persona (D36) and a server-side role gate decides what each role
+   may do (the UI hides what a role can't do, but the 403 is the guard).
+   Only `/` (the static shell) and the landing page are exempt.
+8. **Trace storage** — traces hold complete raw request/response payloads by
+   design, because the wire record IS the exhibit. What they do *not* hold is
+   credentials: a scrub pass (F2) redacts bearer tokens, `access_token`,
+   `client_secret`, and `sk-…` keys at the sink layer, before anything is
+   written. The JSONL files (`traces/*.jsonl`) are gitignored (as are `.env`
+   and `.a2alab/`) and never leave the lab host; the hosted seams write hops
+   to the Aurora store (D23) over the RDS Data API, where the secret ARN *is*
+   the role selection. A DynamoDB sink (D13) still exists and is superseded
+   by the Postgres path for cloud runs.
 
 ## Quick start (local loopback — no external accounts)
 
