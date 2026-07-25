@@ -42,21 +42,20 @@ _ports_busy() {
   return 1
 }
 
-# mode=preflight -> narrate, and refuse to kill anything that isn't ours.
-# mode=shutdown  -> quiet, best effort, we own everything by then.
+# Clear the lab's ports of a PREVIOUS run, before this one starts. Refuses to
+# kill anything that isn't a python/uv process: a blanket port sweep would
+# happily take out someone else's service that happens to sit on 8200.
 reclaim_ports() {
-  local mode="$1" port pid cmd
+  local port pid cmd
   for port in "${PORTS[@]}"; do
     for pid in $(_listeners_on "$port"); do
       cmd=$(ps -o command= -p "$pid" 2>/dev/null || true)
-      if [[ "$mode" == "preflight" && ! "$cmd" =~ (python|uv) ]]; then
+      if [[ ! "$cmd" =~ (python|uv) ]]; then
         echo "!! :$port is held by a non-lab process (pid $pid): ${cmd:0:90}" >&2
         echo "   refusing to kill it — free that port yourself and re-run." >&2
         exit 1
       fi
-      if [[ "$mode" == "preflight" ]]; then
-        echo "  reclaiming :$port from pid $pid"
-      fi
+      echo "  reclaiming :$port from pid $pid"
       kill "$pid" 2>/dev/null || true
     done
   done
@@ -70,24 +69,34 @@ reclaim_ports() {
   done
   for port in "${PORTS[@]}"; do
     for pid in $(_listeners_on "$port"); do
-      if [[ "$mode" == "preflight" ]]; then
-        echo "  :$port did not release — SIGKILL pid $pid"
-      fi
+      echo "  :$port did not release — SIGKILL pid $pid"
       kill -9 "$pid" 2>/dev/null || true
     done
   done
   sleep 0.5
 }
 
-PIDS=()
+PIDS=()   # uv wrappers we launched
+OWNED=()  # the python processes actually holding our ports (filled after boot)
+
+# Shutdown kills only what THIS run started — never whatever currently holds
+# the port. Otherwise a stack dying late (a background session ending, a
+# forgotten terminal) would reach out and kill the stack someone started
+# after it, which is a genuinely confusing way to lose an afternoon.
 cleanup() {
-  kill "${PIDS[@]}" 2>/dev/null || true
-  reclaim_ports shutdown
+  local ours=()
+  if [[ ${#PIDS[@]} -gt 0 ]]; then ours+=("${PIDS[@]}"); fi
+  if [[ ${#OWNED[@]} -gt 0 ]]; then ours+=("${OWNED[@]}"); fi
+  # Nothing started yet (e.g. the preflight refused a port) — nothing to stop.
+  if [[ ${#ours[@]} -eq 0 ]]; then return 0; fi
+  kill "${ours[@]}" 2>/dev/null || true
+  sleep 0.5
+  kill -9 "${ours[@]}" 2>/dev/null || true
 }
 trap cleanup EXIT
 
 echo "checking for a previous stack..."
-reclaim_ports preflight
+reclaim_ports
 echo "ports clear."
 echo
 
@@ -146,6 +155,12 @@ if [[ ${#missing[@]} -eq 0 ]]; then
 else
   echo "!! not listening after 20s: ${missing[*]} — scroll up for that server's error." >&2
 fi
+
+# Record the processes actually holding our ports — uv's children, the ones a
+# kill of PIDS alone would leave behind. This list is what shutdown kills.
+for port in "${EXPECTED[@]}"; do
+  for pid in $(_listeners_on "$port"); do OWNED+=("$pid"); done
+done
 
 echo
 echo "lab console:   http://localhost:8200"
