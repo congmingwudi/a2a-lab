@@ -654,6 +654,21 @@
               border: 1px solid color-mix(in srgb, var(--wt, var(--muted)) 40%, transparent); }
   .warm-tag.warm { --wt: var(--rest); }
   .warm-tag.cold { --wt: var(--mcp); }
+  /* Runtime STATE (not attempt duration): warm / may have idled / failed. */
+  .warm-tag.idle { --wt: var(--mcp); }
+  .warm-tag.failed { --wt: var(--err); }
+  /* Why it failed, and the fix — under the row it belongs to. */
+  .warm-why { padding: 0 14px 10px 14px; margin-top: -4px; }
+  .warm-why .wnote { font: 11px/1.5 var(--font-mono); color: var(--err);
+                     background: color-mix(in srgb, var(--err) 8%, transparent);
+                     border: 1px solid color-mix(in srgb, var(--err) 28%, transparent);
+                     border-radius: 8px; padding: 6px 9px; overflow-wrap: anywhere; }
+  .warm-why .wfix { margin-top: 6px; font-size: 11.5px; line-height: 1.5; color: var(--fg); }
+  .warm-why .wfix code { font: 11px var(--font-mono); background: var(--code);
+                         border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+  .warm-alert { margin: 0; padding: 9px 14px; font-size: 11.5px; line-height: 1.5;
+                color: var(--err); background: color-mix(in srgb, var(--err) 9%, transparent);
+                border-bottom: 1px solid color-mix(in srgb, var(--err) 25%, transparent); }
   .warm-foot { display: flex; align-items: center; gap: 10px; padding: 9px 14px; }
   .warm-foot .note { flex: 1; font-size: 10.5px; color: var(--muted); line-height: 1.45; }
 
@@ -2584,6 +2599,32 @@ window.warmAll = async () => {
   for (const t of warm.targets) await warmTarget(t.name); // sequential, top to bottom
 };
 
+// A warm-up's duration says what the LAST ATTEMPT hit; it does not say what
+// the runtime is now. Those were conflated (>20s was tagged "cold"), so a
+// successful 41s wake — the warm-up doing exactly its job — displayed as
+// "cold" and read as a failure. Now: the tag is current state, the duration
+// carries the cold/warm-start detail, and failures say what to DO.
+const WARM_TTL_MIN = 15;   // after this a scale-to-zero runtime may have idled out again
+const COLD_START_MS = 20000;
+
+// Map a recorded failure note to the fix. Ordered: first match wins.
+const WARM_FIXES = [
+  [/TokenRetrievalError|Token has expired|sso|ExpiredToken|UnrecognizedClient|InvalidGrant/i,
+   "AWS SSO expired — run <code>aws sso login --profile lab-account</code> (Zscaler ON), then warm again."],
+  [/404.*api\.salesforce\.com|api\.salesforce\.com.*404/i,
+   "Agentforce refused this caller: the connected app authenticates but is not linked to the twin. "
+   + "Setup → the agent → Connections → add the app, or point the seam back at the shared app."],
+  [/401|403|Unauthorized|Forbidden/i,
+   "Auth rejected — check the seam's credentials in its Secrets Manager secret and the lab token."],
+  [/Timeout|ReadTimeout|TimedOut/i,
+   "Timed out before the container answered — a very cold start. Warm once more; if it repeats, the runtime is unhealthy."],
+  [/ConnectError|ConnectionRefused|Name or service not known|getaddrinfo/i,
+   "Endpoint unreachable — is the local stack up, the tunnel running, and the endpoint in .env current?"],
+  [/RuntimeClientError|500/i,
+   "The runtime answered with an error — check its CloudWatch log group for the traceback."],
+];
+const warmFixFor = note => (WARM_FIXES.find(([re]) => re.test(note || "")) || [])[1] || null;
+
 function warmRowHtml(t, anyBusy) {
   const start = warm.inflight[t.name];
   const last = t.last;
@@ -2591,18 +2632,31 @@ function warmRowHtml(t, anyBusy) {
   if (start) {
     lastHtml = `<span class="wlast busy">${Math.round((Date.now() - start) / 1000)}s…</span>`;
   } else if (last) {
-    const cold = last.duration_ms > 20000;
-    lastHtml = `<span class="wlast ${last.ok ? "" : "fail"}" title="${esc(last.note || "")}">${
-      last.ok ? "" : "✗ "}${(last.duration_ms / 1000).toFixed(1)}s · ${fmtAgo(last.ts)}</span>${
-      last.ok ? `<span class="warm-tag ${cold ? "cold" : "warm"}">${cold ? "cold" : "warm"}</span>` : ""}`;
+    const ageMin = (Date.now() / 1000 - last.ts) / 60;
+    const stale = ageMin > WARM_TTL_MIN;
+    const coldStart = last.duration_ms > COLD_START_MS;
+    // State chip: what IS this runtime, right now — not what the attempt cost.
+    let tag;
+    if (!last.ok) tag = `<span class="warm-tag failed">failed</span>`;
+    else if (stale) tag = `<span class="warm-tag idle" title="Warmed ${fmtAgo(last.ts)}; a scale-to-zero runtime may have idled out again">may have idled</span>`;
+    else tag = `<span class="warm-tag warm">warm</span>`;
+    // Duration keeps the cold/warm-start information, where it belongs.
+    const detail = last.ok
+      ? `${(last.duration_ms / 1000).toFixed(1)}s ${coldStart ? "cold start" : "already warm"} · ${fmtAgo(last.ts)}`
+      : `✗ failed after ${(last.duration_ms / 1000).toFixed(1)}s · ${fmtAgo(last.ts)}`;
+    lastHtml = `<span class="wlast ${last.ok ? "" : "fail"}" title="${esc(last.note || "")}">${esc(detail)}</span>${tag}`;
   } else {
-    lastHtml = `<span class="wlast">never warmed</span>`;
+    lastHtml = `<span class="wlast">never warmed</span><span class="warm-tag idle">unknown</span>`;
   }
   // The chip names what is being WARMED: the hosted shim row is the AWS
   // Lambda + twin session, not "agentforce" the platform.
   const isShim = t.name === "agentforce-a2a-shim";
   const chipClass = isShim ? "aws" : t.platform;
   const chipText = isShim ? "aws-shim" : chipLabel(t.platform);
+  // A failure that only lives in a tooltip is a failure nobody sees. Show the
+  // platform's own words, then what to do about them.
+  const failed = last && !last.ok && !start;
+  const fix = failed ? warmFixFor(last.note) : null;
   return `
   <div class="warm-row">
     <span class="badge ${esc(chipClass)}">${esc(chipText)}</span>
@@ -2610,7 +2664,11 @@ function warmRowHtml(t, anyBusy) {
     ${lastHtml}
     <button class="ghost" onclick="warmTarget('${esc(t.name)}')"
       ${start || anyBusy ? "disabled" : ""}>${start ? "Warming…" : "Warm"}</button>
-  </div>`;
+  </div>
+  ${failed ? `<div class="warm-why">
+      <div class="wnote">${esc(last.note || "no detail recorded")}</div>
+      ${fix ? `<div class="wfix">${fix}</div>` : ""}
+    </div>` : ""}`;
 }
 
 function renderWarmPanel() {
@@ -2621,8 +2679,17 @@ function renderWarmPanel() {
   panel.style.display = warm.open ? "" : "none";
   if (!warm.open) return;
   const anyBusy = Object.keys(warm.inflight).length > 0;
+  // Headline the outcome: after a "Warm all" the eye should land on what
+  // broke, not have to compare five rows to notice.
+  const failing = warm.targets.filter(t => t.last && !t.last.ok && !warm.inflight[t.name]);
+  const banner = !anyBusy && failing.length
+    ? `<div class="warm-alert">${failing.length} of ${warm.targets.length} runtime${
+        warm.targets.length === 1 ? "" : "s"} failed to warm — ${
+        esc(failing.map(t => t.name).join(", "))}. They will fail the same way in a demo.</div>`
+    : "";
   panel.innerHTML = `
     <h3>Runtime warm-up <button class="x" onclick="toggleWarmPanel(event)" title="Close" aria-label="Close">✕</button></h3>
+    ${banner}
     ${warm.targets.map(t => warmRowHtml(t, anyBusy)).join("")
       || `<div class="empty" style="padding:14px">No warmable targets — flag them with
           <span class="mono">options.warmup</span> in config/targets.yaml.</div>`}
