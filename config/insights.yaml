@@ -539,11 +539,14 @@ insights:
       they assume structured, governed, negotiated surfaces exist end to
       end. Measured counterexamples: "use the hosted MCP server" (five
       platforms in, exactly two platform-native protocol endpoints exist —
-      both A2A, neither MCP; Salesforce's MCP inbound is gated beta and
-      every other MCP cell in the matrix is a shim the lab hosts); "never
-      regex-scrape text"
-      (every structured channel was dropped by at least one hop, while a
-      text rider survived all of them); "version your contracts" (both
+      both A2A, neither MCP; Salesforce's MCP inbound is gated beta, and
+      every other MCP endpoint in the matrix is one the lab hosts itself —
+      the shim in front of Agentforce, or the lab's own inbound seam in
+      front of an agent the lab runs); "never regex-scrape text"
+      (every structured channel failed somewhere: A2A metadata was dropped
+      outright by one client, and neither headers nor tool arguments reach
+      any platform's execution logs — while a text rider survived every
+      hop); "version your contracts" (both
       hyperscalers version their A2A dialects and neither negotiates —
       interop still required a translation layer the lab had to own).
     advisory: >
@@ -577,8 +580,9 @@ insights:
       the most expensive thing in the audit, because it was wrong: External
       Client App configuration is source-controlled metadata that retrieves
       and deploys like anything else, so both shipped the same evening once
-      somebody checked. Seven landed in a day; the identity split took a
-      second day, and not for the reason anyone predicted — the apps were
+      somebody checked. All eight landed inside a day — but one of them
+      only appeared to. The identity split cost a second day, and not for
+      the reason anyone predicted — the apps were
       configured and credentialled correctly and still could not call the
       Agent API, because an undocumented flag (JWT-based access tokens) has
       to be on before that API will serve a hand-built app. The irreducible
@@ -604,8 +608,10 @@ insights:
       Against platform APIs the lab parses structure only — typed message
       filters, JSON deserialization, never prose scraping. But for
       cross-platform correlation and provenance the structured channels all
-      failed in practice: headers, tool arguments, and A2A metadata were
-      each dropped by at least one hop. The delimited [A2A-LAB DELEGATION]
+      failed in practice: A2A metadata was silently dropped by one client
+      mid-chain (D28), and no platform propagates a foreign header or tool
+      argument into its own execution logs, so neither survives to where
+      the correlation is needed. The delimited [A2A-LAB DELEGATION]
       rider in message text survived every seam and lands verbatim in
       remote platforms' own logs (the measured attribution and trace-linkage
       results are recorded under rider-provenance and text-trace-linkage).
@@ -625,7 +631,7 @@ insights:
 
   - id: versioning-not-negotiation
     category: Protocols
-    status: measured
+    status: observed
     headline: Contract versioning is necessary and insufficient — shipped dialects don't negotiate, so budget for a translation layer you own
     evidence: >
       Both hyperscalers version their A2A surfaces; neither negotiates.
@@ -635,14 +641,14 @@ insights:
       rejects a pure 1.x agent card, while a 1.x server answers its calls
       with -32601. Interop across what is nominally "the same protocol"
       took the lab's dual-dialect agent card plus a 0.3↔1.x translation
-      middleware at the shim.
+      middleware at the shim (`interop/servers/a2a_compat.py`).
     advisory: >
       Version every tool and agent contract you publish — and still assume
       the counterparty ships a different generation with no negotiation
       path between you. A translation seam you own is part of the real
       interop architecture, not a temporary shim, and it should be staffed
       and tested like one.
-    refs: [D29, D30, plan/03-results.md]
+    refs: [D29, D30, plan/07-workstreams.md]
 
   - id: least-privilege-is-identity
     category: Security & trust
@@ -664,7 +670,11 @@ insights:
       org's only window into what it logs about its own agents. The fix was
       not a shorter list, it was four apps: three agent callers that reach
       only the Agent API now hold `chatbot_api, sfap_api` and no `api`
-      scope at all, and the harvest holds `api` alone. Salesforce attributes
+      scope at all, and the harvest holds `api` alone — verified from the
+      org rather than from the config, since each app's client-credentials
+      token comes back carrying its own granted scope list, and a
+      `/services/data` query on an agent caller's token 401s while the
+      harvest's succeeds. Salesforce attributes
       client-credentials calls to the APP, so one shared app also made every
       lab caller look like one integration user in the org's own audit
       trail — the same modelling error showing up as an observability
