@@ -81,10 +81,16 @@ class AgentCoreClient(RemoteAgentClient):
         return self._client
 
     def _runtime_session_id(self, lab_session_id: str | None) -> str:
-        key = lab_session_id or "adhoc"
-        if key not in self._session_ids:
-            self._session_ids[key] = f"a2alab-{key}-{uuid.uuid4().hex}"[:100]
-        return self._session_ids[key]
+        # Sessionless requests get a FRESH runtime session every time:
+        # AgentCore session ids carry instance affinity, so a cached one
+        # keeps routing to a pre-update warm instance (stale env/image)
+        # after a runtime deploy — observed as tool failures only the
+        # console could reproduce.
+        if lab_session_id is None:
+            return f"a2alab-adhoc-{uuid.uuid4().hex}"[:100]
+        if lab_session_id not in self._session_ids:
+            self._session_ids[lab_session_id] = f"a2alab-{lab_session_id}-{uuid.uuid4().hex}"[:100]
+        return self._session_ids[lab_session_id]
 
     def _invoke_sync(self, payload: dict[str, Any], runtime_session_id: str) -> dict[str, Any]:
         resp = self._boto().invoke_agent_runtime(

@@ -64,7 +64,9 @@ native×native A2A cell (M10).
 
 ## Timeout engineering (Path A)
 
-Budget chain: Agentforce action ~60s (reported — **measure in M6**) → Apex
+Budget chain: Agentforce action **~85–90s (measured 2026-07-25**, not the
+~60s previously reported — see plan/03-results.md; an action returning at
+84.7s was still used, one at 89.7s was abandoned) → Apex
 `setTimeout(110000)` → bridge client timeout 45s → Claude backend
 (`CLAUDE_ANSWER_TIMEOUT_S=100`; the tighter bridge/action chain upstream
 governs Path A regardless — the Claude-side cap needs headroom because the

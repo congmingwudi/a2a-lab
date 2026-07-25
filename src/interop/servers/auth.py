@@ -22,6 +22,23 @@ TOKEN_HEADER = "x-lab-token"
 EXEMPT_PATHS = ("/healthz", "/ping", "/.well-known/agent-card.json")
 
 
+def _looks_like_jwt(value: str) -> bool:
+    from interop.identity import looks_like_jwt
+
+    return looks_like_jwt(value)
+
+
+def _verify_lab_jwt(token: str):
+    """Deferred import + never-raise: auth must not depend on the identity
+    stack being configured — a missing keypair just means no JWT auth."""
+    try:
+        from interop.identity import verify_token
+
+        return verify_token(token)
+    except Exception:  # noqa: BLE001 - fail closed to shared-token path
+        return None
+
+
 class TokenAuthMiddleware:
     """Pure ASGI middleware (works under Starlette/FastAPI and wrapped apps).
 
@@ -37,18 +54,25 @@ class TokenAuthMiddleware:
         token: str | None = None,
         allow_query_param: bool = False,
         exempt_paths: tuple[str, ...] = EXEMPT_PATHS,
+        exempt_prefixes: tuple[str, ...] = (),
     ):
         self.app = app
         self._token = token
         self.allow_query_param = allow_query_param
         self.exempt_paths = exempt_paths
+        self.exempt_prefixes = exempt_prefixes
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         expected = self._token if self._token is not None else os.environ.get(TOKEN_ENV)
-        if not expected or scope.get("path", "") in self.exempt_paths:
+        path = scope.get("path", "")
+        if (
+            not expected
+            or path in self.exempt_paths
+            or any(path.startswith(p) for p in self.exempt_prefixes)
+        ):
             await self.app(scope, receive, send)
             return
 
@@ -63,6 +87,18 @@ class TokenAuthMiddleware:
         if not supplied and self.allow_query_param:
             qs = parse_qs(scope.get("query_string", b"").decode("latin-1"))
             supplied = (qs.get("token") or [None])[0]
+
+        # Lab user JWT (WS6 U1): a signed per-user credential is accepted
+        # wherever the shared token is — and, unlike it, carries WHO. The
+        # verified claims land in scope["state"] for the app to stamp onto
+        # runs and traces. The shared token stays valid as the legacy /
+        # service credential.
+        if supplied and supplied != expected and _looks_like_jwt(supplied):
+            claims = _verify_lab_jwt(supplied)
+            if claims is not None:
+                scope.setdefault("state", {})["lab_user"] = claims
+                await self.app(scope, receive, send)
+                return
 
         if supplied != expected:
             body = b'{"detail": "bad or missing X-Lab-Token"}'

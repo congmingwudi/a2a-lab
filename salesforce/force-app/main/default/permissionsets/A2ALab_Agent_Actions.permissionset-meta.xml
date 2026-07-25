@@ -16,6 +16,10 @@
         <enabled>true</enabled>
         <externalCredentialPrincipal>A2ALab_Bridge-A2ALabPrincipal</externalCredentialPrincipal>
     </externalCredentialPrincipalAccesses>
+    <externalCredentialPrincipalAccesses>
+        <enabled>true</enabled>
+        <externalCredentialPrincipal>A2ALab_GCP-A2ALab_GCP_Principal</externalCredentialPrincipal>
+    </externalCredentialPrincipalAccesses>
     <fieldPermissions>
         <editable>true</editable>
         <field>A2ALab_Account_Brief__c.Account__c</field>

@@ -28,23 +28,90 @@ ROLE_ARN=$(aws iam get-role --role-name a2alab-shim-lambda --query 'Role.Arn' --
   sleep 10  # IAM propagation before first create-function
 }
 
-ENV_VARS="Variables={SF_MY_DOMAIN=$SF_MY_DOMAIN,SF_CLIENT_ID=$SF_CLIENT_ID,SF_CLIENT_SECRET=$SF_CLIENT_SECRET,SF_AGENT_ID=$SF_AGENT_ID,SF_OPENAI_AGENT_ID=$SF_OPENAI_AGENT_ID,SF_ADK_AGENT_ID=$SF_ADK_AGENT_ID,A2ALAB_TOKEN=$A2ALAB_TOKEN,A2ALAB_TRACE_DIR=/tmp/traces,A2ALAB_TRACE_SINK=jsonl}"
+# ---- credentials -> Secrets Manager (F1) -----------------------------------
+# The connected-app secret and the lab bearer token leave the function
+# configuration: they live in a2alab/runtime/shim and handler.py loads them
+# at cold start (interop.secret_env). Agent ids and the my-domain stay plain
+# config — they are addressing, not credentials.
+SECRET_NAME=a2alab/runtime/shim
+SECRET_JSON=$(python3 - <<'PY'
+import json, os
+keys = ["SF_CLIENT_ID", "SF_CLIENT_SECRET", "A2ALAB_TOKEN"]
+env = {k: os.environ[k] for k in keys if os.environ.get(k)}
+# F6 per-caller identity: the shim's own External Client App, if .env has it
+# (SF_CLIENT_ID_SHIM / SF_CLIENT_SECRET_SHIM). Same fallback rule as the
+# AgentCore runtimes — unset means the shared app.
+for key in ("SF_CLIENT_ID", "SF_CLIENT_SECRET"):
+    override = os.environ.get(f"{key}_SHIM")
+    if override:
+        env[key] = override
+print(json.dumps(env))
+PY
+)
+if SECRET_ARN=$(aws secretsmanager describe-secret --region "$REGION" \
+      --secret-id "$SECRET_NAME" --query ARN --output text 2>/dev/null); then
+  aws secretsmanager put-secret-value --region "$REGION" \
+    --secret-id "$SECRET_NAME" --secret-string "$SECRET_JSON" >/dev/null
+  echo "updated secret $SECRET_NAME"
+else
+  SECRET_ARN=$(aws secretsmanager create-secret --region "$REGION" --name "$SECRET_NAME" \
+    --description "A2A lab: credentials for the hosted Agentforce A2A shim (F1)" \
+    --secret-string "$SECRET_JSON" --query ARN --output text)
+  echo "created secret $SECRET_NAME"
+fi
+aws iam put-role-policy --role-name a2alab-shim-lambda --policy-name read-runtime-secret \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"$SECRET_ARN\"}]}"
+
+# Env as JSON — the CLI's shorthand Variables={...} syntax can't carry
+# comma-valued vars (A2ALAB_TRACE_SINK=jsonl,postgres). Trace hops go to the
+# Aurora store over the RDS Data API (writer secret — same rule as the
+# AgentCore runtimes: the secret IS the role selection) so the console can
+# merge the shim's interior legs into the live trace view.
+ENV_JSON=$(A2ALAB_RUNTIME_SECRET_ARN="$SECRET_ARN" python3 - <<'PY'
+import json, os
+keys = ["SF_MY_DOMAIN", "SF_AGENT_ID", "SF_OPENAI_AGENT_ID", "SF_ADK_AGENT_ID",
+        "SF_FOUNDRY_AGENT_ID", "A2ALAB_RUNTIME_SECRET_ARN"]
+env = {k: os.environ[k] for k in keys if os.environ.get(k)}
+env["A2ALAB_TRACE_DIR"] = "/tmp/traces"
+env["A2ALAB_TRACE_SINK"] = "jsonl"
+cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
+writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
+if cluster and writer:
+    env["A2ALAB_TRACE_SINK"] = "jsonl,postgres"
+    env["A2ALAB_PG_CLUSTER_ARN"] = cluster
+    env["A2ALAB_PG_SECRET_ARN"] = writer
+# WS6: the lab IdP's PUBLIC key for user-JWT verification at the shim seam
+import pathlib
+pub = pathlib.Path(".a2alab/lab_jwt_public.pem")
+if pub.exists():
+    env["A2ALAB_JWT_PUBLIC_KEY"] = pub.read_text()
+print(json.dumps({"Variables": env}))
+PY
+)
 
 if aws lambda get-function --function-name "$FN" --region "$REGION" >/dev/null 2>&1; then
   aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" --region "$REGION" >/dev/null
   aws lambda wait function-updated --function-name "$FN" --region "$REGION"
   aws lambda update-function-configuration --function-name "$FN" --region "$REGION" \
-    --environment "$ENV_VARS" --timeout 29 --memory-size 1024 >/dev/null
+    --environment "$ENV_JSON" --timeout 29 --memory-size 1024 >/dev/null
   echo "updated $FN"
 else
   aws lambda create-function --function-name "$FN" --region "$REGION" \
     --runtime python3.12 --architectures arm64 --handler handler.handler \
     --role "$ROLE_ARN" --zip-file "fileb://$ZIP" \
-    --timeout 29 --memory-size 1024 --environment "$ENV_VARS" >/dev/null
+    --timeout 29 --memory-size 1024 --environment "$ENV_JSON" >/dev/null
   echo "created $FN"
 fi
 aws lambda wait function-updated --function-name "$FN" --region "$REGION" 2>/dev/null || true
 FN_ARN=$(aws lambda get-function --function-name "$FN" --region "$REGION" --query 'Configuration.FunctionArn' --output text)
+
+# Idempotent: the trace-store write path (rds-data + the writer secret).
+if [ -n "${A2ALAB_PG_CLUSTER_ARN:-}" ] && [ -n "${A2ALAB_PG_WRITER_SECRET_ARN:-}" ]; then
+  aws iam put-role-policy --role-name a2alab-shim-lambda --policy-name write-trace-store \
+    --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[
+      {\"Effect\":\"Allow\",\"Action\":[\"rds-data:ExecuteStatement\",\"rds-data:BatchExecuteStatement\"],\"Resource\":\"$A2ALAB_PG_CLUSTER_ARN\"},
+      {\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"$A2ALAB_PG_WRITER_SECRET_ARN\"}]}"
+fi
 
 # ---- API Gateway (IAM integration role — no lambda:AddPermission) ----------
 API_ID=$(aws apigatewayv2 get-apis --region "$REGION" --query "Items[?Name=='$FN'].ApiId | [0]" --output text)
@@ -65,8 +132,9 @@ fi
 URL="https://$API_ID.execute-api.$REGION.amazonaws.com"
 
 # The card advertises the public URL — set it now that we know it.
+ENV_JSON_URL=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); d['Variables']['AF_SHIM_PUBLIC_URL']=sys.argv[2]; print(json.dumps(d))" "$ENV_JSON" "$URL/")
 aws lambda update-function-configuration --function-name "$FN" --region "$REGION" \
-  --environment "${ENV_VARS%\}},AF_SHIM_PUBLIC_URL=$URL/}" >/dev/null
+  --environment "$ENV_JSON_URL" >/dev/null
 
 python3 - "$URL" <<'PY'
 import sys

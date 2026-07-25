@@ -35,11 +35,26 @@ available. Raw `sf` CLI equivalents are noted as fallback.
 
 1. **Authenticate the org** (one-time, browser): `sf org login web --alias
    a2alab-prod --set-default` — the MCP server reads the same auth store.
-   Verify with the MCP org tools (list orgs / describe default org) or
-   `sf org display`.
+   Verify with `sf org display --target-org a2alab-prod`.
+
+   **Always pass `-o a2alab-prod` explicitly; never rely on the default or on
+   an org listing.** Two independent traps, both live on this machine as of
+   2026-07-25 and both silent:
+   - the CLI's global `target-org` belongs to whichever project was touched
+     last (it currently reads `hls-mega-demo2-demo`), so an unqualified
+     `sf project deploy` aims this lab's metadata at someone else's org;
+   - the **DX MCP server lists an allow-listed subset of orgs, and
+     `a2alab-prod` is not in it** — `list_all_orgs` returns only the default,
+     which reads exactly like "the lab org isn't authenticated" when it is.
+     Fall back to `sf org list` to see the truth; the MCP tools still accept
+     `usernameOrAlias: a2alab-prod` when you pass it.
+   The alias is recorded as `SF_TARGET_ORG` in `.env` so it is a lookup rather
+   than a memory.
 2. **External Client App** (Setup → App Manager → New External Client App):
    - OAuth: client-credentials flow enabled; scopes `api`, `chatbot_api`,
-     `sfap_api`, `refresh_token`.
+     `sfap_api`. (`refresh_token` was dropped in F3 — the client-credentials
+     and JWT-bearer flows never issue one. This shared app is the
+     local-development identity; per-caller apps are §11.)
    - Run-as user: the dedicated `a2alab.integration` user (create it first:
      minimal profile + Agentforce permission set; API-only if available).
    - Record Consumer Key/Secret → `SF_CLIENT_ID` / `SF_CLIENT_SECRET` in
@@ -104,9 +119,12 @@ available. Raw `sf` CLI equivalents are noted as fallback.
 2. Agent Builder preview: ask the agent a research question → reply must
    contain Claude-generated text; watch the hops land in the console
    (http://localhost:8200).
-3. **Measure the real action timeout**: set `A2ALAB_DELAY_S` on the bridge
-   host (or add a sleep in the target adapter) at 10/30/60/90s and record
-   outcomes in plan/03-results.md.
+3. **Measure the real action timeout** — done 2026-07-25, rerun with
+   `uv run python scripts/probe_action_timeout.py` (it owns :8100 while it
+   runs: stops the stack's bridge, runs its own with `A2ALAB_DELAY_S` set per
+   probe, and restores a clean bridge at the end). Result: ~85–90s, not the
+   ~60s long assumed — plan/03-results.md. Rerun it after any Salesforce
+   platform update; this is a vendor-side number that can move under you.
 4. Switch protocol without touching Salesforce: pass `claude-mcp` (or
    `claude-a2a`) as the action's optional Target input in Agent Builder —
    or leave the Apex default and repoint the `claude-rest` entry in
@@ -238,3 +256,174 @@ it explicitly; symptom if it regresses: session idle `requires_action` on
 DynamoDB one — needs the cluster endpoint reachable from Salesforce IP
 ranges (extend the SG), TLS, and a `lab_reader`-style user scoped to the
 `lab` schema. Set up in Data 360 UI; not automatable here.
+
+## 9. Saved audit workflows (.claude/workflows/)
+
+Registered multi-agent sweeps — invoke from a Claude Code session by name
+(the `ultracode` keyword or an explicit "run the <name> workflow" opts in;
+they fan out many subagents, so they cost real tokens):
+
+- **matrix-honesty-sweep** — one agent per cell/ledger claim in
+  plan/02-matrix.md, cross-checked against config/targets.yaml,
+  plan/03-results.md, and src/; claimed discrepancies pass an adversarial
+  refutation stage before being reported.
+- **insights-audit** — one agent per config/insights.yaml entry: measured
+  numbers must trace to plan/03-results.md or a dated ADR, observed claims
+  to plan/*.md, refs to docs that discuss the topic; problems are
+  adversarially verified.
+
+Both are read-only (report, don't edit) and best run before demos or
+publishing. Headless subagents can't do interactive auth, so keep deploys
+and org operations out of workflow scripts.
+
+## 10. Lab Guide (D35)
+
+Runs with the stack (`scripts/run_local.sh`): REST :8031, MCP :8032, A2A
+:8033; console chat via the 🧭 header button (needs `ANTHROPIC_API_KEY`).
+Model: `GUIDE_MODEL` (falls back to `CLAUDE_AGENT_MODEL`, then Haiku).
+
+**Claude Desktop / any MCP client** — streamable-http with the lab token:
+
+```json
+{
+  "mcpServers": {
+    "a2a-lab-guide": {
+      "command": "npx",
+      "args": ["mcp-remote", "http://localhost:8032/mcp",
+               "--header", "X-Lab-Token: <A2ALAB_TOKEN>"]
+    }
+  }
+}
+```
+
+Two tool shapes on the one server, deliberately (the meta exhibit):
+`ask` runs the whole guide loop lab-side (one call, grounded answer);
+`get_decision` / `read_doc` / `list_recent_runs` / `get_trace` /
+`list_briefs` / `read_brief` hand the raw lab data to the CLIENT's model.
+Same question both ways = whose-model-reasons comparison, live.
+
+Public cutover: publish :8032 through the cloudflared tunnel (D20) like
+the other lab servers; x-lab-token stays the app auth.
+
+**Prompt caching — the credit math.** The guide's grounding (persona +
+README + plan/01 + plan/02 + plan/08 + the ADR index, ~57KB ≈ ~15k
+tokens) is ONE system block marked `cache_control: {type: ephemeral}`.
+The Anthropic API caches the request prefix up to that breakpoint (tool
+definitions + that block). First turn in any 5-minute window WRITES the
+cache at 1.25× the base input token price; every turn after — follow-up
+questions, other visitors, the next suggested prompt — READS it at 0.1×.
+So a multi-turn chat pays the ~15k-token grounding bill roughly once,
+then ~1.5k-token-equivalent per turn for the same grounding: a ~90%
+input-cost cut on exactly the part of the prompt that never changes.
+What changes per turn (the console view-context block, the chat history,
+the question) sits deliberately AFTER the breakpoint so it never busts
+the cache. The tool results the model reads mid-answer (get_decision,
+get_trace, …) are per-turn messages — also outside the cache, also only
+as big as the question needs (that is the corpus split's other half:
+stuff what every question needs, tool the long tail).
+
+## 11. Per-caller External Client Apps (D37 / F6)
+
+Salesforce login history attributes a client-credentials call to the
+**app**, not the code path — so one shared ECA makes every lab caller look
+like one integration user in the org's own audit trail. F6 gives each
+hosted seam its own app. **What is and isn't in the repo:**
+`ExtlClntAppGlobalOauthSettings` carries the consumer key and is never
+committed — this repo is public; retrieve it when you need it. The
+`ExtlClntAppOauthSettings` files (scopes only, no secret) ARE tracked under
+`salesforce/force-app/main/default/extlClntAppOauthSettings/`, because the
+per-caller scope split is the point of F3/F6 and keeping it in git is what
+makes drift from the org visible. This is the recipe for the rest.
+
+**The apps** (created 2026-07-24 in `a2alab-prod`), and the scope split
+that makes each one least-privilege — which is where F3's scope diet
+actually landed:
+
+| ECA | Scopes | Caller |
+|---|---|---|
+| `a2a_lab_claude` | `Chatbot, SFApiPlatform` | Claude AgentCore runtime's `ask_agentforce` |
+| `a2a_lab_openai` | `Chatbot, SFApiPlatform` | OpenAI AgentCore runtime's `ask_agentforce` |
+| `a2a_lab_shim` | `Chatbot, SFApiPlatform` | hosted A2A shim Lambda (Foundry/ADK inbound) |
+| `a2a_lab_obs` | `Api` | M11 harvest — the only caller that queries Data Cloud DMOs |
+| `a2a_lab_app` | `Api, Chatbot, SFApiPlatform` | local development (unchanged) |
+
+Agent callers reach `api.salesforce.com/einstein/ai-agent/v1` and need no
+`Api` scope at all; only the harvest does, because it reads the DMOs
+through `/services/data/vXX/query`. Separating callers is what let the
+grant shrink — with one shared app the union of needs IS the grant.
+
+**To add another** (four files per app, under `salesforce/force-app/main/default/`):
+
+1. `externalClientApps/<name>.eca-meta.xml` — `contactEmail`,
+   `description`, `distributionState Local`, `isProtected false`, `label`.
+   Omit `orgScopedExternalApp`; the org generates it.
+2. `extlClntAppGlobalOauthSets/<name>_glbloauth.ecaGlblOauth-meta.xml` —
+   `callbackUrl`, `isClientCredentialsFlowEnabled true`, `isPkceRequired
+   true`, and **`isNamedUserJwtEnabled true`**. That last one is not
+   optional and is the single thing that cost a day: the vendor guide says
+   to enable Client Credentials Flow *and JWT-based access tokens*, and
+   without the JWT flag the app authenticates perfectly, appears in login
+   history, and every Agent API call returns 404 with no hint. Everything
+   else false. **Omit `consumerKey`** — it is generated on first deploy and
+   cannot be set from metadata.
+3. `extlClntAppOauthSettings/<name>_oauth.ecaOauth-meta.xml` —
+   `commaSeparatedOauthScopes` (least privilege for that caller).
+4. `extlClntAppOauthPolicies/<name>_oauthPlcy.ecaOauthPlcy-meta.xml` —
+   `clientCredentialsFlowUser` (the run-as user),
+   `commaSeparatedProfile`, `permittedUsersPolicyType
+   AdminApprovedPreAuthorized`, `ipRelaxationPolicyType Enforce`.
+
+Deploy all four directories together (no Apex, so no test run), then
+`rm -rf` them locally — do not commit. Retrieve the generated consumer key
+with `sf project retrieve start -m ExtlClntAppGlobalOauthSettings:<name>_glbloauth`.
+The consumer **secret** cannot be read through the Metadata API at all:
+Setup → App Manager → the app → View → Manage Consumer Details.
+
+**Wiring**: no code change. Put the pair in `.env` as
+`SF_CLIENT_ID_<SEAM>` / `SF_CLIENT_SECRET_<SEAM>` (`CLAUDE`, `OPENAI`,
+`SHIM`) and redeploy that seam — `deploy/agentcore/deploy.sh` and
+`deploy/shim/deploy_shim.sh` ship the per-seam pair into that seam's own
+Secrets Manager secret (F1), falling back to the shared app when unset.
+`SF_CLIENT_ID_OBS`/`SF_CLIENT_SECRET_OBS` needs no deploy at all — the
+harvest source reads it directly, so local harvests attribute correctly
+the moment it is set. (The hosted harvest Lambda's secret predates F1 and
+has no script path: edit it in the console or leave it shared.)
+
+**Gate every change with `uv run python scripts/identity_preflight.py`.**
+It takes each configured identity and exercises the capability it exists for
+— agent callers open an Agent API session, the harvest runs a Data Cloud
+query — and exits non-zero if any cannot. This is not ceremony: on
+2026-07-24 the split shipped with the apps unlinked from the agents, and
+every OTHER signal said it worked (deploys succeeded, tokens minted, login
+history showed per-caller attribution, three scenarios returned real CRM
+content because the containers still held the old credentials). An identity
+is not verified by authenticating; it is verified by doing its job.
+
+**The 404 that cost a day, and its real cause (resolved 2026-07-25).** New
+per-caller apps minted tokens fine and every Agent API call 404'd. Ruled out
+by test, in this order: scopes (adding `api` changed nothing), OAuth policies
+(identical to the working app in every auth-relevant field), security
+settings (identical), the ECA definition (both org-scoped). No metadata type
+links an app to an agent, and — per the vendor guide — **no such link
+exists**; two invented UI paths wasted the org admin's time before anyone
+read the documentation. The cause was `isNamedUserJwtEnabled: false` on the
+new apps. Bisected: enabling it alone, with least-privilege scopes
+untouched, turned the shim green. Read the vendor setup guide FIRST. Each app must also be **linked to each agent** it will call — Setup
+→ Agentforce Agents → the agent → Connections → add the connected app.
+Until then the app mints tokens happily and every Agent API call 404s.
+
+**Verified 2026-07-24**, all three seams live under their own apps, then
+`SELECT Application, COUNT(Id) FROM LoginHistory WHERE LoginTime = TODAY
+GROUP BY Application`:
+
+```
+a2a_lab_app       6     (local dev + pre-split calls)
+a2a_lab_claude    2
+a2a_lab_openai    2
+a2a_lab_obs       1
+a2a_lab_shim      1
+```
+
+Before the split every one of those rows read `a2a_lab_app`. That table is
+E3's raw data — and the cheapest demo of why per-caller identity matters:
+the org can finally answer "which agent asked?" without the lab telling it.

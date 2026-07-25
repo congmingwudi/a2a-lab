@@ -1,0 +1,196 @@
+/**
+ * Tests for A2ALabInvokeAgentEngine. Production deploys require running
+ * tests with >=75% coverage; covers the success, non-2xx, no-task,
+ * custom-path, rider-stamping, batch-refusal (F8), and Custom Metadata
+ * engine-path resolution + fallback (F5) paths.
+ */
+@IsTest
+private class A2ALabInvokeAgentEngineTest {
+
+    private static final String TASK_JSON =
+        '{"task": {"artifacts": [{"name": "answer", "parts": [{"text": "Omega operates in tech."}]}],'
+        + '"status": {"state": "TASK_STATE_COMPLETED"}, "id": "t-1"}}';
+
+    private class EngineMock implements HttpCalloutMock {
+        Integer statusCode;
+        String body;
+        HttpRequest lastRequest;
+
+        EngineMock(Integer statusCode, String body) {
+            this.statusCode = statusCode;
+            this.body = body;
+        }
+
+        public HttpResponse respond(HttpRequest req) {
+            this.lastRequest = req;
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(this.statusCode);
+            res.setBody(this.body);
+            return res;
+        }
+    }
+
+    private static A2ALabInvokeAgentEngine.Request makeRequest(
+        String question, String enginePath
+    ) {
+        A2ALabInvokeAgentEngine.Request req = new A2ALabInvokeAgentEngine.Request();
+        req.question = question;
+        req.enginePath = enginePath;
+        return req;
+    }
+
+    @IsTest
+    static void returnsTaskArtifactTextOnSuccess() {
+        EngineMock mock = new EngineMock(200, TASK_JSON);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        List<A2ALabInvokeAgentEngine.Response> out = A2ALabInvokeAgentEngine.ask(
+            new List<A2ALabInvokeAgentEngine.Request>{
+                makeRequest('Research Omega, Inc.', null)
+            }
+        );
+        Test.stopTest();
+
+        System.assertEquals(1, out.size());
+        System.assert(out[0].answer.contains('Omega operates'), out[0].answer);
+        System.assert(String.isNotBlank(out[0].traceId), 'trace id must be set');
+        System.assert(
+            mock.lastRequest.getEndpoint().endsWith('/a2a/message:send'),
+            'must call the A2A message:send binding: ' + mock.lastRequest.getEndpoint()
+        );
+        System.assertEquals('1.0', mock.lastRequest.getHeader('a2a-version'),
+            'the version header is required — the handler rejects 0.3 default');
+    }
+
+    @IsTest
+    static void stampsDelegationRiderAndMetadata() {
+        EngineMock mock = new EngineMock(200, TASK_JSON);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        A2ALabInvokeAgentEngine.ask(
+            new List<A2ALabInvokeAgentEngine.Request>{ makeRequest('question', null) }
+        );
+        Test.stopTest();
+
+        String sent = mock.lastRequest.getBody();
+        System.assert(sent.contains('[A2A-LAB DELEGATION]'),
+            'the D27 rider must ride the message text: ' + sent);
+        System.assert(sent.contains('delegation-depth: 1'), sent);
+        System.assert(sent.contains('"platform":"agentforce"'),
+            'machine-readable delegation metadata must ride the message: ' + sent);
+    }
+
+    @IsTest
+    static void reportsErrorOnNon2xx() {
+        Test.setMock(HttpCalloutMock.class, new EngineMock(403, '{"error": {}}'));
+
+        Test.startTest();
+        List<A2ALabInvokeAgentEngine.Response> out = A2ALabInvokeAgentEngine.ask(
+            new List<A2ALabInvokeAgentEngine.Request>{ makeRequest('hi', null) }
+        );
+        Test.stopTest();
+
+        System.assert(out[0].answer.contains('403'), out[0].answer);
+    }
+
+    @IsTest
+    static void reportsMissingTask() {
+        Test.setMock(HttpCalloutMock.class, new EngineMock(200, '{"message": {}}'));
+
+        Test.startTest();
+        List<A2ALabInvokeAgentEngine.Response> out = A2ALabInvokeAgentEngine.ask(
+            new List<A2ALabInvokeAgentEngine.Request>{ makeRequest('hi', null) }
+        );
+        Test.stopTest();
+
+        System.assert(out[0].answer.contains('no task'), out[0].answer);
+    }
+
+    @IsTest
+    static void handlesCustomPath() {
+        EngineMock mock = new EngineMock(200, TASK_JSON);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        List<A2ALabInvokeAgentEngine.Response> out = A2ALabInvokeAgentEngine.ask(
+            new List<A2ALabInvokeAgentEngine.Request>{
+                makeRequest('q', '/v1beta1/projects/p/locations/l/reasoningEngines/42/a2a')
+            }
+        );
+        Test.stopTest();
+
+        System.assertEquals(1, out.size());
+        System.assert(
+            mock.lastRequest.getEndpoint().contains('/reasoningEngines/42/a2a'),
+            mock.lastRequest.getEndpoint()
+        );
+    }
+
+    @IsTest
+    static void readsEnginePathFromCustomMetadata() {
+        // F5: the deployed A2ALab_Setting.Agent_Engine record is the source of
+        // truth for the target engine — Custom Metadata is visible to tests
+        // without seeAllData, so this asserts against the real org record.
+        A2ALab_Setting__mdt setting = A2ALab_Setting__mdt.getInstance('Agent_Engine');
+        System.assertNotEquals(null, setting,
+            'the A2ALab_Setting.Agent_Engine record must be deployed');
+
+        EngineMock mock = new EngineMock(200, TASK_JSON);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        A2ALabInvokeAgentEngine.ask(
+            new List<A2ALabInvokeAgentEngine.Request>{ makeRequest('q', null) }
+        );
+        Test.stopTest();
+
+        System.assert(
+            mock.lastRequest.getEndpoint().contains(setting.Engine_Path__c),
+            'the configured path must drive the callout: '
+                + mock.lastRequest.getEndpoint()
+        );
+    }
+
+    @IsTest
+    static void fallsBackToConstantWhenSettingMissing() {
+        // F5: a missing record degrades to the compiled-in last-known-good
+        // path rather than firing a callout at a blank endpoint.
+        String original = A2ALabInvokeAgentEngine.settingName;
+        A2ALabInvokeAgentEngine.settingName = 'A2ALab_No_Such_Setting';
+        try {
+            String resolved = A2ALabInvokeAgentEngine.configuredEnginePath();
+            System.assert(resolved.startsWith('/v1beta1/projects/'),
+                'fallback must be the compiled-in engine path: ' + resolved);
+            System.assert(resolved.endsWith('/a2a'), resolved);
+        } finally {
+            A2ALabInvokeAgentEngine.settingName = original;
+        }
+    }
+
+    @IsTest
+    static void refusesBulkRequestsWithoutCallouts() {
+        // F8 batch guard: >1 request would stack serial 110s callouts past
+        // Apex limits — every request gets a refusal and no callout happens.
+        EngineMock mock = new EngineMock(200, TASK_JSON);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        List<A2ALabInvokeAgentEngine.Request> reqs =
+            new List<A2ALabInvokeAgentEngine.Request>();
+        for (Integer i = 0; i < 2; i++) {
+            reqs.add(makeRequest('q' + i, null));
+        }
+
+        Test.startTest();
+        List<A2ALabInvokeAgentEngine.Response> out = A2ALabInvokeAgentEngine.ask(reqs);
+        Test.stopTest();
+
+        System.assertEquals(2, out.size(), 'one Response per request');
+        for (A2ALabInvokeAgentEngine.Response resp : out) {
+            System.assertEquals(A2ALabInvokeAgentEngine.BATCH_REFUSAL, resp.answer);
+        }
+        System.assertEquals(null, mock.lastRequest,
+            'a refused batch must make no callouts');
+    }
+}

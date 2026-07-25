@@ -1,0 +1,24 @@
+# Lab users (WS6 U1) — the demo-scale identity provider's directory.
+# Login = persona + that ROLE's shared password from .env (D36:
+# A2ALAB_OPERATOR_PASSWORD / A2ALAB_VIEWER_PASSWORD). Roles:
+#   operator — everything: runs, warm-ups, harvest/analyze, raw traces
+#   viewer   — everything read-only: insights, obs dashboard, Lab Guide,
+#              experiment details, wire traces; execution (runs,
+#              warm-ups, harvest/analyze) is operator-only
+#
+# `reviewer: true` is a separate grant from the role: it signs off insights
+# the lab publishes under its own name (console: Insights → Approve /
+# Request changes). It is deliberately NOT implied by `operator` — running
+# an experiment and vouching for a published claim are different acts, and
+# the second one is the lab owner's alone.
+users:
+  ryan:
+    name: Ryan Cox
+    role: operator
+    reviewer: true
+  ana:
+    name: Ana the Architect
+    role: operator
+  vic:
+    name: Vic the Visitor
+    role: viewer

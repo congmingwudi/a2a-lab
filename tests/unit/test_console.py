@@ -147,8 +147,8 @@ def test_scenarios_listed(tmp_path, monkeypatch):
 
 
 def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
-    """The two-level Experiments nav: yaml-ordered groups (3 live pairs +
-    3 upcoming workstream placeholders), every scenario bucketed into one."""
+    """The two-level Experiments nav: yaml-ordered groups (4 live pairs +
+    2 upcoming workstream placeholders), every scenario bucketed into one."""
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
     data = client.get("/api/scenarios").json()
@@ -157,10 +157,11 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "openai-agentforce",
         "adk-agentforce",
         "foundry-agentforce",
+        "cross-cloud",
         "langgraph-agentforce",
         "strands-agentforce",
     ]
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 3 + [True] * 3
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 5 + [True] * 2
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
@@ -174,9 +175,9 @@ def test_scenarios_include_adk_pair(tmp_path, monkeypatch):
     data = client.get("/api/scenarios").json()
     names = {s["name"]: s for s in data["scenarios"]}
     assert names["adk-to-agentforce"]["group"] == "adk-agentforce"
-    assert names["adk-to-agentforce"]["target"] == "adk-a2a"
+    assert names["adk-to-agentforce"]["target"] == "google-adk-a2a"
     assert names["agentforce-to-adk"]["group"] == "adk-agentforce"
-    assert names["agentforce-to-adk"]["target"] == "agentforce-adk-rest"
+    assert names["agentforce-to-adk"]["target"] == "agentforce-google-adk-rest"
     assert "adk" in [c["kind"] for c in names["adk-to-agentforce"]["components"]]
 
 
@@ -421,3 +422,261 @@ def test_run_async_scenario_returns_immediately(tmp_path, monkeypatch):
     assert data["ok"] is True and data.get("async") is True
     assert data["trace_id"]
     assert "research started" in data["text"].lower()
+
+
+def test_decisions_parsed_and_served(tmp_path, monkeypatch):
+    """/api/decisions: the ADR log parsed per id — revised decisions keep
+    every entry in one markdown body; non-decision sections (M10) excluded."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    decisions = client.get("/api/decisions").json()["decisions"]
+    assert "D27" in decisions and "D28" in decisions
+    assert "M10" not in decisions
+    d27 = decisions["D27"]
+    assert d27["id"] == "D27" and d27["date"] and d27["title"]
+    assert "delegation" in d27["markdown"].lower()
+    # D12 was revised: both entries live in one body, separated by a rule.
+    assert decisions["D12"]["markdown"].count("### ") == 2
+    assert "\n---\n" in decisions["D12"]["markdown"]
+
+
+def test_decisions_missing_file_empty(tmp_path, monkeypatch):
+    import console.app as console_app
+
+    assert console_app.load_decisions(tmp_path / "nope.md") == {}
+
+
+def test_run_af_route_direct_block(tmp_path, monkeypatch):
+    """The reverse-direction sibling of D28's channel radio: on an
+    af_route_toggle scenario, af_route=direct appends the outbound-route
+    block for the twin's script; bridge (the script's default) never
+    injects."""
+    registry = FakeRegistry()
+    registry.targets["agentforce-google-adk-rest"] = Target(
+        name="agentforce-google-adk-rest", platform="agentforce", protocol="agentforce-api"
+    )
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    data = client.post(
+        "/api/run",
+        json={"scenario": "agentforce-to-adk", "message": "hi", "af_route": "direct"},
+    ).json()
+    assert data["ok"] is True and data["af_route"] == "direct"
+    msg = registry.fake_client.requests[0].message
+    assert "agentforce-route: direct" in msg and "ask_external_researcher_direct" in msg
+    data = client.post(
+        "/api/run",
+        json={"scenario": "agentforce-to-adk", "message": "hi", "af_route": "bridge"},
+    ).json()
+    assert data["af_route"] == "bridge"
+    assert "[A2A-LAB ROUTING]" not in registry.fake_client.requests[1].message
+
+
+def test_targets_carry_cell_details(tmp_path, monkeypatch):
+    """Every protocol cell ships a specific blurb, a planned flow (with the
+    untraced interior legs), and a default question the agent can answer
+    alone — CRM question only for Agentforce cells."""
+    import console.app as console_app
+
+    app = make_app(tmp_path / "traces", monkeypatch, None)
+    client = TestClient(app)
+    targets = {t["name"]: t for t in client.get("/api/targets").json()["targets"]}
+    claude = targets["claude-rest"]
+    assert "matrix" not in claude["blurb"].lower()
+    assert "Managed Agents" in claude["blurb"]
+    assert claude["question"] == console_app.CELL_RESEARCH_QUESTION
+    assert [h["target"] for h in claude["flow"]][0] == "claude-rest"
+    shim = targets["agentforce-a2a"]
+    assert "shim" in shim["blurb"]
+    assert shim["question"] == console_app.DEFAULT_QUESTION
+    # No internal Salesforce-interior ghost: how the twin fulfills the
+    # request is its own business — the experiment measures the wire.
+    assert not any(h["protocol"] == "internal" for h in shim["flow"])
+
+
+# ---- viewer role enforcement (WS6 U3 console half, role model per D36) -----
+
+
+def _viewer_headers(monkeypatch, tmp_path):
+    from interop import identity
+
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    users = {"vic": {"name": "Vic", "role": "viewer"}}
+    token = identity.issue_token("vic", users=users)
+    return {"authorization": f"Bearer {token}"}
+
+
+def test_viewer_403_on_operator_surfaces(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    headers = _viewer_headers(monkeypatch, tmp_path)
+    for path, method in [
+        ("/api/run", "post"),
+        ("/api/warmup/claude-agentcore", "post"),
+        ("/api/obs/harvest", "post"),
+        ("/api/obs/analysis/run", "post"),
+    ]:
+        r = getattr(client, method)(
+            path, headers=headers, **({"json": {}} if method == "post" else {})
+        )
+        assert r.status_code == 403, f"{path} let a viewer in: {r.status_code}"
+        assert "operator-only" in r.json()["detail"]
+
+
+def test_viewer_allowed_surfaces(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    headers = _viewer_headers(monkeypatch, tmp_path)
+    for path in (
+        "/api/insights",
+        "/api/obs/summary",
+        "/api/obs/sessions",
+        "/api/decisions",
+        "/api/scenarios",
+        "/api/config",
+        "/api/traces",  # dummy demo data only — the wire record IS the exhibit
+    ):
+        r = client.get(path, headers=headers)
+        assert r.status_code == 200, f"{path} blocked a viewer: {r.status_code}"
+
+
+def test_service_token_unaffected_by_role_gate(tmp_path, monkeypatch):
+    # The header-borne shared token carries no user — full access (it's the
+    # service credential for matrix.py, the bridge, and scripts).
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    r = client.get("/api/traces", headers={"x-lab-token": "sekrit"})
+    assert r.status_code == 200
+
+
+def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
+    # D36: signed-out visitors get the landing exhibit (tiles, chips) but
+    # nothing live — no traces, obs, runs, or guide.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    for path in ("/api/scenarios", "/api/targets", "/api/decisions", "/api/users"):
+        assert client.get(path).status_code == 200, path
+    assert client.get("/api/docs/plan/02-matrix.md").status_code == 200
+    assert client.get("/api/docs/docs/lab-guide-mcp.md").status_code == 200
+    for path in ("/api/traces", "/api/insights", "/api/obs/sessions", "/api/config"):
+        assert client.get(path).status_code == 401, path
+
+
+# ---- insight sign-off (console: Insights → Approve / Request changes) ------
+
+
+def _reviewer_headers(monkeypatch, tmp_path, username="ryan"):
+    from interop import identity
+
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    users = {username: {"name": "Ryan Cox", "role": "operator"}}
+    return {"authorization": f"Bearer {identity.issue_token(username, users=users)}"}
+
+
+def _fake_insights(monkeypatch, evidence="as first published"):
+    import console.app as console_app
+
+    items = [
+        {
+            "id": "needs-a-look",
+            "category": "Method",
+            "status": "observed",
+            "review": "required",
+            "headline": "A claim the lab has not vouched for yet",
+            "evidence": evidence,
+            "advisory": "say this to a customer",
+            "refs": ["D37"],
+        },
+        {"id": "already-public", "category": "Method", "status": "observed", "headline": "no gate"},
+    ]
+    monkeypatch.setattr(console_app, "load_insights", lambda *a, **k: items)
+    return items
+
+
+def test_insight_signoff_records_person_and_pins_content(tmp_path, monkeypatch):
+    # An approval is of WORDS, not of an id: edit the claim afterwards and the
+    # sign-off must read as stale rather than silently carrying over.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    from console import reviews
+
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+    app = make_app(tmp_path, monkeypatch)
+    _fake_insights(monkeypatch)
+    client = TestClient(app)
+    headers = _reviewer_headers(monkeypatch, tmp_path)
+
+    data = client.get("/api/insights", headers=headers).json()
+    assert data["can_review"] is True
+    gated, ungated = data["insights"]
+    assert gated["review_state"] == {"required": True, "state": "pending", "stale": False}
+    assert ungated["review_state"]["required"] is False  # no control on this tile
+
+    r = client.post(
+        "/api/insights/needs-a-look/review",
+        headers=headers,
+        json={"decision": "approved", "comment": "  reads right   to me "},
+    )
+    assert r.status_code == 200
+    state = r.json()["review_state"]
+    assert state["state"] == "approved" and state["by"] == "ryan"
+    assert state["name"] == "Ryan Cox" and state["comment"] == "reads right to me"
+    assert state["stale"] is False
+
+    # Same text -> still approved; edited text -> approved-but-stale.
+    fresh = client.get("/api/insights", headers=headers).json()["insights"][0]
+    assert fresh["review_state"]["state"] == "approved" and fresh["review_state"]["stale"] is False
+    _fake_insights(monkeypatch, evidence="rewritten after the sign-off")
+    edited = client.get("/api/insights", headers=headers).json()["insights"][0]
+    assert edited["review_state"]["state"] == "approved" and edited["review_state"]["stale"] is True
+
+
+def test_insight_signoff_reserved_to_the_reviewer(tmp_path, monkeypatch):
+    # reviewer is a grant of its own (config/users.yaml), not something the
+    # operator role implies — and the service token identifies nobody.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    from console import reviews
+
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+    app = make_app(tmp_path, monkeypatch)
+    _fake_insights(monkeypatch)
+    client = TestClient(app)
+    body = {"decision": "approved"}
+
+    viewer = _viewer_headers(monkeypatch, tmp_path)
+    assert client.get("/api/insights", headers=viewer).json()["can_review"] is False
+    assert (
+        client.post("/api/insights/needs-a-look/review", headers=viewer, json=body).status_code
+        == 403
+    )
+
+    service = {"x-lab-token": "sekrit"}
+    assert client.get("/api/insights", headers=service).json()["can_review"] is False
+    assert (
+        client.post("/api/insights/needs-a-look/review", headers=service, json=body).status_code
+        == 403
+    )
+    assert not (tmp_path / "insight_reviews.yaml").exists()  # nothing was written
+
+
+def test_insight_signoff_rejects_bad_input(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    from console import reviews
+
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+    app = make_app(tmp_path, monkeypatch)
+    _fake_insights(monkeypatch)
+    client = TestClient(app)
+    headers = _reviewer_headers(monkeypatch, tmp_path)
+
+    bad = client.post(
+        "/api/insights/needs-a-look/review", headers=headers, json={"decision": "maybe"}
+    )
+    assert bad.status_code == 400
+    missing = client.post(
+        "/api/insights/no-such-insight/review", headers=headers, json={"decision": "approved"}
+    )
+    assert missing.status_code == 404

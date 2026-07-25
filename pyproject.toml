@@ -5,6 +5,7 @@ description = "A2A Interop Lab — cross-platform agent-to-agent experiments ove
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.116,<1",
+    "pyjwt[crypto]>=2.8,<3",
     "claude-agent-sdk>=0.2,<0.3",
     "a2a-sdk[http-server]>=1.1,<2",
     "mcp>=1.28,<2",
@@ -24,6 +25,11 @@ openai = ["openai-agents>=0.18.3,<1"]
 gcp = [
     "google-adk>=1.29,<2",
     "google-cloud-aiplatform[agent_engines,adk]>=1.156",
+]
+azure = [
+    "azure-ai-projects>=2.3.0",
+    "azure-identity>=1.25.3",
+    "azure-monitor-query>=2.0.0",
 ]
 
 [dependency-groups]

@@ -13,6 +13,7 @@ import argparse
 from dotenv import load_dotenv
 
 from interop.adapter import serve
+from interop.secret_env import load_secret_env_and_log
 from platforms.openai.core import make_adapter
 
 DEFAULT_PORTS = {"rest": 8011, "mcp": 8012, "a2a": 8013}
@@ -20,6 +21,9 @@ DEFAULT_PORTS = {"rest": 8011, "mcp": 8012, "a2a": 8013}
 
 def main() -> None:
     load_dotenv()
+    # F1: hosted (AgentCore) runs get their credentials from Secrets Manager
+    # before the adapter reads os.environ; a no-op locally, where .env rules.
+    load_secret_env_and_log("openai")
     parser = argparse.ArgumentParser(description="OpenAI research agent server")
     parser.add_argument("--protocol", choices=["rest", "mcp", "a2a"], default="rest")
     parser.add_argument("--port", type=int, default=None)

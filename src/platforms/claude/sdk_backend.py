@@ -49,7 +49,12 @@ def _get_agentforce_client():
     return _agentforce_client
 
 
-def _build_agentforce_tool(inbound_depth: int = 0):
+def _build_agentforce_tool(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
     @tool(
         "ask_agentforce",
         "Ask the Salesforce Agentforce service agent a question and return "
@@ -68,14 +73,24 @@ def _build_agentforce_tool(inbound_depth: int = 0):
             caller="claude-sdk-agent",
             platform="claude",
             inbound_depth=inbound_depth,
+            trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
         )
-        resp = await _get_agentforce_client().ask(AgentRequest(message=message, metadata=meta))
+        resp = await _get_agentforce_client().ask(
+            AgentRequest(message=message, metadata=meta, trace_id=trace_id)
+        )
         return {"content": [{"type": "text", "text": resp.text}]}
 
     return ask_agentforce
 
 
-def _build_agentforce_a2a_tool(inbound_depth: int = 0):
+def _build_agentforce_a2a_tool(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
     """The channel twin of ask_agentforce (D28): same Agentforce agent, but
     over the A2A protocol through the lab's hosted shim — used when the
     operator's routing block selects the a2a-shim channel."""
@@ -98,9 +113,12 @@ def _build_agentforce_a2a_tool(inbound_depth: int = 0):
             caller="claude-sdk-agent",
             platform="claude",
             inbound_depth=inbound_depth,
+            trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
         )
         try:
-            text = await af_channel.ask_via_shim(message, meta)
+            text = await af_channel.ask_via_shim(message, meta, trace_id=trace_id)
         except Exception as exc:  # noqa: BLE001 - model-visible, not fatal
             text = f"A2A shim call failed: {type(exc).__name__}: {exc}"
         return {"content": [{"type": "text", "text": text}]}
@@ -123,12 +141,22 @@ class SdkBackend:
             system_prompt=RESEARCH_SYSTEM_PROMPT,
             max_turns=int(os.environ.get("CLAUDE_MAX_TURNS", "3")),
             model=os.environ.get("CLAUDE_AGENT_MODEL"),
+            # No built-in tools: they arrive permission-gated, and inside a
+            # headless 40s turn the model hits the permission wall and asks
+            # the caller for WebSearch access instead of answering (observed
+            # live). The sync researcher's only tools are the Agentforce
+            # MCP tools below — everything else is model knowledge.
+            tools=[],
         )
         if self.enable_agentforce_tool:
             depth = delegation.depth_of(req)
+            user_ctx, user_token = delegation.user_of(req)
             server = create_sdk_mcp_server(
                 name="a2alab",
-                tools=[_build_agentforce_tool(depth), _build_agentforce_a2a_tool(depth)],
+                tools=[
+                    _build_agentforce_tool(depth, req.trace_id, user_ctx, user_token),
+                    _build_agentforce_a2a_tool(depth, req.trace_id, user_ctx, user_token),
+                ],
             )
             kwargs["mcp_servers"] = {"a2alab": server}
             kwargs["allowed_tools"] = [AGENTFORCE_TOOL, AGENTFORCE_A2A_TOOL]

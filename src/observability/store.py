@@ -10,6 +10,7 @@ platform payload alongside the normalized columns.
 from __future__ import annotations
 
 import json
+import re
 import os
 import sqlite3
 import threading
@@ -59,7 +60,13 @@ CREATE TABLE IF NOT EXISTS obs_harvest (
 
 
 def _clip_json(value: Any) -> str:
-    raw = json.dumps(value, default=str, ensure_ascii=False)
+    # Credential scrub before write (F2) — same redactor as the trace layer,
+    # so harvested platform logs (which can embed auth material in captured
+    # messages) get the same treatment as wire payloads. pg.py imports this,
+    # so sqlite and Aurora writes both pass through here.
+    from interop.trace import redact
+
+    raw = json.dumps(redact(value), default=str, ensure_ascii=False)
     if len(raw) > _MAX_RAW_CHARS:
         return json.dumps({"_clipped": True, "chars": len(raw), "head": raw[:_MAX_RAW_CHARS]})
     return raw
@@ -205,8 +212,51 @@ class ObsStore:
                 )
                 plat = out["platforms"].setdefault(row["platform"], {})
                 plat["tokens"] = plat.get("tokens", 0) + tokens
+                # Platforms that bill something other than tokens (Agent
+                # Engine bills allocated compute) surface an estimated-cost
+                # rollup instead/in addition — additive and optional.
+                if usage.get("est_cost_usd") is not None:
+                    plat["est_cost_usd"] = round(
+                        plat.get("est_cost_usd", 0.0) + float(usage["est_cost_usd"]), 4
+                    )
             except (ValueError, TypeError, AttributeError):
                 pass
+        return out
+
+    def session_callers(self) -> dict[str, str]:
+        """(platform:native_id) -> caller-agent, extracted from the D27
+        rider text visible inside harvested events — the delegating agent's
+        self-identification, as recorded by the PLATFORM's own logs."""
+        rider = re.compile(r"caller-agent:\\?n?\s*([\w-]+)")
+        out: dict[str, str] = {}
+        for row in self._conn.execute(
+            """SELECT platform, native_session_id, raw_json FROM obs_events
+               WHERE raw_json LIKE '%caller-agent%'"""
+        ):
+            key = f"{row['platform']}:{row['native_session_id']}"
+            if key not in out:
+                match = rider.search(row["raw_json"] or "")
+                if match:
+                    out[key] = match.group(1)
+        return out
+
+    def session_lab_traces(self) -> dict[str, str]:
+        """(platform:native_id) -> lab trace id, extracted from the
+        `lab-trace:` rider line (D27 extension) visible inside harvested
+        events — the text-level join between a platform's own execution
+        logs and the lab run that caused them, surviving hops where no
+        header or metadata field does."""
+        rider = re.compile(r"lab-trace:\\?n?\s*([0-9a-fA-F-]{8,})")
+        out: dict[str, str] = {}
+        for row in self._conn.execute(
+            """SELECT platform, native_session_id, raw_json FROM obs_events
+               WHERE raw_json LIKE '%lab-trace%'"""
+        ):
+            key = f"{row['platform']}:{row['native_session_id']}"
+            if key not in out:
+                match = rider.search(row["raw_json"] or "")
+                if match:
+                    out[key] = match.group(1)
         return out
 
     def list_sessions(self, platform: str | None = None, limit: int = 200) -> list[dict[str, Any]]:

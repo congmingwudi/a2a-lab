@@ -37,6 +37,34 @@ def test_mangled_rider_still_counts_as_delegated():
     assert delegation.depth_of(req) == 1
 
 
+def test_platform_of_metadata_wins():
+    req = AgentRequest(
+        message="plain question",
+        metadata={"delegation": {"caller": "x", "platform": "adk", "depth": 1}},
+    )
+    assert delegation.platform_of(req) == "adk"
+
+
+def test_platform_of_rider_scan_fallback():
+    # Twin routing survives a metadata-dropping transport: no metadata,
+    # rider in message (the D28 shim bug — every experiment collapsed onto
+    # the default twin when the platform only arrived as rider text).
+    message, _ = delegation.delegate(
+        "who owns the Apple account?",
+        caller="adk-gemini-agent",
+        platform="adk",
+        inbound_depth=0,
+    )
+    req = AgentRequest(message=message)
+    assert delegation.platform_of(req) == "adk"
+
+
+def test_platform_of_origin_request_is_none():
+    assert delegation.platform_of(AgentRequest(message="what is A2A?")) is None
+    mangled = AgentRequest(message=f"question\n{delegation.MARKER}\ngarbage\n")
+    assert delegation.platform_of(mangled) is None
+
+
 def test_max_depth_env(monkeypatch):
     monkeypatch.setenv("A2ALAB_MAX_DELEGATION_DEPTH", "2")
     req = AgentRequest(message="q", metadata={"delegation": {"depth": 1}})
@@ -48,3 +76,68 @@ def test_max_depth_env(monkeypatch):
 def test_refusal_names_seam_and_is_instructive():
     text = delegation.refusal("bridge")
     assert "bridge" in text and "circular" in text
+
+
+def test_lab_trace_line_in_rider():
+    # The lab-trace line (D27 extension) travels as rider text so the remote
+    # PLATFORM's own logs record which lab run caused the delegated turn.
+    message, meta = delegation.delegate(
+        "who owns the Apple account?",
+        caller="claude-sdk-agent",
+        platform="claude",
+        inbound_depth=0,
+        trace_id="abc123def4567890",
+    )
+    assert "lab-trace: abc123def4567890" in message
+    # rider parsing is unaffected by the extra line
+    req = AgentRequest(message=message)
+    assert delegation.depth_of(req) == 1
+    assert delegation.platform_of(req) == "claude"
+
+
+def test_no_trace_id_no_lab_trace_line():
+    message, _ = delegation.delegate(
+        "q", caller="c", platform="claude", inbound_depth=0, trace_id=None
+    )
+    assert "lab-trace" not in message
+
+
+def test_rider_carries_version_and_parsers_tolerate_it():
+    # F7: the grammar is a versioned text contract; every existing parser
+    # (depth, platform, caller extraction) must be indifferent to the line.
+    message, _ = delegation.delegate("q", caller="c", platform="claude", inbound_depth=0)
+    assert f"rider-version: {delegation.RIDER_VERSION}" in message
+    req = AgentRequest(message=message)
+    assert delegation.depth_of(req) == 1
+    assert delegation.platform_of(req) == "claude"
+
+
+def test_user_context_rides_both_channels():
+    # WS6 U2: on-behalf-of in the rider text (asserted-only channel) +
+    # user_context/user_token in metadata (the verifiable channel).
+    ctx = {"sub": "vic", "name": "Vic the Visitor", "role": "viewer"}
+    message, meta = delegation.delegate(
+        "q",
+        caller="c",
+        platform="claude",
+        inbound_depth=0,
+        trace_id="abc123",
+        user_context=ctx,
+        user_token="eyJfake.tok.sig",
+    )
+    assert "on-behalf-of: vic" in message
+    assert meta["user_context"] == ctx
+    assert meta["user_token"] == "eyJfake.tok.sig"
+    # existing parsers indifferent to the new line
+    req = AgentRequest(message=message)
+    assert delegation.depth_of(req) == 1
+    # and the seam helper reads both back off a request
+    fwd = AgentRequest(message="q", metadata=meta)
+    assert delegation.user_of(fwd) == (ctx, "eyJfake.tok.sig")
+
+
+def test_no_user_no_lines():
+    message, meta = delegation.delegate("q", caller="c", platform="claude", inbound_depth=0)
+    assert "on-behalf-of" not in message
+    assert "user_context" not in meta and "user_token" not in meta
+    assert delegation.user_of(AgentRequest(message="q")) == (None, None)

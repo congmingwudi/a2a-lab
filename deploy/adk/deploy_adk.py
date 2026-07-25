@@ -43,6 +43,8 @@ REQUIREMENTS = [
     # unpickling deps the SDK checks for explicitly
     "cloudpickle>=3",
     "pydantic>=2",
+    # cross-hyperscaler cell (WS3): Entra SP auth for calling Foundry A2A
+    "azure-identity>=1.20",
 ]
 
 # Env the container needs: the Agentforce twin credentials (ask_agentforce
@@ -56,10 +58,15 @@ ENV_KEYS = [
     "SF_AGENT_ID",
     "SF_ADK_AGENT_ID",
     "ADK_MODEL",
+    "ADK_REAL_SEARCH",
     "AF_SHIM_A2A_URL",
-    "A2ALAB_TOKEN",
     "AF_SHIM_TIMEOUT_S",
     "A2ALAB_MAX_DELEGATION_DEPTH",
+    # cross-hyperscaler: Foundry incoming A2A + the Entra SP that calls it
+    "FOUNDRY_A2A_ENDPOINT",
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
 ]
 
 DISPLAY_NAME = "a2alab-adk-researcher"
@@ -83,7 +90,17 @@ def assemble_bundle() -> list[str]:
 
 def runtime_env() -> dict[str, str]:
     env = {k: os.environ[k] for k in ENV_KEYS if os.environ.get(k)}
+    # Shim credential under its own name (same convention as the AgentCore
+    # runtimes — A2ALAB_TOKEN stays a laptop-only variable).
+    if os.environ.get("A2ALAB_TOKEN"):
+        env["AF_SHIM_TOKEN"] = os.environ["A2ALAB_TOKEN"]
     env["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
+    # WS6: the lab IdP's PUBLIC key — user-JWT verification in the engine
+    # container (the signing key never leaves the laptop).
+    pub = REPO / ".a2alab" / "lab_jwt_public.pem"
+    if pub.exists():
+        # escaped newlines for env-var safety; identity.public_key() unescapes
+        env["A2ALAB_JWT_PUBLIC_KEY"] = pub.read_text().replace("\n", "\\n")
     # The container FS: keep the trace layer writing somewhere writable —
     # these hops are ephemeral (the caller's client hop is the lab record).
     env["A2ALAB_TRACE_DIR"] = "/tmp/traces"

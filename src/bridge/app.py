@@ -107,11 +107,15 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
                 }
                 hop.response_payload = payload
                 return payload
+            user_ctx, user_token = delegation.user_of(req)
             req.message, meta = delegation.delegate(
                 req.message,
                 caller="agentforce-twin-via-bridge",
                 platform="agentforce",
                 inbound_depth=inbound_depth,
+                trace_id=req.trace_id,
+                user_context=user_ctx,
+                user_token=user_token,
             )
             req.metadata = {**(req.metadata or {}), **meta}
             resp = await get_client(target_name).ask(req)

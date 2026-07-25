@@ -120,7 +120,13 @@ class ManagedBackend:
         return session.id
 
     async def _handle_custom_tool(
-        self, session_id: str, event: Any, trace_id: str, inbound_depth: int = 0
+        self,
+        session_id: str,
+        event: Any,
+        trace_id: str,
+        inbound_depth: int = 0,
+        user_context: dict | None = None,
+        user_token: str | None = None,
     ) -> None:
         tool_input = dict(event.input) if getattr(event, "input", None) else {}
         if event.name == AGENTFORCE_TOOL_NAME:
@@ -134,6 +140,9 @@ class ManagedBackend:
                     caller="claude-managed-agent",
                     platform="claude",
                     inbound_depth=inbound_depth,
+                    trace_id=trace_id,
+                    user_context=user_context,
+                    user_token=user_token,
                 )
                 client = self._get_agentforce_client()
                 resp = await client.ask(
@@ -181,7 +190,11 @@ class ManagedBackend:
                             texts.append(block.text)
                 elif etype == "agent.custom_tool_use":
                     await self._handle_custom_tool(
-                        session_id, event, trace_id, delegation.depth_of(req)
+                        session_id,
+                        event,
+                        trace_id,
+                        delegation.depth_of(req),
+                        *delegation.user_of(req),
                     )
                 elif etype == "session.status_idle":
                     stop = getattr(event, "stop_reason", None)

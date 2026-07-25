@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -29,6 +30,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 import httpx
 import yaml
 
+from console import reviews
 from console.insights import by_category, load_insights, to_markdown
 from interop import af_channel, delegation
 from interop.clients.base import RemoteAgentClient
@@ -38,6 +40,52 @@ from interop.trace import DEFAULT_TRACE_DIR, TRACE_DIR_ENV
 
 STATIC_DIR = Path(__file__).parent / "static"
 SCENARIOS_PATH = Path("config/scenarios.yaml")
+DECISIONS_PATH = Path("plan/00-decisions.md")
+
+_DECISION_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — (D\d+)( \(revised\))?: (.+)$")
+
+
+def load_decisions(path: str | Path = DECISIONS_PATH) -> dict[str, dict]:
+    """Parse the ADR log into {"D28": {"id", "title", "date", "markdown"}}.
+    Revised decisions (D9, D12) keep every entry in one markdown body,
+    separated by a rule, with the latest entry's title/date on the chip."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    decisions: dict[str, dict] = {}
+    current: dict | None = None
+    body: list[str] = []
+
+    def flush():
+        if current is None:
+            return
+        section = f"### {current['date']} — {current['heading']}\n" + "\n".join(body).strip()
+        entry = decisions.setdefault(
+            current["id"], {"id": current["id"], "title": "", "date": "", "markdown": ""}
+        )
+        entry["title"], entry["date"] = current["title"], current["date"]
+        sep = "\n\n---\n\n" if entry["markdown"] else ""
+        entry["markdown"] = entry["markdown"] + sep + section
+
+    for line in p.read_text(encoding="utf-8").splitlines():
+        match = _DECISION_HEADING.match(line)
+        if match:
+            flush()
+            date, did, revised, title = match.groups()
+            current = {
+                "id": did,
+                "date": date,
+                "title": title,
+                "heading": f"{did}{revised or ''}: {title}",
+            }
+            body = []
+        elif line.startswith("## "):
+            flush()
+            current = None  # non-decision section (M10 etc.)
+        elif current is not None:
+            body.append(line)
+    flush()
+    return decisions
 
 
 def load_scenarios(path: str | Path = SCENARIOS_PATH) -> dict[str, dict]:
@@ -67,6 +115,371 @@ def load_groups(path: str | Path = SCENARIOS_PATH) -> list[dict]:
 DEFAULT_QUESTION = (
     "Tell me what you know about account Omega, Inc. — a short summary of their current state."
 )
+
+# The single-hop protocol cells run without the two-sections prompt suffix,
+# so their default question must be one each research agent answers alone
+# (from its own knowledge — no Agentforce consult): the same
+# protocol-comparison utterance the matrix sweep uses. Agentforce cells
+# keep the CRM question — account status IS what those agents do alone.
+CELL_RESEARCH_QUESTION = (
+    "In two sentences: what is the difference between the MCP and A2A "
+    "protocols for agent interoperability?"
+)
+
+
+# ---- Protocol-call cells: blurb + planned flow per target ------------------
+# The Details tab shows what a single cell WILL execute: the entry hop plus
+# the platform-interior legs behind it — untraced ones included honestly
+# (they render as ghosts in the post-run call path too).
+
+_TWIN_BY_TARGET = {
+    "agentforce-rest": "Claude-paired",
+    "agentforce-openai-rest": "OpenAI-paired",
+    "agentforce-google-adk-rest": "Google ADK-paired",
+    "agentforce-foundry-rest": "Foundry-paired",
+}
+
+
+def _lab_server_entry(t, agent_label: str) -> dict:
+    transport = {
+        "rest": (
+            "POST /invoke on the lab's REST server — AgentRequest JSON in, "
+            "AgentResponse out, trace id in the X-Trace-Id header."
+        ),
+        "mcp": (
+            'tools/call "ask" on the lab\'s MCP server (streamable-http) — '
+            "session_id and trace_id ride as tool arguments because MCP has "
+            "no session semantics of its own."
+        ),
+        "a2a": (
+            "A2A message/send on the lab's A2A server — the agent publishes "
+            "its own AgentCard at /.well-known/agent-card.json; contextId "
+            "carries the session, trace id rides message metadata."
+        ),
+    }[t.protocol]
+    return {
+        "source": "remote-caller",
+        "target": t.name,
+        "protocol": t.protocol,
+        "detail": f"{transport} Behind it: {agent_label}.",
+    }
+
+
+def _claude_interior() -> dict:
+    if os.environ.get("CLAUDE_BACKEND", "managed") == "managed":
+        return {
+            "source": "claude-researcher",
+            "target": "anthropic-managed-agents",
+            "protocol": "managed-agents-api",
+            "detail": (
+                "The adapter answers on Anthropic Managed Agents (the Claude "
+                "API's hosted-agents beta, model claude-haiku-4-5): session "
+                "create + turn — recorded as a real hop."
+            ),
+        }
+    return {
+        "source": "claude-researcher",
+        "target": "claude-agent-sdk",
+        "protocol": "internal",
+        "detail": (
+            "Self-hosted claude-agent-sdk turn in the lab process (model "
+            "claude-haiku-4-5) — the calls to the Claude API are "
+            "platform-interior."
+        ),
+    }
+
+
+def cell_details(t) -> dict:
+    """blurb (what this call actually is), flow (planned hops, untraced
+    interior included), question (a default the agent answers alone)."""
+    name, platform, proto = t.name, t.platform, t.protocol
+    question = DEFAULT_QUESTION if platform == "agentforce" else CELL_RESEARCH_QUESTION
+
+    if platform == "claude" and proto in ("rest", "mcp", "a2a"):
+        via = {
+            "rest": "over REST",
+            "mcp": (
+                "over MCP — Managed Agents has no MCP inbound surface of its "
+                "own, so the lab serves the protocol in front of the agent "
+                "it hosts (one adapter, three protocol servers)"
+            ),
+            "a2a": (
+                "over the A2A protocol — Managed Agents has no A2A inbound "
+                "surface of its own, so the lab serves the protocol (with a "
+                "live AgentCard) in front of the agent it hosts"
+            ),
+        }[proto]
+        return {
+            "blurb": (
+                f"The client calls the lab's Claude research agent {via}. "
+                "Inside, the adapter answers on Anthropic Managed Agents — "
+                "the Claude API's hosted-agents platform."
+            ),
+            "flow": [_lab_server_entry(t, "the Claude research agent"), _claude_interior()],
+            "question": question,
+        }
+    if platform == "openai" and proto in ("rest", "mcp", "a2a"):
+        return {
+            "blurb": (
+                f"The client calls the lab's OpenAI research agent "
+                f"{'over ' + proto.upper() if proto != 'rest' else 'over REST'} "
+                "(OpenAI Agents SDK, Responses API underneath). OpenAI hosts "
+                "no inbound agent endpoint at all — the lab's servers are "
+                "the only door to this agent."
+            ),
+            "flow": [
+                _lab_server_entry(t, "the OpenAI research agent"),
+                {
+                    "source": "openai-researcher",
+                    "target": "openai-platform",
+                    "protocol": "internal",
+                    "detail": (
+                        "OpenAI Agents SDK turn against the Responses API (model "
+                        "gpt-5-mini) — platform-interior, and OpenAI's trace "
+                        "dashboard is write-only (no read API), so this leg "
+                        "is dark."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    if proto == "agentcore-http":
+        agent = "Claude (claude-agent-sdk)" if platform == "claude" else "OpenAI (Agents SDK)"
+        inner = (
+            {
+                "source": "claude-researcher",
+                "target": "claude-agent-sdk",
+                "protocol": "internal",
+                "detail": (
+                    "claude-agent-sdk turn inside the container (the sdk "
+                    "backend, model claude-haiku-4-5 — Managed Agents is "
+                    "the laptop default; the container ships the "
+                    "self-hosted fallback)."
+                ),
+            }
+            if platform == "claude"
+            else {
+                "source": "openai-researcher",
+                "target": "openai-platform",
+                "protocol": "internal",
+                "detail": "OpenAI Agents SDK turn (model gpt-5-mini) against the Responses API inside the container.",
+            }
+        )
+        return {
+            "blurb": (
+                f"The client invokes the {agent} research agent self-hosted "
+                "on Bedrock AgentCore Runtime. There is no public URL — the "
+                "call is an IAM-signed invoke_agent_runtime that lands on "
+                "the container's POST /invocations. The container writes its "
+                "interior hops to the Aurora trace store; the console merges "
+                "them into the call path."
+            ),
+            "flow": [
+                {
+                    "source": "remote-caller",
+                    "target": name,
+                    "protocol": "agentcore-http",
+                    "detail": (
+                        "boto3 invoke_agent_runtime (SigV4) — cloud IAM is "
+                        "the only door; the JSON payload lands on the "
+                        "container's POST /invocations."
+                    ),
+                },
+                inner,
+            ],
+            "question": question,
+        }
+    if platform == "agentforce" and proto == "agentforce-api":
+        twin = _TWIN_BY_TARGET.get(name, "lab")
+        return {
+            "blurb": (
+                f"The client talks to the Agentforce service agent (the "
+                f"{twin} twin) over Salesforce's GA Agent API: OAuth "
+                "client-credentials, session create, then the message turn."
+            ),
+            "flow": [
+                {
+                    "source": "agentforce-client",
+                    "target": "agentforce",
+                    "protocol": "agentforce-api",
+                    "detail": (
+                        f"OAuth + session + message against the GA Agent API "
+                        f"— the {twin} twin (closed two-platform pairing). How "
+                        "the twin fulfills the request inside Salesforce is its "
+                        "own business — the experiment measures the wire."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    if platform == "agentforce" and proto in ("mcp", "a2a"):
+        return {
+            "blurb": (
+                f"The client calls Agentforce over {proto.upper()} — which "
+                "Salesforce does not offer: the platform has no GA "
+                f"{proto.upper()} inbound surface, so the lab's shim speaks "
+                "the protocol and proxies each call to the Agent API. "
+                "Honest status: via-shim, never native."
+            ),
+            "flow": [
+                {
+                    "source": "remote-caller",
+                    "target": name,
+                    "protocol": proto,
+                    "detail": (
+                        f"The lab's {proto.upper()} shim serves the protocol "
+                        "surface Salesforce lacks."
+                    ),
+                },
+                {
+                    "source": "agentforce-client",
+                    "target": "agentforce",
+                    "protocol": "agentforce-api",
+                    "detail": (
+                        "The shim proxies to the GA Agent API — OAuth + "
+                        "session + message, recorded as real hops."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    if platform == "foundry" and proto == "a2a":
+        return {
+            "blurb": (
+                "The client calls the Foundry research agent through Foundry "
+                "Agent Service's own incoming A2A endpoint — the lab's second "
+                "platform-native A2A cell. Auth is Microsoft Entra only (no "
+                "key option), the binding is JSONRPC, and the platform "
+                "serves version-specific agent cards (v1.0 and v0.3) — the "
+                "same version spectrum the lab bridges in its own servers."
+            ),
+            "flow": [
+                {
+                    "source": "remote-caller",
+                    "target": name,
+                    "protocol": "a2a",
+                    "detail": (
+                        "message/send against the agent's A2A endpoint — "
+                        "Entra bearer (azure-ad ADC), v1.0 card fetched from "
+                        "the version-specific path agentCard/v1.0."
+                    ),
+                },
+                {
+                    "source": "foundry-researcher",
+                    "target": "gpt-5-mini",
+                    "protocol": "internal",
+                    "detail": (
+                        "The prompt agent runs inside Foundry Agent Service "
+                        "— platform-interior; the response id is the "
+                        "retrievable join key."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    if proto == "foundry-api":
+        return {
+            "blurb": (
+                "The client calls the Foundry research agent through the "
+                "platform's own Responses surface (agent_reference) — the "
+                "native front door, sibling of the Agent API cells. Entra "
+                "ADC auth; the response id rides as platform_ref."
+            ),
+            "flow": [
+                {
+                    "source": "foundry-client",
+                    "target": name,
+                    "protocol": "foundry-api",
+                    "detail": (
+                        "responses.create with an agent_reference on the "
+                        "project endpoint — Entra bearer, "
+                        "previous_response_id chains the conversation."
+                    ),
+                },
+                {
+                    "source": "foundry-researcher",
+                    "target": "gpt-5-mini",
+                    "protocol": "internal",
+                    "detail": (
+                        "The prompt agent runs inside Foundry Agent Service "
+                        "— platform-interior; tool calls (the Agentforce "
+                        "A2A consult) happen platform-side."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    if platform == "adk":
+        return {
+            "blurb": (
+                "The client calls the Google ADK research agent through "
+                "Vertex AI Agent Engine's own A2A endpoint — the platform "
+                "itself speaks the protocol; no lab server or shim in the "
+                "path. Auth is Google IAM (ADC bearer), transport pinned to "
+                "HTTP+JSON because the preview card route 404s."
+            ),
+            "flow": [
+                {
+                    "source": "remote-caller",
+                    "target": name,
+                    "protocol": "a2a",
+                    "detail": (
+                        "message:send against the Agent Engine A2A endpoint "
+                        "— IAM bearer (google-adc), a2a-version 1.0, "
+                        "minimal AgentCard built locally (preview gap)."
+                    ),
+                },
+                {
+                    "source": "adk-researcher",
+                    "target": "gemini-2.5-flash-lite",
+                    "protocol": "internal",
+                    "detail": (
+                        "ADK Runner + Gemini (model gemini-2.5-flash-lite) inside "
+                        "the Agent Engine container — request-level Cloud "
+                        "Logging/Monitoring only (Observability section); no "
+                        "session/turn API."
+                    ),
+                },
+            ],
+            "question": question,
+        }
+    if platform == "guide":
+        extra = (
+            " This MCP server also publishes the guide's raw read tools "
+            "(get_decision, get_trace, list_briefs, …) so the CALLING model "
+            "can reason over lab data itself — two integration shapes on one "
+            "endpoint."
+            if proto == "mcp"
+            else ""
+        )
+        return {
+            "blurb": (
+                "The meta exhibit: the Lab Guide — the console's own docent — "
+                f"served as just another lab agent over {proto.upper()} "
+                "through the same inbound seam every hosted agent uses. Ask "
+                "it how the lab works, from any protocol client (Claude "
+                f"Desktop included).{extra}"
+            ),
+            "flow": [
+                _lab_server_entry(t, "the Lab Guide docent"),
+                {
+                    "source": "lab-guide",
+                    "target": "anthropic-api",
+                    "protocol": "internal",
+                    "detail": (
+                        "Direct Anthropic tool-use loop (Haiku-tier) grounded "
+                        "in the lab's own docs, with read tools over the ADR "
+                        "log, results, analyst briefs, and wire traces."
+                    ),
+                },
+            ],
+            "question": "In two sentences: what is this lab and what does it prove?",
+        }
+    return {
+        "blurb": f"Single protocol call to {name} ({platform} over {proto}).",
+        "flow": [{"source": "remote-caller", "target": name, "protocol": proto, "detail": ""}],
+        "question": question,
+    }
 
 
 async def run_via_bridge(req: AgentRequest, target: str) -> dict:
@@ -166,7 +579,7 @@ def components_for(tags: set[str]) -> list[dict]:
     if {"agentforce", "agent-api"} & tags:
         comps.append(
             {
-                "title": "Agentforce agent — A2ALab Research Assistant",
+                "title": "Agentforce agent — A2ALab Research Assistant (Claude-paired)",
                 "kind": "agentforce",
                 "note": "Open Agentforce Studio — topics, instructions, and the "
                 "A2ALab: Get Account Summary action live here.",
@@ -269,6 +682,7 @@ _PLATFORM_TAGS = {
     "claude": {"claude", "managed-agents"},
     "agentforce": {"agentforce"},
     "openai": {"openai"},
+    "foundry": {"foundry", "azure"},
 }
 
 
@@ -323,6 +737,105 @@ def _read_events() -> list[dict]:
     return events
 
 
+# Hosted-runtime hops (AgentCore containers, the af-shim Lambda) write to the
+# Aurora store, not local files (D23/D26/D28) — merge a recent window into
+# the trace view so remote legs render as real recorded hops, not ghosts.
+_REMOTE_WINDOW_S = 6 * 3600
+_remote = {"ts": 0.0, "events": [], "client": None}
+
+
+def _read_remote_events() -> list[dict]:
+    """Soft-fail by design: no PG config, Aurora resuming, or missing creds
+    just means local-only traces (and a retry on the next poll)."""
+    now = time.time()
+    if now - _remote["ts"] < 5:
+        return _remote["events"]
+    try:
+        from observability.pg import SCHEMA, PgClient
+
+        if not PgClient.configured():
+            return []
+        if _remote["client"] is None:
+            _remote["client"] = PgClient.from_env()
+        rows = _remote["client"].execute(
+            f"""SELECT trace_id, hop_seq, ts, source, target, protocol,
+                       transport_detail, status, latency_ms, platform_ref,
+                       request_payload_raw::text AS request_payload_raw,
+                       response_payload_raw::text AS response_payload_raw
+                FROM {SCHEMA}.trace_events
+                WHERE ts > :since ORDER BY ts LIMIT 2000""",
+            {"since": now - _REMOTE_WINDOW_S},
+        )
+    except Exception:
+        _remote["ts"] = now  # back off a poll interval, then retry
+        return _remote["events"]
+    for row in rows:
+        for key in ("request_payload_raw", "response_payload_raw"):
+            if isinstance(row.get(key), str):
+                try:
+                    row[key] = json.loads(row[key])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+    _remote.update(ts=now, events=rows)
+    return rows
+
+
+def _merged_events() -> list[dict]:
+    """Local jsonl + remote Aurora hops, deduped: pg_backfill copies local
+    hops into Aurora, so the same event can arrive from both stores."""
+    events = _read_events()
+    seen = {
+        (
+            e.get("trace_id"),
+            e.get("hop_seq"),
+            round(e.get("ts") or 0, 4),
+            e.get("source"),
+            e.get("target"),
+        )
+        for e in events
+    }
+    for ev in _read_remote_events():
+        key = (
+            ev.get("trace_id"),
+            ev.get("hop_seq"),
+            round(ev.get("ts") or 0, 4),
+            ev.get("source"),
+            ev.get("target"),
+        )
+        if key not in seen:
+            events.append(ev)
+    return events
+
+
+# ---- role enforcement (WS6 U3, console half; role model per D36) -----------
+# viewer: insights, the obs dashboard READ-ONLY, and the Lab Guide.
+# operator (and the header-borne service token, which carries no user):
+# everything — runs, warm-ups, harvest/analyze, raw traces. Enforced
+# server-side; the UI hides what a role can't do, but the 403 is the guard.
+
+# Traces stay viewer-visible on purpose: the org serves dummy demo data
+# only, and the wire record IS the exhibit.
+_OPERATOR_ONLY = {
+    "run experiments": ("/api/run",),
+    "warm up runtimes": ("/api/warmup",),
+    "harvest platform logs": ("/api/obs/harvest",),
+    "fire the analyst": ("/api/obs/analysis",),
+}
+
+
+def _viewer_forbidden(request: Request) -> None:
+    user = request.scope.get("state", {}).get("lab_user") or {}
+    if user.get("role") != "viewer":
+        return
+    path = request.url.path
+    for action, prefixes in _OPERATOR_ONLY.items():
+        if any(path.startswith(p) for p in prefixes):
+            raise HTTPException(
+                status_code=403,
+                detail=f"viewer role — '{action}' is operator-only (D36 role model)",
+            )
+
+
 def create_console_app(registry: Registry | None = None):
     state = {"registry": registry}
     # One long-lived client per target (same rule as the bridge): they cache
@@ -337,8 +850,24 @@ def create_console_app(registry: Registry | None = None):
         clients.clear()
 
     app = FastAPI(title="A2A lab console", lifespan=lifespan)
-    # Component screenshots etc. — /static/* still requires the lab token
-    # (the UI appends ?token=, same as the API calls).
+
+    @app.middleware("http")
+    async def role_gate(request: Request, call_next):
+        try:
+            _viewer_forbidden(request)
+        except HTTPException as exc:
+            return Response(
+                content=json.dumps({"detail": exc.detail}),
+                status_code=exc.status_code,
+                media_type="application/json",
+            )
+        return await call_next(request)
+
+    # Component screenshots, the vendored mermaid bundle, the shell's own
+    # assets — repo content, served on the public surface (see the middleware
+    # exemptions below). It has to be: browsers cannot put a bearer header on
+    # an <img src> or <script src>, and D36 removed query-param credentials,
+    # so anything token-gated here simply 401s in the page.
     from fastapi.staticfiles import StaticFiles
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -362,26 +891,59 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/targets")
     async def targets():
-        return {
-            "targets": [
+        reg = get_registry()
+        out = []
+        for t in reg.targets.values():
+            resolved_name = reg.resolve_name(t.name)
+            details = cell_details(reg.get(resolved_name))
+            if resolved_name != t.name:
+                details["blurb"] += (
+                    f" (A2ALAB_MODE={reg.mode} remaps this call to {resolved_name} — "
+                    "the hosted runtime answers instead of the local server.)"
+                )
+            out.append(
                 {
                     "name": t.name,
                     "platform": t.platform,
                     "protocol": t.protocol,
                     "status": t.status,
                     "components": components_for(_PLATFORM_TAGS.get(t.platform, set())),
+                    **details,
                 }
-                for t in get_registry().targets.values()
-            ],
-            "default_question": DEFAULT_QUESTION,
+            )
+        return {"targets": out, "default_question": DEFAULT_QUESTION}
+
+    # The delegating seam's identity per scenario — the rider exhibit shows
+    # the RESOLVED block this experiment injects, not placeholders.
+    def _scenario_rider(name: str) -> str | None:
+        if name.startswith("agentforce-to-"):
+            return delegation.rider_for("agentforce-twin-via-bridge", "agentforce")
+        by_name = {
+            "claude-to-agentforce": (
+                "claude-managed-agent"
+                if os.environ.get("CLAUDE_BACKEND", "managed") == "managed"
+                else "claude-sdk-agent",
+                "claude",
+            ),
+            "claude-aws-to-agentforce": ("claude-sdk-agent", "claude"),
+            "chatgpt-to-agentforce": ("openai-agents-sdk-agent", "openai"),
+            "adk-to-agentforce": ("adk-gemini-agent", "adk"),
+            "foundry-to-agentforce": ("foundry-agent", "foundry"),
         }
+        pair = by_name.get(name)
+        return delegation.rider_for(*pair) if pair else None
 
     @app.get("/api/scenarios")
     async def scenarios():
         return {
             "groups": load_groups(),
             "scenarios": [
-                {"name": name, **spec, "components": components_for(set(spec.get("tags") or []))}
+                {
+                    "name": name,
+                    **spec,
+                    "components": components_for(set(spec.get("tags") or [])),
+                    **({"rider": r} if (r := _scenario_rider(name)) else {}),
+                }
                 for name, spec in load_scenarios().items()
             ],
         }
@@ -391,9 +953,53 @@ def create_console_app(registry: Registry | None = None):
     # and which runtimes /api/run really hits under the active A2ALAB_MODE.
 
     @app.get("/api/insights")
-    async def insights():
-        data = load_insights()
-        return {"insights": data, "categories": by_category(data)}
+    async def insights(request: Request):
+        data = reviews.attach_reviews(load_insights())
+        return {
+            "insights": data,
+            "categories": by_category(data),
+            # The UI hides the sign-off control for everyone else; the 403 on
+            # POST is the actual guard (same rule as the role model above).
+            "can_review": _is_reviewer(request),
+        }
+
+    def _is_reviewer(request: Request) -> bool:
+        """Sign-off is a named person's act: a verified lab user carrying
+        `reviewer: true` in config/users.yaml. The shared service token
+        identifies no one, so it can never approve a published claim."""
+        from interop import identity
+
+        claims = request.scope.get("state", {}).get("lab_user") or {}
+        sub = claims.get("sub")
+        if not sub:
+            return False
+        return bool(identity.load_users().get(sub, {}).get("reviewer"))
+
+    @app.post("/api/insights/{insight_id}/review")
+    async def review_insight(insight_id: str, request: Request):
+        """Record the lab reviewer's decision on a published claim (approve
+        or request changes, with an optional comment) into
+        config/insight_reviews.yaml."""
+        if not _is_reviewer(request):
+            raise HTTPException(
+                status_code=403,
+                detail="insight sign-off is reserved to the lab's reviewer (config/users.yaml)",
+            )
+        body = await request.json()
+        decision = str(body.get("decision") or "").strip()
+        if decision not in reviews.STATES:
+            raise HTTPException(
+                status_code=400, detail=f"decision must be one of {list(reviews.STATES)}"
+            )
+        insight = next((i for i in load_insights() if i.get("id") == insight_id), None)
+        if insight is None:
+            raise HTTPException(status_code=404, detail=f"no insight '{insight_id}'")
+        claims = request.scope.get("state", {}).get("lab_user") or {}
+        reviews.record(insight, decision, user=claims, comment=str(body.get("comment") or ""))
+        return {
+            "id": insight_id,
+            "review_state": reviews.review_state(insight, reviews.load_reviews()),
+        }
 
     @app.get("/api/insights.md")
     async def insights_md():
@@ -406,12 +1012,101 @@ def create_console_app(registry: Registry | None = None):
             headers={"content-disposition": 'attachment; filename="a2a-lab-insights.md"'},
         )
 
+    @app.get("/api/decisions")
+    async def decisions():
+        """The ADR log parsed per decision id — the UI renders D-refs as
+        chips whose popover shows the decision's markdown."""
+        return {"decisions": load_decisions()}
+
+    @app.get("/api/users")
+    async def users():
+        """The lab user directory (WS6 U1) — feeds the console's sign-in
+        picker. Demo-scale IdP: no passwords, the experiment is identity
+        PROPAGATION and authorization, not credential UX."""
+        from interop import identity
+
+        return {
+            "users": [
+                {"username": u, "name": e.get("name") or u, "role": e.get("role") or "viewer"}
+                for u, e in identity.load_users().items()
+            ]
+        }
+
+    @app.post("/api/login")
+    async def login(request: Request):
+        """Password-gated lab JWT issue (D36): persona + that ROLE's shared
+        password from .env. This endpoint (with /api/users and /) is the
+        public surface of the console — everything else needs the JWT the
+        exchange returns, sent as Authorization: Bearer. The raw lab token
+        never reaches a browser."""
+        from interop import identity
+
+        body = await request.json()
+        username = (body.get("username") or "").strip()
+        try:
+            token = identity.authenticate(username, str(body.get("password") or ""))
+        except ValueError:
+            # One generic 401 — no probing which of user/password was wrong.
+            raise HTTPException(status_code=401, detail="wrong user or password") from None
+        claims = identity.verify_token(token) or {}
+        return {"token": token, "user": identity.user_context(claims)}
+
+    @app.post("/api/guide")
+    async def guide(request: Request):
+        """The Lab Guide chat (plan/07, Lab Guide): stateless streaming turns
+        — client holds history, the server streams SSE events {delta|tool|
+        done}. Same interior the guide's REST/MCP/A2A servers use."""
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise HTTPException(status_code=503, detail="guide unavailable — no ANTHROPIC_API_KEY")
+        body = await request.json()
+        message = (body.get("message") or "").strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="empty message")
+        history = body.get("history") or []
+        view_ctx = body.get("view") or None
+
+        from platforms.guide.core import make_adapter as make_guide
+
+        if state.get("guide") is None:
+            state["guide"] = make_guide()
+        guide_adapter = state["guide"]
+
+        async def gen():
+            try:
+                async for event in guide_adapter.answer_stream(
+                    message, history=history, view=view_ctx
+                ):
+                    yield f"data: {json.dumps(event)}\n\n"
+            except Exception as exc:  # surface as an SSE event, not a broken stream
+                yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
+
+    @app.get("/api/docs/{name:path}")
+    async def doc(name: str):
+        """Whitelisted lab docs (plan/*.md + README.md) as raw markdown —
+        the UI renders insight file-ref chips into popovers from these,
+        same pattern as the decision chips."""
+        repo = Path.cwd().resolve()
+        candidate = (repo / name).resolve()
+        allowed = (
+            candidate == repo / "README.md"
+            or (candidate.parent == repo / "plan" and candidate.suffix == ".md")
+            or (candidate.parent == repo / "docs" and candidate.suffix == ".md")
+        )
+        if not allowed or not candidate.exists():
+            raise HTTPException(status_code=404, detail=f"unknown doc: {name}")
+        return {"name": name, "markdown": candidate.read_text(encoding="utf-8")}
+
     @app.get("/api/config")
     async def config():
         reg = get_registry()
         return {
             "mode": reg.mode,
             "modes": reg.modes,
+            # Lab Guide chat: how many past chats the drawer keeps
+            # (client-side localStorage; the server just sets the cap).
+            "guide_history_limit": int(os.environ.get("GUIDE_CHAT_HISTORY", "10")),
             "remapped": {
                 name: reg.resolve_name(name)
                 for name in reg.targets
@@ -444,6 +1139,12 @@ def create_console_app(registry: Registry | None = None):
             "af_channel": {
                 "tools": af_channel.CHANNEL_TOOLS,
                 "routing_block": af_channel.routing_block("a2a-shim"),
+            },
+            # Sibling exhibit for the reverse direction: the twin's outbound
+            # route (bridge = traced, direct = platform-native, untraced).
+            "af_route": {
+                "tools": af_channel.ROUTE_TOOLS,
+                "routing_block": af_channel.route_block("direct"),
             },
         }
 
@@ -498,8 +1199,25 @@ def create_console_app(registry: Registry | None = None):
             # sessions. A timeout is recorded, not raised — a >65s cold start
             # IS a data point.
             client = get_registry().client_for(name, exact=True)
+            # warmup_delegated_platform: compose the ping as a delegated
+            # request from that platform — the hosted shim keys its shared
+            # Salesforce sessions by rider platform, so this pre-creates
+            # the exact session the platform's next real call will ride
+            # (and the rider guard keeps the twin's answer fast: no
+            # external-research step on delegated turns).
+            ping = WARMUP_PING
+            ping_meta: dict = {}
+            if target.options.get("warmup_delegated_platform"):
+                ping, ping_meta = delegation.delegate(
+                    WARMUP_PING,
+                    caller="console-warmup",
+                    platform=str(target.options["warmup_delegated_platform"]),
+                    inbound_depth=0,
+                )
             try:
-                resp = await client.ask(AgentRequest(message=WARMUP_PING, trace_id=new_trace_id()))
+                resp = await client.ask(
+                    AgentRequest(message=ping, metadata=ping_meta, trace_id=new_trace_id())
+                )
                 ok, note = True, (resp.text or "").strip()
             finally:
                 await client.aclose()
@@ -575,6 +1293,7 @@ def create_console_app(registry: Registry | None = None):
         # D28: which Agentforce tool the entry agent should use, echoed back
         # so the UI can badge the turn. Only meaningful on toggle scenarios.
         chosen_channel: str | None = None
+        chosen_route: str | None = None
 
         scenario_name = body.get("scenario")
         if scenario_name:
@@ -668,6 +1387,13 @@ def create_console_app(registry: Registry | None = None):
                 # tools' default bias, so only a2a-shim ever injects.
                 if chosen_channel == "a2a-shim":
                     message += af_channel.routing_block("a2a-shim")
+            if spec.get("af_route_toggle"):
+                chosen_route = body.get("af_route") or "bridge"
+                if chosen_route not in af_channel.ROUTE_TOOLS:
+                    chosen_route = "bridge"
+                # bridge is the twin script's default; only direct injects.
+                if chosen_route == "direct":
+                    message += af_channel.route_block("direct")
         else:
             name = body.get("target")
         if not name:
@@ -683,11 +1409,25 @@ def create_console_app(registry: Registry | None = None):
             trace_id=body.get("trace_id") or new_trace_id(),
             session_id=body.get("session_id") or None,
         )
+        # WS6 U1/U2: a signed-in operator's identity rides the origin
+        # request on both channels — user_context (display/log, visible in
+        # wire records) and user_token (the JWT, the verifiable channel the
+        # seams forward; the F2 redactor keeps it out of the traces).
+        lab_user = request.scope.get("state", {}).get("lab_user")
+        if lab_user:
+            from interop import identity
+
+            req.metadata["user_context"] = identity.user_context(lab_user)
+            authz = request.headers.get("authorization", "")
+            if authz.startswith("Bearer "):
+                req.metadata["user_token"] = authz[len("Bearer ") :]
         try:
             if via_bridge:
                 result = await run_via_bridge(req, name)
                 if chosen_channel:
                     result["af_channel"] = chosen_channel
+                if chosen_route:
+                    result["af_route"] = chosen_route
                 return result
             client = get_client(name)
             resp = await client.ask(req)
@@ -698,6 +1438,7 @@ def create_console_app(registry: Registry | None = None):
                 "latency_ms": resp.latency_ms,
                 "session_id": resp.session_id,
                 "af_channel": chosen_channel,
+                "af_route": chosen_route,
             }
         except Exception as exc:  # surface the failure as a result, not a 500
             return {
@@ -721,7 +1462,9 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/traces")
     async def traces():
-        events = _read_events()
+        # Thread: the Aurora read is blocking boto3 (and retries while a
+        # scale-to-zero cluster resumes) — keep the event loop free for SSE.
+        events = await asyncio.to_thread(_merged_events)
         grouped: dict[str, list[dict]] = {}
         for ev in events:
             grouped.setdefault(ev.get("trace_id", "unknown"), []).append(ev)
@@ -801,7 +1544,7 @@ def create_console_app(registry: Registry | None = None):
     # The honest capability matrix (plan/05-observability.md) — rendered
     # live in the coverage panel next to what was actually harvested.
     OBS_CAPABILITIES = {
-        "anthropic": {
+        "claude": {
             "label": "Claude Managed Agents",
             "can": [
                 "list sessions (paginated)",
@@ -838,17 +1581,34 @@ def create_console_app(registry: Registry | None = None):
                 "list responses — ids must be captured at emit time",
             ],
         },
+        "foundry": {
+            "label": "Microsoft Foundry",
+            "can": [
+                "agent-semantic OTel spans via App Insights KQL (invoke_agent / chat / execute_tool)",
+                "token usage per model call (gen_ai.usage.*) + full input/output messages",
+                "the platform's OWN record of its A2A tool calls (execute_tool spans, durations)",
+                "response id = the lab's platform_ref — turns join to wire traces out of the box",
+            ],
+            "cannot": [
+                "raw wire bytes of the A2A tool call (span metadata only — the shim's wiretap has those)",
+                "~2-4 min ingestion lag (App Insights pipeline)",
+            ],
+        },
         "adk": {
             "label": "Google ADK / Agent Engine",
             "can": [
                 "Cloud Logging entries per engine (queryable, filterable)",
                 "request + container app logs in near-real-time",
+                "Cloud Monitoring: request counts/latencies per engine",
+                "token counts per model (Vertex publisher metrics)",
+                "the billing meters themselves (vCPU-s / GiB-s allocated) → est. cost",
                 "Cloud Trace spans (OTel — not yet harvested)",
             ],
             "cannot": [
                 "session/turn read API (preview A2A surface)",
                 "A2A contextIds in default logs",
                 "agent-semantic events (tool calls) without custom instrumentation",
+                "token metrics per engine (project+model granularity only)",
             ],
         },
     }
@@ -867,7 +1627,33 @@ def create_console_app(registry: Registry | None = None):
     async def obs_sessions(platform: str | None = None):
         store = _obs_store()
         try:
-            return {"sessions": store.list_sessions(platform)}
+            sessions = store.list_sessions(platform)
+            # D27 rider self-identification, as recorded by the platforms'
+            # own logs — surfaced as a first-class column.
+            callers = store.session_callers() if hasattr(store, "session_callers") else {}
+            lab_traces = store.session_lab_traces() if hasattr(store, "session_lab_traces") else {}
+            for s_row in sessions:
+                key = f"{s_row.get('platform')}:{s_row.get('native_id')}"
+                s_row["caller_agent"] = callers.get(key)
+                # The lab-trace rider line (text-level join) beats platform_ref
+                # counting: it survives into platforms the lab never traced.
+                s_row["lab_trace_id"] = lab_traces.get(key)
+                # Cross-platform common fields (survey: input/output tokens
+                # exist for claude/openai/adk/foundry; model only where the
+                # platform logs it — openai/foundry session raw).
+                try:
+                    usage = json.loads(s_row.get("usage_json") or "{}")
+                    tin, tout = usage.get("input_tokens"), usage.get("output_tokens")
+                    s_row["tokens_in"] = int(tin) if tin is not None else None
+                    s_row["tokens_out"] = int(tout) if tout is not None else None
+                except (ValueError, TypeError):
+                    s_row["tokens_in"] = s_row["tokens_out"] = None
+                try:
+                    raw = json.loads(s_row.get("raw_json") or "{}")
+                    s_row["model"] = (raw.get("model") or None) if isinstance(raw, dict) else None
+                except (ValueError, TypeError):
+                    s_row["model"] = None
+            return {"sessions": sessions}
         finally:
             store.close()
 
@@ -890,7 +1676,7 @@ def create_console_app(registry: Registry | None = None):
         from observability.salesforce_source import SalesforceSource
 
         sources = {
-            "anthropic": AnthropicSource,
+            "claude": AnthropicSource,
             "salesforce": SalesforceSource,
             "openai": OpenAISource,
             "adk": AdkSource,
@@ -968,12 +1754,35 @@ def create_console_app(registry: Registry | None = None):
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     # The console is tunnel-exposed and its API returns every raw wire
-    # payload — including production-org responses. Only the static index
-    # stays open; /api/* requires the lab token (query param allowed because
-    # EventSource can't set headers). No-op while A2ALAB_TOKEN is unset.
+    # payload — including production-org responses. Public surface (D36):
+    # the static index, the persona directory, and the password-gated
+    # login. Everything else needs the JWT that login mints, sent as a
+    # header — query-param credentials are gone (the live tail streams via
+    # fetch, which can set headers; EventSource could not). No-op while
+    # A2ALAB_TOKEN is unset.
     from interop.servers.auth import TokenAuthMiddleware
 
-    return TokenAuthMiddleware(app, allow_query_param=True, exempt_paths=("/",))
+    # Public surface = the landing exhibit: the shell plus the
+    # documentation-class GETs it renders (experiment tiles, protocol
+    # lists, decision/doc chips) — all repo content, no wire or org data.
+    # Live data (traces, obs, runs, guide) stays behind the persona JWT.
+    return TokenAuthMiddleware(
+        app,
+        exempt_paths=(
+            "/",
+            "/api/users",
+            "/api/login",
+            "/api/scenarios",
+            "/api/targets",
+            "/api/decisions",
+        ),
+        # /static/: repo assets the public shell renders — component
+        # screenshots and the vendored mermaid bundle. Not a policy softening
+        # but the only workable rule: <img> and <script> tags cannot send the
+        # bearer header, so gating these 401'd them in the browser (which is
+        # exactly what happened to the screenshots between D36 and here).
+        exempt_prefixes=("/api/docs/", "/static/"),
+    )
 
 
 def main() -> None:

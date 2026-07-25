@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A2A Interop Lab: cross-platform agent-to-agent experiments between Salesforce Agentforce and Claude (OpenAI later), with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`, the Codex build brief for the OpenAI agents-sdk backend in `plan/06-openai-codex-handoff.md` (D24 — that one file is the contract; the `agents-sdk` backend and its tests are Codex's to write, everything else OpenAI-related is ours), the multi-platform buildout roadmap (WS1–WS5: AgentCore pair, GCP ADK, Azure Foundry, LangGraph, Strands) in `plan/07-workstreams.md`, and the published field insights in `plan/08-insights.md` — generated, don't edit: the source is `config/insights.yaml` (rendered in the console's Insights section; regenerate with `uv run python scripts/export_insights.py`).
+A2A Interop Lab: cross-platform agent-to-agent experiments across Salesforce Agentforce, Claude (Managed Agents + AgentCore sdk), OpenAI (AgentCore), Google ADK (Vertex AI Agent Engine), and Microsoft Foundry, with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`, the Codex build brief for the OpenAI agents-sdk backend in `plan/06-openai-codex-handoff.md` (D24 — that one file is the contract; the `agents-sdk` backend and its tests are Codex's to write, everything else OpenAI-related is ours), the multi-platform buildout roadmap (WS1–WS5: AgentCore pair, GCP ADK, Azure Foundry, LangGraph, Strands) in `plan/07-workstreams.md`, and the published field insights in `plan/08-insights.md` — generated, don't edit: the sources are `config/insights.yaml` and `config/diagrams.yaml` (mermaid diagrams attached to insight ids — a chip on each insight tile in the console opens the diagram, and the export embeds it as a ```mermaid fence; regenerate with `uv run python scripts/export_insights.py`).
 
 ## Commands
 
 ```sh
-uv sync                              # install (Python 3.11+, uv-managed)
+uv sync --all-extras                 # install (Python 3.11+, uv-managed). Plain `uv sync`
+                                     # PRUNES extras: the adk tests then skip and the
+                                     # foundry/adk harvests fail on missing client libs.
 uv run pytest                        # unit + loopback e2e; live tests deselected by default
 uv run pytest tests/unit/test_bridge.py            # one file
 uv run pytest tests/unit/test_bridge.py -k name    # one test
@@ -19,6 +21,7 @@ uv run ruff check . && uv run ruff format .        # lint / format (line-length 
 scripts/run_local.sh                 # full local stack (Claude servers, shims, bridge, console)
 uv run python scripts/matrix.py      # run every runnable protocol cell → appends plan/03-results.md
 uv run python scripts/sf_smoke.py    # Agentforce go/no-go (needs SF_* in .env)
+uv run python scripts/identity_preflight.py  # prove every caller identity can still do its job (D37/F6)
 uv run python scripts/obs_harvest.py # pull platform execution logs → traces/lab.db (M11)
 uv run python scripts/trace_import.py # rebuild lab.db trace tables from the JSONL archive
 uv run python scripts/setup_managed_agent.py       # once: provisions the Managed Agents agent
@@ -27,8 +30,9 @@ uv run python scripts/pg_backfill.py               # copy local lab.db → hoste
 deploy/obs/build_zips.sh                           # rebuild the obs Lambda bundles (D23)
 deploy/agentcore/deploy.sh <claude|openai>         # build/push/create-or-update an AgentCore runtime (D26)
 deploy/adk/deploy_adk.py                           # deploy/update the ADK agent on Vertex AI Agent Engine (WS2)
+uv run python deploy/foundry/provision_foundry.py  # provision/update the Foundry agent + connection + inbound A2A (WS3)
 deploy/shim/build_zip.sh && deploy/shim/deploy_shim.sh  # hosted Agentforce A2A shim on Lambda (D28)
-uv run python scripts/export_insights.py           # config/insights.yaml → plan/08-insights.md
+uv run python scripts/export_insights.py           # config/insights.yaml + diagrams.yaml → plan/08-insights.md
 ```
 
 `A2ALAB_MODE=hosted` in .env remaps `claude-rest`/`openai-rest` to the AgentCore runtimes wherever clients are resolved (bridge, tools, console runs; matrix.py is exempt) — the local↔hosted dev switch (D26). Restart the stack after flipping.
@@ -49,7 +53,8 @@ A platform = one directory under `src/platforms/<name>/` contributing an `AgentA
 ### Key components
 
 - `src/platforms/claude/` — one adapter (`core.py`), two backends selected by `CLAUDE_BACKEND`: `managed_backend.py` (Anthropic Managed Agents beta, the default) and `sdk_backend.py` (self-hosted claude-agent-sdk, the fallback and the AgentCore containerization path). Nothing outside the adapter knows which backend runs. Path B (`ask_agentforce`) is a host-side custom tool under managed, an in-process SDK MCP tool under sdk — Salesforce credentials never enter the managed sandbox.
-- `src/platforms/agentforce/` — GA Agent API client (`client.py`) plus MCP (`:8021`) / A2A (`:8023`) shims proxying to the Agent API (Agentforce has no GA MCP/A2A inbound).
+- `src/platforms/agentforce/` — GA Agent API client (`client.py`) plus MCP (`:8021`) / A2A (`:8023`) shims proxying to the Agent API (Agentforce has no GA MCP/A2A inbound). The AWS-hosted shim (D28, Lambda) additionally captures raw inbound A2A envelopes (wiretap) and translates the 0.3 dialect (`interop/servers/a2a_compat.py` — Foundry speaks 0.3, Agent Engine requires 1.0).
+- `src/platforms/foundry/` — Microsoft Foundry prompt agent (gpt-5-mini): platform-side Agentforce consult via Foundry's A2A tool → hosted shim; incoming A2A enabled (second platform-native A2A endpoint, Entra-only). `core.py` instructions are pushed by the provision script.
 - `src/bridge/` (`:8100`) — Path A: Agentforce's outbound is REST-only, so its Apex callout hits the bridge, which fans out to any target/protocol per `config/targets.yaml` — switching protocol needs no Salesforce redeploy.
 - `src/console/` (`:8200`) — lab console: groups trace events by trace_id, protocol badges, raw request/response, SSE live tail.
 
@@ -69,4 +74,4 @@ Org metadata (Apex invocable `A2ALabInvokeRemoteAgent` + test, named/external cr
 
 - Decisions get an ADR entry appended to `plan/00-decisions.md`; measured results go to `plan/03-results.md` (matrix.py appends there), findings to the ledger in `plan/02-matrix.md`.
 - Streaming is out of scope for v1 (Apex callouts are buffered); one A2A SSE demo exists as a capability comparison only.
-- Timeout budget for Path A is tight (Agentforce action ~60s → Apex 110s → bridge 45s → `CLAUDE_ANSWER_TIMEOUT_S=40`); keep the Claude agent fast (Haiku-tier model, concise prompts, warm servers).
+- Timeout budget for Path A is tight (Agentforce action ~85–90s **measured** 2026-07-25, plan/03-results.md — not the ~60s long assumed → Apex 110s → bridge 45s → `CLAUDE_ANSWER_TIMEOUT_S=100`); keep the Claude agent fast (Haiku-tier model, concise prompts, warm servers). When the action budget IS blown, Agentforce returns 200 with the delegated section present but empty — check content, not status.

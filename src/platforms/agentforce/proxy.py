@@ -10,22 +10,33 @@ from __future__ import annotations
 
 import os
 
+from interop import delegation
 from interop.models import AgentRequest, AgentResponse
 from platforms.agentforce.client import AgentforceClient
 
 # D25 on the shim channel: a shared shim must still route each caller to its
 # platform-paired twin, or the a2a-shim channel silently collapses every
-# experiment onto one twin. The delegation rider's metadata names the
-# calling platform; map it to the twin env vars (unset → SF_AGENT_ID).
+# experiment onto one twin. The delegation rider names the calling platform
+# (metadata, with the rider-text fallback); map it to the twin env vars
+# (unset → SF_AGENT_ID).
 TWIN_ENV_BY_PLATFORM = {
     "claude": "SF_AGENT_ID",
     "openai": "SF_OPENAI_AGENT_ID",
     "adk": "SF_ADK_AGENT_ID",
+    # WS3: the Foundry agent's A2A tool cannot attach lab metadata, so its
+    # caller-platform arrives via the rider TEXT the agent is instructed to
+    # append (platform_of's fallback). Unset env -> default twin until the
+    # Foundry-paired twin is published.
+    "foundry": "SF_FOUNDRY_AGENT_ID",
 }
 
 
 class AgentforceProxyAdapter:
     name = "agentforce-service-agent"
+    # Hop/wiretap label: the network node callers actually hit. The hosted
+    # Lambda sets this to "agentforce-a2a-shim" so call paths show the shim
+    # explicitly (the adapter name above stays the agent-card identity).
+    hop_label = "agentforce-service-agent"
     description = (
         "Salesforce Agentforce service agent (A2A interop lab), reached via "
         "a protocol shim that proxies to the GA Agent API. Ask it questions "
@@ -44,19 +55,23 @@ class AgentforceProxyAdapter:
     def client(self) -> AgentforceClient:
         if self._client is None:
             self._client = AgentforceClient.from_env()
+            self._client.source_name = self.hop_label
         return self._client
 
     async def handle(self, req: AgentRequest) -> AgentResponse:
-        platform = ((req.metadata or {}).get("delegation") or {}).get("platform")
+        platform = delegation.platform_of(req)
         twin_id = os.environ.get(TWIN_ENV_BY_PLATFORM.get(platform, ""), "") or None
         if req.session_id is None and self.session_reuse:
             req.session_id = f"shim-shared-{platform or 'direct'}"
         if twin_id and twin_id != self.client.agent_id:
             # Per-request twin override: the client caches sessions per
             # session_id, so distinct twins ride distinct session keys above.
-            client = AgentforceClient.from_env()
-            client.agent_id = twin_id
             self._twin_clients = getattr(self, "_twin_clients", {})
-            client = self._twin_clients.setdefault(twin_id, client)
+            client = self._twin_clients.get(twin_id)
+            if client is None:
+                client = AgentforceClient.from_env()
+                client.agent_id = twin_id
+                client.source_name = self.hop_label
+                self._twin_clients[twin_id] = client
             return await client.ask(req)
         return await self.client.ask(req)

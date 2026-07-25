@@ -1,13 +1,130 @@
 #!/usr/bin/env bash
-# Start the full local lab stack (Claude agent on all three protocols,
-# Agentforce shims, bridge, console). Ctrl-C stops everything.
+# Start the full local lab stack (Claude agent on all three protocols, the
+# OpenAI agent, the Lab Guide, the Agentforce shims, the bridge, the console
+# and the brief watcher). Ctrl-C stops everything.
+#
+# Why the port bookkeeping below: every server is launched as `uv run python
+# -m ...`, so the process that actually holds the listening socket is uv's
+# CHILD. Killing the recorded pid (or Ctrl-C'ing a stack whose parent shell
+# has already gone) can leave that child alive and the port bound — which
+# surfaces on the next start as
+#   ERROR: [Errno 48] error while attempting to bind on address ... in use
+# and, worse, as a stack that silently keeps running last week's code. So the
+# stack is reclaimed BY PORT on the way in and on the way out.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The stack's own skip-checks read credentials from the environment
+# (SF_CLIENT_ID gates the Agentforce shims), so source .env here — that makes
+# `scripts/run_local.sh` self-sufficient, the way CLAUDE.md documents it.
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
 export PYTHONPATH=src
-PIDS=()
-cleanup() { kill "${PIDS[@]}" 2>/dev/null || true; }
+
+# Every port this stack listens on. Keep in sync with the run lines below —
+# this list is the cleanup contract in both directions.
+PORTS=(8001 8002 8003 8011 8012 8013 8021 8023 8031 8032 8033 8100 8200)
+# The brief watcher binds nothing, so it can only be matched by name.
+WATCHER_PATTERN="python -m briefs --watch"
+
+_listeners_on() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null || true; }
+
+_ports_busy() {
+  local port
+  for port in "${PORTS[@]}"; do
+    if [[ -n "$(_listeners_on "$port")" ]]; then return 0; fi
+  done
+  return 1
+}
+
+# Clear the lab's ports of a PREVIOUS run, before this one starts. Refuses to
+# kill anything that isn't a python/uv process: a blanket port sweep would
+# happily take out someone else's service that happens to sit on 8200.
+reclaim_ports() {
+  local port pid cmd
+  for port in "${PORTS[@]}"; do
+    for pid in $(_listeners_on "$port"); do
+      cmd=$(ps -o command= -p "$pid" 2>/dev/null || true)
+      if [[ ! "$cmd" =~ (python|uv) ]]; then
+        echo "!! :$port is held by a non-lab process (pid $pid): ${cmd:0:90}" >&2
+        echo "   refusing to kill it — free that port yourself and re-run." >&2
+        exit 1
+      fi
+      echo "  reclaiming :$port from pid $pid"
+      kill "$pid" 2>/dev/null || true
+    done
+  done
+  pkill -f "$WATCHER_PATTERN" 2>/dev/null || true
+
+  # Ports linger for a moment after SIGTERM; insist only if they don't clear.
+  local i
+  for i in $(seq 1 12); do
+    if ! _ports_busy; then return 0; fi
+    sleep 0.25
+  done
+  for port in "${PORTS[@]}"; do
+    for pid in $(_listeners_on "$port"); do
+      echo "  :$port did not release — SIGKILL pid $pid"
+      kill -9 "$pid" 2>/dev/null || true
+    done
+  done
+  sleep 0.5
+}
+
+PIDS=()   # uv wrappers we launched
+OWNED=()  # the python processes actually holding our ports (filled after boot)
+
+# Shutdown kills only what THIS run started — never whatever currently holds
+# the port. Otherwise a stack dying late (a background session ending, a
+# forgotten terminal) would reach out and kill the stack someone started
+# after it, which is a genuinely confusing way to lose an afternoon.
+cleanup() {
+  local ours=()
+  if [[ ${#PIDS[@]} -gt 0 ]]; then ours+=("${PIDS[@]}"); fi
+  if [[ ${#OWNED[@]} -gt 0 ]]; then ours+=("${OWNED[@]}"); fi
+  # Nothing started yet (e.g. the preflight refused a port) — nothing to stop.
+  if [[ ${#ours[@]} -eq 0 ]]; then return 0; fi
+  kill "${ours[@]}" 2>/dev/null || true
+  sleep 0.5
+  kill -9 "${ours[@]}" 2>/dev/null || true
+}
 trap cleanup EXIT
+
+# Which deployment mode this stack came up in (D26). Nothing in the process
+# list or the port map reveals it: A2ALAB_MODE lives in .env and silently
+# repoints console runs and the bridge at the hosted AgentCore runtimes. A
+# stack that looks entirely local can therefore be answering from AWS, so say
+# it out loud at boot rather than letting it surface as a confusing debug
+# session against a local server that was never in the call path.
+mode_banner() {
+  uv run python - <<'PY'
+from interop.registry import Registry
+
+reg = Registry.load()
+remap = reg.modes.get(reg.mode, {})
+if not remap:
+    print(f"deployment mode: {reg.mode} — every target resolves to the local stack.")
+else:
+    print(f"deployment mode: {reg.mode.upper()} — these targets do NOT run locally:")
+    for src, dst in sorted(remap.items()):
+        print(f"    {src:<14} -> {dst}")
+    print("  console runs and the bridge follow this remap; scripts/matrix.py is")
+    print("  exempt and always measures the target it names. Change it by editing")
+    print("  A2ALAB_MODE in .env and re-running this script.")
+PY
+}
+
+echo "checking for a previous stack..."
+reclaim_ports
+echo "ports clear."
+echo
+mode_banner
+echo
 
 run() { echo "+ $*"; "$@" & PIDS+=($!); }
 
@@ -24,6 +141,11 @@ if [[ -n "${SF_CLIENT_ID:-}" ]]; then
 else
   echo "(Agentforce shims skipped — SF_CLIENT_ID not set)"
 fi
+# Lab Guide (plan/07) — the console docent, served as a lab agent over all
+# three protocols (the meta exhibit; MCP additionally exposes raw read tools)
+run uv run python -m platforms.guide --protocol rest --port 8031
+run uv run python -m platforms.guide --protocol mcp  --port 8032
+run uv run python -m platforms.guide --protocol a2a  --port 8033
 run uv run python -m bridge --port 8100
 run uv run python -m console --port 8200
 if [[ -f .a2alab/brief.json && -n "${SF_CLIENT_ID:-}" ]]; then
@@ -35,8 +157,40 @@ else
   echo "(brief watcher skipped — run scripts/setup_brief_agent.py and set SF_* first)"
 fi
 
+# Readiness probe: a bind failure otherwise scrolls past in the noise of a
+# dozen starting servers, leaving a stack that is missing exactly one cell.
+echo
+echo "waiting for the stack to bind..."
+EXPECTED=()
+for port in "${PORTS[@]}"; do
+  # the shims are only started when Salesforce credentials are present
+  if [[ -z "${SF_CLIENT_ID:-}" && ( "$port" == "8021" || "$port" == "8023" ) ]]; then continue; fi
+  EXPECTED+=("$port")
+done
+missing=()
+for _ in $(seq 1 40); do
+  missing=()
+  for port in "${EXPECTED[@]}"; do
+    if [[ -z "$(_listeners_on "$port")" ]]; then missing+=("$port"); fi
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then break; fi
+  sleep 0.5
+done
+if [[ ${#missing[@]} -eq 0 ]]; then
+  echo "all ${#EXPECTED[@]} ports listening."
+else
+  echo "!! not listening after 20s: ${missing[*]} — scroll up for that server's error." >&2
+fi
+
+# Record the processes actually holding our ports — uv's children, the ones a
+# kill of PIDS alone would leave behind. This list is what shutdown kills.
+for port in "${EXPECTED[@]}"; do
+  for pid in $(_listeners_on "$port"); do OWNED+=("$pid"); done
+done
+
 echo
 echo "lab console:   http://localhost:8200"
 echo "bridge:        http://localhost:8100/invoke/{target}"
 echo "matrix:        uv run python scripts/matrix.py"
+echo "mode:          ${A2ALAB_MODE:-local}   (scroll up for what it remaps)"
 wait

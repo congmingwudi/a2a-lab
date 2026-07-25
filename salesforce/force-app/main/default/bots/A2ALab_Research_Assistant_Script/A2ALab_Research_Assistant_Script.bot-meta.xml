@@ -196,8 +196,8 @@
         <includeInPrompt>false</includeInPrompt>
         <label>Routable Id</label>
     </contextVariables>
-    <description>Research assistant for the A2A interop lab: customer account summaries grounded in CRM records via an Apex action, concise research answers, and protocol explanations. Re-implemented in Agent Script (ADR D14).</description>
-    <label>A2ALab Research Assistant (Script)</label>
+    <description>Research assistant for the A2A interop lab: customer account summaries grounded in CRM records via an Apex action, concise research answers, and protocol explanations. The CLAUDE-paired twin (D25) — its external research action targets the Claude agent. Authored in Agent Script (D14); the developer_name still reads _Script from that era.</description>
+    <label>A2ALab Research Assistant (Claude-paired)</label>
     <logPrivateConversationData>false</logPrivateConversationData>
     <richContentEnabled>true</richContentEnabled>
     <sessionTimeout>0</sessionTimeout>

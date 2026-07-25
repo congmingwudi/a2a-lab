@@ -29,7 +29,15 @@ from observability.base import HarvestResult, PlatformLogSource
 from observability.store import ObsStore
 
 API_VERSION = "v62.0"
+# `SELECT FIELDS(ALL)` is capped at 200 rows per query by the platform — it is
+# not a number we chose and not one we can raise. Left as a single query it
+# silently truncated the SESSION table while the three child-event DMOs kept
+# returning their own 200 each, so events referenced sessions that had been
+# cut: 823 orphaned events in Aurora as of 2026-07-25, growing every harvest.
+# So: page with OFFSET (SOQL caps that at 2000, hence MAX_PAGES), and then
+# fetch by id any session an event still refers to (_backfill_referenced).
 ROW_LIMIT = 200
+MAX_PAGES = 10
 
 SESSION_DMO = "ssot__AiAgentSession__dlm"
 # Child DMOs harvested as obs_events, in drill-down display order.
@@ -41,6 +49,27 @@ EVENT_DMOS = [
 
 # Heuristic field matchers (STDM names drift between orgs/releases).
 _TEXTY_HINTS = ("name", "txt", "text", "status", "type", "utterance", "title")
+
+# STDM writes the string "NOT_SET" where other APIs would write null, so an
+# unset foreign key reads as a perfectly good value to anything that only
+# checks for None.
+NOT_SET = "NOT_SET"
+
+# The child DMOs are NOT all children of the session — that assumption is what
+# orphaned 823 events in Aurora. The real shape (a2alab-prod, 2026-07-25):
+#   session   ssot__AiAgentSession__dlm             PK ssot__Id__c
+#   interaction  ...Interaction__dlm                FK ssot__AiAgentSessionId__c
+#   message      ...InteractionMessage__dlm         FK ssot__AiAgentSessionId__c
+#   step         ...InteractionStep__dlm            FK ssot__AiAgentInteractionId__c  <-- via interaction
+# Steps reach the session only through their interaction, so they need the
+# interaction map built first (EVENT_DMOS is ordered to guarantee that).
+SESSION_FK = "ssot__AiAgentSessionId__c"
+INTERACTION_FK = "ssot__AiAgentInteractionId__c"
+
+
+def _clean_ref(value: Any) -> str:
+    text = str(value or "").strip()
+    return "" if text in ("", NOT_SET, "None") else text
 
 
 def _first_key(rec: dict[str, Any], *hints: str) -> Any:
@@ -80,12 +109,19 @@ class SalesforceSource(PlatformLogSource):
         domain = os.environ["SF_MY_DOMAIN"].rstrip("/")
         if not domain.startswith("https://"):
             domain = f"https://{domain}"
+        # F6 per-caller identity: the harvest has its own External Client App
+        # (a2a_lab_obs) — the only lab caller that needs the `api` scope, since
+        # it reads the Data Cloud DMOs through /services/data. Falls back to
+        # the shared app so an unwired environment still harvests. The hosted
+        # seams get the same split through their own runtime secrets (D37).
+        client_id = os.environ.get("SF_CLIENT_ID_OBS") or os.environ["SF_CLIENT_ID"]
+        client_secret = os.environ.get("SF_CLIENT_SECRET_OBS") or os.environ["SF_CLIENT_SECRET"]
         resp = self._http.post(
             f"{domain}/services/oauth2/token",
             data={
                 "grant_type": "client_credentials",
-                "client_id": os.environ["SF_CLIENT_ID"],
-                "client_secret": os.environ["SF_CLIENT_SECRET"],
+                "client_id": client_id,
+                "client_secret": client_secret,
             },
         )
         resp.raise_for_status()
@@ -103,19 +139,52 @@ class SalesforceSource(PlatformLogSource):
             rec.pop("attributes", None)
         return records
 
-    def harvest(self, store: ObsStore) -> HarvestResult:
-        result = HarvestResult(platform=self.name, status="ok")
-        if not os.environ.get("SF_MY_DOMAIN") or not os.environ.get("SF_CLIENT_ID"):
-            result.status = "blocked"
-            result.detail = "SF_MY_DOMAIN / SF_CLIENT_ID not set — source .env first"
-            store.set_harvest_status(self.name, result.status, result.detail)
-            return result
-        try:
-            domain, token = self._token()
-            sessions = self._soql(
-                domain, token, f"SELECT FIELDS(ALL) FROM {SESSION_DMO} LIMIT {ROW_LIMIT}"
-            )
-            for rec in sessions:
+    def _soql_paged(self, domain: str, token: str, dmo: str) -> list[dict[str, Any]]:
+        """All rows of a DMO, 200 at a time.
+
+        Ordered by the PK so OFFSET paging is stable; an org whose DMO lacks
+        `ssot__Id__c` falls back to one unordered page rather than failing the
+        whole harvest — the same field-name-drift defensiveness as _timestamp.
+        """
+        rows: list[dict[str, Any]] = []
+        for page in range(MAX_PAGES):
+            clause = f"SELECT FIELDS(ALL) FROM {dmo} ORDER BY ssot__Id__c LIMIT {ROW_LIMIT}"
+            if page:
+                clause += f" OFFSET {page * ROW_LIMIT}"
+            try:
+                batch = self._soql(domain, token, clause)
+            except httpx.HTTPStatusError:
+                if page:
+                    break  # keep the pages we already have
+                return self._soql(domain, token, f"SELECT FIELDS(ALL) FROM {dmo} LIMIT {ROW_LIMIT}")
+            rows.extend(batch)
+            if len(batch) < ROW_LIMIT:
+                break
+        return rows
+
+    def _backfill_referenced(
+        self, domain: str, token: str, store: ObsStore, missing: set[str]
+    ) -> int:
+        """Fetch sessions that harvested events point at but paging never reached.
+
+        This is what actually guarantees no orphans: paging raises the ceiling,
+        but only fetching the ids we KNOW are referenced closes the gap.
+        """
+        fetched = 0
+        ids = [i for i in missing if i]
+        for start in range(0, len(ids), 100):
+            chunk = ids[start : start + 100]
+            quoted = ", ".join("'" + i.replace("'", "") + "'" for i in chunk)
+            try:
+                rows = self._soql(
+                    domain,
+                    token,
+                    f"SELECT FIELDS(ALL) FROM {SESSION_DMO} "
+                    f"WHERE ssot__Id__c IN ({quoted}) LIMIT {ROW_LIMIT}",
+                )
+            except httpx.HTTPStatusError:
+                break
+            for rec in rows:
                 sid = rec.get("ssot__Id__c") or _first_key(rec, "id__c")
                 if not sid:
                     continue
@@ -128,13 +197,41 @@ class SalesforceSource(PlatformLogSource):
                     updated_at=str(_timestamp(rec, "end") or "") or None,
                     raw=rec,
                 )
+                fetched += 1
+        return fetched
+
+    def harvest(self, store: ObsStore) -> HarvestResult:
+        result = HarvestResult(platform=self.name, status="ok")
+        if not os.environ.get("SF_MY_DOMAIN") or not os.environ.get("SF_CLIENT_ID"):
+            result.status = "blocked"
+            result.detail = "SF_MY_DOMAIN / SF_CLIENT_ID not set — source .env first"
+            store.set_harvest_status(self.name, result.status, result.detail)
+            return result
+        try:
+            domain, token = self._token()
+            sessions = self._soql_paged(domain, token, SESSION_DMO)
+            seen_sessions: set[str] = set()
+            for rec in sessions:
+                sid = rec.get("ssot__Id__c") or _first_key(rec, "id__c")
+                if not sid:
+                    continue
+                seen_sessions.add(str(sid))
+                store.upsert_session(
+                    self.name,
+                    str(sid),
+                    title=str(_first_key(rec, "name") or "Agentforce session"),
+                    status=str(_first_key(rec, "status") or _first_key(rec, "endtype") or ""),
+                    created_at=str(_timestamp(rec, "start") or "") or None,
+                    updated_at=str(_timestamp(rec, "end") or "") or None,
+                    raw=rec,
+                )
                 result.sessions += 1
 
+            referenced: set[str] = set()
+            interaction_to_session: dict[str, str] = {}
             for kind, dmo in EVENT_DMOS:
                 try:
-                    rows = self._soql(
-                        domain, token, f"SELECT FIELDS(ALL) FROM {dmo} LIMIT {ROW_LIMIT}"
-                    )
+                    rows = self._soql_paged(domain, token, dmo)
                 except httpx.HTTPStatusError as exc:
                     result.errors.append(f"{dmo}: HTTP {exc.response.status_code}")
                     continue
@@ -142,7 +239,20 @@ class SalesforceSource(PlatformLogSource):
                     event_id = rec.get("ssot__Id__c") or _first_key(rec, "id__c")
                     if not event_id:
                         continue
-                    session_ref = _first_key(rec, "session", "id") or ""
+                    # Named columns first, heuristic only as the drift fallback:
+                    # the old heuristic matched ssot__SessionOwnerId__c ("NOT_SET")
+                    # on step rows and filed every one of them under a session id
+                    # that does not exist.
+                    session_ref = _clean_ref(rec.get(SESSION_FK))
+                    if not session_ref:
+                        parent = _clean_ref(rec.get(INTERACTION_FK))
+                        session_ref = interaction_to_session.get(parent, "")
+                    if not session_ref:
+                        session_ref = _clean_ref(_first_key(rec, "session", "id"))
+                    if kind == "interaction" and session_ref:
+                        interaction_to_session[str(event_id)] = session_ref
+                    if session_ref:
+                        referenced.add(session_ref)
                     store.upsert_event(
                         self.name,
                         str(session_ref),
@@ -156,6 +266,13 @@ class SalesforceSource(PlatformLogSource):
                         raw=rec,
                     )
                     result.events += 1
+
+            backfilled = self._backfill_referenced(domain, token, store, referenced - seen_sessions)
+            result.sessions += backfilled
+            if backfilled:
+                result.detail = (
+                    f"{backfilled} session(s) fetched by id for events that referenced them"
+                )
 
             if not sessions:
                 result.detail = (

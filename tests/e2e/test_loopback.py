@@ -26,8 +26,22 @@ class EchoAdapter:
     description = "Deterministic echo agent for loopback protocol tests."
 
     async def handle(self, req: AgentRequest) -> AgentResponse:
+        text = f"echo: {req.message}"
+        # Nested metadata must arrive as plain dicts on every protocol
+        # (isinstance guard: a protobuf Struct leaking through would skip
+        # this branch and fail the delegation round-trip assertion).
+        delegation_meta = req.metadata.get("delegation")
+        if isinstance(delegation_meta, dict):
+            text += f" [delegated-by {delegation_meta['platform']} depth {int(delegation_meta['depth'])}]"
+        # WS6 U2: embed user-arrival evidence in the TEXT — A2A responses
+        # are Tasks with text artifacts, so text is the one uniform channel
+        # every protocol round-trips.
+        user_ctx = req.metadata.get("user_context")
+        if isinstance(user_ctx, dict):
+            has_token = isinstance(req.metadata.get("user_token"), str)
+            text += f" [user {user_ctx.get('sub')} token={'yes' if has_token else 'no'}]"
         return AgentResponse(
-            text=f"echo: {req.message}",
+            text=text,
             session_id=req.session_id,
             raw={"metadata": req.metadata},
         )
@@ -132,6 +146,52 @@ async def test_a2a_loopback(echo_servers, isolated_traces):
     assert any(e["trace_id"] == "t-a2a" for e in server_events)
 
 
+async def test_a2a_delegation_metadata_round_trip(echo_servers):
+    """metadata["delegation"] rides the A2A message and lands server-side as
+    a plain dict — the shim's twin routing (D25/D28) depends on it."""
+    client = A2AClient(f"http://127.0.0.1:{echo_servers['a2a']}")
+    resp = await client.ask(
+        AgentRequest(
+            message="ping",
+            metadata={"delegation": {"caller": "adk-gemini-agent", "platform": "adk", "depth": 1}},
+        )
+    )
+    assert resp.text == "echo: ping [delegated-by adk depth 1]"
+
+
+async def test_a2a_03_dialect_round_trip(echo_servers):
+    """A 0.3-era client (Foundry's A2A tool) speaks message/send with
+    kind-discriminated parts — the compat middleware must serve it a
+    0.3-shaped completed Task from the same 1.x server."""
+    async with httpx.AsyncClient() as hc:
+        r = await hc.post(
+            f"http://127.0.0.1:{echo_servers['a2a']}/",
+            json={
+                "jsonrpc": "2.0",
+                "id": "compat-1",
+                "method": "message/send",
+                "params": {
+                    "message": {
+                        "kind": "message",
+                        "messageId": "m-03",
+                        "role": "user",
+                        "parts": [{"kind": "text", "text": "ping"}],
+                    }
+                },
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["id"] == "compat-1"
+        task = body["result"]
+        assert task["kind"] == "task"
+        assert task["status"]["state"] == "completed"
+        texts = [
+            p["text"] for a in task["artifacts"] for p in a["parts"] if p.get("kind") == "text"
+        ]
+        assert texts == ["echo: ping"]
+
+
 async def test_a2a_agent_card_published(echo_servers):
     async with httpx.AsyncClient() as hc:
         r = await hc.get(f"http://127.0.0.1:{echo_servers['a2a']}/.well-known/agent-card.json")
@@ -140,6 +200,8 @@ async def test_a2a_agent_card_published(echo_servers):
         assert card["name"] == "echo"
         skills = card.get("skills", [])
         assert skills and skills[0]["id"] == "ask"
+        # 0.3-era compatibility fields (Foundry's A2A tool requires them)
+        assert card["url"] and card["protocolVersion"] and card["preferredTransport"]
 
 
 async def test_concurrent_protocols(echo_servers):
@@ -156,3 +218,28 @@ async def test_concurrent_protocols(echo_servers):
     finally:
         await rest.aclose()
     assert [r.text for r in results] == ["echo: r", "echo: m", "echo: a"]
+
+
+async def test_user_context_propagates_over_all_three_protocols(echo_servers):
+    """WS6 U2 acceptance: the user's display context (and, where the
+    protocol can carry it, the verifiable token) survives client → server
+    on every protocol. The EchoAdapter returns the metadata it SAW, so
+    this asserts arrival, not just departure."""
+    user_meta = {
+        "user_context": {"sub": "vic", "name": "Vic the Visitor", "role": "viewer"},
+        "user_token": "eyJfake.header.sig",
+    }
+    clients = {
+        "rest": RestClient(f"http://127.0.0.1:{echo_servers['rest']}"),
+        "mcp": McpClient(f"http://127.0.0.1:{echo_servers['mcp']}/mcp"),
+        "a2a": A2AClient(f"http://127.0.0.1:{echo_servers['a2a']}"),
+    }
+    try:
+        for proto, client in clients.items():
+            resp = await client.ask(
+                AgentRequest(message="who am I?", metadata=dict(user_meta), trace_id=f"t-u-{proto}")
+            )
+            assert "[user vic token=yes]" in resp.text, f"{proto} dropped user context: {resp.text}"
+    finally:
+        for client in clients.values():
+            await client.aclose()

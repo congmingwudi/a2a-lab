@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenAiPlannerBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Foundry-paired twin of the lab&apos;s research assistant (ADR D25): identical behavior, but external research delegates to the lab&apos;s Microsoft Foundry agent (gpt-5-mini on Foundry Agent Service, bridge target foundry-a2a) — keeping each cross-platform experiment a closed two-platform system.</description>
+    <localTopicLinks>
+        <genAiPluginName>agent_interoperability_protocols_16jKB000000wuFh</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>agent_router_16jKB000000wuFh</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>ambiguous_question_16jKB000000wuFh</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>customer_account_status_16jKB000000wuFh</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>escalation_16jKB000000wuFh</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>general_research_questions_16jKB000000wuFh</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>lab_scope_and_limitations_16jKB000000wuFh</genAiPluginName>
+    </localTopicLinks>
+    <localTopics>
+        <fullName>lab_scope_and_limitations_16jKB000000wuFh</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Selected ONLY when users ask about the A2A interop lab itself — its scope, capabilities, or limitations. Never selected for questions about customer accounts.</description>
+        <developerName>lab_scope_and_limitations_16jKB000000wuFh</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant (Foundry-paired twin, ADR D25). You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents. Your external research counterpart is the lab&apos;s Microsoft Foundry research agent (gpt-5-mini on Foundry Agent Service).</description>
+            <developerName>instruction0_179KB000000pZ5g</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ5g</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>lab_scope_and_limitations</localDeveloperName>
+        <masterLabel>Lab scope and limitations</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>agent_interoperability_protocols_16jKB000000wuFh</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Explaining and comparing agent interoperability protocols and mechanisms such as REST APIs, MCP, and the A2A protocol.</description>
+        <developerName>agent_interoperability_protocols_16jKB000000wuFh</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant (Foundry-paired twin, ADR D25). You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents. Your external research counterpart is the lab&apos;s Microsoft Foundry research agent (gpt-5-mini on Foundry Agent Service).</description>
+            <developerName>instruction0_179KB000000pZ5h</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ5h</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>agent_interoperability_protocols</localDeveloperName>
+        <masterLabel>Agent interoperability protocols</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>agent_router_16jKB000000wuFh</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Welcome the user and determine the appropriate subagent based on user input</description>
+        <developerName>agent_router_16jKB000000wuFh</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant (Foundry-paired twin, ADR D25). You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents. Your external research counterpart is the lab&apos;s Microsoft Foundry research agent (gpt-5-mini on Foundry Agent Service).</description>
+            <developerName>instruction0_179KB000000pZ5k</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ5k</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>agent_router</localDeveloperName>
+        <masterLabel>Agent Router</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>escalation_16jKB000000wuFh</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Handles requests from users who want to transfer or escalate their conversation to a live human agent.</description>
+        <developerName>escalation_16jKB000000wuFh</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant (Foundry-paired twin, ADR D25). You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents. Your external research counterpart is the lab&apos;s Microsoft Foundry research agent (gpt-5-mini on Foundry Agent Service).</description>
+            <developerName>instruction0_179KB000000pZ5l</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ5l</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>escalation</localDeveloperName>
+        <masterLabel>Escalation</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>customer_account_status_16jKB000000wuFh</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Selected when users ask what is known about a customer account or company, its current state, health, opportunities, or support cases — for example &apos;tell me what you know about account X&apos; — including queries relayed from other agents.</description>
+        <developerName>customer_account_status_16jKB000000wuFh</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant (Foundry-paired twin, ADR D25). You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents. Your external research counterpart is the lab&apos;s Microsoft Foundry research agent (gpt-5-mini on Foundry Agent Service).</description>
+            <developerName>instruction0_179KB000000pZ5i</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ5i</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localActionLinks>
+            <functionName>get_account_summary_179KB000000pZ5i</functionName>
+        </localActionLinks>
+        <localActionLinks>
+            <functionName>ask_external_researcher_179KB000000pZ5i</functionName>
+        </localActionLinks>
+        <localActions>
+            <fullName>get_account_summary_179KB000000pZ5i</fullName>
+            <description>Looks up a customer account by name and returns a short summary of its current state: relationship notes, open opportunities with amounts and stages, and open support cases with priorities.</description>
+            <developerName>get_account_summary_179KB000000pZ5i</developerName>
+            <invocationTarget>A2ALabGetAccountSummary</invocationTarget>
+            <invocationTargetType>apex</invocationTargetType>
+            <isConfirmationRequired>false</isConfirmationRequired>
+            <isIncludeInProgressIndicator>false</isIncludeInProgressIndicator>
+            <localDeveloperName>get_account_summary</localDeveloperName>
+            <masterLabel>A2ALab: Get Account Summary</masterLabel>
+        </localActions>
+        <localActions>
+            <fullName>ask_external_researcher_179KB000000pZ5i</fullName>
+            <description>Delegates a research question to the lab&apos;s external AI research agent (Microsoft Foundry/gpt-5-mini) through the A2A lab bridge and returns its answer. Use for outside-in market research that CRM records cannot answer.</description>
+            <developerName>ask_external_researcher_179KB000000pZ5i</developerName>
+            <invocationTarget>A2ALabInvokeRemoteAgent</invocationTarget>
+            <invocationTargetType>apex</invocationTargetType>
+            <isConfirmationRequired>false</isConfirmationRequired>
+            <isIncludeInProgressIndicator>false</isIncludeInProgressIndicator>
+            <localDeveloperName>ask_external_researcher</localDeveloperName>
+            <masterLabel>A2ALab: Ask Remote Agent (Foundry)</masterLabel>
+        </localActions>
+        <localDeveloperName>customer_account_status</localDeveloperName>
+        <masterLabel>Customer account status</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>general_research_questions_16jKB000000wuFh</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Answering research and general-knowledge questions on any subject concisely, in 2-4 sentences, including questions relayed from other agents.</description>
+        <developerName>general_research_questions_16jKB000000wuFh</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant (Foundry-paired twin, ADR D25). You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents. Your external research counterpart is the lab&apos;s Microsoft Foundry research agent (gpt-5-mini on Foundry Agent Service).</description>
+            <developerName>instruction0_179KB000000pZ5j</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ5j</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>general_research_questions</localDeveloperName>
+        <masterLabel>General research questions</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>ambiguous_question_16jKB000000wuFh</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Redirect conversation to relevant topics when user request is too ambiguous</description>
+        <developerName>ambiguous_question_16jKB000000wuFh</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab research assistant (Foundry-paired twin, ADR D25). You summarize the current state of customer accounts from CRM records, answer research and general-knowledge questions concisely in 2-4 sentences, explain agent interoperability protocols (REST, MCP, A2A), and clarify the lab&apos;s scope — including for questions relayed from other agents. Your external research counterpart is the lab&apos;s Microsoft Foundry research agent (gpt-5-mini on Foundry Agent Service).</description>
+            <developerName>instruction0_179KB000000pZ5m</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ5m</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>ambiguous_question</localDeveloperName>
+        <masterLabel>Ambiguous Question</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <masterLabel>A2ALab Research Assistant (Foundry-paired)</masterLabel>
+    <plannerType>Atlas__ConcurrentMultiAgentOrchestration</plannerType>
+</GenAiPlannerBundle>

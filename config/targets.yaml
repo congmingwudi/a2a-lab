@@ -31,6 +31,28 @@ targets:
     endpoint: http://localhost:8003
     status: native
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  # ---- Lab Guide (hosted by us) — the console docent served as a lab agent
+  # over all three protocols (the meta exhibit, plan/07). Its MCP server also
+  # exposes raw read tools (get_decision, get_trace, …) for client-side
+  # reasoning — demonstrable from Claude Desktop.
+  guide-rest:
+    platform: guide
+    protocol: rest
+    endpoint: http://localhost:8031
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  guide-mcp:
+    platform: guide
+    protocol: mcp
+    endpoint: http://localhost:8032/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  guide-a2a:
+    platform: guide
+    protocol: a2a
+    endpoint: http://localhost:8033
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
   # The AWS-hosted twin (D26): the sdk backend containerized on Bedrock
   # AgentCore Runtime — the self-hosted counterpart to the Managed Agents
   # default, and the apples-to-apples peer of openai-agentcore. Same
@@ -41,7 +63,7 @@ targets:
     status: native
     # warmup: cold starts (~56s here, ~31s openai) blow demo budgets — the
     # console's warm-up panel pings flagged targets and records durations
-    options: {timeout: 65, warmup: true}
+    options: {timeout: 110, warmup: true}
     auth: {runtime_arn: "${CLAUDE_AGENTCORE_ARN}"}
 
   # ---- Agentforce (hosted by Salesforce)
@@ -102,12 +124,13 @@ targets:
     platform: openai
     protocol: agentcore-http
     status: native
-    options: {timeout: 65, warmup: true}
+    options: {timeout: 110, warmup: true}
     auth: {runtime_arn: "${OPENAI_AGENTCORE_ARN}"}
 
   # The ADK-paired Agentforce twin (ADR D25): same org/credentials,
   # different agent — its external-research action targets adk-a2a.
-  agentforce-adk-rest:
+  agentforce-google-adk-rest:
+    aliases: [agentforce-adk-rest]
     platform: agentforce
     protocol: agentforce-api
     status: native
@@ -122,7 +145,61 @@ targets:
   # both ends native, no bridge, no shim. IAM data plane (google-adc
   # bearer), card served at /v1/card (not /.well-known). Scale-to-zero
   # (min_instances=0, personal GCP account) — hence warmup.
-  adk-a2a:
+  agentforce-a2a-shim:
+    platform: agentforce
+    protocol: a2a
+    # The AWS-hosted shim (D28) as a first-class cell + warm-up entry: the
+    # fail-safe for demo cold starts on platform-side tool calls (Foundry's
+    # A2A tool does not retry). The delegated warm-up ping pre-creates the
+    # foundry-keyed twin session behind API Gateway's 29s ceiling.
+    endpoint: ${AF_SHIM_A2A_URL}
+    status: via-shim
+    options:
+      timeout: 35
+      warmup: true
+      warmup_delegated_platform: foundry
+    auth:
+      header_name: x-lab-token
+      header_value: ${A2ALAB_TOKEN}
+  agentforce-foundry-rest:
+    platform: agentforce
+    protocol: agentforce-api
+    status: native
+    auth:
+      my_domain: ${SF_MY_DOMAIN}
+      client_id: ${SF_CLIENT_ID}
+      client_secret: ${SF_CLIENT_SECRET}
+      agent_id: ${SF_FOUNDRY_AGENT_ID}
+  foundry-rest:
+    platform: foundry
+    protocol: foundry-api
+    # The platform's own front door (D15 entry): the project's Responses
+    # surface with an agent_reference. No endpoint here — the client builds
+    # it from AZURE_FOUNDRY_PROJECT_ENDPOINT (Entra ADC auth). 100s: the
+    # client retries a failed platform-side tool call once (cold shim leg
+    # ~30s + warmed retry ~40s must both fit).
+    status: native
+    options:
+      timeout: 100
+      agent_name: a2alab-foundry-researcher
+      # Force the platform-side tool call: the model skips its delegation
+      # ~half the time otherwise (and can fabricate the skipped answer).
+      tool_choice: required
+  foundry-a2a:
+    platform: foundry
+    protocol: a2a
+    # Foundry Agent Service incoming A2A (preview): platform-native
+    # endpoint, Entra-only auth (no key option), JSONRPC binding, cards
+    # served per protocol version (v1.0 / v0.3) at custom paths.
+    endpoint: ${AZURE_FOUNDRY_PROJECT_ENDPOINT}/agents/a2alab-foundry-researcher/endpoint/protocols/a2a
+    status: native
+    options:
+      timeout: 65
+      card_path: agentCard/v1.0
+    auth:
+      scheme: azure-ad
+  google-adk-a2a:
+    aliases: [adk-a2a]  # the ADK twin's published script pins this bridge target
     platform: adk
     protocol: a2a
     endpoint: "${ADK_A2A_ENDPOINT}"

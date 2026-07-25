@@ -31,11 +31,21 @@ from interop.models import AgentRequest
 MARKER = "[A2A-LAB DELEGATION]"
 END_MARKER = "[/A2A-LAB DELEGATION]"
 _DEPTH_RE = re.compile(r"delegation-depth:\s*(\d+)")
+_PLATFORM_RE = re.compile(r"caller-platform:\s*([\w.-]+)")
+
+# The rider grammar is a versioned text contract (F7, the D37 anti-pattern
+# audit): `key: value` lines between the markers, one per line.
+# Parsers scan for the keys they know and MUST tolerate unknown lines —
+# that tolerance is what lets the grammar grow (lab-trace arrived in v1
+# unannounced; on-behalf-of lands in v2 with WS6). Bump RIDER_VERSION when
+# a change would break a v1 parser, not when adding a line.
+RIDER_VERSION = 1
 
 _RIDER_TEMPLATE = (
     "\n\n"
     + MARKER
     + "\n"
+    + f"rider-version: {RIDER_VERSION}\n"
     + "caller-agent: {caller}\n"
     + "caller-platform: {platform}\n"
     + "delegation-depth: {depth}\n"
@@ -65,18 +75,82 @@ def depth_of(req: AgentRequest) -> int:
     return 0
 
 
+def platform_of(req: AgentRequest) -> str | None:
+    """The platform that delegated this request, or None for an origin
+    request. metadata wins; the message-scan fallback covers hops that
+    crossed a text-only platform or a metadata-dropping transport (the
+    shim's twin routing depends on this surviving every hop)."""
+    meta = (req.metadata or {}).get("delegation") or {}
+    if isinstance(meta, dict) and meta.get("platform"):
+        return str(meta["platform"])
+    if req.message and MARKER in req.message:
+        match = _PLATFORM_RE.search(req.message)
+        if match:
+            return match.group(1)
+    return None
+
+
 def allowed(req: AgentRequest) -> bool:
     """May the agent handling ``req`` delegate onward?"""
     return depth_of(req) < max_depth()
 
 
-def delegate(message: str, *, caller: str, platform: str, inbound_depth: int) -> tuple[str, dict]:
+def delegate(
+    message: str,
+    *,
+    caller: str,
+    platform: str,
+    inbound_depth: int,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+) -> tuple[str, dict]:
     """Compose an outbound delegation: (message + rider, metadata) at
-    depth inbound_depth + 1. Callers check ``allowed()`` first."""
+    depth inbound_depth + 1. Callers check ``allowed()`` first.
+
+    When ``trace_id`` is given, the rider carries a ``lab-trace:`` line —
+    TEXT-level trace propagation through platforms that support no tracing
+    headers: the experiment's trace id lands verbatim in the remote
+    platform's own logs (Agent API messages, Foundry span inputs, CMA
+    events), where the obs harvest extracts it and links each platform's
+    native session back to the lab run that caused it.
+
+    User context (WS6 U2) rides the same two-channel split, deliberately:
+    ``on-behalf-of:`` in the rider is the TEXT channel — it survives every
+    hop and lands in the remote platform's own logs, but any caller can
+    type it (asserted-only). ``user_token`` in the metadata is the
+    VERIFIABLE channel — a lab-signed JWT any seam can check with the
+    public key, but it only survives hops that preserve metadata. The
+    asymmetry between the two is the WS6 experiment."""
     depth = inbound_depth + 1
     rider = _RIDER_TEMPLATE.format(caller=caller, platform=platform, depth=depth)
-    meta = {"delegation": {"caller": caller, "platform": platform, "depth": depth}}
+    extra_lines = ""
+    if trace_id:
+        extra_lines += f"lab-trace: {trace_id}\n"
+    sub = (user_context or {}).get("sub")
+    if sub:
+        extra_lines += f"on-behalf-of: {sub}\n"
+    if extra_lines:
+        rider = rider.replace(
+            f"delegation-depth: {depth}\n",
+            f"delegation-depth: {depth}\n{extra_lines}",
+        )
+    meta: dict = {"delegation": {"caller": caller, "platform": platform, "depth": depth}}
+    if user_context:
+        meta["user_context"] = user_context
+    if user_token:
+        meta["user_token"] = user_token
     return message + rider, meta
+
+
+def user_of(req: AgentRequest) -> tuple[dict | None, str | None]:
+    """(user_context, user_token) as they arrived on a request — the seam
+    helper for forwarding both channels onward (U2). Returns (None, None)
+    on requests that carried no user."""
+    meta = req.metadata or {}
+    ctx = meta.get("user_context")
+    token = meta.get("user_token")
+    return (ctx if isinstance(ctx, dict) else None), (token if isinstance(token, str) else None)
 
 
 def refusal(seam: str) -> str:
@@ -87,6 +161,12 @@ def refusal(seam: str) -> str:
         "blocked to prevent circular agent-to-agent calls. Answer from "
         "your own knowledge and data instead of calling other agents."
     )
+
+
+def rider_for(caller: str, platform: str, depth: int = 1) -> str:
+    """The exact rider a given seam injects — display surfaces show the
+    resolved block for the experiment at hand."""
+    return _RIDER_TEMPLATE.format(caller=caller, platform=platform, depth=depth).strip()
 
 
 def example_rider() -> str:

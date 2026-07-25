@@ -11,6 +11,7 @@ with the actual bytes on the wire.
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -18,6 +19,34 @@ from interop.models import new_trace_id
 from interop.trace import TraceEvent, get_recorder
 
 _MAX_CAPTURE = 200_000
+_RIDER_PLATFORM_RE = re.compile(r"caller-platform:\s*([\w.-]+)")
+
+
+def _extract_caller(body: bytes) -> str | None:
+    """Name the hop's source from the delegation context when the envelope
+    carries it (metadata.delegation.platform, else the rider text in a
+    message part) — inbound envelopes at the shim then read
+    foundry→shim / adk→shim instead of the anonymous remote-caller."""
+    try:
+        envelope = json.loads(body)
+    except Exception:
+        return None
+    params = envelope.get("params") if isinstance(envelope, dict) else None
+    message = params.get("message") if isinstance(params, dict) else None
+    if not isinstance(message, dict):
+        return None
+    meta = message.get("metadata")
+    if isinstance(meta, dict):
+        delegation = meta.get("delegation")
+        if isinstance(delegation, dict) and delegation.get("platform"):
+            return str(delegation["platform"])
+    for part in message.get("parts") or []:
+        text = part.get("text") if isinstance(part, dict) else None
+        if text and "[A2A-LAB DELEGATION]" in text:
+            match = _RIDER_PLATFORM_RE.search(text)
+            if match:
+                return match.group(1)
+    return None
 
 
 def _extract_trace_id(body: bytes) -> str | None:
@@ -62,16 +91,46 @@ class WireTapMiddleware:
 
         method = scope.get("method", "")
         path = scope.get("path", "")
-        req_chunks: list[bytes] = []
         resp_chunks: list[bytes] = []
         resp_status: dict[str, Any] = {}
         start = time.perf_counter()
+        # Wall-clock ARRIVAL time: the event is constructed at completion
+        # (finally), and its default ts would sort this inbound hop AFTER
+        # the downstream hops it caused.
+        arrived = time.time()
 
-        async def tee_receive():
+        # Buffer the request body up front, then replay it once to the
+        # inner app. Passively teeing receive() hangs under Mangum (its
+        # single-shot receive never yields again when the framework polls
+        # for disconnect) — buffer-and-replay works under both Mangum and
+        # uvicorn (same technique as A2A03CompatMiddleware), which is what
+        # lets the hosted shim run the wiretap. Lab payloads are small
+        # JSON envelopes; buffering them whole is fine.
+        req_chunks: list[bytes] = []
+        while True:
             message = await receive()
-            if message["type"] == "http.request":
-                req_chunks.append(message.get("body", b""))
-            return message
+            if message["type"] != "http.request":
+                break
+            req_chunks.append(message.get("body", b""))
+            if not message.get("more_body"):
+                break
+        buffered = b"".join(req_chunks)
+        replayed = False
+
+        async def replay_receive():
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": buffered, "more_body": False}
+            # After the replay: under Mangum (aws.event in scope) the real
+            # channel never yields again — fabricate the disconnect (no
+            # streaming exists on Lambda). Under uvicorn, delegate to the
+            # real channel: SSE servers (MCP streamable-http) long-poll it
+            # for client disconnect, and a fabricated instant disconnect
+            # kills their stream mid-response.
+            if "aws.event" in scope:
+                return {"type": "http.disconnect"}
+            return await receive()
 
         async def tee_send(message):
             if message["type"] == "http.response.start":
@@ -82,7 +141,7 @@ class WireTapMiddleware:
             await send(message)
 
         try:
-            await self.app(scope, tee_receive, tee_send)
+            await self.app(scope, replay_receive, tee_send)
         finally:
             body = b"".join(req_chunks)
             # Only record exchanges that carry a payload (skips GETs for
@@ -94,7 +153,8 @@ class WireTapMiddleware:
                 recorder.record(
                     TraceEvent(
                         trace_id=trace_id,
-                        source="remote-caller",
+                        ts=arrived,
+                        source=_extract_caller(body) or "remote-caller",
                         target=self.service,
                         protocol=self.protocol,
                         transport_detail=f"{method} {path}",

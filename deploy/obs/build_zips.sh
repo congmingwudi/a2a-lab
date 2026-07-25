@@ -26,9 +26,13 @@ echo '"""packaging shim (deploy/obs/build_zips.sh)"""' > "$DIST/mcp/interop/__in
 (cd "$DIST/mcp" && zip -qr ../a2alab-obs-mcp.zip . -x '*__pycache__*')
 
 # ---- harvest zip ------------------------------------------------------------
+# google-auth: the adk source reads Cloud Logging/Monitoring through ADC.
+# azure-identity + azure-monitor-query: the foundry source reads App Insights.
+# Both platforms were "blocked" in the hosted harvest until 2026-07-25 purely
+# because their client libraries were never in this bundle.
 uv pip install --target "$DIST/harvest" \
   --python-platform aarch64-manylinux2014 --python-version 3.12 \
-  --only-binary :all: anthropic httpx -q
+  --only-binary :all: anthropic httpx google-auth azure-identity azure-monitor-query -q
 cp -R src/observability "$DIST/harvest/observability"
 rm -f "$DIST/harvest/observability/analyst.py"
 mkdir -p "$DIST/harvest/interop"

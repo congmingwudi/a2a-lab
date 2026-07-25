@@ -19,11 +19,14 @@ uv pip install --target "$STAGE" \
   "a2a-sdk[http-server]>=1.1,<2" "fastapi>=0.115" "mangum>=0.19" \
   "httpx>=0.28,<1" "pyyaml>=6.0" "python-dotenv>=1.0" >/dev/null
 
-# Lab code: the shim needs interop + the agentforce platform package only.
+# Lab code: interop + the agentforce platform package + observability (the
+# postgres trace sink — shim hops go to the Aurora store, D23/D28; the Data
+# API path needs only boto3, which the Lambda runtime provides).
 cp -R src/interop "$STAGE/interop"
 mkdir -p "$STAGE/platforms"
 touch "$STAGE/platforms/__init__.py"
 cp -R src/platforms/agentforce "$STAGE/platforms/agentforce"
+cp -R src/observability "$STAGE/observability"
 cp deploy/shim/handler.py "$STAGE/handler.py"
 find "$STAGE" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 

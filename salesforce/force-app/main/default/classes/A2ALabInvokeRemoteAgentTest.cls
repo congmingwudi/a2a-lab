@@ -1,7 +1,8 @@
 /**
  * Tests for A2ALabInvokeRemoteAgent. Production deploys require running
  * tests with >=75% coverage, so this class ships with the invocable from
- * day one and covers the success, non-2xx, default-target, and bulk paths.
+ * day one and covers the success, non-2xx, default-target, and
+ * batch-refusal (F8) paths.
  */
 @IsTest
 private class A2ALabInvokeRemoteAgentTest {
@@ -96,8 +97,11 @@ private class A2ALabInvokeRemoteAgentTest {
     }
 
     @IsTest
-    static void handlesBulkRequests() {
-        Test.setMock(HttpCalloutMock.class, new BridgeMock(200, '{"text": "ok"}'));
+    static void refusesBulkRequestsWithoutCallouts() {
+        // F8 batch guard: >1 request would stack serial 110s callouts past
+        // Apex limits — every request gets a refusal and no callout happens.
+        BridgeMock mock = new BridgeMock(200, '{"text": "ok"}');
+        Test.setMock(HttpCalloutMock.class, mock);
 
         List<A2ALabInvokeRemoteAgent.Request> reqs =
             new List<A2ALabInvokeRemoteAgent.Request>();
@@ -109,6 +113,11 @@ private class A2ALabInvokeRemoteAgentTest {
         List<A2ALabInvokeRemoteAgent.Response> out = A2ALabInvokeRemoteAgent.ask(reqs);
         Test.stopTest();
 
-        System.assertEquals(3, out.size());
+        System.assertEquals(3, out.size(), 'one Response per request');
+        for (A2ALabInvokeRemoteAgent.Response resp : out) {
+            System.assertEquals(A2ALabInvokeRemoteAgent.BATCH_REFUSAL, resp.answer);
+        }
+        System.assertEquals(null, mock.lastRequest,
+            'a refused batch must make no callouts');
     }
 }

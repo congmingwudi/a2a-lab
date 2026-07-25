@@ -4,22 +4,83 @@ Latency + transcript results per milestone. `scripts/matrix.py` appends
 matrix runs below; manual measurements (action-timeout probes, managed vs
 sdk first-turn latency) are recorded by hand with date + setup.
 
-## Timeout probes (M6 — pending)
+## Timeout probes (M6) — measured 2026-07-25
 
-| Injected delay | Agentforce action outcome | Notes |
-|---|---|---|
-| 10s | — | |
-| 30s | — | |
-| 60s | — | |
-| 90s | — | |
+`scripts/probe_action_timeout.py`, run against the live chain (Agent API →
+A2ALab_Research_Assistant_Script → Apex → Named Credential → tunnel → bridge
+→ local Claude, `CLAUDE_BACKEND=managed`, `A2ALAB_MODE=local`). Delay is
+injected at the bridge (`A2ALAB_DELAY_S`, src/bridge/app.py), so the custom
+action simply takes longer to return. "Action duration" = injected delay +
+the Claude leg (the bridge's own Hop starts *after* the sleep, so its
+recorded latency is the Claude leg alone).
 
-## Managed vs SDK backend latency (pending)
+| Injected delay | Action duration | Turn wall time | Agentforce action outcome |
+|---|---|---|---|
+| 10s | ~26.9s | 38.5s | completed — external answer used |
+| 30s | ~46.1s | 58.4s | completed — external answer used |
+| 60s | ~76.1s | 87.9s | completed — external answer used |
+| 65s | ~84.3s | 95.9s | completed — external answer used |
+| 70s | ~84.7s | 96.0s | completed — external answer used |
+| 75s | ~89.7s / ~93.2s | 99.8s / 100.7s | **abandoned** — answer dropped (2 runs) |
+| 80s | ~98.9s | 100.3s | **abandoned** — answer dropped |
+| 90s | ~107.4s | 99.8s | **abandoned** — answer dropped |
 
-| Backend | Turn | p50 | p95 | Notes |
-|---|---|---|---|---|
-| managed | first (cold session) | — | — | includes container provisioning |
-| managed | follow-up (warm session) | — | — | |
-| sdk | first (warm server) | — | — | |
+**The reported ~60s action timeout is wrong.** The real cutoff sits between
+~85s and ~90s of action duration: 84.7s was still used, 89.7s was not. The
+lab's Path A budget chain (plan/01-architecture.md) was engineered against a
+number roughly 25s tighter than reality — conservative, so nothing broke, but
+the sync research depth it caps was set by a figure nobody had measured.
+
+Two things the probe found that the table alone does not say:
+
+- **Failure is graceful and silent, and it costs the full budget.** Every
+  abandoned run still returned a complete, well-formed answer at ~100s wall
+  (99.8 / 100.3 / 100.7 / 99.8 — a strikingly consistent ceiling), with the
+  twin's own "External market research (from the Claude research agent):"
+  heading present and filled with *"External research is temporarily
+  unavailable."* Nothing in the transport says anything: the Agent API
+  returns 200, the bridge hop completes normally seconds later, and the
+  delegated answer is simply discarded. A caller that checks status codes —
+  or greps for the section heading — records these as successes.
+- **The heading proves nothing.** An earlier version of this probe classified
+  on the presence of that heading and scored two timeouts as passes. The
+  section BODY is the signal. This is the `fabricated-attribution` insight
+  reappearing as a measurement bug in the lab's own instrument.
+
+Method note worth keeping: the first probe attempt used an improvised
+question and the twin answered from nothing at all — `"result":[]`, no
+actions invoked, both sections confabulated, 7.6s wall against a 10s injected
+delay. The probe now sends the console's `DEFAULT_QUESTION` verbatim and
+verifies the action fired by looking for the bridge hop in the trace log
+rather than trusting the reply.
+
+## Managed vs SDK backend latency — measured 2026-07-25
+
+`scripts/probe_backend_latency.py --runs 5`, one Claude adapter behind three
+hostings, same matrix question. Backends verified on the wire per condition
+(`raw.backend` = managed / sdk).
+
+| Backend | Turn | p50 | p95 | n | Notes |
+|---|---|---|---|---|---|
+| managed | first (cold session) | 5.2s | 5.4s | 5 | new session id per run — provisioning included |
+| managed | follow-up (warm session) | 3.2s | 3.8s | 5 | one session reused; first turn discarded |
+| sdk | first (warm server) | 11.7s | 19.2s | 5 | long-running local server, no network hop |
+| sdk-agentcore | warm runtime | 7.3s | 25.1s | 5 | same sdk image on Bedrock AgentCore (D26) |
+
+**Managed-session provisioning costs ~2s, not the 5–10s the lab assumed** —
+and cold managed (5.2s p50) is *less than half* warm self-hosted sdk (11.7s
+p50). The intuition that a managed sandbox must be the slow option is
+backwards here: the sdk backend runs an agentic loop with tool calls per
+turn, and that loop, not the hosting, dominates. Its spread says the same
+thing — managed's p50→p95 is essentially flat (5.2→5.4, 3.2→3.8) while the
+sdk columns fan out (11.7→19.2, 7.3→25.1), which is turn-count variance, not
+infrastructure variance. AgentCore's p95 (25.1s) is the one number that
+should inform a sync budget.
+
+Caveat on the sdk rows: the known WS1 flake applies — the sdk agent sometimes
+tries to delegate a factual question to Agentforce and burns turns against
+`CLAUDE_MAX_TURNS=3`. That is part of what the spread measures, and it is a
+property of that agent's prompt, not of the hosting.
 
 ## Matrix run — 2026-07-09 22:41:56 MDT
 
@@ -131,4 +192,77 @@ adk-a2a            adk         a2a             native       PASS      9315  3453
 target             platform    protocol        status       result   p50ms  p95ms  detail
 -----------------------------------------------------------------------------------------
 agentforce-adk-rest agentforce  agentforce-api  native       PASS      8375   9606  The MCP (Message Coordination Protocol) is a message-based protocol used for orchestrating complex, multi-step interacti
+```
+
+## Matrix run — 2026-07-22 20:03:31 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+foundry-a2a        foundry     a2a             native       PASS     11874  12773  MCP is a lightweight message/transport specification that standardizes how agents exchange envelopes, content parts, and
+foundry-rest       foundry     foundry-api     native       PASS     10375  11909  MCP is a brokered, message-centric interoperability protocol designed to route, mediate, and multiplex agent communicati
+agentforce-foundry-rest agentforce  agentforce-api  native       PASS      7227   8819  The MCP (Message Communication Protocol) is a message-based protocol designed for asynchronous, decoupled agent communic
+```
+
+## Cross-hyperscaler capstone — 2026-07-23 (WS3)
+
+`google-adk-to-foundry` scenario, run live from the console: GCP Gemini
+(Vertex AI Agent Engine, gemini-2.5-flash-lite) consulting Azure gpt-5-mini
+(Microsoft Foundry) over BOTH platforms' native A2A endpoints — the lab's
+first native×native cross-hyperscaler cell. **16.9s** end to end, both
+answer sections labeled, D27 rider honored. Auth: Entra service principal
+in the engine env (EnvironmentCredential); the reverse direction
+(Foundry→ADK) is auth-blocked — Foundry connections cannot mint Google IAM
+tokens. Detail in plan/07-workstreams.md WS3 item 11 and ADR D34's change-set.
+
+## Rider-provenance harvest counts — 2026-07-23 (D27/D34)
+
+Measured against traces/lab.db after the 2026-07-23 harvests (five-platform
+coverage: claude, salesforce, openai, adk, foundry):
+
+- **62 of 220** platform-logged sessions self-attribute their caller via the
+  D27 rider text visible in the platform's own logs — 58 in Salesforce's
+  session logs, 4 in Anthropic's; exactly the delegated turns.
+- **188** Salesforce-logged interaction events contain the rider text
+  verbatim.
+- **9** sessions (8 salesforce, 1 claude) additionally join to a specific
+  lab run via the D34 `lab-trace:` rider line — re-counted 2026-07-24
+  against `traces/lab.db` (was 2 at the first live links; the count grows
+  as post-D34 runs accumulate).
+  **The platform set has not grown, and structurally cannot by this
+  mechanism:** foundry sessions are harvested (5 rows) but Azure Monitor
+  gives spans only — timings, tokens, model, operation ids, no prompt text
+  — so the rider regex has nothing to match and that column joins by
+  response id (`platform_ref`) instead. Only platforms that log the
+  utterance text can be joined by a text convention.
+
+Counts move with every harvest; re-measure with
+`ObsStore.session_callers()` / `session_lab_traces()` before quoting.
+
+## Matrix run — 2026-07-25 14:12:40 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+claude-rest        claude      rest            native       PASS      4732   4732  MCP (Model Context Protocol) is a protocol for connecting AI models to external tools, data sources, and services throug
+claude-mcp         claude      mcp             native       PASS      5072   5072  **MCP (Model Context Protocol)** is a protocol for connecting AI models to external tools, data sources, and services th
+claude-a2a         claude      a2a             native       PASS      5731   5731  MCP (Model Context Protocol) is a standardized protocol that enables AI models to connect to external tools, data source
+guide-rest         guide       rest            native       PASS      2611   2611  Based on the lab's findings: **MCP has no protocol-level session semantics—session identity rides as a tool argument—whi
+guide-mcp          guide       mcp             native       PASS      2460   2460  MCP has no protocol-level session semantics — the session id rides as a tool argument — while A2A's `contextId` is first
+guide-a2a          guide       a2a             native       PASS      2305   2305  MCP has no protocol-level session semantics — session identity rides as a tool argument only — while A2A's `contextId` i
+claude-agentcore   claude      agentcore-http  native       PASS      9187   9187  **MCP (Model Context Protocol)** is a protocol that connects AI models and agents to external tools, APIs, and data sour
+agentforce-rest    agentforce  agentforce-api  native       PASS      8746   8746  The MCP (Message Channel Protocol) is a message-based protocol designed for flexible, asynchronous communication between
+agentforce-mcp     agentforce  mcp             via-shim     PASS      6076   6076  The MCP (Message Channel Protocol) is a message-based protocol designed for flexible, event-driven communication between
+agentforce-a2a     agentforce  a2a             via-shim     PASS      5096   5096  The MCP (Message Coordination Protocol) is designed for orchestrating message flows and coordinating tasks between agent
+agentforce-openai-rest agentforce  agentforce-api  native       PASS      7357   7357  The MCP (Message Coordination Protocol) focuses on structured, message-based coordination between agents, often using a 
+openai-rest        openai      rest            native       PASS      5588   5588  MCP is a brokered, event-oriented protocol for mediated, asynchronous multi-party message exchange with standardized env
+openai-mcp         openai      mcp             native       PASS      5715   5715  MCP is a mediated, multi-channel coordination protocol that routes and orchestrates messages through a central hub to su
+openai-a2a         openai      a2a             native       PASS      5280   5280  Direct answer: MCP is a brokered, channel-agnostic messaging protocol that standardizes and routes messages through a ce
+openai-agentcore   openai      agentcore-http  native       PASS      9045   9045  Assuming MCP here refers to a mediated messaging protocol and A2A to direct agent-to-agent calls: MCP is a brokered, mes
+agentforce-google-adk-rest agentforce  agentforce-api  native       PASS      7659   7659  The MCP (Message Coordination Protocol) is a message-based protocol used for orchestrating complex workflows and statefu
+agentforce-a2a-shim agentforce  a2a             via-shim     PASS     10147  10147  The MCP (Message Coordination Protocol) is designed for orchestrating message flows and coordinating multi-step interact
+agentforce-foundry-rest agentforce  agentforce-api  native       PASS      6661   6661  The MCP (Message Communication Protocol) is a message-based protocol designed for asynchronous, decoupled agent communic
+foundry-rest       foundry     foundry-api     native       PASS     24311  24311  MCP is a message-conversion/bridging protocol that adapts or translates messages between agents using different formats,
+foundry-a2a        foundry     a2a             native       PASS      9737   9737  MCP is a lightweight, message-envelope protocol focused on reliably exchanging and sequencing conversational content acr
+google-adk-a2a     adk         a2a             native       PASS     38293  38293  The MCP (Messaging and Conversation Protocol) is a general-purpose communication standard for agent interoperability, wh
 ```

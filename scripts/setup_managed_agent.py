@@ -60,9 +60,32 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--recreate", action="store_true")
     parser.add_argument(
+        "--update",
+        action="store_true",
+        help="push the current RESEARCH_SYSTEM_PROMPT/tools to the existing "
+        "agent as a new version (same agent id — no env/config changes)",
+    )
+    parser.add_argument(
         "--model", default=os.environ.get("CLAUDE_AGENT_MODEL") or "claude-haiku-4-5"
     )
     args = parser.parse_args()
+
+    if args.update:
+        if not STATE_FILE.exists():
+            raise SystemExit("nothing provisioned yet — run without --update first")
+        from anthropic import Anthropic
+
+        state = json.loads(STATE_FILE.read_text())
+        agent = Anthropic().beta.agents.update(
+            state["agent_id"],
+            version=state["agent_version"],
+            system=RESEARCH_SYSTEM_PROMPT,
+            tools=AGENT_TOOLS,
+        )
+        state["agent_version"] = agent.version
+        STATE_FILE.write_text(json.dumps(state, indent=2))
+        print(f"updated agent {agent.id} -> version {agent.version}")
+        return
 
     if STATE_FILE.exists() and not args.recreate:
         state = json.loads(STATE_FILE.read_text())

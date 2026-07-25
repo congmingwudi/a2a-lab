@@ -30,23 +30,36 @@ case "$PLATFORM" in
     RUNTIME_NAME=a2alab_claude
     ARN_VAR=CLAUDE_AGENTCORE_ARN
     # SF_AGENT_ID: the Claude-paired Agentforce twin (D25 — closed systems)
-    ENV_KEYS=(ANTHROPIC_API_KEY CLAUDE_AGENT_MODEL CLAUDE_ANSWER_TIMEOUT_S
-              SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_AGENT_ID
-              AF_SHIM_A2A_URL A2ALAB_TOKEN AF_SHIM_TIMEOUT_S
+    ENV_KEYS=(CLAUDE_AGENT_MODEL CLAUDE_ANSWER_TIMEOUT_S
+              SF_MY_DOMAIN SF_AGENT_ID
+              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
+    SECRET_KEYS=(ANTHROPIC_API_KEY SF_CLIENT_ID SF_CLIENT_SECRET)
     ;;
   openai)
     DOCKERFILE=deploy/agentcore/openai.Dockerfile
     RUNTIME_NAME=a2alab_openai
     ARN_VAR=OPENAI_AGENTCORE_ARN
-    # SF_OPENAI_AGENT_ID: the OpenAI-paired Agentforce twin (D25)
-    ENV_KEYS=(OPENAI_API_KEY OPENAI_MODEL OPENAI_ANSWER_TIMEOUT_S
-              SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_OPENAI_AGENT_ID
-              AF_SHIM_A2A_URL A2ALAB_TOKEN AF_SHIM_TIMEOUT_S
+    # SF_OPENAI_AGENT_ID: the OpenAI-paired Agentforce twin (D25).
+    # SF_AGENT_ID must ship too: AgentforceClient.from_env() requires it
+    # before the twin id overrides it (learned when a scripted redeploy
+    # wiped it off the runtime and every hosted Agentforce consult broke).
+    ENV_KEYS=(OPENAI_MODEL OPENAI_ANSWER_TIMEOUT_S
+              SF_MY_DOMAIN SF_AGENT_ID SF_OPENAI_AGENT_ID
+              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
+    SECRET_KEYS=(OPENAI_API_KEY SF_CLIENT_ID SF_CLIENT_SECRET)
     ;;
   *) echo "unknown platform '$PLATFORM' (claude|openai)"; exit 1 ;;
 esac
+
+# F1: credentials never ride the runtime config. The keys above in
+# SECRET_KEYS (+ the shim bearer token) go into one Secrets Manager secret
+# per runtime; the runtime carries only its ARN and interop.secret_env
+# loads it at container start. Everything in ENV_KEYS is plain config —
+# model names, timeouts, twin ids, endpoints — and stays visible on the
+# runtime description where it is useful for debugging.
+SECRET_NAME="a2alab/runtime/$PLATFORM"
 
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 ECR_URI="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/a2alab-$PLATFORM"
@@ -78,13 +91,60 @@ if [ -z "$ROLE_ARN" ]; then
   fi
 fi
 
+# ---- credentials -> Secrets Manager (F1) -----------------------------------
+# One secret per runtime, a JSON object of env vars — the same shape the
+# harvest Lambda has used since D23. Rotating a key is a put-secret-value
+# plus a container restart, not a redeploy.
+SECRET_JSON=$(A2ALAB_PLATFORM="$PLATFORM" python3 - "${SECRET_KEYS[@]}" <<'PY'
+import json, os, sys
+env = {k: os.environ[k] for k in sys.argv[1:] if os.environ.get(k)}
+# F6 per-caller Salesforce identity: if .env carries SF_CLIENT_ID_CLAUDE /
+# SF_CLIENT_SECRET_CLAUDE (this runtime's own External Client App), ship
+# those instead of the shared pair, so Salesforce login history attributes
+# this caller by its own app. Falls back to the shared app when unset —
+# which is also what keeps this script the single source of the runtime
+# secret: a redeploy can't silently revert a hand-wired identity.
+suffix = os.environ["A2ALAB_PLATFORM"].upper()
+for key in ("SF_CLIENT_ID", "SF_CLIENT_SECRET"):
+    override = os.environ.get(f"{key}_{suffix}")
+    if override:
+        env[key] = override
+# The shim credential rides as AF_SHIM_TOKEN, never A2ALAB_TOKEN: setting
+# A2ALAB_TOKEN in the runtime flips on the container's own inbound bearer
+# auth, which invoke_agent_runtime cannot satisfy — every invoke 401s.
+if os.environ.get("A2ALAB_TOKEN"):
+    env["AF_SHIM_TOKEN"] = os.environ["A2ALAB_TOKEN"]
+print(json.dumps(env))
+PY
+)
+
+if SECRET_ARN=$(aws secretsmanager describe-secret --region "$REGION" \
+      --secret-id "$SECRET_NAME" --query ARN --output text 2>/dev/null); then
+  aws secretsmanager put-secret-value --region "$REGION" \
+    --secret-id "$SECRET_NAME" --secret-string "$SECRET_JSON" >/dev/null
+  echo "updated secret $SECRET_NAME"
+else
+  SECRET_ARN=$(aws secretsmanager create-secret --region "$REGION" --name "$SECRET_NAME" \
+    --description "A2A lab: credentials for the $PLATFORM AgentCore runtime (F1)" \
+    --secret-string "$SECRET_JSON" --query ARN --output text)
+  echo "created secret $SECRET_NAME"
+fi
+
+# Idempotent read grant. Per-platform policy name: the claude and openai
+# runtimes share one execution role, so a single name would mean each deploy
+# revoked the other runtime's access.
+ROLE_NAME="${ROLE_ARN##*/}"
+aws iam put-role-policy --role-name "$ROLE_NAME" \
+  --policy-name "read-runtime-secret-$PLATFORM" \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"$SECRET_ARN\"}]}"
+
 # ---- runtime env vars (only keys that are set locally) ---------------------
 # A2ALAB_TRACE_SINK=postgres: the container writes hops to the Aurora store
 # (local dev uses the default jsonl sink; the runtime has no local traces/).
 # The container gets the WRITER secret: local .env carries the reader (for
 # console queries), but the Data API secret IS the role selection (D23) and
 # a runtime inserting hops through the reader fails read-only.
-ENV_JSON=$(python3 - "${ENV_KEYS[@]}" <<'PY'
+ENV_JSON=$(A2ALAB_RUNTIME_SECRET_ARN="$SECRET_ARN" python3 - "${ENV_KEYS[@]}" <<'PY'
 import json, os, sys
 env = {k: os.environ[k] for k in sys.argv[1:] if os.environ.get(k)}
 if env.get("A2ALAB_PG_CLUSTER_ARN"):
@@ -92,6 +152,17 @@ if env.get("A2ALAB_PG_CLUSTER_ARN"):
     writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
     if writer:
         env["A2ALAB_PG_SECRET_ARN"] = writer
+# F1: the only credential-adjacent value on the runtime config — a pointer,
+# not a secret. interop.secret_env resolves it at container start.
+env["A2ALAB_RUNTIME_SECRET_ARN"] = os.environ["A2ALAB_RUNTIME_SECRET_ARN"]
+# WS6: the lab IdP's PUBLIC key — lets the runtime verify user JWTs
+# (U3 enforcement); the signing key never leaves the laptop.
+import pathlib
+pub = pathlib.Path(".a2alab/lab_jwt_public.pem")
+if pub.exists():
+    # AgentCore env vars reject control characters — ship the PEM with
+    # escaped newlines; identity.public_key() unescapes on read.
+    env["A2ALAB_JWT_PUBLIC_KEY"] = pub.read_text().replace("\n", "\\n")
 print(json.dumps(env))
 PY
 )
