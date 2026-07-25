@@ -364,6 +364,21 @@ harvest source reads it directly, so local harvests attribute correctly
 the moment it is set. (The hosted harvest Lambda's secret predates F1 and
 has no script path: edit it in the console or leave it shared.)
 
+**Gate every change with `uv run python scripts/identity_preflight.py`.**
+It takes each configured identity and exercises the capability it exists for
+— agent callers open an Agent API session, the harvest runs a Data Cloud
+query — and exits non-zero if any cannot. This is not ceremony: on
+2026-07-24 the split shipped with the apps unlinked from the agents, and
+every OTHER signal said it worked (deploys succeeded, tokens minted, login
+history showed per-caller attribution, three scenarios returned real CRM
+content because the containers still held the old credentials). An identity
+is not verified by authenticating; it is verified by doing its job.
+
+**A second manual step, learned the hard way:** deploying the ECA is not
+enough. Each app must also be **linked to each agent** it will call — Setup
+→ Agentforce Agents → the agent → Connections → add the connected app.
+Until then the app mints tokens happily and every Agent API call 404s.
+
 **Verified 2026-07-24**, all three seams live under their own apps, then
 `SELECT Application, COUNT(Id) FROM LoginHistory WHERE LoginTime = TODAY
 GROUP BY Application`:

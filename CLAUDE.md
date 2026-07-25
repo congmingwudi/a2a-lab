@@ -19,6 +19,7 @@ uv run ruff check . && uv run ruff format .        # lint / format (line-length 
 scripts/run_local.sh                 # full local stack (Claude servers, shims, bridge, console)
 uv run python scripts/matrix.py      # run every runnable protocol cell → appends plan/03-results.md
 uv run python scripts/sf_smoke.py    # Agentforce go/no-go (needs SF_* in .env)
+uv run python scripts/identity_preflight.py  # prove every caller identity can still do its job (D37/F6)
 uv run python scripts/obs_harvest.py # pull platform execution logs → traces/lab.db (M11)
 uv run python scripts/trace_import.py # rebuild lab.db trace tables from the JSONL archive
 uv run python scripts/setup_managed_agent.py       # once: provisions the Managed Agents agent
