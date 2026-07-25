@@ -592,6 +592,37 @@
   .ins-card .take p { margin: 0; font-size: 12.5px; line-height: 1.55; }
   .ins-card .refs { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; }
 
+  /* Sign-off (config/insight_reviews.yaml) — shown on insights marked
+     `review: required`. The state chip is public (anyone can see whether a
+     published claim has been vouched for); the buttons render only for the
+     lab's reviewer, and the server 403s regardless. */
+  .ins-rev { margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--border-hi); }
+  .ins-rev .rvline { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .rv-chip { flex: none; padding: 2px 8px; border-radius: 999px;
+             font: 600 10px var(--font-mono); text-transform: uppercase; letter-spacing: .5px;
+             color: var(--rvc, var(--muted));
+             background: color-mix(in srgb, var(--rvc, var(--muted)) 10%, transparent);
+             border: 1px solid color-mix(in srgb, var(--rvc, var(--muted)) 40%, transparent); }
+  .rv-chip.approved { --rvc: var(--rest); }
+  .rv-chip.rejected { --rvc: var(--mcp); }
+  .rv-chip.pending  { --rvc: var(--muted); }
+  .rv-chip.stale    { --rvc: var(--mcp); }
+  .ins-rev .rvwho { font-size: 11.5px; color: var(--muted); }
+  .ins-rev .rvcomment { margin: 7px 0 0; font-size: 12px; line-height: 1.5; color: var(--fg);
+                        padding: 7px 10px; border-radius: 8px; background: var(--card);
+                        border: 1px solid var(--border); }
+  .ins-rev .rvform { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
+  .ins-rev .rvform input { flex: 1; min-width: 150px; padding: 5px 9px; border-radius: 8px;
+                           border: 1px solid var(--border-hi); background: var(--card);
+                           color: var(--fg); font: 400 12px var(--font-ui); }
+  .rv-btn { padding: 4px 11px; border-radius: 8px; cursor: pointer;
+            font: 600 11.5px var(--font-ui); background: var(--card);
+            color: var(--fg); border: 1px solid var(--border-hi); }
+  .rv-btn:hover { border-color: var(--hero-link); color: var(--fg-hi); }
+  .rv-btn.yes:hover { border-color: var(--rest); color: var(--rest); }
+  .rv-btn.no:hover  { border-color: var(--mcp); color: var(--mcp); }
+  .rv-btn[disabled] { opacity: .5; cursor: default; }
+
   /* Diagram chips (config/diagrams.yaml) — one per diagram attached to this
      insight. Distinct from .dchip (ADR/doc chips) in class AND accent so a
      readout can tell "opens a picture" from "opens a decision" at a glance. */
@@ -2477,8 +2508,68 @@ function insightCardHtml(ins) {
       r.endsWith(".md")
         ? `<button type="button" class="dchip docchip" data-doc="${esc(r)}">${esc(r)}</button>`
         : `<span class="badge internal">${esc(r)}</span>`).join("")}</div>` : ""}
+    ${insightReviewHtml(ins)}
   </div>`;
 }
+
+// Sign-off block — only on insights config/insights.yaml marks
+// `review: required`. Everyone sees the state (a published claim either has
+// been vouched for or hasn't); only the reviewer sees the controls.
+function insightReviewHtml(ins) {
+  const rv = ins.review_state || {};
+  if (!rv.required) return "";
+  const stale = rv.state === "approved" && rv.stale;
+  const chip = stale ? "stale" : (rv.state || "pending");
+  const label = stale ? "changed since approval"
+    : rv.state === "approved" ? "approved"
+    : rv.state === "rejected" ? "changes requested"
+    : "awaiting review";
+  const who = rv.at
+    ? `${esc(rv.name || rv.by || "")} · ${esc(String(rv.at).replace("T", " ").replace("Z", " UTC"))}`
+    : "";
+  return `
+  <div class="ins-rev">
+    <div class="rvline">
+      <span class="rv-chip ${chip}">${esc(label)}</span>
+      ${who ? `<span class="rvwho">${who}</span>` : ""}
+    </div>
+    ${rv.comment ? `<p class="rvcomment">${esc(rv.comment)}</p>` : ""}
+    ${insightsData.can_review ? `
+    <div class="rvform" data-insight="${esc(ins.id)}">
+      <input type="text" placeholder="comment (optional)"
+        onkeydown="if(event.key==='Enter')reviewInsight(this,'approved')">
+      <button class="rv-btn yes" onclick="reviewInsight(this,'approved')">Approve</button>
+      <button class="rv-btn no" onclick="reviewInsight(this,'rejected')">Request changes</button>
+    </div>
+    <p class="rvcomment rverr" style="display:none"></p>` : ""}
+  </div>`;
+}
+
+// The decision is the reviewer's, so nothing is optimistic: the tile
+// re-renders from the state the server actually stored, which is also the
+// only confirmation needed — the chip flips and the comment appears.
+window.reviewInsight = async (el, decision) => {
+  const form = el.closest(".rvform");
+  const id = form.dataset.insight;
+  const comment = form.querySelector("input").value;
+  const err = form.parentElement.querySelector(".rverr");
+  form.querySelectorAll("button").forEach(b => b.disabled = true);
+  try {
+    const r = await fetch(apiUrl(`/api/insights/${encodeURIComponent(id)}/review`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision, comment }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || `sign-off failed (${r.status})`);
+    const ins = (insightsData.insights || []).find(i => i.id === id);
+    if (ins) ins.review_state = d.review_state;
+    renderMain(true);
+  } catch (e) {
+    if (err) { err.textContent = e.message; err.style.display = ""; }
+    form.querySelectorAll("button").forEach(b => b.disabled = false);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Diagram chips → modal (config/diagrams.yaml). Mermaid is vendored and loaded
@@ -2580,6 +2671,19 @@ document.addEventListener("click", ev => {
 });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeDiagram(); });
 
+// Reviewer-only nudge: how many published claims are still waiting on a
+// decision (never approved, or edited since the last one).
+function pendingReviewNote() {
+  if (!insightsData.can_review) return "";
+  const waiting = (insightsData.insights || []).filter(i => {
+    const rv = i.review_state || {};
+    return rv.required && (rv.state === "pending" || (rv.state === "approved" && rv.stale));
+  }).length;
+  if (!waiting) return ` <strong>All insights marked for review are signed off.</strong>`;
+  return ` <strong>${waiting} insight${waiting === 1 ? "" : "s"} awaiting your review</strong>
+    — approve or request changes on the tile.`;
+}
+
 function insightsHtml() {
   const cats = insightsData.categories || [];
   return `
@@ -2590,7 +2694,7 @@ function insightsHtml() {
       title="Export every insight as one markdown doc">Download insights.md</a>
   </div>
   <p class="ins-explain">The deck-ready markdown export — the same findings below as one document,
-    ready to pull into Claude Design for presentation work.</p>
+    ready to pull into Claude Design for presentation work.${pendingReviewNote()}</p>
   ${cats.length ? cats.map(([cat, items]) => `
   <div class="flow" id="inscat-${catSlug(cat)}">
     <h3>${esc(cat)} <span style="text-transform:none;letter-spacing:0"> · ${items.length} insight${items.length === 1 ? "" : "s"}</span></h3>

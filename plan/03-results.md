@@ -177,3 +177,31 @@ coverage: claude, salesforce, openai, adk, foundry):
 
 Counts move with every harvest; re-measure with
 `ObsStore.session_callers()` / `session_lab_traces()` before quoting.
+
+## Matrix run — 2026-07-25 14:12:40 MDT
+
+```
+target             platform    protocol        status       result   p50ms  p95ms  detail
+-----------------------------------------------------------------------------------------
+claude-rest        claude      rest            native       PASS      4732   4732  MCP (Model Context Protocol) is a protocol for connecting AI models to external tools, data sources, and services throug
+claude-mcp         claude      mcp             native       PASS      5072   5072  **MCP (Model Context Protocol)** is a protocol for connecting AI models to external tools, data sources, and services th
+claude-a2a         claude      a2a             native       PASS      5731   5731  MCP (Model Context Protocol) is a standardized protocol that enables AI models to connect to external tools, data source
+guide-rest         guide       rest            native       PASS      2611   2611  Based on the lab's findings: **MCP has no protocol-level session semantics—session identity rides as a tool argument—whi
+guide-mcp          guide       mcp             native       PASS      2460   2460  MCP has no protocol-level session semantics — the session id rides as a tool argument — while A2A's `contextId` is first
+guide-a2a          guide       a2a             native       PASS      2305   2305  MCP has no protocol-level session semantics — session identity rides as a tool argument only — while A2A's `contextId` i
+claude-agentcore   claude      agentcore-http  native       PASS      9187   9187  **MCP (Model Context Protocol)** is a protocol that connects AI models and agents to external tools, APIs, and data sour
+agentforce-rest    agentforce  agentforce-api  native       PASS      8746   8746  The MCP (Message Channel Protocol) is a message-based protocol designed for flexible, asynchronous communication between
+agentforce-mcp     agentforce  mcp             via-shim     PASS      6076   6076  The MCP (Message Channel Protocol) is a message-based protocol designed for flexible, event-driven communication between
+agentforce-a2a     agentforce  a2a             via-shim     PASS      5096   5096  The MCP (Message Coordination Protocol) is designed for orchestrating message flows and coordinating tasks between agent
+agentforce-openai-rest agentforce  agentforce-api  native       PASS      7357   7357  The MCP (Message Coordination Protocol) focuses on structured, message-based coordination between agents, often using a 
+openai-rest        openai      rest            native       PASS      5588   5588  MCP is a brokered, event-oriented protocol for mediated, asynchronous multi-party message exchange with standardized env
+openai-mcp         openai      mcp             native       PASS      5715   5715  MCP is a mediated, multi-channel coordination protocol that routes and orchestrates messages through a central hub to su
+openai-a2a         openai      a2a             native       PASS      5280   5280  Direct answer: MCP is a brokered, channel-agnostic messaging protocol that standardizes and routes messages through a ce
+openai-agentcore   openai      agentcore-http  native       PASS      9045   9045  Assuming MCP here refers to a mediated messaging protocol and A2A to direct agent-to-agent calls: MCP is a brokered, mes
+agentforce-google-adk-rest agentforce  agentforce-api  native       PASS      7659   7659  The MCP (Message Coordination Protocol) is a message-based protocol used for orchestrating complex workflows and statefu
+agentforce-a2a-shim agentforce  a2a             via-shim     PASS     10147  10147  The MCP (Message Coordination Protocol) is designed for orchestrating message flows and coordinating multi-step interact
+agentforce-foundry-rest agentforce  agentforce-api  native       PASS      6661   6661  The MCP (Message Communication Protocol) is a message-based protocol designed for asynchronous, decoupled agent communic
+foundry-rest       foundry     foundry-api     native       PASS     24311  24311  MCP is a message-conversion/bridging protocol that adapts or translates messages between agents using different formats,
+foundry-a2a        foundry     a2a             native       PASS      9737   9737  MCP is a lightweight, message-envelope protocol focused on reliably exchanging and sequencing conversational content acr
+google-adk-a2a     adk         a2a             native       PASS     38293  38293  The MCP (Messaging and Conversation Protocol) is a general-purpose communication standard for agent interoperability, wh
+```

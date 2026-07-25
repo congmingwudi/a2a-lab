@@ -913,3 +913,37 @@ checking it took one metadata retrieve. Both shipped the same evening. So
 the real asymmetry is not code-versus-platform — it is
 verified-versus-assumed. The only irreducible manual step left is one per
 app: a consumer secret no API will return, read from Setup by hand.
+
+## 2026-07-25 — D38: Insight sign-off — publishing a claim is a named act, in the console
+
+**Decision.** Insights are the one thing the lab says in public in its own
+voice, and until now they went from `config/insights.yaml` straight to the
+console and the markdown export with no record of whether anyone had read
+them. They now carry an optional `review: required`, and the console's
+Insights section grows an **Approve / Request changes** control with a
+comment box. Decisions land in `config/insight_reviews.yaml` — diffable,
+reviewable, in the repo beside the claims they govern.
+
+Three choices worth recording:
+
+- **`reviewer` is a grant of its own, not a role.** `config/users.yaml`
+  gets `reviewer: true` on the lab owner alone. It is deliberately NOT
+  implied by `operator`: running an experiment and vouching for a published
+  claim are different acts, and the org's other operators (Ana) can do the
+  first without the second. The console hides the control for everyone
+  else; the 403 on POST is the guard (same shape as the D36 role model).
+- **The service token can never approve.** Sign-off requires a verified lab
+  JWT with a `sub` — the shared token identifies no person, and "the
+  service approved it" answers nobody's question about a published claim.
+- **An approval is of WORDS, not of an id.** Each record pins a hash of the
+  headline, evidence, advisory, status and refs it approved. Edit the
+  insight afterwards and its tile reads *changed since approval* rather
+  than carrying the sign-off silently forward. This is the same honesty
+  rule as the matrix's status column and the insight `status` legend: the
+  lab does not let a stale attestation ride on fresh text.
+
+The five insights from the D37 anti-pattern audit (`antipattern-lens`,
+`remediation-tax`, `text-rider-legitimacy`, `versioning-not-negotiation`,
+`least-privilege-is-identity`) are marked `review: required` and sit
+pending. The markdown export is untouched — sign-off governs what the lab
+stands behind, not what it renders.

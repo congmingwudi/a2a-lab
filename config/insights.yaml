@@ -9,6 +9,12 @@
 #
 # Each entry: headline (the claim), evidence (what the lab showed),
 # advisory (the talking point you'd give a customer), refs (ADRs/docs).
+#
+# Optional: `review: required` puts the insight in front of the lab's
+# reviewer in the console (Insights → Approve / Request changes), and the
+# decision lands in config/insight_reviews.yaml. Use it for anything the lab
+# would say in public before its owner has read it. Approval is pinned to the
+# text approved — edit the claim afterwards and the sign-off shows as stale.
 
 insights:
   - id: sync-delegation-works
@@ -528,6 +534,7 @@ insights:
 
   - id: antipattern-lens
     category: Method
+    review: required
     status: observed
     headline: Production anti-pattern guidance assumes surfaces that cross-platform reality doesn't have yet
     evidence: >
@@ -560,6 +567,7 @@ insights:
 
   - id: remediation-tax
     category: Federation vs consolidation
+    review: required
     status: measured
     headline: Security remediations are intermediaries too — each one levies the same timeout and cold-start tax as any other hop
     evidence: >
@@ -602,6 +610,7 @@ insights:
 
   - id: text-rider-legitimacy
     category: Protocols
+    review: required
     status: observed
     headline: '"Never scrape text" is single-platform advice — cross-platform, a versioned text rider is a contract, not a hack'
     evidence: >
@@ -631,6 +640,7 @@ insights:
 
   - id: versioning-not-negotiation
     category: Protocols
+    review: required
     status: observed
     headline: Contract versioning is necessary and insufficient — shipped dialects don't negotiate, so budget for a translation layer you own
     evidence: >
@@ -652,6 +662,7 @@ insights:
 
   - id: least-privilege-is-identity
     category: Security & trust
+    review: required
     status: observed
     headline: Least privilege in an agent estate is an identity-modelling problem wearing a scope-configuration costume
     evidence: >

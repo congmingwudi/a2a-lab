@@ -564,3 +564,119 @@ def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
     assert client.get("/api/docs/docs/lab-guide-mcp.md").status_code == 200
     for path in ("/api/traces", "/api/insights", "/api/obs/sessions", "/api/config"):
         assert client.get(path).status_code == 401, path
+
+
+# ---- insight sign-off (console: Insights → Approve / Request changes) ------
+
+
+def _reviewer_headers(monkeypatch, tmp_path, username="ryan"):
+    from interop import identity
+
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    users = {username: {"name": "Ryan Cox", "role": "operator"}}
+    return {"authorization": f"Bearer {identity.issue_token(username, users=users)}"}
+
+
+def _fake_insights(monkeypatch, evidence="as first published"):
+    import console.app as console_app
+
+    items = [
+        {
+            "id": "needs-a-look",
+            "category": "Method",
+            "status": "observed",
+            "review": "required",
+            "headline": "A claim the lab has not vouched for yet",
+            "evidence": evidence,
+            "advisory": "say this to a customer",
+            "refs": ["D37"],
+        },
+        {"id": "already-public", "category": "Method", "status": "observed", "headline": "no gate"},
+    ]
+    monkeypatch.setattr(console_app, "load_insights", lambda *a, **k: items)
+    return items
+
+
+def test_insight_signoff_records_person_and_pins_content(tmp_path, monkeypatch):
+    # An approval is of WORDS, not of an id: edit the claim afterwards and the
+    # sign-off must read as stale rather than silently carrying over.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    from console import reviews
+
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+    app = make_app(tmp_path, monkeypatch)
+    _fake_insights(monkeypatch)
+    client = TestClient(app)
+    headers = _reviewer_headers(monkeypatch, tmp_path)
+
+    data = client.get("/api/insights", headers=headers).json()
+    assert data["can_review"] is True
+    gated, ungated = data["insights"]
+    assert gated["review_state"] == {"required": True, "state": "pending", "stale": False}
+    assert ungated["review_state"]["required"] is False  # no control on this tile
+
+    r = client.post(
+        "/api/insights/needs-a-look/review",
+        headers=headers,
+        json={"decision": "approved", "comment": "  reads right   to me "},
+    )
+    assert r.status_code == 200
+    state = r.json()["review_state"]
+    assert state["state"] == "approved" and state["by"] == "ryan"
+    assert state["name"] == "Ryan Cox" and state["comment"] == "reads right to me"
+    assert state["stale"] is False
+
+    # Same text -> still approved; edited text -> approved-but-stale.
+    fresh = client.get("/api/insights", headers=headers).json()["insights"][0]
+    assert fresh["review_state"]["state"] == "approved" and fresh["review_state"]["stale"] is False
+    _fake_insights(monkeypatch, evidence="rewritten after the sign-off")
+    edited = client.get("/api/insights", headers=headers).json()["insights"][0]
+    assert edited["review_state"]["state"] == "approved" and edited["review_state"]["stale"] is True
+
+
+def test_insight_signoff_reserved_to_the_reviewer(tmp_path, monkeypatch):
+    # reviewer is a grant of its own (config/users.yaml), not something the
+    # operator role implies — and the service token identifies nobody.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    from console import reviews
+
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+    app = make_app(tmp_path, monkeypatch)
+    _fake_insights(monkeypatch)
+    client = TestClient(app)
+    body = {"decision": "approved"}
+
+    viewer = _viewer_headers(monkeypatch, tmp_path)
+    assert client.get("/api/insights", headers=viewer).json()["can_review"] is False
+    assert (
+        client.post("/api/insights/needs-a-look/review", headers=viewer, json=body).status_code
+        == 403
+    )
+
+    service = {"x-lab-token": "sekrit"}
+    assert client.get("/api/insights", headers=service).json()["can_review"] is False
+    assert (
+        client.post("/api/insights/needs-a-look/review", headers=service, json=body).status_code
+        == 403
+    )
+    assert not (tmp_path / "insight_reviews.yaml").exists()  # nothing was written
+
+
+def test_insight_signoff_rejects_bad_input(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    from console import reviews
+
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+    app = make_app(tmp_path, monkeypatch)
+    _fake_insights(monkeypatch)
+    client = TestClient(app)
+    headers = _reviewer_headers(monkeypatch, tmp_path)
+
+    bad = client.post(
+        "/api/insights/needs-a-look/review", headers=headers, json={"decision": "maybe"}
+    )
+    assert bad.status_code == 400
+    missing = client.post(
+        "/api/insights/no-such-insight/review", headers=headers, json={"decision": "approved"}
+    )
+    assert missing.status_code == 404

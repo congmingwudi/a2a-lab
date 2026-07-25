@@ -30,6 +30,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 import httpx
 import yaml
 
+from console import reviews
 from console.insights import by_category, load_insights, to_markdown
 from interop import af_channel, delegation
 from interop.clients.base import RemoteAgentClient
@@ -952,9 +953,53 @@ def create_console_app(registry: Registry | None = None):
     # and which runtimes /api/run really hits under the active A2ALAB_MODE.
 
     @app.get("/api/insights")
-    async def insights():
-        data = load_insights()
-        return {"insights": data, "categories": by_category(data)}
+    async def insights(request: Request):
+        data = reviews.attach_reviews(load_insights())
+        return {
+            "insights": data,
+            "categories": by_category(data),
+            # The UI hides the sign-off control for everyone else; the 403 on
+            # POST is the actual guard (same rule as the role model above).
+            "can_review": _is_reviewer(request),
+        }
+
+    def _is_reviewer(request: Request) -> bool:
+        """Sign-off is a named person's act: a verified lab user carrying
+        `reviewer: true` in config/users.yaml. The shared service token
+        identifies no one, so it can never approve a published claim."""
+        from interop import identity
+
+        claims = request.scope.get("state", {}).get("lab_user") or {}
+        sub = claims.get("sub")
+        if not sub:
+            return False
+        return bool(identity.load_users().get(sub, {}).get("reviewer"))
+
+    @app.post("/api/insights/{insight_id}/review")
+    async def review_insight(insight_id: str, request: Request):
+        """Record the lab reviewer's decision on a published claim (approve
+        or request changes, with an optional comment) into
+        config/insight_reviews.yaml."""
+        if not _is_reviewer(request):
+            raise HTTPException(
+                status_code=403,
+                detail="insight sign-off is reserved to the lab's reviewer (config/users.yaml)",
+            )
+        body = await request.json()
+        decision = str(body.get("decision") or "").strip()
+        if decision not in reviews.STATES:
+            raise HTTPException(
+                status_code=400, detail=f"decision must be one of {list(reviews.STATES)}"
+            )
+        insight = next((i for i in load_insights() if i.get("id") == insight_id), None)
+        if insight is None:
+            raise HTTPException(status_code=404, detail=f"no insight '{insight_id}'")
+        claims = request.scope.get("state", {}).get("lab_user") or {}
+        reviews.record(insight, decision, user=claims, comment=str(body.get("comment") or ""))
+        return {
+            "id": insight_id,
+            "review_state": reviews.review_state(insight, reviews.load_reviews()),
+        }
 
     @app.get("/api/insights.md")
     async def insights_md():
