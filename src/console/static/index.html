@@ -574,6 +574,47 @@
   .ins-card .take p { margin: 0; font-size: 12.5px; line-height: 1.55; }
   .ins-card .refs { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; }
 
+  /* Diagram chips (config/diagrams.yaml) — one per diagram attached to this
+     insight. Distinct from .dchip (ADR/doc chips) in class AND accent so a
+     readout can tell "opens a picture" from "opens a decision" at a glance. */
+  .ins-card .dgrams { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 9px; }
+  .dgchip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px;
+            border-radius: 999px; font: 600 11px/16px var(--font-ui); color: var(--fg);
+            background: var(--card); border: 1px solid var(--border-hi); cursor: pointer; }
+  .dgchip:hover { border-color: var(--hero-link); color: var(--fg-hi);
+                  background: color-mix(in srgb, var(--hero-link) 8%, transparent); }
+  .dgchip svg { flex: none; width: 11px; height: 11px; stroke: currentColor; fill: none;
+                stroke-width: 1.6; opacity: .75; }
+
+  /* Diagram modal — sized for a projector: the diagram is the content, the
+     caption is the line you say while it is up. */
+  .dgmask { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center;
+            justify-content: center; padding: 24px;
+            background: color-mix(in srgb, var(--bg) 72%, transparent);
+            backdrop-filter: blur(3px); }
+  .dgmodal { display: flex; flex-direction: column; width: min(1180px, 100%);
+             max-height: 100%; background: var(--card); border: 1px solid var(--border-hi);
+             border-radius: 14px; box-shadow: 0 24px 64px var(--shadow-lg); overflow: hidden; }
+  .dgmodal header { display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+                    border-bottom: 1px solid var(--border); }
+  .dgmodal header h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--fg-hi); flex: 1; }
+  .dgmodal .dgsrc { font: 600 11px var(--font-mono); color: var(--muted);
+                    background: none; border: 1px solid var(--border); border-radius: 999px;
+                    padding: 2px 10px; }
+  .dgmodal .dgsrc:hover { color: var(--fg-hi); border-color: var(--border-hi); }
+  .dgmodal .dgclose { background: none; border: none; color: var(--muted); font-size: 19px;
+                      line-height: 1; padding: 2px 6px; border-radius: 6px; cursor: pointer; }
+  .dgmodal .dgclose:hover { color: var(--fg-hi); background: var(--card2); }
+  .dgbody { flex: 1; min-height: 0; overflow: auto; padding: 18px 16px;
+            display: flex; align-items: center; justify-content: center; }
+  .dgbody svg { max-width: 100%; height: auto; }
+  .dgbody pre { align-self: stretch; margin: 0; overflow: auto; background: var(--code);
+                border: 1px solid var(--border); border-radius: 10px; padding: 12px;
+                font: 12px/1.5 var(--font-mono); color: var(--fg); }
+  .dgbody .note { color: var(--muted); font-size: 12.5px; }
+  .dgcap { padding: 11px 16px 13px; border-top: 1px solid var(--border);
+           background: var(--card2); color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+
   /* deployment-mode badge (top-right) — which runtimes /api/run really hits:
      "local" stays muted, "hosted" lights up (live AWS AgentCore runtimes) */
   .mode-badge { margin-left: 12px; padding: 2px 10px; border-radius: 999px; cursor: default;
@@ -2355,12 +2396,115 @@ function insightCardHtml(ins) {
       <div class="lbl">Advisor take</div>
       <p>${esc(prose(ins.advisory))}</p>
     </div>
+    ${(ins.diagrams || []).length ? `<div class="dgrams">${ins.diagrams.map(d =>
+      `<button type="button" class="dgchip" data-diagram="${esc(d.id)}"
+        title="Open the diagram">${DGRAM_ICON}${esc(d.title || d.id)}</button>`).join("")}</div>` : ""}
     ${(ins.refs || []).length ? `<div class="refs">${ins.refs.map(r =>
       r.endsWith(".md")
         ? `<button type="button" class="dchip docchip" data-doc="${esc(r)}">${esc(r)}</button>`
         : `<span class="badge internal">${esc(r)}</span>`).join("")}</div>` : ""}
   </div>`;
 }
+
+// ---------------------------------------------------------------------------
+// Diagram chips → modal (config/diagrams.yaml). Mermaid is vendored and loaded
+// LAZILY on the first chip click: it is a 3.4MB bundle, and a console that
+// nobody asks for a diagram from should never pay for it. Rendering in the
+// browser (rather than shipping pre-baked SVGs) keeps the mermaid text the one
+// source of truth, so there is no "did you regenerate the images?" step to
+// forget before a readout.
+// ---------------------------------------------------------------------------
+const DGRAM_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="5" height="4" rx="1"/>`
+  + `<rect x="9.5" y="10.5" width="5" height="4" rx="1"/><path d="M4 5.5v4.5a2 2 0 0 0 2 2h3.5"/></svg>`;
+
+let mermaidReady = null;
+
+function ensureMermaid() {
+  if (mermaidReady) return mermaidReady;
+  mermaidReady = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "/static/vendor/mermaid.min.js";
+    s.onload = () => resolve(window.mermaid);
+    s.onerror = () => reject(new Error("mermaid bundle failed to load"));
+    document.head.appendChild(s);
+  });
+  return mermaidReady;
+}
+
+function diagramById(id) {
+  for (const ins of insightsData.insights || [])
+    for (const d of ins.diagrams || []) if (d.id === id) return d;
+  return null;
+}
+
+function closeDiagram() {
+  document.querySelector(".dgmask")?.remove();
+}
+
+async function openDiagram(id) {
+  const d = diagramById(id);
+  if (!d) return;
+  closeDiagram();
+  const mask = document.createElement("div");
+  mask.className = "dgmask";
+  mask.innerHTML = `
+    <div class="dgmodal" role="dialog" aria-modal="true" aria-label="${esc(d.title || d.id)}">
+      <header>
+        <h3>${esc(d.title || d.id)}</h3>
+        <button type="button" class="dgsrc">mermaid source</button>
+        <button type="button" class="dgclose" title="Close (Esc)" aria-label="Close">×</button>
+      </header>
+      <div class="dgbody"><span class="note">Rendering…</span></div>
+      ${d.caption ? `<div class="dgcap">${esc(prose(d.caption))}</div>` : ""}
+    </div>`;
+  // Backdrop closes; clicks inside the panel do not bubble out to it.
+  mask.addEventListener("click", ev => { if (ev.target === mask) closeDiagram(); });
+  mask.querySelector(".dgclose").addEventListener("click", closeDiagram);
+  document.body.appendChild(mask);
+
+  const body = mask.querySelector(".dgbody");
+  let showingSource = false;
+  const srcBtn = mask.querySelector(".dgsrc");
+  let rendered = null;
+
+  srcBtn.addEventListener("click", () => {
+    showingSource = !showingSource;
+    srcBtn.textContent = showingSource ? "diagram" : "mermaid source";
+    body.innerHTML = showingSource
+      ? `<pre>${esc(d.mermaid || "")}</pre>`
+      : (rendered || `<span class="note">Rendering…</span>`);
+  });
+
+  try {
+    const mermaid = await ensureMermaid();
+    // Follow the console's theme, and re-initialize per open so switching
+    // theme and reopening gives a diagram that matches the page.
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: dark ? "dark" : "default",
+      securityLevel: "strict",
+      flowchart: { htmlLabels: true, curve: "basis" },
+    });
+    const { svg } = await mermaid.render("dg-" + id.replace(/[^a-z0-9]/gi, ""), d.mermaid || "");
+    rendered = svg;
+    if (!showingSource) body.innerHTML = svg;
+  } catch (e) {
+    // Honest failure: say what broke and still hand over the source, which is
+    // the thing you can paste somewhere else mid-readout.
+    rendered = `<span class="note">Could not render this diagram (${esc(String(e.message || e))}).</span>`;
+    if (!showingSource) body.innerHTML = rendered + `<pre>${esc(d.mermaid || "")}</pre>`;
+  }
+}
+
+document.addEventListener("click", ev => {
+  const chip = ev.target.closest?.(".dgchip");
+  if (!chip) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  openDiagram(chip.dataset.diagram);
+});
+document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeDiagram(); });
 
 function insightsHtml() {
   const cats = insightsData.categories || [];

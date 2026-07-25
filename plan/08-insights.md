@@ -24,6 +24,60 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Advise customers to consolidate within a trust domain and federate across trust domains — and to treat "we'll never need interop" with suspicion: your vendors are already shipping agents, so the second platform usually arrives whether you chose it or not.
 
+**The platform map** — Five platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+
+```mermaid
+flowchart LR
+    subgraph sforg["Salesforce prod org"]
+        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+        APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
+        AGENTAPI["GA Agent API"]
+        STDM[("Session Tracing DMOs")]
+        TWINS --> APEX
+        AGENTAPI -. sessions .-> STDM
+    end
+
+    subgraph lab["Lab host — the two seams"]
+        BR["Bridge :8100<br/>REST in, any protocol out"]
+        SRV["Protocol servers<br/>REST :8001 · MCP :8002 · A2A :8003"]
+        GUIDE["Lab Guide :8031-33 (D35)"]
+        SHIMS["Agentforce shims<br/>MCP :8021 · A2A :8023"]
+        CONSOLE["Console :8200"]
+    end
+
+    subgraph aws["AWS"]
+        ACC["AgentCore: Claude sdk"]
+        ACO["AgentCore: OpenAI Agents SDK"]
+        HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
+        OBSDB[("Aurora obs + trace store (D23)")]
+    end
+
+    CMA["Anthropic<br/>Managed Agents"]
+    ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
+    FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
+
+    APEX -- "Path A: REST callout<br/>(tunnel)" --> BR
+    APEX -- "direct A2A (D30)" --> ADK
+    BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
+    BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+    BR --> ACO
+    SRV --> CMA
+    SRV -- "Path B: ask_agentforce" --> AGENTAPI
+    SHIMS --> AGENTAPI
+    ACC -- ask_agentforce --> HSHIM
+    ACO --> HSHIM
+    ADK -- A2A --> HSHIM
+    FDY -- "A2A (0.3 dialect)" --> HSHIM
+    ADK -- "cross-hyperscaler A2A" --> FDY
+    HSHIM --> AGENTAPI
+    CONSOLE -.scenarios.-> BR
+    CONSOLE -.reads.-> OBSDB
+    HSHIM -.hops.-> OBSDB
+    ACC -.hops.-> OBSDB
+    STDM -.harvest.-> OBSDB
+    CMA -.harvest.-> OBSDB
+```
+
 ### Every cross-platform hop levies a tax — latency, tokens, and an observability seam — that consolidation avoids
 
 *Status: hypothesis · refs: plan/05-observability.md*
@@ -49,6 +103,44 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** Cross-platform sync round trips measured live in both directions and across vendors: Agentforce→OpenAI 20.9s, OpenAI→Agentforce 20.1s (D25), Agentforce→Claude collaboration turns 27–36s — one agent farms out a subtask, waits, and folds the answer into its own reply.
 
 **Advisor take:** Treat sync delegation as "ask a colleague a quick question," not "commission a report." It fits expert lookups and enrichment inside a conversation turn; anything deeper belongs in an async pattern.
+
+**One pair, end to end** — The Claude ↔ Agentforce originals: one adapter behind three protocols, the managed sandbox that never holds a credential, and the local/hosted switch that moves the agent without touching Salesforce.
+
+```mermaid
+flowchart LR
+    subgraph sforg["Salesforce prod org"]
+        AF["Claude-paired twin<br/>A2ALab Research Assistant"]
+        APEX["Apex invocable"]
+        NC["Named Credential<br/>A2ALab_Bridge"]
+        AGENTAPI["Agent API"]
+        AF --> APEX --> NC
+    end
+
+    TUN["Cloudflare named tunnel<br/>bridge-lab.agenticthings.com"]
+    BR["Bridge :8100"]
+
+    subgraph claude["src/platforms/claude — one adapter"]
+        REST["REST :8001"]
+        MCP["MCP :8002"]
+        A2A["A2A :8003"]
+        ADAPTER["ClaudeAdapter<br/>managed | sdk backend"]
+        REST --> ADAPTER
+        MCP --> ADAPTER
+        A2A --> ADAPTER
+    end
+
+    CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
+    ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
+
+    NC -- "X-Bridge-Token" --> TUN --> BR
+    BR -- "protocol per targets.yaml" --> REST
+    BR --> MCP
+    BR --> A2A
+    BR -. "A2ALAB_MODE=hosted" .-> ACC
+    ADAPTER -- "sessions + event stream" --> CMA
+    CMA -. "ask_agentforce tool call<br/>executed HOST-side" .-> ADAPTER
+    ADAPTER -- "OAuth client-credentials" --> AGENTAPI
+```
 
 ### Every platform in a sync chain stacks its own timeout — the tightest link caps the whole chain
 
@@ -92,6 +184,23 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** When a platform claims A2A support, test the full story — discovery (card), transport negotiation, auth, session continuity — not just message exchange. Today's reality: message exchange works and is fast; discovery and card-declared auth are the immature edges, and cloud IAM sits outside the protocol entirely. Interop code needs escape hatches (pinned transports, locally-built cards) for exactly these gaps.
 
+**Versioned, not negotiated** — Google requires A2A 1.0, Microsoft speaks 0.3, and neither negotiates — so interop across 'the same protocol' cost a bilingual card plus a translation layer the lab owns.
+
+```mermaid
+flowchart LR
+    subgraph lab["Lab A2A surface — bilingual by necessity"]
+        CARD["Agent card carries BOTH<br/>generations' fields"]
+        COMPAT["a2a_compat middleware<br/>0.3 ⇄ 1.x translation"]
+        SRV["a2a-sdk server (1.x)"]
+        CARD --- COMPAT --> SRV
+    end
+    MS["Microsoft Foundry<br/>speaks 0.3 only"]
+    GOOG["Vertex AI Agent Engine<br/>requires 1.0 only"]
+
+    MS -- "0.3 JSON-RPC message/send<br/>a 1.x-only server answers -32601" --> COMPAT
+    SRV -- "pinned a2a-version: 1.0<br/>omit it and you get VERSION_NOT_SUPPORTED" --> GOOG
+```
+
 ### Native protocol support across enterprise platforms is sparser than the marketing suggests
 
 *Status: observed · refs: D8, D29, D30, plan/02-matrix.md, plan/03-results.md*
@@ -99,6 +208,60 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** The lab's honest matrix, platform by platform (inbound surfaces, measured): Salesforce Agentforce — GA Agent API only; no MCP or A2A inbound (MCP is gated beta, A2A doesn't exist), so those cells run via lab shims, and outbound is REST-only — every protocol experiment rides an Apex callout, through the bridge or (the D30 direct route) straight to a remote platform's A2A endpoint. Anthropic Managed Agents — its own API only; no MCP or A2A inbound, so the lab serves both protocols itself in front of the agent it hosts (the "native" cells are native because the AGENT is ours, not because the platform speaks the protocol). OpenAI — no inbound agent endpoint of any kind; the lab's servers are the only door to that agent. Google Vertex AI Agent Engine speaks A2A natively (no MCP serving); Microsoft Foundry became the second platform-native A2A endpoint (2026-07-22, Entra-only). Five platforms in, exactly two platform-native protocol endpoints exist — everything else is the lab's own plumbing.
 
 **Advisor take:** Plan for bridges and adapters as permanent, first-class, observable components of an interop program — not temporary scaffolding. Ask every vendor "which protocols do you speak natively, in which direction, GA or beta?" and demand wire-level evidence.
+
+**The platform map** — Five platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+
+```mermaid
+flowchart LR
+    subgraph sforg["Salesforce prod org"]
+        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+        APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
+        AGENTAPI["GA Agent API"]
+        STDM[("Session Tracing DMOs")]
+        TWINS --> APEX
+        AGENTAPI -. sessions .-> STDM
+    end
+
+    subgraph lab["Lab host — the two seams"]
+        BR["Bridge :8100<br/>REST in, any protocol out"]
+        SRV["Protocol servers<br/>REST :8001 · MCP :8002 · A2A :8003"]
+        GUIDE["Lab Guide :8031-33 (D35)"]
+        SHIMS["Agentforce shims<br/>MCP :8021 · A2A :8023"]
+        CONSOLE["Console :8200"]
+    end
+
+    subgraph aws["AWS"]
+        ACC["AgentCore: Claude sdk"]
+        ACO["AgentCore: OpenAI Agents SDK"]
+        HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
+        OBSDB[("Aurora obs + trace store (D23)")]
+    end
+
+    CMA["Anthropic<br/>Managed Agents"]
+    ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
+    FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
+
+    APEX -- "Path A: REST callout<br/>(tunnel)" --> BR
+    APEX -- "direct A2A (D30)" --> ADK
+    BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
+    BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+    BR --> ACO
+    SRV --> CMA
+    SRV -- "Path B: ask_agentforce" --> AGENTAPI
+    SHIMS --> AGENTAPI
+    ACC -- ask_agentforce --> HSHIM
+    ACO --> HSHIM
+    ADK -- A2A --> HSHIM
+    FDY -- "A2A (0.3 dialect)" --> HSHIM
+    ADK -- "cross-hyperscaler A2A" --> FDY
+    HSHIM --> AGENTAPI
+    CONSOLE -.scenarios.-> BR
+    CONSOLE -.reads.-> OBSDB
+    HSHIM -.hops.-> OBSDB
+    ACC -.hops.-> OBSDB
+    STDM -.harvest.-> OBSDB
+    CMA -.harvest.-> OBSDB
+```
 
 ### "Never scrape text" is single-platform advice — cross-platform, a versioned text rider is a contract, not a hack
 
@@ -108,6 +271,23 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Split the rule instead of repeating it. Scraping identifiers out of free-form model prose is fragile and deserves the condemnation; carrying a small, delimited, versioned convention in message text is currently the only transport every platform preserves. If you ship one, treat it as a spec — fixed grammar, version line, documented tolerance for unknown keys — and parse it like one.
 
+**The delegation guard** — No agent protocol defines TTL or max-forwards semantics, so the lab stamps a versioned rider and refuses to forward past a depth limit — and that same text is what lands in the remote platform's own logs.
+
+```mermaid
+flowchart LR
+    A["Calling agent<br/>(any platform)"]
+    SEAM["Delegation seam<br/>interop.delegation"]
+    RIDER["Rider stamped into the message TEXT<br/>rider-version · caller-agent · caller-platform<br/>delegation-depth · lab-trace"]
+    B["Delegated agent<br/>(remote platform)"]
+    REF["Refusal returned<br/>wire-visible, zero calls made"]
+    LOGS[("The remote platform's OWN logs<br/>rider text lands verbatim")]
+
+    A --> SEAM
+    SEAM -- "depth < A2ALAB_MAX_DELEGATION_DEPTH" --> RIDER --> B
+    SEAM -- "depth >= the limit" --> REF
+    B -. "no protocol carries this;<br/>the text does" .-> LOGS
+```
+
 ### Contract versioning is necessary and insufficient — shipped dialects don't negotiate, so budget for a translation layer you own
 
 *Status: measured · refs: D29, D30, plan/03-results.md*
@@ -115,6 +295,23 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** Both hyperscalers version their A2A surfaces; neither negotiates. Google's Agent Engine hard-requires `a2a-version: 1.0` — omit the header and the handler assumes 0.3 and rejects the call with VERSION_NOT_SUPPORTED. Microsoft Foundry speaks the 0.3 dialect and rejects a pure 1.x agent card, while a 1.x server answers its calls with -32601. Interop across what is nominally "the same protocol" took the lab's dual-dialect agent card plus a 0.3↔1.x translation middleware at the shim.
 
 **Advisor take:** Version every tool and agent contract you publish — and still assume the counterparty ships a different generation with no negotiation path between you. A translation seam you own is part of the real interop architecture, not a temporary shim, and it should be staffed and tested like one.
+
+**Versioned, not negotiated** — Google requires A2A 1.0, Microsoft speaks 0.3, and neither negotiates — so interop across 'the same protocol' cost a bilingual card plus a translation layer the lab owns.
+
+```mermaid
+flowchart LR
+    subgraph lab["Lab A2A surface — bilingual by necessity"]
+        CARD["Agent card carries BOTH<br/>generations' fields"]
+        COMPAT["a2a_compat middleware<br/>0.3 ⇄ 1.x translation"]
+        SRV["a2a-sdk server (1.x)"]
+        CARD --- COMPAT --> SRV
+    end
+    MS["Microsoft Foundry<br/>speaks 0.3 only"]
+    GOOG["Vertex AI Agent Engine<br/>requires 1.0 only"]
+
+    MS -- "0.3 JSON-RPC message/send<br/>a 1.x-only server answers -32601" --> COMPAT
+    SRV -- "pinned a2a-version: 1.0<br/>omit it and you get VERSION_NOT_SUPPORTED" --> GOOG
+```
 
 ## Hosting models
 
@@ -125,6 +322,44 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** The lab runs the same Claude agent two ways: Anthropic Managed Agents (zero infra, host-side tools, ~5–10s first-turn container provisioning) and the self-hosted Agent SDK containerized on Bedrock AgentCore (IAM-only data plane, credentials and telemetry are yours). The OpenAI agent runs the self-hosted path on the identical runtime for a clean cross-vendor comparison. Measured on AgentCore (2026-07-19): OpenAI cold start ~31s / warm p50 10.3s; Claude cold ~56s (can blow a 65s client timeout) / warm p50 8.4s — cold starts dominate the sync budget either way, and the heavier harness pays a visibly bigger cold price. Third runtime, same pattern: Vertex AI Agent Engine (ADK/Gemini, scale-to-zero) cold ~34s / warm 2.6s. WS3 completed the picture (2026-07-23): "serverless" splits in two. Container-backed serverless (AgentCore, Agent Engine) trades idle cost for cold starts a sync budget must absorb or pre-warm away; token-serverless prompt platforms (Foundry Agent Service, Anthropic Managed Agents) have no runtime of yours to wake — Foundry measured cold ≈ warm (10–17s either way). Their trade is runtime control and footprint, not latency. Ask which kind of "serverless" an agent platform is before budgeting the sync path. The fork shows up in tool governance too (2026-07-21): the SAME Claude agent asked the same question answered cleanly on Managed Agents (its sandbox runs tools under the platform's own policy) but stalled self-hosted — the Agent SDK ships built-in tools permission-gated, and inside a headless turn the model hit the WebSearch permission wall and asked the caller for access instead of answering. Self-hosting means owning the permission model, not just the infrastructure.
 
 **Advisor take:** Managed runtimes buy speed-to-value and push security posture to the vendor; self-hosting buys VPC/data-residency control and portability at the cost of owning scaling, secrets, observability — and the agent's tool permission model, which will surface as behavior bugs, not config errors, if left on defaults. Decide this per agent — it's a bigger architectural fork than which frontier model runs inside.
+
+**One pair, end to end** — The Claude ↔ Agentforce originals: one adapter behind three protocols, the managed sandbox that never holds a credential, and the local/hosted switch that moves the agent without touching Salesforce.
+
+```mermaid
+flowchart LR
+    subgraph sforg["Salesforce prod org"]
+        AF["Claude-paired twin<br/>A2ALab Research Assistant"]
+        APEX["Apex invocable"]
+        NC["Named Credential<br/>A2ALab_Bridge"]
+        AGENTAPI["Agent API"]
+        AF --> APEX --> NC
+    end
+
+    TUN["Cloudflare named tunnel<br/>bridge-lab.agenticthings.com"]
+    BR["Bridge :8100"]
+
+    subgraph claude["src/platforms/claude — one adapter"]
+        REST["REST :8001"]
+        MCP["MCP :8002"]
+        A2A["A2A :8003"]
+        ADAPTER["ClaudeAdapter<br/>managed | sdk backend"]
+        REST --> ADAPTER
+        MCP --> ADAPTER
+        A2A --> ADAPTER
+    end
+
+    CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
+    ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
+
+    NC -- "X-Bridge-Token" --> TUN --> BR
+    BR -- "protocol per targets.yaml" --> REST
+    BR --> MCP
+    BR --> A2A
+    BR -. "A2ALAB_MODE=hosted" .-> ACC
+    ADAPTER -- "sessions + event stream" --> CMA
+    CMA -. "ask_agentforce tool call<br/>executed HOST-side" .-> ADAPTER
+    ADAPTER -- "OAuth client-credentials" --> AGENTAPI
+```
 
 ### "Agent SDK" spans two very different species — thin API loops and full agent harnesses — with real deployment consequences
 
@@ -144,6 +379,27 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Make credential locality explicit in every agent integration review. Across trust boundaries, prefer broker/host-side tool patterns where the reasoning runtime never holds partner secrets — an agent that can be prompt-injected should not also be an agent holding your partner's keys.
 
+**Who authenticates as what** — Every hosted seam holds its own credentials and its own Salesforce identity: runtime configs carry only a secret ARN, and each caller presents a per-caller External Client App scoped to what it actually calls.
+
+```mermaid
+flowchart LR
+    subgraph sm["AWS Secrets Manager (F1)"]
+        SC["a2alab/runtime/claude"]
+        SO["a2alab/runtime/openai"]
+        SS["a2alab/runtime/shim"]
+    end
+
+    ACC["AgentCore: Claude"] --> SC
+    ACO["AgentCore: OpenAI"] --> SO
+    HSHIM["Hosted A2A shim"] --> SS
+    HARV["Obs harvest"] --> SH["harvest secret (D23)"]
+
+    SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
+    SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
+    SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
+    SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
+```
+
 ### Agent-to-agent graphs grow edges nobody drew — govern the actual topology, not the diagram
 
 *Status: observed · refs: D25*
@@ -152,6 +408,60 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Once agents can call agents, delegation chains form transitively — including across billing, compliance, and data boundaries. Enforce closed systems per use case, and monitor real topology from traces. This governance problem arrives with your second platform, not your tenth.
 
+**The platform map** — Five platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+
+```mermaid
+flowchart LR
+    subgraph sforg["Salesforce prod org"]
+        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+        APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
+        AGENTAPI["GA Agent API"]
+        STDM[("Session Tracing DMOs")]
+        TWINS --> APEX
+        AGENTAPI -. sessions .-> STDM
+    end
+
+    subgraph lab["Lab host — the two seams"]
+        BR["Bridge :8100<br/>REST in, any protocol out"]
+        SRV["Protocol servers<br/>REST :8001 · MCP :8002 · A2A :8003"]
+        GUIDE["Lab Guide :8031-33 (D35)"]
+        SHIMS["Agentforce shims<br/>MCP :8021 · A2A :8023"]
+        CONSOLE["Console :8200"]
+    end
+
+    subgraph aws["AWS"]
+        ACC["AgentCore: Claude sdk"]
+        ACO["AgentCore: OpenAI Agents SDK"]
+        HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
+        OBSDB[("Aurora obs + trace store (D23)")]
+    end
+
+    CMA["Anthropic<br/>Managed Agents"]
+    ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
+    FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
+
+    APEX -- "Path A: REST callout<br/>(tunnel)" --> BR
+    APEX -- "direct A2A (D30)" --> ADK
+    BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
+    BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+    BR --> ACO
+    SRV --> CMA
+    SRV -- "Path B: ask_agentforce" --> AGENTAPI
+    SHIMS --> AGENTAPI
+    ACC -- ask_agentforce --> HSHIM
+    ACO --> HSHIM
+    ADK -- A2A --> HSHIM
+    FDY -- "A2A (0.3 dialect)" --> HSHIM
+    ADK -- "cross-hyperscaler A2A" --> FDY
+    HSHIM --> AGENTAPI
+    CONSOLE -.scenarios.-> BR
+    CONSOLE -.reads.-> OBSDB
+    HSHIM -.hops.-> OBSDB
+    ACC -.hops.-> OBSDB
+    STDM -.harvest.-> OBSDB
+    CMA -.harvest.-> OBSDB
+```
+
 ### Agent protocols have no TTL — bidirectional agent pairs loop by construction unless you build the guard yourself
 
 *Status: observed · refs: D25, D27, D28*
@@ -159,6 +469,23 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** Wiring both directions of each platform pair (the lab's whole premise) makes circular delegation possible by design: A delegates to B, whose tool delegates back to A. Without a guard, loops in the lab ended only by starvation — stacked timeouts and turn caps — surfacing as errors, not clean stops. None of REST, MCP, or A2A carries hop-count/TTL semantics; networking solved this decades ago (IP TTL, SIP Max-Forwards). The lab's fix is a convention: every delegated request carries a standard caller/depth rider with a do-not-call-back directive, and every delegation seam refuses beyond a depth limit with a wire-visible message. The rider travels twice on purpose — as structured metadata AND as a text block in the message — and the lab caught why that redundancy matters: one protocol client silently dropped request metadata on the A2A hop, which collapsed the shared shim's per-platform twin routing onto the default agent (a wrong-agent call path, found only in the wire traces). The text copy survived every hop; the shim now falls back to parsing it.
 
 **Advisor take:** Ask any multi-agent architecture "what's your TTL?" If the answer is "the timeout," loops are being absorbed, not prevented — and each one burns tokens, latency, and platform quota until something starves. Until the protocols standardize hop semantics, enterprises must impose their own delegation-depth convention at every boundary they control, and prompt-level directives alone are hope, not enforcement — enforce at the seams. Carry the context in both the protocol's metadata and the message text: across heterogeneous hops, the text is the only channel every platform preserves.
+
+**The delegation guard** — No agent protocol defines TTL or max-forwards semantics, so the lab stamps a versioned rider and refuses to forward past a depth limit — and that same text is what lands in the remote platform's own logs.
+
+```mermaid
+flowchart LR
+    A["Calling agent<br/>(any platform)"]
+    SEAM["Delegation seam<br/>interop.delegation"]
+    RIDER["Rider stamped into the message TEXT<br/>rider-version · caller-agent · caller-platform<br/>delegation-depth · lab-trace"]
+    B["Delegated agent<br/>(remote platform)"]
+    REF["Refusal returned<br/>wire-visible, zero calls made"]
+    LOGS[("The remote platform's OWN logs<br/>rider text lands verbatim")]
+
+    A --> SEAM
+    SEAM -- "depth < A2ALAB_MAX_DELEGATION_DEPTH" --> RIDER --> B
+    SEAM -- "depth >= the limit" --> REF
+    B -. "no protocol carries this;<br/>the text does" .-> LOGS
+```
 
 ### When a delegated tool call fails, a model may invent the other agent's answer — attribution and all
 
@@ -175,6 +502,27 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** The lab ran one shared Salesforce External Client App for every caller: two hosted agent runtimes consulting the Agent API, a hosted protocol shim, and the observability harvest. Its grant — `api, refresh_token, chatbot_api, sfap_api` — looked like sloppy over-permissioning, and the obvious remediation was to trim the list. Auditing it caller by caller showed why that framing fails: the grant was the UNION of four callers' needs, so every scope on it was load bearing for SOMEBODY. `refresh_token` was genuinely dead (only client-credentials and JWT-bearer flows are enabled; neither issues one) and dropped for free. But `api` was needed by exactly one caller — the harvest, which reads Data Cloud agent-session DMOs through `/services/data/vXX/query` — and dropping it would have cost the org's only window into what it logs about its own agents. The fix was not a shorter list, it was four apps: three agent callers that reach only the Agent API now hold `chatbot_api, sfap_api` and no `api` scope at all, and the harvest holds `api` alone. Salesforce attributes client-credentials calls to the APP, so one shared app also made every lab caller look like one integration user in the org's own audit trail — the same modelling error showing up as an observability failure. Cost of the split: the per-caller apps were deployable metadata (one deploy), and because each hosted seam already had its own secrets store, wiring identity per caller took no code change at all.
 
 **Advisor take:** When a shared integration app's scope list looks bloated, don't start by trimming it — enumerate the callers behind it first. A union grant is the arithmetic of shared identity, and you cannot shrink it without splitting the identity, because every scope on it is genuinely needed by someone. Budget the split as the real remediation: one app per caller, each scoped to what that caller actually calls. You get least privilege and per-caller attribution from the same change — and the attribution is often the part the auditors were really asking for.
+
+**Who authenticates as what** — Every hosted seam holds its own credentials and its own Salesforce identity: runtime configs carry only a secret ARN, and each caller presents a per-caller External Client App scoped to what it actually calls.
+
+```mermaid
+flowchart LR
+    subgraph sm["AWS Secrets Manager (F1)"]
+        SC["a2alab/runtime/claude"]
+        SO["a2alab/runtime/openai"]
+        SS["a2alab/runtime/shim"]
+    end
+
+    ACC["AgentCore: Claude"] --> SC
+    ACO["AgentCore: OpenAI"] --> SO
+    HSHIM["Hosted A2A shim"] --> SS
+    HARV["Obs harvest"] --> SH["harvest secret (D23)"]
+
+    SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
+    SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
+    SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
+    SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
+```
 
 ## Observability
 
@@ -193,6 +541,23 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 **What the lab showed:** Every delegated request in the lab carries a plain-text rider naming the calling agent and platform (the D27 delegation guard). Because the rider rides inside the message text, it lands verbatim in the RECEIVING platform's own execution logs — no integration, no agreement, no platform feature required. Harvested across five platforms (2026-07-23, recorded in plan/03-results.md): 62 of 220 platform-logged sessions self-attribute their caller (58 in Salesforce's session logs, where the rider appears in 188 logged events; 4 in Anthropic's) — the sessions that were delegated turns rather than direct ones. The console surfaces this as a first-class "caller agent" column over logs the lab never wrote.
 
 **Advisor take:** In a multi-vendor agent estate, assume the remote platform's audit trail will say a generic integration user asked — unless your requests say otherwise. A caller-identity convention in the message text is the cheapest provenance mechanism that exists: it needs no partner cooperation and it survives every hop, because the message text is the one channel every platform preserves and logs.
+
+**The delegation guard** — No agent protocol defines TTL or max-forwards semantics, so the lab stamps a versioned rider and refuses to forward past a depth limit — and that same text is what lands in the remote platform's own logs.
+
+```mermaid
+flowchart LR
+    A["Calling agent<br/>(any platform)"]
+    SEAM["Delegation seam<br/>interop.delegation"]
+    RIDER["Rider stamped into the message TEXT<br/>rider-version · caller-agent · caller-platform<br/>delegation-depth · lab-trace"]
+    B["Delegated agent<br/>(remote platform)"]
+    REF["Refusal returned<br/>wire-visible, zero calls made"]
+    LOGS[("The remote platform's OWN logs<br/>rider text lands verbatim")]
+
+    A --> SEAM
+    SEAM -- "depth < A2ALAB_MAX_DELEGATION_DEPTH" --> RIDER --> B
+    SEAM -- "depth >= the limit" --> REF
+    B -. "no protocol carries this;<br/>the text does" .-> LOGS
+```
 
 ### A trace id carried in the message text links each platform's private logs back to the exact cross-platform run that caused them
 

@@ -695,3 +695,21 @@ anti-pattern claim rather than to settle it by argument:
 `plan/08-insights.md` → downloadable at `/api/insights.md` → import into
 Claude Design for the presentation. Every workstream ends by updating the
 yaml and regenerating.
+
+**Diagrams for the readout** ride alongside: `config/diagrams.yaml` holds
+mermaid sources, each naming the insight ids whose tiles should carry its
+chip (the mapping lives on the diagram, so one picture can serve several
+insights without being duplicated). In the console a chip on the insight
+tile opens the diagram full-size — that is the readout affordance: talk to
+the insight, click the chip, the picture is on screen. The same diagrams are
+embedded into `plan/08-insights.md` as ```mermaid fences, so GitHub and
+Claude Design render them too.
+
+Mechanics worth knowing before editing one: mermaid is **vendored** at
+`src/console/static/vendor/mermaid.min.js` (3.4MB, MIT, lazily loaded on the
+first chip click) rather than pulled from a CDN — a readout must not depend
+on the network — and rendered in the browser rather than pre-baked to SVG, so
+the mermaid text stays the single source of truth with no regeneration step
+to forget. Diagrams that README.md also embeds carry `readme: true`, and
+`tests/unit/test_diagrams.py` asserts the two copies stay identical, so
+editing one and not the other fails the suite instead of the demo.

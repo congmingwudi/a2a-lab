@@ -862,8 +862,11 @@ def create_console_app(registry: Registry | None = None):
             )
         return await call_next(request)
 
-    # Component screenshots etc. — /static/* still requires the lab token
-    # (the UI appends ?token=, same as the API calls).
+    # Component screenshots, the vendored mermaid bundle, the shell's own
+    # assets — repo content, served on the public surface (see the middleware
+    # exemptions below). It has to be: browsers cannot put a bearer header on
+    # an <img src> or <script src>, and D36 removed query-param credentials,
+    # so anything token-gated here simply 401s in the page.
     from fastapi.staticfiles import StaticFiles
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -1728,7 +1731,12 @@ def create_console_app(registry: Registry | None = None):
             "/api/targets",
             "/api/decisions",
         ),
-        exempt_prefixes=("/api/docs/",),
+        # /static/: repo assets the public shell renders — component
+        # screenshots and the vendored mermaid bundle. Not a policy softening
+        # but the only workable rule: <img> and <script> tags cannot send the
+        # bearer header, so gating these 401'd them in the browser (which is
+        # exactly what happened to the screenshots between D36 and here).
+        exempt_prefixes=("/api/docs/", "/static/"),
     )
 
 

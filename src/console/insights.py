@@ -4,6 +4,12 @@ presentation work (Claude Design imports the markdown directly).
 
 Shared by the console API (GET /api/insights, /api/insights.md) and
 scripts/export_insights.py so the app and the export can never drift.
+
+config/diagrams.yaml attaches mermaid diagrams to insights: each diagram
+names the insight ids whose tiles should carry its chip, so one diagram can
+serve several insights without being duplicated. The attachment happens here,
+once, which is why a chip in the console and a ```mermaid block in the
+exported markdown always agree.
 """
 
 from __future__ import annotations
@@ -13,6 +19,7 @@ from pathlib import Path
 import yaml
 
 INSIGHTS_PATH = Path("config/insights.yaml")
+DIAGRAMS_PATH = Path("config/diagrams.yaml")
 
 # Presentation order for categories; anything unlisted sorts after, as-found.
 CATEGORY_ORDER = [
@@ -26,9 +33,40 @@ CATEGORY_ORDER = [
 ]
 
 
-def load_insights(path: str | Path = INSIGHTS_PATH) -> list[dict]:
+def load_diagrams(path: str | Path = DIAGRAMS_PATH) -> list[dict]:
+    p = Path(path)
+    if not p.exists():  # diagrams are optional — insights render without them
+        return []
+    raw = yaml.safe_load(p.read_text()) or {}
+    return raw.get("diagrams") or []
+
+
+def load_insights(
+    path: str | Path = INSIGHTS_PATH,
+    diagrams_path: str | Path = DIAGRAMS_PATH,
+) -> list[dict]:
     raw = yaml.safe_load(Path(path).read_text()) or {}
-    return raw.get("insights") or []
+    insights = raw.get("insights") or []
+    return attach_diagrams(insights, load_diagrams(diagrams_path))
+
+
+def attach_diagrams(insights: list[dict], diagrams: list[dict]) -> list[dict]:
+    """Give each insight a `diagrams` list, in config order.
+
+    The mapping lives on the diagram (`insights: [id, ...]`) rather than on the
+    insight, so adding a diagram that serves four tiles is one edit in one
+    file. Insight dicts are copied — the caller's loaded yaml stays untouched.
+    """
+    by_id: dict[str, list[dict]] = {}
+    for diagram in diagrams:
+        entry = {k: v for k, v in diagram.items() if k != "insights"}
+        for insight_id in diagram.get("insights") or []:
+            by_id.setdefault(insight_id, []).append(entry)
+    out = []
+    for insight in insights:
+        attached = by_id.get(insight.get("id"))
+        out.append({**insight, "diagrams": attached} if attached else dict(insight))
+    return out
 
 
 def by_category(insights: list[dict]) -> list[tuple[str, list[dict]]]:
@@ -68,4 +106,17 @@ def to_markdown(insights: list[dict]) -> str:
                 f"**Advisor take:** {' '.join(str(ins.get('advisory', '')).split())}",
                 "",
             ]
+            # Diagrams ride as ```mermaid fences: GitHub and Claude Design both
+            # render them, so the readout material carries the same picture the
+            # console chip opens.
+            for diagram in ins.get("diagrams") or []:
+                lines += [
+                    f"**{diagram.get('title', diagram.get('id', 'diagram'))}** — "
+                    f"{' '.join(str(diagram.get('caption', '')).split())}",
+                    "",
+                    "```mermaid",
+                    str(diagram.get("mermaid", "")).rstrip(),
+                    "```",
+                    "",
+                ]
     return "\n".join(lines)
