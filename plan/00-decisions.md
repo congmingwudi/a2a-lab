@@ -869,11 +869,14 @@ not click-ops, and both then shipped:
   identity. Remaining human step, once per app: the consumer secret cannot
   be read through the Metadata API — it comes from Setup by hand.
 
-**Not in source, on purpose:** `ExtlClntAppGlobalOauthSettings` carries the
-consumer key and this repo is public, so the ECA metadata is retrieved when
-needed and deleted after. The provisioning recipe lives in
-plan/04-runbooks.md §11 instead — the reproducibility without the key
-material.
+**What is in source (corrected 2026-07-25):** `ExtlClntAppGlobalOauthSettings`
+carries the consumer key and is never committed — retrieved when needed,
+deleted after. The `ExtlClntAppOauthSettings` scope files are tracked: they
+hold no secret, and the per-caller scope split is the finding. An earlier
+version of this paragraph said no ECA metadata was committed at all, which
+was wrong on both counts — the scope files had already been committed, and
+they are the ones worth keeping. The provisioning recipe is
+plan/04-runbooks.md §11.
 
 **Verified (2026-07-24).** F5: deployed to the production org,
 `A2ALabInvokeAgentEngineTest` 8/8, 99% class coverage. F1: after redeploy,

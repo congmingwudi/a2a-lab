@@ -311,9 +311,13 @@ stuff what every question needs, tool the long tail).
 Salesforce login history attributes a client-credentials call to the
 **app**, not the code path — so one shared ECA makes every lab caller look
 like one integration user in the org's own audit trail. F6 gives each
-hosted seam its own app. The ECA metadata is deliberately **not** in the
-repo: `ExtlClntAppGlobalOauthSettings` carries the consumer key and this
-repo is public. Retrieve it when you need it; this is the recipe.
+hosted seam its own app. **What is and isn't in the repo:**
+`ExtlClntAppGlobalOauthSettings` carries the consumer key and is never
+committed — this repo is public; retrieve it when you need it. The
+`ExtlClntAppOauthSettings` files (scopes only, no secret) ARE tracked under
+`salesforce/force-app/main/default/extlClntAppOauthSettings/`, because the
+per-caller scope split is the point of F3/F6 and keeping it in git is what
+makes drift from the org visible. This is the recipe for the rest.
 
 **The apps** (created 2026-07-24 in `a2alab-prod`), and the scope split
 that makes each one least-privilege — which is where F3's scope diet
@@ -375,7 +379,9 @@ content because the containers still held the old credentials). An identity
 is not verified by authenticating; it is verified by doing its job.
 
 **A second manual step, learned the hard way:** deploying the ECA is not
-enough. Each app must also be **linked to each agent** it will call — Setup
+enough — and it is NOT a scope problem. Tested 2026-07-25: adding the broad
+`api` scope to a per-caller app changed nothing, the Agent API still 404s.
+Deploying the ECA is not enough. Each app must also be **linked to each agent** it will call — Setup
 → Agentforce Agents → the agent → Connections → add the connected app.
 Until then the app mints tokens happily and every Agent API call 404s.
 
