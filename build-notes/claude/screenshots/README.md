@@ -16,4 +16,6 @@ a decision was committed to the ADR log.
 
 | File | ADR / moment | Caption (why this mattered) |
 |---|---|---|
+| `2026-07-25-classifier-blocks-prod-org-write.png` | D37 remediation deploys | Claude explains why the auto-mode safety classifier held a **production Salesforce org write** for explicit approval — and that it hit the `sf` CLI and the salesforce-dx MCP tool *identically* (the block is at the action class, not the tool), while read-only queries passed through. Claude's own take: "honestly I'd rather it stayed on for prod-org writes." |
+| `2026-07-25-allow-rule-vs-hard-guardrail.png` | D37 remediation deploys | The two-tier permission lesson in one reply: a hosted-infra write (`aws lambda update-function-code`) is the kind of block an **allow rule is designed to settle** — Claude drafts the exact narrow `settings.local.json` edit — while Claude editing its *own* permissions file is a **hard guardrail** it asks the human to perform: "if I could grant myself permissions, the allowlist would mean nothing." |
 | _(add rows as screenshots land)_ | | |

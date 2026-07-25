@@ -36,7 +36,10 @@ if [[ "$MODE" == "all" || "$MODE" == "--secret" ]]; then
   # identity is rewritten here.
   CURRENT=$(aws secretsmanager get-secret-value --region "$REGION" \
     --secret-id "$SECRET_NAME" --query SecretString --output text)
-  SECRET_JSON=$(A2ALAB_CURRENT="$CURRENT" python3 - <<'PY'
+  # The GCP service-account key is a file on disk; pass its path, not its
+  # contents, so the key never lands in a shell variable or the process list.
+  GCP_KEY_FILE="${A2ALAB_GCP_OBS_KEY_FILE:-}"
+  SECRET_JSON=$(A2ALAB_CURRENT="$CURRENT" A2ALAB_GCP_KEY_FILE="$GCP_KEY_FILE" python3 - <<'PY'
 import json, os
 env = json.loads(os.environ["A2ALAB_CURRENT"])
 # F6: prefer the harvest's own External Client App (a2a_lab_obs — the one
@@ -48,6 +51,29 @@ for key in ("SF_CLIENT_ID", "SF_CLIENT_SECRET"):
         env[key] = value
 if os.environ.get("SF_MY_DOMAIN"):
     env["SF_MY_DOMAIN"] = os.environ["SF_MY_DOMAIN"]
+
+# 2026-07-25: adk and foundry were absent from the hosted harvest (Aurora held
+# zero rows for both while the local sqlite store had them), because the Lambda
+# had neither their credentials nor their client libraries. Both are carried
+# here now so the hosted coverage panel can tell "nothing to pull" apart from
+# "we never asked".
+for key in (
+    "GOOGLE_CLOUD_PROJECT",       # adk: Cloud Logging + Monitoring
+    "ADK_AGENT_ENGINE_ID",
+    "AZURE_LOGS_WORKSPACE_ID",    # foundry: App Insights via Azure Monitor
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
+):
+    if os.environ.get(key):
+        env[key] = os.environ[key]
+
+# ADC in a Lambda: google.auth wants a FILE, the Lambda gets a secret string.
+# Ship the key as JSON text; the handler writes it to /tmp at cold start.
+key_file = os.environ.get("A2ALAB_GCP_KEY_FILE")
+if key_file and os.path.exists(key_file):
+    with open(key_file) as fh:
+        env["GOOGLE_APPLICATION_CREDENTIALS_JSON"] = fh.read()
 print(json.dumps(env))
 PY
 )

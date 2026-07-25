@@ -1,8 +1,12 @@
 """M11: sqlite trace sink, obs store, and harvest sources (canned payloads)."""
 
 import json
+import os
 import sqlite3
+import sys
 from types import SimpleNamespace
+
+import pytest
 
 from interop.trace import Hop, SqliteSink, TraceRecorder
 from observability.anthropic_source import AnthropicSource
@@ -235,6 +239,138 @@ def test_salesforce_source_blocked_without_env(tmp_path, monkeypatch):
     assert result.status == "blocked"
     assert "SF_MY_DOMAIN" in result.detail
     store.close()
+
+
+def test_salesforce_events_resolve_to_sessions_including_steps(tmp_path, monkeypatch):
+    """Every harvested event must land under a real session id.
+
+    Regression for the 823 orphaned events found in Aurora on 2026-07-25.
+    Two independent causes, both reproduced here: step rows carry only
+    ssot__AiAgentInteractionId__c (they reach the session through their
+    interaction), and STDM writes the literal string "NOT_SET" for unset
+    foreign keys — so the old heuristic matched ssot__SessionOwnerId__c and
+    filed every step under a session named "NOT_SET".
+    """
+    monkeypatch.setenv("SF_MY_DOMAIN", "https://example.my.salesforce.com")
+    monkeypatch.setenv("SF_CLIENT_ID", "cid")
+    monkeypatch.setenv("SF_CLIENT_SECRET", "secret")
+
+    session_id = "sess-1"
+    interaction_id = "int-1"
+    canned = {
+        "ssot__AiAgentSession__dlm": [{"ssot__Id__c": session_id, "ssot__Name__c": "s"}],
+        "ssot__AiAgentInteraction__dlm": [
+            {
+                "ssot__Id__c": interaction_id,
+                "ssot__AiAgentSessionId__c": session_id,
+                "ssot__SessionOwnerId__c": "NOT_SET",
+            }
+        ],
+        "ssot__AiAgentInteractionMessage__dlm": [
+            {
+                "ssot__Id__c": "msg-1",
+                "ssot__AiAgentSessionId__c": session_id,
+                "ssot__SessionOwnerId__c": "NOT_SET",
+            }
+        ],
+        # the shape that broke: no session column at all, only its parent
+        "ssot__AiAgentInteractionStep__dlm": [
+            {
+                "ssot__Id__c": "step-1",
+                "ssot__AiAgentInteractionId__c": interaction_id,
+                "ssot__SessionOwnerId__c": "NOT_SET",
+            }
+        ],
+    }
+
+    source = SalesforceSource()
+    monkeypatch.setattr(source, "_token", lambda: ("https://example.my.salesforce.com", "tok"))
+    monkeypatch.setattr(
+        source,
+        "_soql",
+        lambda domain, token, soql: next((rows for dmo, rows in canned.items() if dmo in soql), []),
+    )
+
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    result = source.harvest(store)
+    assert result.status == "ok"
+    assert result.events == 3
+
+    rows = store._conn.execute(
+        "SELECT event_id, native_session_id FROM obs_events WHERE platform='salesforce'"
+    ).fetchall()
+    assert len(rows) == 3
+    for event_id, native_session_id in rows:
+        assert native_session_id == session_id, f"{event_id} orphaned -> {native_session_id!r}"
+    store.close()
+
+
+def test_azure_credential_never_falls_back_to_a_developer_login(monkeypatch):
+    """The Foundry regression, encoded.
+
+    DefaultAzureCredential walked a chain that found the developer's az login
+    locally and the service principal in Lambda, so the source passed on a
+    laptop while the SP had no workspace access at all. Unconfigured must mean
+    refused, not "try whoever else is around".
+    """
+    from observability.credentials import azure_credential, azure_missing
+
+    for var in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"):
+        monkeypatch.delenv(var, raising=False)
+    assert set(azure_missing()) == {"AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"}
+    with pytest.raises(RuntimeError) as exc:
+        azure_credential()
+    assert "az login" in str(exc.value)
+
+    # A partially-configured SP is still refused — no silent half-credential.
+    monkeypatch.setenv("AZURE_TENANT_ID", "t")
+    monkeypatch.setenv("AZURE_CLIENT_ID", "c")
+    assert azure_missing() == ["AZURE_CLIENT_SECRET"]
+    with pytest.raises(RuntimeError):
+        azure_credential()
+
+
+def test_foundry_source_blocked_without_service_principal(tmp_path, monkeypatch):
+    from observability.foundry_source import FoundrySource
+
+    monkeypatch.setenv("AZURE_LOGS_WORKSPACE_ID", "ws-1")
+    for var in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"):
+        monkeypatch.delenv(var, raising=False)
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    result = FoundrySource().harvest(store)
+    assert result.status == "blocked"
+    assert "service principal" in result.detail
+    store.close()
+
+
+def test_harvest_secret_overrides_dotenv_values(monkeypatch, tmp_path):
+    """Secrets Manager is the source of truth, not the laptop's .env.
+
+    Opposite of interop.secret_env's setdefault: a stale local value winning
+    over the managed one is the drift this whole module exists to remove.
+    """
+    import observability.credentials as creds
+
+    monkeypatch.setattr(creds, "_secret_loaded", False)
+    monkeypatch.setenv("AZURE_CLIENT_SECRET", "stale-from-dotenv")
+    monkeypatch.setenv(creds.GCP_KEY_JSON_VAR, '{"type":"service_account"}')
+
+    class _FakeSM:
+        def get_secret_value(self, SecretId):  # noqa: N803 - boto3 signature
+            return {"SecretString": json.dumps({"AZURE_CLIENT_SECRET": "from-secrets-manager"})}
+
+    monkeypatch.setitem(sys.modules, "boto3", type("m", (), {"client": lambda *a, **k: _FakeSM()}))
+    names = creds.load_harvest_secret("arn:aws:secretsmanager:us-east-1:1:secret:x")
+    assert names == ["AZURE_CLIENT_SECRET"]
+    assert os.environ["AZURE_CLIENT_SECRET"] == "from-secrets-manager"
+
+    # And the GCP key becomes a real 0600 file ADC can read.
+    monkeypatch.setattr(creds, "_gcp_key_path", None)
+    assert creds.materialize_gcp_key() is True
+    key_path = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+    assert json.load(open(key_path))["type"] == "service_account"
+    assert oct(os.stat(key_path).st_mode)[-3:] == "600"
+    os.unlink(key_path)
 
 
 def test_openai_source_blocked_without_key(tmp_path, monkeypatch):

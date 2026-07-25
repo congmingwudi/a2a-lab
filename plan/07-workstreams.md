@@ -20,7 +20,35 @@ Rules that apply to every workstream:
 - **Obs rule (D18/D22):** every platform lands an
   `src/observability/<name>_source.py` + `SOURCES` entry in
   `scripts/obs_harvest.py` — or an honest "nothing pullable" entry like
-  OpenAI's, recorded in the coverage panel.
+  OpenAI's, recorded in the coverage panel. Registering the source in
+  `scripts/obs_harvest.py` is HALF the job: the hosted Lambda
+  (`observability/lambda_handlers.py`) and its bundle
+  (`deploy/obs/build_zips.sh`) need the same entry and the client library,
+  or the platform reads "blocked" hosted forever while local looks fine —
+  which is exactly how ADK and Foundry sat missing from Aurora (2026-07-25).
+- **Credential rule (2026-07-25):** **AWS auth is the only human login in the
+  stack.** Every other platform credential is a SERVICE identity living in a
+  Secrets Manager secret and fetched with that AWS auth — never an
+  interactive `az login` / `gcloud auth`, never a value that only exists in
+  someone's `.env`. Concretely, for a new platform:
+  1. create a dedicated service identity with the narrowest read role the
+     source needs (`a2alab-obs-harvest` on GCP: logging.viewer +
+     monitoring.viewer; the Entra SP on Azure: `Log Analytics Reader` scoped
+     to the one workspace);
+  2. put its secret in the harvest secret via `deploy/obs/deploy_harvest.sh`,
+     never by hand — config no script owns is config nobody updates (D37);
+  3. build the client credential **explicitly**. Never
+     `DefaultAzureCredential`, `google.auth.default()`-with-ambient-ADC, or
+     any other chain that can silently resolve to a developer. Use
+     `observability/credentials.py`, which refuses when unconfigured rather
+     than falling back;
+  4. make failure name the principal — an access error that does not say
+     WHICH identity was refused costs an hour.
+  The rule is written from a real week-long miss: Foundry's harvest passed
+  locally and failed hosted because `DefaultAzureCredential` found Ryan's
+  Azure CLI login on the laptop and the service principal in Lambda. The
+  green local run was proving a human had access. See the
+  `credential-locality` insight.
 - **Insight rule:** a workstream isn't done until its findings are added
   to `config/insights.yaml` (and `plan/08-insights.md` regenerated via
   `scripts/export_insights.py`).

@@ -947,3 +947,54 @@ The five insights from the D37 anti-pattern audit (`antipattern-lens`,
 `least-privilege-is-identity`) are marked `review: required` and sit
 pending. The markdown export is untouched — sign-off governs what the lab
 stands behind, not what it renders.
+
+## 2026-07-25 — D39: One human login — service identities for every other platform
+
+**Decision.** **AWS auth (SSO) is the only interactive human login the lab's
+runtime path may depend on.** Every other platform credential is a service
+identity whose secret lives in a Secrets Manager secret and is fetched with
+that AWS auth. Cloud SDK credentials are constructed **explicitly**; the
+convenience chains — `DefaultAzureCredential`, ambient
+`google.auth.default()` ADC, anything that can resolve to a developer — are
+banned in lab code. `src/observability/credentials.py` is the one place that
+implements this, and it refuses when unconfigured rather than falling back.
+The rule is written into the workstream rules (plan/07) so it binds every
+future platform, not just the two that prompted it.
+
+**Why now.** The Foundry observability harvest passed locally and failed
+hosted with `InsufficientAccessError` for over a week, and both results were
+correct: `DefaultAzureCredential` walks a chain, found Ryan's `az login` on
+the laptop and the Entra service principal in Lambda — which had never been
+granted `Log Analytics Reader` on the workspace. Nothing was misconfigured
+in a way any test could catch, because the green local run was proving that
+a *human* had access. The same pass found the hosted harvest had never
+registered ADK or Foundry at all, so Aurora held zero rows for two of five
+platforms while the local store looked complete.
+
+Three choices worth recording:
+
+- **`override=True`, deliberately opposite to `interop/secret_env.py` (F1).**
+  That module's `setdefault` lets an explicitly-set variable win, which is
+  right for a hosted runtime an operator may need to poke at. For harvest
+  credentials the secret is the single source of truth: a stale value in
+  someone's `.env` silently beating the managed one is precisely the drift
+  D37 was about.
+- **Failures name the principal.** An access denial that does not say WHICH
+  identity was refused sends you to re-check the role you already granted on
+  the identity you already verified. The client id is not a secret; the
+  harvest now reports it on failure.
+- **Registering an obs source is half the job.** A source in
+  `scripts/obs_harvest.py` with no matching entry in the Lambda's map and no
+  client library in `deploy/obs/build_zips.sh` reads as "blocked" hosted
+  forever while local looks healthy. The obs rule in plan/07 now says both.
+
+New service identities created under this decision: `a2alab-obs-harvest`
+(GCP, `logging.viewer` + `monitoring.viewer`) and `Log Analytics Reader`
+scoped to the single `a2a-lab-logs` workspace for the existing Entra SP.
+Least privilege by construction, per D37's F3/F6 lesson — the grant follows
+the caller, not the union of callers.
+
+Scope note: `.env` remains the *deploy-time* source for these values
+(`deploy/obs/deploy_harvest.sh` reads it to populate the secret, and the ADK
+container's Entra SP is deployed from it). What changed is the *runtime*
+path — no process authenticates as a person.

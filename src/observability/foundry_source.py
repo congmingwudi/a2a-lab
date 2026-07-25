@@ -67,11 +67,26 @@ class FoundrySource(PlatformLogSource):
             store.set_harvest_status(self.name, result.status, result.detail)
             return result
 
+        from observability.credentials import azure_credential, azure_missing
+
+        if azure_missing():
+            result = HarvestResult(
+                platform=self.name,
+                status="blocked",
+                detail=(
+                    f"Azure service principal not configured — missing {', '.join(azure_missing())}"
+                ),
+            )
+            store.set_harvest_status(self.name, result.status, result.detail)
+            return result
+
         try:
-            from azure.identity import DefaultAzureCredential
             from azure.monitor.query import LogsQueryClient
 
-            client = LogsQueryClient(DefaultAzureCredential())
+            # Explicit SP, never DefaultAzureCredential — see credentials.py:
+            # the chain's developer-login fallback made this source pass on a
+            # laptop and fail in Lambda for over a week.
+            client = LogsQueryClient(azure_credential())
             response = client.query_workspace(
                 workspace, _KQL, timespan=timedelta(hours=WINDOW_HOURS)
             )
@@ -79,8 +94,17 @@ class FoundrySource(PlatformLogSource):
             columns = [str(c) for c in table.columns]
             rows = [dict(zip(columns, row)) for row in table.rows]
         except Exception as exc:
+            # Name the identity in the failure. An access error that does not
+            # say WHICH principal was refused sends you to check the role
+            # assignment you already made, on the principal you already
+            # checked — the client id is not a secret, so say it.
+            who = (
+                f"{os.environ.get('AZURE_CLIENT_ID', '?')}@{os.environ.get('AZURE_TENANT_ID', '?')}"
+            )
             result = HarvestResult(
-                platform=self.name, status="error", detail=f"{type(exc).__name__}: {exc}"
+                platform=self.name,
+                status="error",
+                detail=f"{type(exc).__name__} (as sp {who}, workspace {workspace}): {exc}",
             )
             store.set_harvest_status(self.name, result.status, result.detail)
             return result

@@ -8,7 +8,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "console (public): https://console-lab.agenticthings.com/?token=<A2ALAB_TOKEN from .env>"
+# The ?token= query form is gone (D36) — the console signs you in as a
+# persona and the credential rides in a header, so this is just the address.
+echo "console (public): https://console-lab.agenticthings.com/  (sign in — config/users.yaml)"
 echo
 
 exec ./scripts/run_local.sh

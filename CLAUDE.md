@@ -9,7 +9,9 @@ A2A Interop Lab: cross-platform agent-to-agent experiments across Salesforce Age
 ## Commands
 
 ```sh
-uv sync                              # install (Python 3.11+, uv-managed)
+uv sync --all-extras                 # install (Python 3.11+, uv-managed). Plain `uv sync`
+                                     # PRUNES extras: the adk tests then skip and the
+                                     # foundry/adk harvests fail on missing client libs.
 uv run pytest                        # unit + loopback e2e; live tests deselected by default
 uv run pytest tests/unit/test_bridge.py            # one file
 uv run pytest tests/unit/test_bridge.py -k name    # one test
@@ -72,4 +74,4 @@ Org metadata (Apex invocable `A2ALabInvokeRemoteAgent` + test, named/external cr
 
 - Decisions get an ADR entry appended to `plan/00-decisions.md`; measured results go to `plan/03-results.md` (matrix.py appends there), findings to the ledger in `plan/02-matrix.md`.
 - Streaming is out of scope for v1 (Apex callouts are buffered); one A2A SSE demo exists as a capability comparison only.
-- Timeout budget for Path A is tight (Agentforce action ~60s → Apex 110s → bridge 45s → `CLAUDE_ANSWER_TIMEOUT_S=40`); keep the Claude agent fast (Haiku-tier model, concise prompts, warm servers).
+- Timeout budget for Path A is tight (Agentforce action ~85–90s **measured** 2026-07-25, plan/03-results.md — not the ~60s long assumed → Apex 110s → bridge 45s → `CLAUDE_ANSWER_TIMEOUT_S=100`); keep the Claude agent fast (Haiku-tier model, concise prompts, warm servers). When the action budget IS blown, Agentforce returns 200 with the delegated section present but empty — check content, not status.

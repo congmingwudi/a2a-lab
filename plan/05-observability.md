@@ -158,6 +158,44 @@ platform APIs ──pull──►  harvester (src/observability/)  ──upsert�
   canned payloads; `-m live` tests against real orgs.
 - **M11.3 — console** ✅ (2026-07-17): Observability nav section, timeline, drill-downs,
   side-by-side, gaps panel; `/api/obs/*` endpoints reading SQLite.
+- **M11.x — hosted harvest repair** ✅ (2026-07-25). An Aurora survey found the
+  hosted store telling a quieter lie than an outage would have: it looked
+  healthy while missing two platforms and mis-filing a third.
+  - **adk / foundry were never harvested hosted.** The Lambda's source map
+    listed neither foundry (simply absent) nor working adk credentials, and
+    its bundle carried neither `google-auth` nor `azure-*`. Aurora held zero
+    rows for both while local sqlite had them, so the coverage panel could
+    not distinguish "nothing to pull" from "we never asked". Fixed: both
+    sources registered, libraries bundled, and their credentials moved into
+    the harvest secret (F1 shape) — a dedicated GCP service account
+    (`a2alab-obs-harvest`, logging.viewer + monitoring.viewer, key
+    materialized to /tmp at cold start because google.auth wants a file), and
+    `Log Analytics Reader` granted to the existing Entra SP on the
+    `a2a-lab-logs` workspace. **The Foundry failure is the instructive one:**
+    it worked locally and failed hosted for the same reason every time —
+    `DefaultAzureCredential` silently resolved to the developer's own Azure
+    CLI login on the laptop and to the service principal in Lambda. A
+    credential chain that falls back to a human is a test that passes for
+    the wrong reason.
+  - **823 orphaned Salesforce events** were not stale data; they were a
+    modelling error, and deleting them (the first instinct) would have
+    destroyed real telemetry that regenerated within six hours. Two causes:
+    `SELECT FIELDS(ALL)` is capped at 200 rows by the platform, so the
+    session query truncated while three child DMOs each returned their own
+    200; and the child DMOs are **not all children of the session** — steps
+    carry only `ssot__AiAgentInteractionId__c` and reach the session through
+    their interaction. The heuristic column matcher, asked for a
+    session-ish id on a step row, happily returned
+    `ssot__SessionOwnerId__c` — whose value is the literal string
+    `"NOT_SET"`, which STDM writes where other APIs write null. So every
+    step was filed under a session named NOT_SET. Fixed with OFFSET paging,
+    an interaction→session map, named columns ahead of the heuristic, and a
+    fetch-by-id backfill for anything still referenced. Orphans: 823 → **0**,
+    with no rows deleted. Regression test in
+    `tests/unit/test_observability.py`.
+  - Post-fix Aurora: 388 sessions / 5,209 events across all five platforms
+    (adk 1, claude 111, foundry 8, openai 51, salesforce 217), zero orphans,
+    zero zero-event sessions.
 - **M11.4 — enrichment**: SF OTel single-session export in drill-down;
   Anthropic webhooks (session/deployment-run state changes) as a
   harvest trigger; usage/cost lanes.

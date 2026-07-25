@@ -95,9 +95,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Which deployment mode this stack came up in (D26). Nothing in the process
+# list or the port map reveals it: A2ALAB_MODE lives in .env and silently
+# repoints console runs and the bridge at the hosted AgentCore runtimes. A
+# stack that looks entirely local can therefore be answering from AWS, so say
+# it out loud at boot rather than letting it surface as a confusing debug
+# session against a local server that was never in the call path.
+mode_banner() {
+  uv run python - <<'PY'
+from interop.registry import Registry
+
+reg = Registry.load()
+remap = reg.modes.get(reg.mode, {})
+if not remap:
+    print(f"deployment mode: {reg.mode} — every target resolves to the local stack.")
+else:
+    print(f"deployment mode: {reg.mode.upper()} — these targets do NOT run locally:")
+    for src, dst in sorted(remap.items()):
+        print(f"    {src:<14} -> {dst}")
+    print("  console runs and the bridge follow this remap; scripts/matrix.py is")
+    print("  exempt and always measures the target it names. Change it by editing")
+    print("  A2ALAB_MODE in .env and re-running this script.")
+PY
+}
+
 echo "checking for a previous stack..."
 reclaim_ports
 echo "ports clear."
+echo
+mode_banner
 echo
 
 run() { echo "+ $*"; "$@" & PIDS+=($!); }
@@ -166,4 +192,5 @@ echo
 echo "lab console:   http://localhost:8200"
 echo "bridge:        http://localhost:8100/invoke/{target}"
 echo "matrix:        uv run python scripts/matrix.py"
+echo "mode:          ${A2ALAB_MODE:-local}   (scroll up for what it remaps)"
 wait

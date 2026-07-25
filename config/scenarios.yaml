@@ -105,7 +105,8 @@ scenarios:
       outside-in market research to the Claude agent through the lab bridge
       — and replies with both, each contribution clearly attributed, inside
       one conversation turn. This proves the A2A wire path and measures the
-      response-time budget (Agentforce action ~60s → Apex 110s → bridge 45s),
+      response-time budget (Agentforce action ~85-90s measured 2026-07-25 →
+      Apex 110s → bridge 45s),
       which is exactly what caps how deep synchronous research can go — the
       async experiment below is the escape from that cap.
     target: agentforce-rest
@@ -481,7 +482,7 @@ scenarios:
       Cases), then delegates outside-in market research to the OPENAI agent
       through the lab bridge — replying with both, each contribution clearly
       attributed, inside one conversation turn and the same timeout budget
-      (action ~60s → Apex 110s → bridge 45s → OpenAI 40s).
+      (action ~85-90s measured → Apex 110s → bridge 45s → OpenAI 40s).
     target: agentforce-openai-rest
     via_bridge: false
     status: live

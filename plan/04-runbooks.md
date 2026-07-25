@@ -35,8 +35,21 @@ available. Raw `sf` CLI equivalents are noted as fallback.
 
 1. **Authenticate the org** (one-time, browser): `sf org login web --alias
    a2alab-prod --set-default` — the MCP server reads the same auth store.
-   Verify with the MCP org tools (list orgs / describe default org) or
-   `sf org display`.
+   Verify with `sf org display --target-org a2alab-prod`.
+
+   **Always pass `-o a2alab-prod` explicitly; never rely on the default or on
+   an org listing.** Two independent traps, both live on this machine as of
+   2026-07-25 and both silent:
+   - the CLI's global `target-org` belongs to whichever project was touched
+     last (it currently reads `hls-mega-demo2-demo`), so an unqualified
+     `sf project deploy` aims this lab's metadata at someone else's org;
+   - the **DX MCP server lists an allow-listed subset of orgs, and
+     `a2alab-prod` is not in it** — `list_all_orgs` returns only the default,
+     which reads exactly like "the lab org isn't authenticated" when it is.
+     Fall back to `sf org list` to see the truth; the MCP tools still accept
+     `usernameOrAlias: a2alab-prod` when you pass it.
+   The alias is recorded as `SF_TARGET_ORG` in `.env` so it is a lookup rather
+   than a memory.
 2. **External Client App** (Setup → App Manager → New External Client App):
    - OAuth: client-credentials flow enabled; scopes `api`, `chatbot_api`,
      `sfap_api`. (`refresh_token` was dropped in F3 — the client-credentials
@@ -106,9 +119,12 @@ available. Raw `sf` CLI equivalents are noted as fallback.
 2. Agent Builder preview: ask the agent a research question → reply must
    contain Claude-generated text; watch the hops land in the console
    (http://localhost:8200).
-3. **Measure the real action timeout**: set `A2ALAB_DELAY_S` on the bridge
-   host (or add a sleep in the target adapter) at 10/30/60/90s and record
-   outcomes in plan/03-results.md.
+3. **Measure the real action timeout** — done 2026-07-25, rerun with
+   `uv run python scripts/probe_action_timeout.py` (it owns :8100 while it
+   runs: stops the stack's bridge, runs its own with `A2ALAB_DELAY_S` set per
+   probe, and restores a clean bridge at the end). Result: ~85–90s, not the
+   ~60s long assumed — plan/03-results.md. Rerun it after any Salesforce
+   platform update; this is a vendor-side number that can move under you.
 4. Switch protocol without touching Salesforce: pass `claude-mcp` (or
    `claude-a2a`) as the action's optional Target input in Agent Builder —
    or leave the Apex default and repoint the `claude-rest` entry in

@@ -45,6 +45,15 @@ def make_store():
 
 def main() -> int:
     load_dotenv()
+    # Same service identities the hosted harvest uses: the secret's values
+    # OVERRIDE .env, and the GCP service-account key displaces any ambient
+    # gcloud login. AWS auth is the only human login the harvest depends on.
+    from observability.credentials import prepare
+
+    loaded = prepare()
+    if loaded:
+        print(f"credentials: {len(loaded)} key(s) from the harvest secret (Secrets Manager)")
+
     wanted = sys.argv[1:] or list(SOURCES)
     unknown = [w for w in wanted if w not in SOURCES]
     if unknown:

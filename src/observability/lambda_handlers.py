@@ -9,29 +9,18 @@ one source; default is all.
 
 from __future__ import annotations
 
-import json
-import os
-
-_secret_loaded = False
-
-
-def _load_secret_env() -> None:
-    global _secret_loaded
-    arn = os.environ.get("A2ALAB_HARVEST_SECRET_ARN")
-    if _secret_loaded or not arn:
-        return
-    import boto3
-
-    raw = boto3.client("secretsmanager").get_secret_value(SecretId=arn)["SecretString"]
-    for key, value in json.loads(raw).items():
-        os.environ.setdefault(key, str(value))
-    _secret_loaded = True
-
 
 def handler(event, context):  # noqa: ARG001 - AWS signature
-    _load_secret_env()
+    from observability.credentials import prepare
+
+    # Secret -> env, then the GCP key -> a file ADC can read. Identical call in
+    # scripts/obs_harvest.py, so local and hosted harvests authenticate as the
+    # same service identities rather than as whoever is logged in.
+    prepare()
+
     from observability.adk_source import AdkSource
     from observability.anthropic_source import AnthropicSource
+    from observability.foundry_source import FoundrySource
     from observability.openai_source import OpenAISource
     from observability.pg import PgObsStore
     from observability.salesforce_source import SalesforceSource
@@ -40,9 +29,12 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         "claude": AnthropicSource,
         "salesforce": SalesforceSource,
         "openai": OpenAISource,
-        # No GCP credentials in the hosted Lambda — reports blocked/error,
-        # which the coverage panel renders honestly (local harvests cover adk).
+        # adk reads Cloud Logging/Monitoring with a service-account key from the
+        # secret (see _materialize_gcp_key); foundry reads App Insights with the
+        # Entra SP already in the secret. Both were absent here until 2026-07-25,
+        # which is why Aurora held no ADK or Foundry rows while local sqlite did.
         "adk": AdkSource,
+        "foundry": FoundrySource,
     }
     asked = event.get("platform") if isinstance(event, dict) else None
     if asked == "anthropic":  # legacy alias for hosted invokes

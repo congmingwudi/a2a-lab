@@ -113,6 +113,23 @@ def _token(http: httpx.Client, dom: str, cid: str, secret: str) -> tuple[int, st
     return r.status_code, (r.json().get("access_token") if r.status_code == 200 else None)
 
 
+def _configured_agent_ids() -> set[str]:
+    """The twins this preflight actually exercises, by 15-char BotDefinition id.
+
+    Scoped deliberately to the agents named in IDENTITIES rather than to every
+    `A2ALab%` bot in the org: the org also holds retired agents (the
+    pre-Agent-Script original from D14 among them), and counting those made the
+    "no active version" note fire on every clean run — a warning that is always
+    on teaches you to ignore it, which is the opposite of what a preflight is
+    for. An agent nothing calls being switched off is not a finding.
+    """
+    return {
+        str(os.environ.get(spec["agent_env"], ""))[:15]
+        for spec in IDENTITIES
+        if spec.get("agent_env") and os.environ.get(spec["agent_env"])
+    }
+
+
 def _active_agents(http: httpx.Client, dom: str) -> dict[str, bool]:
     """Which lab agents have an Active version, keyed by BotDefinition id.
 
@@ -120,6 +137,9 @@ def _active_agents(http: httpx.Client, dom: str) -> dict[str, bool]:
     return {} and simply don't make the active/inactive distinction rather than
     guessing at it.
     """
+    configured = _configured_agent_ids()
+    if not configured:
+        return {}
     for spec in IDENTITIES:
         cid, secret = os.environ.get(spec["id_env"]), os.environ.get(spec["secret_env"])
         if not cid or not secret:
@@ -140,6 +160,8 @@ def _active_agents(http: httpx.Client, dom: str) -> dict[str, bool]:
         active: dict[str, bool] = {}
         for rec in r.json().get("records", []):
             bid = str(rec.get("BotDefinitionId"))[:15]
+            if bid not in configured:
+                continue
             active[bid] = active.get(bid, False) or rec.get("Status") == "Active"
         return active
     return {}
