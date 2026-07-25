@@ -419,6 +419,14 @@ Runtime configs carry only the secret's **ARN**; `interop.secret_env` resolves
 it at container start, and a failed fetch refuses to boot rather than running
 credential-less. Nothing in a runtime description is a credential.
 
+Two things the scope split does NOT show, both learned the expensive way: an
+External Client App must also enable **JWT-based access tokens** before the
+Agent API will serve it (without that flag every call 404s while the app
+authenticates perfectly), and there is **no step linking an app to an agent**
+— authorization is the token's scopes plus the agent id. `uv run python
+scripts/identity_preflight.py` proves each identity by exercising its actual
+capability, which is the only check that would have caught either.
+
 **The finding behind the split** (D37): the shared app's grant looked bloated,
 but it was the *union* of four callers' needs — every scope on it was load
 bearing for somebody. `refresh_token` was genuinely dead and dropped; `api`

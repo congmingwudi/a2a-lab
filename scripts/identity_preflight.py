@@ -85,9 +85,11 @@ IDENTITIES = [
 # checked separately (SOQL) and the two are reported apart.
 FIXES = {
     404: (
-        "the agent is active, so the app is the problem: it authenticates but may not "
-        "call this agent. In Agentforce Builder the Connections config is only editable "
-        "on a DEACTIVATED version — deactivate, add the connected app, save, reactivate"
+        "the agent is active, so the app is the problem. Check "
+        "isNamedUserJwtEnabled=true on its ExtlClntAppGlobalOauthSettings — the Agent "
+        "API refuses an app without JWT-based access tokens and says only 404. That "
+        "was the cause on 2026-07-25; scopes, policies and security settings were all "
+        "ruled out first. There is NO app-to-agent linking step (vendor guide)"
     ),
     403: "the app is linked but lacks the scope this call needs — check its OAuth scopes",
     401: "credentials rejected — the consumer secret in .env does not match the app",

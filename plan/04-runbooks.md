@@ -342,9 +342,14 @@ grant shrink — with one shared app the union of needs IS the grant.
    `description`, `distributionState Local`, `isProtected false`, `label`.
    Omit `orgScopedExternalApp`; the org generates it.
 2. `extlClntAppGlobalOauthSets/<name>_glbloauth.ecaGlblOauth-meta.xml` —
-   `callbackUrl`, `isClientCredentialsFlowEnabled true`, everything else
-   false, `isPkceRequired true`. **Omit `consumerKey`** — it is generated
-   on first deploy and cannot be set from metadata.
+   `callbackUrl`, `isClientCredentialsFlowEnabled true`, `isPkceRequired
+   true`, and **`isNamedUserJwtEnabled true`**. That last one is not
+   optional and is the single thing that cost a day: the vendor guide says
+   to enable Client Credentials Flow *and JWT-based access tokens*, and
+   without the JWT flag the app authenticates perfectly, appears in login
+   history, and every Agent API call returns 404 with no hint. Everything
+   else false. **Omit `consumerKey`** — it is generated on first deploy and
+   cannot be set from metadata.
 3. `extlClntAppOauthSettings/<name>_oauth.ecaOauth-meta.xml` —
    `commaSeparatedOauthScopes` (least privilege for that caller).
 4. `extlClntAppOauthPolicies/<name>_oauthPlcy.ecaOauthPlcy-meta.xml` —
@@ -378,10 +383,16 @@ history showed per-caller attribution, three scenarios returned real CRM
 content because the containers still held the old credentials). An identity
 is not verified by authenticating; it is verified by doing its job.
 
-**A second manual step, learned the hard way:** deploying the ECA is not
-enough — and it is NOT a scope problem. Tested 2026-07-25: adding the broad
-`api` scope to a per-caller app changed nothing, the Agent API still 404s.
-Deploying the ECA is not enough. Each app must also be **linked to each agent** it will call — Setup
+**The 404 that cost a day, and its real cause (resolved 2026-07-25).** New
+per-caller apps minted tokens fine and every Agent API call 404'd. Ruled out
+by test, in this order: scopes (adding `api` changed nothing), OAuth policies
+(identical to the working app in every auth-relevant field), security
+settings (identical), the ECA definition (both org-scoped). No metadata type
+links an app to an agent, and — per the vendor guide — **no such link
+exists**; two invented UI paths wasted the org admin's time before anyone
+read the documentation. The cause was `isNamedUserJwtEnabled: false` on the
+new apps. Bisected: enabling it alone, with least-privilege scopes
+untouched, turned the shim green. Read the vendor setup guide FIRST. Each app must also be **linked to each agent** it will call — Setup
 → Agentforce Agents → the agent → Connections → add the connected app.
 Until then the app mints tokens happily and every Agent API call 404s.
 

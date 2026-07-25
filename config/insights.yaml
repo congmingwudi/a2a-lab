@@ -577,9 +577,13 @@ insights:
       the most expensive thing in the audit, because it was wrong: External
       Client App configuration is source-controlled metadata that retrieves
       and deploys like anything else, so both shipped the same evening once
-      somebody checked. All eight landed in a day. The irreducible manual
-      step is one per app: a consumer secret that no API will hand back,
-      read from Setup by hand.
+      somebody checked. Seven landed in a day; the identity split took a
+      second day, and not for the reason anyone predicted — the apps were
+      configured and credentialled correctly and still could not call the
+      Agent API, because an undocumented flag (JWT-based access tokens) has
+      to be on before that API will serve a hand-built app. The irreducible
+      manual step is one per app: a consumer secret that no API will hand
+      back, read from Setup by hand.
     advisory: >
       Price remediations like hops: every gateway, broker, or isolation
       boundary added for security contributes its own timeout, latency, and
@@ -664,10 +668,17 @@ insights:
       client-credentials calls to the APP, so one shared app also made every
       lab caller look like one integration user in the org's own audit
       trail — the same modelling error showing up as an observability
-      failure. Cost of the split: the per-caller apps were deployable
-      metadata (one deploy), and because each hosted seam already had its
-      own secrets store, wiring identity per caller took no code change at
-      all.
+      failure. Cost of the split, honestly: the apps and the wiring were
+      cheap — deployable metadata, and no code change at all, because each
+      hosted seam already had its own secrets store. The expensive part was
+      an undocumented prerequisite. Every new app authenticated perfectly
+      and every Agent API call 404'd for a day, because a hand-built
+      External Client App must also enable **JWT-based access tokens**
+      (`isNamedUserJwtEnabled`) before the Agent API will serve it — a
+      field absent from the app's own scope list, invisible in login
+      history, and not the thing a 404 points at. Verified by bisection
+      once the vendor's setup guide was read properly: turning that one
+      flag on fixed it with the least-privilege scopes untouched.
     advisory: >
       When a shared integration app's scope list looks bloated, don't start
       by trimming it — enumerate the callers behind it first. A union grant

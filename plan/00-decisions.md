@@ -869,6 +869,20 @@ not click-ops, and both then shipped:
   identity. Remaining human step, once per app: the consumer secret cannot
   be read through the Metadata API — it comes from Setup by hand.
 
+  **The day this actually cost (2026-07-25).** F6 shipped "verified" and was
+  not: every new app authenticated, appeared in login history, and had every
+  Agent API call refused with a bare 404. What made it expensive was not the
+  bug but the diagnosis. Three UI remedies were invented from memory and
+  handed to the org admin, none of which existed. The vendor's own setup
+  guide, read at last, says two useful things: there is **no app-to-agent
+  linking step** at all, and a hand-built External Client App must enable
+  **JWT-based access tokens** alongside the client-credentials flow. The
+  provisioning template in §11 of the runbooks set `isNamedUserJwtEnabled`
+  false. Bisected to be sure: enabling that one flag, with least-privilege
+  scopes untouched, turned the shim green — so the scope split documented
+  here was correct all along and the 404 was never about scopes. Rule
+  earned: read the vendor documentation before describing a vendor's UI.
+
 **What is in source (corrected 2026-07-25):** `ExtlClntAppGlobalOauthSettings`
 carries the consumer key and is never committed — retrieved when needed,
 deleted after. The `ExtlClntAppOauthSettings` scope files are tracked: they
