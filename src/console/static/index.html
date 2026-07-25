@@ -23,7 +23,12 @@
        chip surface (scenario tags, component kinds, obs platforms, warm-up
        rows): agentforce=blue, claude=orange, openai=neutral, google=green,
        lab=gray, aws=solid squid-ink. Protocol badges above are separate. */
-    --chip-agentforce: var(--agentforce-api); --chip-claude: #d97757;
+    --chip-agentforce: var(--agentforce-api);
+    /* Claude coral. Anthropic's literal brand value is #d97757; beside the
+       vivid protocol chips (--mcp #ff9c3e) that reads salmon and muted, so
+       both themes warm it a few degrees toward orange and add chroma. Revert
+       to #d97757 / #c05a3a for the unmodified brand colour. */
+    --chip-claude: #e07a4f;
     --chip-openai: #ececec; --chip-google: #34a853;
     --chip-lab: #969696; --chip-aws: #232f3e; --chip-foundry: #0078d4;
     /* labs.agentforce.com hero tokens */
@@ -47,7 +52,7 @@
     /* chip tokens, darkened for AA-ish contrast on light surfaces; openai
        inverts to near-black-on-light-gray (white-ish stays a dark-mode
        look); aws keeps its solid squid-ink fill on both themes */
-    --chip-claude: #c05a3a; --chip-openai: #2f2f2f; --chip-google: #1e8e3e; --chip-lab: #6f6f6f;
+    --chip-claude: #bd5a30;   /* same warming, darkened for contrast on the light ground */ --chip-openai: #2f2f2f; --chip-google: #1e8e3e; --chip-lab: #6f6f6f;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-ui); }
@@ -125,6 +130,19 @@
   .nav-group.upcoming { cursor: default; }
   .nav-group-empty { margin: 4px 14px 8px 35px; padding: 6px 10px; font-size: 11.5px;
                      color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
+
+  /* Vendor marks — small, aligned to the text they precede, and never a
+     click target of their own (the row around them already is). */
+  .plogo { width: 14px; height: 14px; flex: none; vertical-align: -2.5px; margin-right: 5px; }
+  .pmark { white-space: nowrap; }          /* a mark never wraps off its name */
+  .pmark + .pmark { margin-left: 2px; }
+  .warm-row > .plogo { margin-right: 0; }  /* the flex row supplies the gap */
+  /* Section marks in the Control Panel headings — same optical weight as the
+     heading text, so they read as part of the label rather than as buttons. */
+  .sicon { width: 15px; height: 15px; flex: none; margin-right: 8px; vertical-align: -3px;
+           fill: none; stroke: currentColor; stroke-width: 1.4;
+           stroke-linecap: round; stroke-linejoin: round; opacity: .75; }
+  .acc[open] > summary .sicon, summary:hover .sicon { opacity: 1; }
 
   /* pill badges, labs-style: tinted fill + rim in the accent color */
   .badge { display: inline-block; padding: 1.5px 10px; border-radius: 999px; font: 600 11px var(--font-mono);
@@ -800,7 +818,7 @@
         aria-label="Close the Control Panel">❮</button>
     </div>
     <details class="acc" id="accExperiments" open>
-      <summary>Experiments <span class="count" id="expCount"></span></summary>
+      <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 1.8v4.1L2.9 12a1.6 1.6 0 0 0 1.4 2.4h7.4A1.6 1.6 0 0 0 13.1 12L9.8 5.9V1.8"/><path d="M5.2 1.8h5.6M4.7 9.4h6.6"/></svg>Experiments <span class="count" id="expCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
           <span class="hint">Sweep every live sync experiment — fresh traces for demos.</span>
@@ -812,7 +830,7 @@
       </div>
     </details>
     <details class="acc" id="accObs" open>
-      <summary onclick="obsSummaryNav(event)">Observability <span class="count" id="obsCount"></span></summary>
+      <summary onclick="obsSummaryNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.4 8.4h3l1.9-5 2.4 9.2 1.8-4.2h4.1"/></svg>Observability <span class="count" id="obsCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
           <span class="hint">Each platform's own record of the agents' runs.</span>
@@ -827,7 +845,7 @@
       </div>
     </details>
     <details class="acc" id="accInsights" open>
-      <summary onclick="insightsNav(event)">Insights <span class="count" id="insightCount"></span></summary>
+      <summary onclick="insightsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 12.6h4M6.6 14.4h2.8"/><path d="M8 1.6a4.4 4.4 0 0 0-2.6 7.9c.4.3.6.8.6 1.1h4c0-.3.2-.8.6-1.1A4.4 4.4 0 0 0 8 1.6z"/></svg>Insights <span class="count" id="insightCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
           <span class="hint">The lab's distilled findings — the trusted-advisor take.</span>
@@ -836,13 +854,13 @@
       </div>
     </details>
     <details class="acc" id="accCells">
-      <summary>Protocol calls <span class="count" id="cellCount"></span></summary>
+      <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 1.9v3.2M9.8 1.9v3.2"/><path d="M4.2 5.1h7.6v2.6a3.8 3.8 0 0 1-7.6 0z"/><path d="M8 11.5v2.6"/></svg>Protocol calls <span class="count" id="cellCount"></span></summary>
       <div class="acc-body">
         <div id="targets"></div>
       </div>
     </details>
     <details class="acc" id="accTraces">
-      <summary>Traces <span class="count" id="traceCount"></span></summary>
+      <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.3" cy="3.5" r="1.7"/><circle cx="12.7" cy="8" r="1.7"/><circle cx="3.3" cy="12.5" r="1.7"/><path d="M5 3.5h3.7a2.8 2.8 0 0 1 2.5 3.2M11.2 9.4a2.8 2.8 0 0 1-2.5 3.1H5"/></svg>Traces <span class="count" id="traceCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
           <span class="hint">Past runs — every hop's raw wire payloads.</span>
@@ -1540,7 +1558,7 @@ function scenarioCardHtml(s) {
   return `
     <div class="card ${soon ? "soon" : ""} ${isOpen ? "open" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
       <div class="head">
-        <h3>${esc(s.title || s.name)}</h3>
+        <h3>${withLogos(s.title || s.name)}</h3>
         ${statusHtml("scn:" + s.name, "status")}
       </div>
       <p>${esc(s.summary || s.description || "")}</p>
@@ -1557,6 +1575,47 @@ function scenarioCardHtml(s) {
 const CHIP_LABELS = { adk: "google-adk", "agent-engine": "google-agent-engine",
   foundry: "ms-foundry", gemini: "google-gemini" };
 const chipLabel = t => CHIP_LABELS[t] || t;
+
+// ---------------------------------------------------------------------------
+// Vendor marks. The protocol/platform CHIPS say which agent platform a thing
+// runs on; these say whose company it is — brand recognition at a glance when
+// a title reads "X → Y". Drawn inline (no network, no image requests, crisp at
+// 14px, and they inherit the page's colour handling): simplified marks, brand
+// hues where the brand IS the colour, currentColor where it isn't.
+// ---------------------------------------------------------------------------
+const PLATFORM_LOGOS = {
+  // Anthropic's burst.
+  anthropic: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><g stroke="#d97757" stroke-width="1.7" stroke-linecap="round"><path d="M8 1.6v12.8M2.4 4.8l11.2 6.4M2.4 11.2l11.2-6.4"/></g></svg>`,
+  // Salesforce's cloud.
+  salesforce: `<svg class="plogo" viewBox="0 0 24 16" aria-hidden="true"><path fill="#00a1e0" d="M9.9 3.6a3.6 3.6 0 0 1 6-.9 4.4 4.4 0 0 1 6.5 3.9 4.3 4.3 0 0 1-4.4 4.3H7.2A3.8 3.8 0 0 1 3.4 7a3.7 3.7 0 0 1 2-3.3 4 4 0 0 1 4.5-.1z"/></svg>`,
+  // OpenAI's knot, reduced to its hexagonal rosette.
+  openai: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M8 2.2 12.6 4.9v5.4L8 13l-4.6-2.7V4.9z"/><path fill="none" stroke="currentColor" stroke-width="1.4" d="M8 5.6v4.8M5.7 6.9l4.6 2.3M10.3 6.9 5.7 9.2"/></svg>`,
+  // Google's spark (Gemini / ADK).
+  google: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="#4285f4" d="M8 1.2c.5 2.6 1.7 4.6 3.5 5.5 1 .5 1.9.8 3.3 1.3-2.6.5-4.6 1.7-5.5 3.5-.5 1-.8 1.9-1.3 3.3-.5-2.6-1.7-4.6-3.5-5.5-1-.5-1.9-.8-3.3-1.3 2.6-.5 4.6-1.7 5.5-3.5.5-1 .8-1.9 1.3-3.3z"/></svg>`,
+  // Microsoft's four squares.
+  microsoft: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.4" y="1.4" width="6" height="6" fill="#f25022"/><rect x="8.6" y="1.4" width="6" height="6" fill="#7fba00"/><rect x="1.4" y="8.6" width="6" height="6" fill="#00a4ef"/><rect x="8.6" y="8.6" width="6" height="6" fill="#ffb900"/></svg>`,
+  // AWS's smile.
+  aws: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M3 5.4c1.4 1 3.1 1.5 5 1.5s3.6-.5 5-1.5"/><path fill="none" stroke="#ff9900" stroke-width="1.6" stroke-linecap="round" d="M1.9 9.6c1.9 1.6 3.9 2.4 6.1 2.4s4.2-.8 6.1-2.4"/><path fill="#ff9900" d="M13.1 8.6 15 9.9l-2.2.8z"/></svg>`,
+};
+const logoSvg = key => PLATFORM_LOGOS[key] || "";
+
+// ONE pass with ordered alternation, longest name first: "Salesforce
+// Agentforce" and "Microsoft Foundry" take a single mark. Running the
+// patterns in sequence instead would re-match the short name inside the
+// span the long one just wrote, and double-mark it.
+const LOGO_RE = /Salesforce Agentforce|Microsoft Foundry|Google ADK|Agentforce|Claude|OpenAI|Gemini|Foundry/g;
+const LOGO_KEY = {
+  "Salesforce Agentforce": "salesforce", "Microsoft Foundry": "microsoft",
+  "Google ADK": "google", "Agentforce": "salesforce", "Claude": "anthropic",
+  "OpenAI": "openai", "Gemini": "google", "Foundry": "microsoft",
+};
+
+// esc() the text FIRST, then splice in trusted SVG — never the other way
+// round, or the markup would be escaped along with the content.
+function withLogos(text) {
+  return esc(String(text || ""))
+    .replace(LOGO_RE, m => `<span class="pmark">${logoSvg(LOGO_KEY[m])}${m}</span>`);
+}
 
 function tagChipsHtml(tags) {
   return (tags || []).map(t => t === "agentcore"
@@ -1845,7 +1904,7 @@ function renderObsSide() {
     const st = obs.harvesting ? "running" : (h.status || "—");
     return `
     <div class="obs-plat ${isOpen ? "open" : ""}" onclick="openObservability('${p}')">
-      <span class="pname">${esc(obs.summary.capabilities[p].label)}</span>
+      <span class="pname">${withLogos(obs.summary.capabilities[p].label)}</span>
       <span class="pnums">${i.sessions || 0}s · ${i.events || 0}e</span>
       <span class="obs-status ${obs.harvesting ? "running" : esc(h.status || "")}">${esc(st)}</span>
     </div>`;
@@ -2653,12 +2712,18 @@ function warmRowHtml(t, anyBusy) {
   const isShim = t.name === "agentforce-a2a-shim";
   const chipClass = isShim ? "aws" : t.platform;
   const chipText = isShim ? "aws-shim" : chipLabel(t.platform);
+  // Chip = which agent platform is being warmed; mark = whose cloud it is.
+  // The shim row is an AWS Lambda, so it wears the AWS mark, not Salesforce's.
+  const WARM_LOGO = { claude: "anthropic", openai: "openai", adk: "google",
+    gemini: "google", foundry: "microsoft", agentforce: "salesforce" };
+  const mark = logoSvg(isShim ? "aws" : WARM_LOGO[t.platform]);
   // A failure that only lives in a tooltip is a failure nobody sees. Show the
   // platform's own words, then what to do about them.
   const failed = last && !last.ok && !start;
   const fix = failed ? warmFixFor(last.note) : null;
   return `
   <div class="warm-row">
+    ${mark}
     <span class="badge ${esc(chipClass)}">${esc(chipText)}</span>
     <span class="wname" title="${esc(t.name)} · ${esc(t.protocol)}">${esc(t.name)}</span>
     ${lastHtml}
@@ -2819,7 +2884,7 @@ function tileHtml(s, i) {
   <div class="tile ${soon ? "soon" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
     <div class="tile-banner" style="${tileBannerStyle(i)}">${pathStripHtml(s.flow)}</div>
     <div class="tile-body">
-      <div class="tile-head"><h3>${esc(s.title || s.name)}</h3>
+      <div class="tile-head"><h3>${withLogos(s.title || s.name)}</h3>
         ${soon ? `<span class="badge soon">coming soon</span>` : `<span class="badge rest">live</span>`}</div>
       <p>${esc(s.summary || s.description || "")}</p>
       <div class="tile-foot">${tagChipsHtml(s.tags)}
