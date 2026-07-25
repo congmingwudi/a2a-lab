@@ -78,15 +78,24 @@ IDENTITIES = [
     },
 ]
 
+# A 404 from the Agent API is ambiguous: it means "no agent I can serve at
+# that id", which covers BOTH "this app may not call that agent" and "that
+# agent has no active version". Blaming the wrong one sends you into Setup to
+# fix something that was never broken, so the agent's activation state is
+# checked separately (SOQL) and the two are reported apart.
 FIXES = {
     404: (
-        "the app authenticates but is not linked to that agent — Setup → Agentforce "
-        "Agents → the agent → open it → Connections (or 'Connect to API') → add this "
-        "connected app, then re-run"
+        "the agent is active, so the app is the problem: it authenticates but may not "
+        "call this agent. In Agentforce Builder the Connections config is only editable "
+        "on a DEACTIVATED version — deactivate, add the connected app, save, reactivate"
     ),
     403: "the app is linked but lacks the scope this call needs — check its OAuth scopes",
     401: "credentials rejected — the consumer secret in .env does not match the app",
 }
+INACTIVE_FIX = (
+    "that agent has NO ACTIVE VERSION — this is not a credentials problem. "
+    "Activate it (`sf agent activate --api-name <ApiName> -o <org> --json`) and re-run"
+)
 
 
 def _domain() -> str:
@@ -102,7 +111,39 @@ def _token(http: httpx.Client, dom: str, cid: str, secret: str) -> tuple[int, st
     return r.status_code, (r.json().get("access_token") if r.status_code == 200 else None)
 
 
-def _check(http: httpx.Client, dom: str, spec: dict) -> dict:
+def _active_agents(http: httpx.Client, dom: str) -> dict[str, bool]:
+    """Which lab agents have an Active version, keyed by BotDefinition id.
+
+    Uses whichever configured identity carries the `api` scope; without one we
+    return {} and simply don't make the active/inactive distinction rather than
+    guessing at it.
+    """
+    for spec in IDENTITIES:
+        cid, secret = os.environ.get(spec["id_env"]), os.environ.get(spec["secret_env"])
+        if not cid or not secret:
+            continue
+        _, token = _token(http, dom, cid, secret)
+        if not token:
+            continue
+        r = http.get(
+            f"{dom}/services/data/v64.0/query",
+            params={
+                "q": "SELECT BotDefinitionId, Status FROM BotVersion "
+                "WHERE BotDefinition.DeveloperName LIKE 'A2ALab%'"
+            },
+            headers={"authorization": f"Bearer {token}"},
+        )
+        if r.status_code != 200:
+            continue
+        active: dict[str, bool] = {}
+        for rec in r.json().get("records", []):
+            bid = str(rec.get("BotDefinitionId"))[:15]
+            active[bid] = active.get(bid, False) or rec.get("Status") == "Active"
+        return active
+    return {}
+
+
+def _check(http: httpx.Client, dom: str, spec: dict, active: dict[str, bool]) -> dict:
     cid, secret = os.environ.get(spec["id_env"]), os.environ.get(spec["secret_env"])
     if not cid or not secret:
         return {"state": "unset", "detail": f"{spec['id_env']} / {spec['secret_env']} not set"}
@@ -145,9 +186,16 @@ def _check(http: httpx.Client, dom: str, spec: dict) -> dict:
                     headers={**headers, "x-session-end-reason": "UserRequest"},
                 )
         return {"state": "ok", "detail": f"{capability} OK"}
+    # Separate "the agent is switched off" from "this app may not call it"
+    # before handing out a fix — they produce the identical 404.
+    if r.status_code == 404 and not spec.get("soql"):
+        agent_id = str(os.environ.get(spec["agent_env"], ""))[:15]
+        if active and not active.get(agent_id, False):
+            return {"state": "FAIL", "detail": f"{capability} refused (HTTP 404) — {INACTIVE_FIX}"}
     return {
         "state": "FAIL",
-        "detail": f"{capability} refused (HTTP {r.status_code}) — {FIXES.get(r.status_code, 'see the response body')}",
+        "detail": f"{capability} refused (HTTP {r.status_code}) — "
+        f"{FIXES.get(r.status_code, 'see the response body')}",
     }
 
 
@@ -157,8 +205,15 @@ def main() -> int:
     print(f"Identity preflight against {dom}\n")
     failures = 0
     with httpx.Client(timeout=60) as http:
+        active = _active_agents(http, dom)
+        inactive = [a for a, is_on in active.items() if not is_on]
+        if inactive:
+            print(
+                f"note: {len(inactive)} lab agent(s) have no active version — "
+                "sessions against those will 404 regardless of credentials.\n"
+            )
         for spec in IDENTITIES:
-            result = _check(http, dom, spec)
+            result = _check(http, dom, spec, active)
             state = result["state"]
             mark = {"ok": "  ok  ", "FAIL": " FAIL ", "unset": "unset "}[state]
             print(f"[{mark}] {spec['app']:<16} {result['detail']}")
