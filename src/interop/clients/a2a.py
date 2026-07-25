@@ -182,6 +182,20 @@ class A2AClient(RemoteAgentClient):
                         "\n".join(_texts_from_parts(task.status.message.parts)) or "task failed"
                     )
                     raise RuntimeError(f"A2A task failed on {self.target_name}: {detail}")
+                # A COMPLETED task carrying no text is not a success. Vertex AI
+                # Agent Engine has been seen returning {"state": COMPLETED,
+                # "artifacts": [""]}, which every layer above happily reported
+                # as ok with an empty answer — the run looked green in the
+                # console and said nothing. The protocol offers no way to tell
+                # "answered with silence" from "answered nothing", so treat an
+                # empty completed task as the failure it is, at the seam where
+                # the raw payload is still in hand.
+                if not any(t.strip() for t in texts):
+                    raise RuntimeError(
+                        f"A2A task completed with no answer text on {self.target_name} "
+                        f"(state {state}, {len(task.artifacts)} artifact(s)) — the remote "
+                        "agent returned an empty result"
+                    )
                 resp = AgentResponse(
                     text="\n".join(texts),
                     session_id=task.context_id or None,
