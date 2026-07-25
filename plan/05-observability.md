@@ -32,6 +32,15 @@ platform docs; re-verify betas before building).
   `ssot__AiAgentInteractionStep__dlm` (planner/action/LLM steps with
   input/error text). Field names vary between docs — verify in-org with Data
   Explorer before hardcoding.
+  **Which path the lab took, and what it costs:** the SOQL route from the
+  core platform (`observability/salesforce_source.py` →
+  `/services/data/vXX/query`), not Query API v2 — so the harvest needs the
+  broad `api` scope rather than `cdp_query_api`. That single dependency is
+  why F3 kept `api` instead of trimming it, and why F6 gave the harvest its
+  own `a2a_lab_obs` app scoped to `api` ALONE, keeping the broad grant off
+  the three agent callers (D37). If the harvest is ever moved to Query API
+  v2, re-run that decision: `cdp_query_api` would let even the obs app drop
+  `api`.
 - **Einstein GenAI audit & feedback DMOs** — the org's LLM gateway log:
   `GenAIGatewayRequest__dlm` (prompt, params) ⋈ `GenAIGatewayResponse__dlm`
   ⋈ `GenAIGeneration__dlm` (response text; joins to STDM steps via

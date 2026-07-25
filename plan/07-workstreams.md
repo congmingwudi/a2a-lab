@@ -448,16 +448,23 @@ in the experiment backlog below), and the capstone observation that
 *agent identity lives outside every agent protocol today* — WS6 tests
 whether USER identity does too.
 
-**Current baseline (honest).** One shared app token (`A2ALAB_TOKEN`,
-`x-lab-token` header / `?token=` query) authenticates *callers to lab
-seams* — one identity for everyone, authorization is all-or-nothing.
-Every platform credential is a SERVICE identity: Salesforce
-client-credentials ECA → single run-as integration user (`bypassUser:
-true`), AWS SSO/IAM, GCP ADC + Entra SP, Anthropic/OpenAI API keys. The
-guide's Postgres reads never touch the browser: tools run in the console
-process against the RDS Data API using host AWS credentials + secret
-ARNs; the lab token only gates the HTTP surface in front of them. There
-is no end-user concept anywhere in the stack — by design, until now.
+**Current baseline (honest, revised 2026-07-24 after D36/D37).** One
+shared app token (`A2ALAB_TOKEN`, `x-lab-token` or bearer header — the
+`?token=` query form is gone, D36) authenticates *service* callers to lab
+seams; browsers now sign in as a persona and hit a server-side role gate,
+so the browser surface is no longer one identity for everyone. Every
+PLATFORM credential is still a service identity: AWS SSO/IAM, GCP ADC +
+Entra SP, Anthropic/OpenAI API keys, and Salesforce client-credentials
+ECAs → a single run-as integration user (`bypassUser: true`). What F6
+changed is the *app*, not the user: each hosted seam now presents its own
+External Client App (`a2a_lab_claude` / `_openai` / `_shim` / `_obs`), so
+Salesforce login history attributes per CALLER even though every one of
+them still resolves to the same run-as user. That gap — per-caller app,
+shared end user — is exactly the seam WS6 exists to close. The guide's
+Postgres reads never touch the browser: tools run in the console process
+against the RDS Data API using host AWS credentials + secret ARNs; the
+lab token only gates the HTTP surface in front of them. There is still no
+end-user concept in the PLATFORM legs — by design, until now.
 
 **Design principle (the D27/D34 lesson, applied to identity).** Ship user
 context on TWO channels at once and measure the difference:
@@ -532,10 +539,13 @@ laptop). Next: U3 enforcement.
    cards advertising securitySchemes. Each one becomes a
    convention-vs-standard comparison cell.
 
-**Hygiene folded in (from the antipattern analysis):** browser auth moves
-from `?token=` query strings to the JWT in headers (F-series); trace
-redaction pass before user-attributed traces become multi-user-visible
-(F2); Salesforce scope diet rides U4's new ECAs (F3).
+**Hygiene folded in (from the antipattern analysis) — all landed ahead of
+WS6, 2026-07-24:** browser auth moved from `?token=` query strings to the
+JWT in headers (D36); the trace redaction pass shipped before
+user-attributed traces became multi-user-visible (F2); and the Salesforce
+scope diet arrived as per-caller ECAs rather than as an edit to U4's
+future ones (F3/F6, D37) — so U4 inherits a per-caller app per seam and
+only has to add the USER dimension on top.
 
 **Sequencing.** U1–U3 are lab-only (no platform work, ~same shape as the
 D34 trace threading — every seam already routes through
