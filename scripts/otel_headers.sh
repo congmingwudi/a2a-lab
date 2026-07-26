@@ -22,10 +22,30 @@ set -uo pipefail
 SECRET_ID="${A2ALAB_CW_METRICS_SECRET:-a2alab/telemetry/cw-metrics-api-key}"
 REGION="${A2ALAB_CW_METRICS_REGION:-us-east-1}"
 
+# Pin the profile, don't inherit whatever is ambient. Claude Code runs this
+# helper in its own environment, which is NOT the shell you configured — and
+# with no AWS_PROFILE the CLI falls back to the default profile, a different
+# account entirely. That account cannot see this secret, the helper returned
+# `{}`, and because a missing token is *designed* to degrade to "no telemetry"
+# rather than break the session, the exporter went quiet for days with every
+# config file looking correct. Silent degradation plus ambient credential
+# resolution is the same failure mode D39 was written about; the fix is the
+# same one — resolve the identity explicitly.
+if [ -z "${AWS_PROFILE:-}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/../.env" ]; then
+  AWS_PROFILE=$(grep -m1 '^AWS_PROFILE=' "$(dirname "${BASH_SOURCE[0]}")/../.env" | cut -d= -f2-)
+  export AWS_PROFILE
+fi
+
 raw=$(aws secretsmanager get-secret-value \
         --region "$REGION" \
         --secret-id "$SECRET_ID" \
-        --query SecretString --output text 2>/dev/null) || { echo '{}'; exit 0; }
+        --query SecretString --output text 2>/dev/null) || {
+  # stderr, so `--check` and a human running this by hand see WHY, while the
+  # stdout contract ("valid JSON, always") stays intact for the exporter.
+  echo "otel_headers: no token — secret '$SECRET_ID' unreadable as $(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo '<no AWS session>')" >&2
+  echo '{}'
+  exit 0
+}
 
 python3 -c '
 import json, sys

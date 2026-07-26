@@ -1574,7 +1574,7 @@ def create_console_app(registry: Registry | None = None):
     # out of the Observability coverage panel and rendered in its own section.
     BUILD_TELEMETRY_PLATFORM = "coding"
 
-    # Shown in the Build Telemetry section when nothing has been collected yet,
+    # Shown in the Coding Agents Telemetry section when nothing has been collected yet,
     # which is the honest default: telemetry is NOT retroactive, so whatever
     # was built before the exporters were switched on is unmeasurable.
     BUILD_TELEMETRY_SETUP = [
@@ -1596,6 +1596,19 @@ def create_console_app(registry: Registry | None = None):
                 "Code calls it via otelHeadersHelper and refreshes every ~29 min. "
                 "D39 applied to the laptop — a bearer token pasted into a config "
                 "file is the long-lived credential that rule exists to remove."
+            ),
+        },
+        {
+            "step": "Pin the AWS profile in the helper — this one bit us",
+            "detail": (
+                "The helper runs in Claude Code's environment, not your shell, so "
+                "AWS_PROFILE is usually unset and the CLI falls back to the DEFAULT "
+                "profile — a different account, which cannot read the secret. The "
+                "helper then returns {} because a missing token is designed to "
+                "degrade to 'no telemetry' rather than break your session. Result: "
+                "days of zero metrics with every config file correct and nothing "
+                "logged. It now reads AWS_PROFILE from the repo .env and reports "
+                "the resolved account on stderr when the fetch fails."
             ),
         },
         {
@@ -1621,11 +1634,29 @@ def create_console_app(registry: Registry | None = None):
             ),
         },
         {
+            "step": "Attribute the work: project and repo are NOT built in",
+            "detail": (
+                "Neither tool emits any attribute naming the project, working "
+                "directory or git repository — Claude Code's metrics carry session, "
+                "app, user, terminal and per-metric labels and nothing about WHERE "
+                "the work happened. OTEL_RESOURCE_ATTRIBUTES is the only hook, and "
+                "it flattens to @resource.<key> as a queryable label. Because "
+                ".claude/settings.local.json is per-repo, setting "
+                "project=…,repo=owner/name there gives per-project cost for free; "
+                "scripts/codex_otel.sh derives the same pair from git. Values "
+                "cannot contain spaces."
+            ),
+        },
+        {
             "step": "Point Codex at the same endpoint",
             "detail": (
-                "The Codex CLI ships its own OpenTelemetry exporter. Same endpoint, "
-                "tool=codex in the resource attributes — that one label is the whole "
-                "'two team members, two coding tools' comparison."
+                "The Codex CLI ships its own OpenTelemetry exporter, configured in "
+                "~/.codex/config.toml under [otel] with a single exporter for all "
+                "signals. Same endpoint, tool=codex in the resource attributes — "
+                "that one label is the whole 'two team members, two coding tools' "
+                "comparison. Asymmetry worth knowing: Codex has no headers-helper "
+                "hook, so its token is ${VAR} interpolation resolved ONCE at launch "
+                "(hence the wrapper) while Claude Code re-fetches every ~29 min."
             ),
         },
         {

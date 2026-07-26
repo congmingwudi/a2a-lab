@@ -118,16 +118,6 @@
                                  background: var(--card2); border: 1px solid var(--border);
                                  border-radius: 999px; padding: 0 8px; }
   details.acc .acc-body { padding-bottom: 12px; }
-  /* A second heading INSIDE an accordion — same visual weight as a summary so
-     it reads as a peer topic, but indented and without the disclosure caret,
-     because it is a sub-section of its parent rather than its own drawer. */
-  .acc-sub { padding: 14px 18px 8px 22px; margin-top: 6px; border-top: 1px solid var(--border);
-             font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;
-             letter-spacing: .8px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-  .acc-sub:hover { color: var(--fg); }
-  .acc-sub .count { margin-left: auto; font: 600 10.5px var(--font-mono); color: var(--muted);
-                    background: var(--card2); border: 1px solid var(--border);
-                    border-radius: 999px; padding: 0 8px; }
 
   /* second-level experiment groups — one expander per platform pair */
   .nav-group { display: flex; align-items: center; gap: 7px; padding: 9px 18px 3px; cursor: pointer;
@@ -883,15 +873,18 @@
         <div class="hint" id="obsMsg" style="display:none; padding: 0 12px 8px"></div>
         <span id="obsAnalyzing" class="analyzing" style="display:none">analyzing…</span>
         <div id="obsSide"></div>
-        <!-- Build telemetry lives INSIDE Observability: it is the same
-             question ("what does the platform's own record say?") pointed at
-             the tools that built the lab instead of the agents it runs. A
-             sibling accordion implied a separate discipline. -->
-        <div class="acc-sub" onclick="buildNav(event)">
-          <svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13.4h12"/><path d="M3.6 13.4V7.2M7.2 13.4V3.6M10.8 13.4V9M14 13.4v-3"/></svg>
-          Build telemetry <span class="count" id="buildCount"></span>
+      </div>
+    </details>
+    <!-- Sits immediately after Observability, and is its own section rather
+         than a child of it: same question ("what does the platform's own
+         record say?") but a different subject — the tools that BUILT the lab,
+         not the agents it runs. Adjacent, not nested. -->
+    <details class="acc" id="accBuild">
+      <summary onclick="buildNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13.4h12"/><path d="M3.6 13.4V7.2M7.2 13.4V3.6M10.8 13.4V9M14 13.4v-3"/></svg>Coding Agents Telemetry <span class="count" id="buildCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">What this lab cost to build — Claude Code and Codex.</span>
         </div>
-        <div class="hint" style="padding: 0 12px 6px">What this lab cost to build — Claude Code and Codex.</div>
         <div id="buildSide"></div>
       </div>
     </details>
@@ -2477,7 +2470,7 @@ function renderModeBadge() {
     : "Deployment mode: local — runs hit the lab's local servers (A2ALAB_MODE flips this)";
 }
 
-// ---- Build telemetry (WS9) -------------------------------------------------
+// ---- Coding Agents Telemetry (WS9) -------------------------------------------------
 // The lab measuring its own construction. Deliberately NOT a sixth column in
 // Observability: that section's coverage panel answers "what did the agents do,
 // per platform", and every column in it is an agent platform whose interior
@@ -2524,7 +2517,7 @@ function buildHtml() {
         <div style="padding:8px 12px" class="hint">${esc(s.detail)}</div>
       </div>`).join("");
     return `
-      <h2>Build telemetry</h2>
+      <h2>Coding Agents Telemetry</h2>
       <p class="hint">Claude Code and the Codex CLI both export OpenTelemetry, and
       CloudWatch accepts OTLP on a managed endpoint — no collector. Point both at it
       and this section shows what the lab cost to build, per tool, per day.</p>
@@ -2556,7 +2549,7 @@ function buildHtml() {
         <td>${d.active_time_s ? (d.active_time_s / 3600).toFixed(1) + "h" : "—"}</td></tr>`).join("");
 
   return `
-    <h2>Build telemetry</h2>
+    <h2>Coding Agents Telemetry</h2>
     <p class="hint">The lab measuring its own construction — two coding tools, one
     OTLP endpoint, harvested through the same seam as every agent platform.</p>
     ${tiles}${note}
@@ -2570,7 +2563,7 @@ function buildHtml() {
 
 window.buildNav = ev => {
   if (ev) ev.preventDefault();
-  document.getElementById("accObs").open = true;
+  document.getElementById("accBuild").open = true;
   if (view && view.type === "build") return;
   pushNav();
   view = { type: "build" };

@@ -40,4 +40,23 @@ if [ -z "${token:-}" ]; then
 fi
 
 export CW_METRICS_TOKEN="$token"
+
+# Per-project attribution. Neither Claude Code nor Codex emits any built-in
+# attribute naming the project, working directory or git repository — the
+# Claude Code metrics reference lists session, app, user, terminal and
+# per-metric attributes and nothing about where the work happened. So the
+# repo identity has to be supplied, and OTEL_RESOURCE_ATTRIBUTES is the only
+# hook. Derived from git rather than hardcoded so the wrapper attributes
+# correctly from any checkout. No spaces are permitted in values.
+project=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+# owner/name from either SSH or HTTPS remotes. Parameter expansion + awk on
+# purpose: BSD sed (macOS) has no lazy quantifier, so the obvious one-line
+# regex works on Linux CI and fails silently to empty here.
+origin=$(git remote get-url origin 2>/dev/null || true)
+repo=$(printf '%s' "${origin%.git}" | awk -F'[:/]' 'NF>=2 {print $(NF-1)"/"$NF}')
+attrs="tool=codex,project=${project// /_}"
+[ -n "${repo:-}" ] && attrs="$attrs,repo=${repo// /_}"
+[ -n "${A2ALAB_OTEL_EXTRA_ATTRS:-}" ] && attrs="$attrs,$A2ALAB_OTEL_EXTRA_ATTRS"
+export OTEL_RESOURCE_ATTRIBUTES="$attrs"
+
 exec codex "$@"
