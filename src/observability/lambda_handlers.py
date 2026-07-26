@@ -20,6 +20,7 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
 
     from observability.adk_source import AdkSource
     from observability.anthropic_source import AnthropicSource
+    from observability.coding_source import CodingSource
     from observability.foundry_source import FoundrySource
     from observability.openai_source import OpenAISource
     from observability.pg import PgObsStore
@@ -29,6 +30,10 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         "claude": AnthropicSource,
         "salesforce": SalesforceSource,
         "openai": OpenAISource,
+        # WS9 build telemetry — reads CloudWatch in this same account, so the
+        # Lambda's execution role needs cloudwatch:ListMetrics +
+        # cloudwatch:GetMetricStatistics. No new secret (D39).
+        "coding": CodingSource,
         # adk reads Cloud Logging/Monitoring with a service-account key from the
         # secret (see _materialize_gcp_key); foundry reads App Insights with the
         # Entra SP already in the secret. Both were absent here until 2026-07-25,

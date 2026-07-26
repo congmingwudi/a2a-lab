@@ -21,8 +21,9 @@ from dotenv import load_dotenv
 
 from observability import ObsStore
 from observability.adk_source import AdkSource
-from observability.foundry_source import FoundrySource
 from observability.anthropic_source import AnthropicSource
+from observability.coding_source import CodingSource
+from observability.foundry_source import FoundrySource
 from observability.openai_source import OpenAISource
 from observability.salesforce_source import SalesforceSource
 
@@ -32,6 +33,10 @@ SOURCES = {
     "openai": OpenAISource,
     "adk": AdkSource,
     "foundry": FoundrySource,
+    # WS9: not an agent platform — the coding agents that BUILT the lab. Kept
+    # out of the five-platform coverage panel and rendered in its own console
+    # section; it shares only this harvest seam and the store.
+    "coding": CodingSource,
 }
 
 
