@@ -148,6 +148,7 @@ async def dispatch(
     trace_id: str | None = None,
     registry: Registry | None = None,
     inbound_depth: int = 0,
+    roles: set[str] | None = None,
 ) -> FanOutResult:
     """Run every leg of `scenario` concurrently and collect the results.
 
@@ -156,6 +157,11 @@ async def dispatch(
     scenario itself is unknown, which is a programming error.
     """
     legs = legs_for(scenario)
+    if roles:
+        # Subsetting is a caller convenience (scripts/run_fanout.py --legs), not
+        # a behaviour change: the production path passes nothing and always runs
+        # every leg, so the thing under test is the thing that ships.
+        legs = tuple(leg for leg in legs if leg.role in roles)
     registry = registry or Registry.load()
     trace_id = trace_id or new_trace_id()
     start = time.perf_counter()

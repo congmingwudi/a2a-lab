@@ -883,16 +883,17 @@ scenarios:
         harvested spans."
 
   # ---- WS8: fan-out orchestration (the lab's first 1:many topology) --------
-  supplier-disruption-fanout:
+  supplier-disruption-cma:
     group: fan-out
-    title: "Supplier Disruption Response (fan-out, async)"
+    title: "Supplier Disruption — orchestrated by Claude (Managed Agents)"
     summary: >
-      One orchestrator dispatches a single business task to THREE agents on
-      three platforms at once — Google ADK, Microsoft Foundry and OpenAI — then
-      synthesises one answer. The lab's first 1:many topology.
+      An Anthropic Managed Agent orchestrates: it calls ONE custom tool that
+      fans out to three business-unit agents on three platforms at once —
+      Google ADK, Microsoft Foundry and OpenAI — then writes the brief.
+      Custom tools run HOST-SIDE, so concurrency is the host's to own.
     target: claude-rest
     via_bridge: false
-    status: coming-soon
+    status: live
     requires_mode: hosted
     tags: [fan-out, orchestration, claude, managed-agents, adk, foundry, openai, async]
     description: >
@@ -951,20 +952,21 @@ scenarios:
     flow:
       - source: operator
         target: a2alab-supply-orchestrator
-        protocol: internal
-        detail: "The disruption task is handed to the orchestrator — an
-          Anthropic Managed Agent session (variant 1) or an ADK agent on Vertex
-          AI Agent Engine (variant 2). Same dispatch code either way, so the
-          comparison measures the hosting model rather than two
-          implementations."
+        protocol: managed-agents-api
+        detail: "The disruption task opens an Anthropic Managed Agents session.
+          The agent is a DECLARATIVE control-plane object — name, model, system
+          prompt, tool schemas — and its one tool is `custom`, which on this
+          platform means the HOST executes it. The model decides only WHEN to
+          fan out; the host owns concurrency, per-leg timeouts and the
+          partial-failure contract."
       - source: a2alab-supply-orchestrator
-        target: google-adk-a2a
+        target: adk-logistics-a2a
         protocol: a2a
         detail: "LEG 1 — Logistics BU. Exposure assessment from the Gemini
           agent on Agent Engine. Dispatched concurrently with legs 2 and 3;
           D27 rider at depth 1, lab-trace line stamped."
       - source: a2alab-supply-orchestrator
-        target: foundry-a2a
+        target: foundry-commercial-a2a
         protocol: a2a
         detail: "LEG 2 — Commercial/Legal BU. Contract and penalty position
           from gpt-5-mini on Microsoft Foundry, over its native inbound A2A."

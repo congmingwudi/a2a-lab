@@ -333,3 +333,80 @@ independent instances of the same pattern — Agentforce's empty section and
 Gemini's clarifying question — where the transport says success and the content
 is unusable.** Detecting that needs a content check, and no protocol in the
 matrix offers one.
+
+## Fan-out join rate — measured 2026-07-26 (WS8's deliverable number)
+
+The question WS8 exists to answer: when one task fans out across four
+platforms, how many of them can be joined back to that run **from their own
+execution logs** — not from the lab's wire trace, which of course has all four.
+
+Run: `scripts/run_fanout.py --orchestrator cma`, trace
+`9024af03e4f34b7498fd39d6222d4d9a`, 3/3 legs answered, 37.4s wall, against the
+three DEDICATED per-leg agents (see below). Measured with
+`scripts/fanout_join_rate.py` after harvesting all four platforms.
+
+### **Join rate: 1 of 4.**
+
+| Platform | Joined? | Why |
+|---|---|---|
+| Anthropic CMA (orchestrator) | ✅ | `platform_ref` = the managed session id, stamped on the hop at emit time. Its sessions also carry the D34 rider text |
+| Google ADK / Agent Engine | ❌ **structurally** | The platform exposes Cloud Logging entries and Monitoring rollups, not per-turn sessions. The harvest holds **one** obs session per deployed engine — 482 log entries, one row. There is no per-run object to join *to*, and no amount of lab instrumentation creates one |
+| Microsoft Foundry | ❌ **fixable** | Foundry DOES emit per-turn sessions (20 harvested, keyed by `resp_…`). The lab simply never captures that response id as `platform_ref` on the A2A hop, so the key exists on both sides and is not written down |
+| OpenAI on AgentCore | ❌ **fixable-ish** | Also per-turn (`resp_…`), but the hop's `platform_ref` is the **AgentCore** session id (`a2alab-adhoc-…`), not the OpenAI response id. Two different identifiers for the same turn, and the lab records the outer one |
+
+**The 1-of-4 is not one problem, it is three different ones**, and separating
+them is the actual result:
+
+1. **One platform is structurally unjoinable.** ADK's preview A2A surface has
+   no session/turn API, so its telemetry is request-shaped rather than
+   conversation-shaped. This is not a gap in the lab's instrumentation and
+   cannot be closed by better bookkeeping.
+2. **Two are bookkeeping failures, not platform failures.** Foundry and OpenAI
+   both hand back a per-turn id that the lab does not persist on the hop. The
+   join key exists on both sides; nobody wrote it down. Those are fixable, and
+   fixing them would take the rate to 3/4.
+3. **The D34 text rider does not help here at all.** It joins 12 Claude and 31
+   Salesforce sessions elsewhere in the lab, because those platforms log the
+   utterance. None of the three fan-out legs' platforms log prompt text, so the
+   convention that works across Path A contributes nothing to a fan-out.
+
+**Why this matters more than the number.** Every platform in this run returned
+HTTP 200 and a good answer. The orchestrator produced a complete, correct
+brief. Nothing anywhere reported a problem — and afterwards, three of the four
+platforms could not tell you they had participated. Cross-platform
+observability degrades silently and it degrades *as the topology widens*: a 1:1
+cell hides this because two platforms are easy to correlate by hand.
+
+### Dedicated per-leg agents — and one that earns nothing
+
+Deployed for this run, each its own agent on its own platform so the platform's
+logs attribute this experiment rather than the lab's general researchers:
+
+| Leg | Agent | Platform | Effect |
+|---|---|---|---|
+| Logistics | `a2alab-logistics-agent` | ADK / Agent Engine (own deployment) | **2.5s vs 39.8s** for the researcher on the same question |
+| Commercial | `a2alab-commercial-agent` | Foundry (own agent, inbound A2A) | answered in role, stated assumptions rather than asking |
+| Customer comms | — | shared `openai-agentcore` | **not deployed, deliberately** |
+
+The customer-comms leg has no dedicated agent because it would buy nothing
+measurable: OpenAI's traces are write-only by design, so a dedicated agent
+there improves attribution the lab cannot read back. That is worth stating as a
+finding rather than hiding as an omission — *"give every leg its own agent" is
+good advice exactly as far as the platform's telemetry can repay it.*
+
+The logistics number is the strongest argument for dedicated agents: same
+question, same prompt shaping, **16× faster** because the agent has no research
+toolset to reach for. The general researcher spent its time deciding whether to
+go looking for data it did not have.
+
+### A silent bug worth recording
+
+The first join-rate measurement returned 1/4 **against the wrong agents**.
+`orchestration/legs.py` resolved its per-leg target overrides into a
+module-level tuple at import time, while `scripts/run_fanout.py` imports the
+module at the top and calls `load_dotenv()` inside `main()` — so every override
+in `.env` was read as absent and each run quietly used the default targets. The
+run looked perfect: 3/3 legs, a good brief, a clean exit. It surfaced only by
+reading the recorded hops and noticing the target names were wrong. Fixed
+(targets resolve in `legs_for()` now) with a regression test. **Config that is
+read at import time is config that silently ignores your configuration.**

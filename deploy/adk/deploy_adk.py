@@ -67,17 +67,54 @@ ENV_KEYS = [
     "AZURE_TENANT_ID",
     "AZURE_CLIENT_ID",
     "AZURE_CLIENT_SECRET",
+    # WS8: the orchestrator variant fans out from INSIDE the container, so it
+    # needs the same per-leg target overrides the host reads from .env.
+    "A2ALAB_LEG_EXPOSURE_TARGET",
+    "A2ALAB_LEG_COMMERCIAL_TARGET",
+    "A2ALAB_LEG_COMMS_TARGET",
 ]
 
 DISPLAY_NAME = "a2alab-adk-researcher"
 
+# WS8: the same deploy path serves a second, differently-shaped agent — the
+# fan-out's logistics leg. Separate Agent Engine, separate display name,
+# separate id in .env, because the point of a dedicated leg agent is that
+# Cloud Logging attributes it separately.
+ROLES = {
+    "researcher": {
+        "builder": "build_a2a_agent",
+        "display_name": DISPLAY_NAME,
+        "description": "A2A interop lab — ADK/Gemini research agent (WS2)",
+        "id_var": "ADK_AGENT_ENGINE_ID",
+        "endpoint_var": "ADK_A2A_ENDPOINT",
+    },
+    "orchestrator": {
+        "builder": "build_orchestrator_a2a_agent",
+        "display_name": "a2alab-supply-orchestrator-adk",
+        "description": "A2A interop lab — fan-out orchestrator, ParallelAgent (WS8)",
+        "id_var": "ADK_ORCHESTRATOR_ENGINE_ID",
+        "endpoint_var": "ADK_ORCHESTRATOR_A2A_ENDPOINT",
+    },
+    "logistics": {
+        "builder": "build_leg_a2a_agent",
+        "display_name": "a2alab-logistics-agent",
+        "description": "A2A interop lab — fan-out leg, Logistics BU (WS8)",
+        "id_var": "ADK_LOGISTICS_ENGINE_ID",
+        "endpoint_var": "ADK_LOGISTICS_A2A_ENDPOINT",
+    },
+}
+
 
 def assemble_bundle() -> list[str]:
-    """Filtered code bundle: interop/ + platforms/{adk,agentforce} only."""
+    """Filtered code bundle: interop/ + orchestration/ + platforms/{adk,agentforce}."""
     if BUILD.exists():
         shutil.rmtree(BUILD)
     (BUILD / "platforms").mkdir(parents=True)
     shutil.copytree(REPO / "src" / "interop", BUILD / "interop")
+    # orchestration/ carries the leg agents' prompts (WS8). Shipping it keeps
+    # the deployed agent's instructions identical to the ones the lab's own
+    # tests and docs reference — one definition, not a copy that drifts.
+    shutil.copytree(REPO / "src" / "orchestration", BUILD / "orchestration")
     (BUILD / "platforms" / "__init__.py").write_text("")
     for pkg in ("adk", "agentforce"):
         shutil.copytree(REPO / "src" / "platforms" / pkg, BUILD / "platforms" / pkg)
@@ -85,7 +122,7 @@ def assemble_bundle() -> list[str]:
     # the given path structure, so top-level names are what make
     # `import interop` / `import platforms` resolve in the runtime —
     # absolute paths break placement (learned from a failed first deploy).
-    return ["interop", "platforms"]
+    return ["interop", "orchestration", "platforms"]
 
 
 def runtime_env() -> dict[str, str]:
@@ -124,13 +161,22 @@ def write_env_var(var: str, value: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--local", action="store_true", help="set_up() locally, no deploy")
+    parser.add_argument(
+        "--role",
+        default="researcher",
+        choices=sorted(ROLES),
+        help="which agent to deploy (researcher = WS2; logistics = WS8 fan-out leg)",
+    )
     args = parser.parse_args()
+    role = ROLES[args.role]
 
     load_dotenv(REPO / ".env")
-    from platforms.adk.agent import build_a2a_agent
+    import platforms.adk.agent as adk_agent
+
+    build = getattr(adk_agent, role["builder"])
 
     if args.local:
-        agent = build_a2a_agent()
+        agent = build()
         agent.set_up()
         print("local set_up() OK — A2aAgent builds and serves in-process")
         return
@@ -156,12 +202,12 @@ def main() -> None:
         http_options=genai_types.HttpOptions(api_version="v1beta1"),
     )
 
-    agent = build_a2a_agent()
+    agent = build()
     extra_packages = assemble_bundle()
     os.chdir(BUILD)
     config = {
-        "display_name": DISPLAY_NAME,
-        "description": "A2A interop lab — ADK/Gemini research agent (WS2)",
+        "display_name": role["display_name"],
+        "description": role["description"],
         "requirements": REQUIREMENTS,
         "extra_packages": extra_packages,
         "staging_bucket": staging,
@@ -172,7 +218,7 @@ def main() -> None:
         "container_concurrency": 3,
     }
 
-    existing = os.environ.get("ADK_AGENT_ENGINE_ID")
+    existing = os.environ.get(role["id_var"])
     if existing:
         remote = client.agent_engines.update(name=existing, agent=agent, config=config)
         print(f"updated {existing}")
@@ -182,10 +228,11 @@ def main() -> None:
 
     resource_name = remote.api_resource.name
     a2a_url = f"https://{location}-aiplatform.googleapis.com/v1beta1/{resource_name}/a2a"
-    write_env_var("ADK_AGENT_ENGINE_ID", resource_name)
-    write_env_var("ADK_A2A_ENDPOINT", a2a_url)
+    write_env_var(role["id_var"], resource_name)
+    write_env_var(role["endpoint_var"], a2a_url)
     print(f"A2A endpoint: {a2a_url}")
-    print("smoke test: uv run python scripts/matrix.py adk-a2a --runs 1 --no-record")
+    smoke = "adk-a2a" if args.role == "researcher" else "adk-logistics-a2a"
+    print(f"smoke test: uv run python scripts/matrix.py {smoke} --runs 1 --no-record")
 
 
 if __name__ == "__main__":

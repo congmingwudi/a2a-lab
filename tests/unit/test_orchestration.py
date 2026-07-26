@@ -212,3 +212,36 @@ def test_leg_prompt_pins_the_answer_shape():
         assert "at most 3 short bullets" in prompt
         assert "Do not call any other agent" in prompt
         assert "a port strike" in prompt
+
+
+def test_leg_targets_resolve_lazily_not_at_import(monkeypatch):
+    """Regression: leg targets were baked into a module-level tuple at import.
+
+    scripts/run_fanout.py imports this module at the top and calls load_dotenv()
+    inside main(), so every .env override was read as absent and each run
+    silently used the default targets. Nothing failed — the run looked perfect,
+    and the only way it surfaced was reading the recorded hops and finding the
+    wrong target names. Anything env-dependent must resolve when it is USED.
+    """
+    from orchestration.legs import legs_for
+
+    monkeypatch.setenv("A2ALAB_LEG_EXPOSURE_TARGET", "some-other-agent")
+    assert {leg.role: leg.target for leg in legs_for()}["exposure"] == "some-other-agent"
+
+    monkeypatch.delenv("A2ALAB_LEG_EXPOSURE_TARGET")
+    assert {leg.role: leg.target for leg in legs_for()}["exposure"] == "google-adk-a2a"
+
+
+async def test_dispatch_can_subset_roles_without_changing_behaviour():
+    """--legs is a caller convenience; the default path still runs every leg."""
+    sink = []
+    clients = _all_ok(sink)
+    result = await dispatch(
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        registry=_registry(clients),
+        roles={"commercial"},
+    )
+    assert [r.leg.role for r in result.results] == ["commercial"]
+    assert len(sink) == 1
