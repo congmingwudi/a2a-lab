@@ -266,3 +266,70 @@ foundry-rest       foundry     foundry-api     native       PASS     24311  2431
 foundry-a2a        foundry     a2a             native       PASS      9737   9737  MCP is a lightweight, message-envelope protocol focused on reliably exchanging and sequencing conversational content acr
 google-adk-a2a     adk         a2a             native       PASS     38293  38293  The MCP (Messaging and Conversation Protocol) is a general-purpose communication standard for agent interoperability, wh
 ```
+
+## Fan-out orchestration — first live dispatch (WS8) — measured 2026-07-25
+
+`scripts/run_fanout.py`, dispatching one supplier-disruption task to the
+scenario's legs concurrently. The orchestrator model is not in the loop here —
+this drives `orchestration.dispatch` directly so the FAN-OUT is what gets
+measured. Both orchestrator variants call the same code, so these numbers
+describe either.
+
+**The customer-comms leg (`openai-agentcore`) could not run: the AWS SSO token
+had expired.** That turned out to be the most useful part of the run — it gave
+a real failure to test the partial-failure contract against, rather than an
+injected one.
+
+| Run | Legs | Slowest leg | Wall | Serial equivalent | Coverage |
+|---|---|---|---|---|---|
+| 1 | adk + foundry | 36.7s (adk) | **36.7s** | ~50.7s | 2/2 |
+| 2 | adk + foundry + openai | 11.9s (foundry) | **12.8s** | ~14.6s | 2/3 |
+
+**Parallelism does what it claims.** Wall time tracks the slowest leg, not the
+sum: run 1 finished in 36.7s against a 50.7s serial equivalent — 28% saved on
+two legs. The saving grows with leg count and with variance between legs, which
+is exactly the disruption-response case (one slow research leg, two fast
+lookups).
+
+**The partial-failure contract held against a real failure.** The dead leg
+rendered inline —
+
+```
+Customer operations (openai):
+[leg unavailable: openai — TokenRetrievalError: Error when retrieving token
+ from sso: Token has expired and refresh failed]
+
+[fan-out coverage: 2/3 legs answered]
+```
+
+— and `run_fanout.py` exited **1**, not 0. Both halves matter: a scheduled
+fan-out that returns a short brief with a success code is the multi-agent form
+of the Agentforce failure measured earlier the same day. Note also that the
+failing leg failed *fast* (245ms) and cost the turn nothing; a leg that fails
+by hanging is the expensive case, which is what `LEG_TIMEOUT_S` bounds.
+
+**Six hops recorded per three-leg run**, all under one trace id — the
+orchestrator's outbound hop plus each client's own inner hop, with the two
+`openai-agentcore` hops correctly marked `error`. Every leg carried the D27
+rider at `delegation-depth: 1` and the D34 `lab-trace:` line, confirming the
+guard and the text-level trace convention both survive parallel dispatch as
+they do a chain.
+
+**An unplanned finding — instruction adherence is not stable across platforms
+or across runs.** Every leg is sent the same shaping instruction ("at most 3
+short bullets, 60 words, do not ask clarifying questions — state your
+assumptions instead"). Foundry's gpt-5-mini honored it on both runs, explicitly
+writing its assumptions inline ("assume DAP/DDP via Rotterdam"). The ADK/Gemini
+leg honored it on run 1 and **ignored it on run 2**, replying "I need more
+information to assess the impact… Please provide details on which specific
+shipments…" — a clarifying question, which is the one thing the prompt
+forbade, and useless to an orchestrator that cannot answer it.
+
+That matters more than it looks. Determinism shaping is what makes these runs
+comparable, and it is enforced only by asking politely. A leg that returns a
+question instead of an answer is not a failure any status code can catch: it
+was HTTP 200, non-empty, fast, and structurally fine. **The lab now has two
+independent instances of the same pattern — Agentforce's empty section and
+Gemini's clarifying question — where the transport says success and the content
+is unusable.** Detecting that needs a content check, and no protocol in the
+matrix offers one.

@@ -768,9 +768,26 @@ insights:
     # Not yet measured — the cells are built but the platform agents are not
     # deployed. Status flips to `measured` when WS8 records a live run.
     review: required
-    status: hypothesis
+    # Upgraded hypothesis -> observed 2026-07-25: the first live dispatch ran
+    # (ADK + Foundry in parallel, openai leg genuinely dead). Not yet `measured`
+    # — the four-platform join rate, the number this insight is really about,
+    # needs all legs deployed and a harvest.
+    status: observed
     headline: Fan-out is where cross-platform observability stops being a slogan
     evidence: >
+      MEASURED 2026-07-25, first live dispatch: two legs in parallel (Gemini on
+      Agent Engine, gpt-5-mini on Foundry) finished in 36.7s against a 50.7s
+      serial equivalent, and a third leg that was genuinely dead (expired AWS
+      credentials) rendered inline as "[leg unavailable: openai — ...]" with a
+      "2/3 legs answered" coverage line and a non-zero exit. The run also
+      surfaced something not planned for: every leg is sent the same shaping
+      instruction, and Foundry honored it both times while the Gemini leg
+      honored it once and on the second run replied with a clarifying question
+      instead of an answer — HTTP 200, non-empty, fast, structurally perfect,
+      and useless to an orchestrator that cannot answer questions. That is the
+      SECOND instance the lab has measured of a successful-looking response
+      carrying nothing usable; the first was an Agentforce action blowing its
+      budget and returning its section heading with the content silently gone.
       Twelve of the lab's first thirteen scenarios are 1:1 — one caller, one
       remote agent, one call path to reason about. Real enterprises are not
       shaped like that: a disruption, a diligence review or a security
