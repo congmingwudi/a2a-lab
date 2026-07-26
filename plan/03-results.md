@@ -410,3 +410,91 @@ run looked perfect: 3/3 legs, a good brief, a clean exit. It surfaced only by
 reading the recorded hops and noticing the target names were wrong. Fixed
 (targets resolve in `legs_for()` now) with a regression test. **Config that is
 read at import time is config that silently ignores your configuration.**
+
+## Two orchestrators, one scenario — ADK's ParallelAgent (WS8) — 2026-07-26
+
+The CMA variant runs clean (3/3 legs, 37.4s, brief reports its own coverage).
+The ADK variant — the same scenario with concurrency **declared** as
+`SequentialAgent[ParallelAgent[3 units], synthesiser]` — produced two findings
+before it produced a brief.
+
+### ADK's own telemetry is not concurrency-safe (google-adk 1.x)
+
+Every invocation failed in ~3s with the agent never reaching its legs:
+
+```
+ValueError: <Token var=<ContextVar name='current_context' ...>>
+            was created in a different Context
+  google/adk/telemetry/_instrumentation.py  record_agent_invocation
+  google/adk/agents/base_agent.py:296       run_async
+```
+
+`ParallelAgent` runs its sub-agents in separate asyncio tasks; ADK's
+OpenTelemetry instrumentation creates a context token in one and detaches it in
+another, which OTel refuses. **Setting `OTEL_SDK_DISABLED=true` removes the
+error**, confirming the diagnosis — the framework's flagship concurrency
+primitive and its own tracing cannot both be on.
+
+That is worth stating plainly because of the direction it cuts: the strongest
+argument for declared parallelism is that the framework handles the hard parts.
+Here the framework's *observability* is what the concurrency broke, and the only
+lever the runtime exposes is to turn tracing off — trading the visibility the
+lab exists to measure for the topology it exists to demonstrate.
+
+### And one of the failures was ours
+
+With telemetry off, the container reached the model four times (three units plus
+the synthesiser) and still failed the A2A task. Cause: in the per-leg tool,
+`Registry.load()` and `client_for()` sat **outside** the `try`, so a client that
+cannot even be constructed — `openai-agentcore` needs AWS credentials, which a
+GCP container does not have — raised past the handler and killed the whole
+ParallelAgent branch instead of degrading to one dead leg.
+
+The partial-failure contract was written for calls that fail. This failed
+*before* the call, which the contract did not cover. **A leg can fail at
+construction, not just in flight**, and a fan-out that only guards the request
+has a gap exactly where the cross-cloud identity problems live.
+
+### The identity edge this exposed
+
+The ADK orchestrator's customer-comms leg needs **SigV4 from inside a GCP
+container** — the AWS←GCP direction the lab has never wired. The WS3 capstone
+established GCP→Azure works (the container holds an Entra SP) and Azure→GCP is
+blocked; this is the third edge of that triangle and it is unwired rather than
+impossible. Until it is, that leg reports as unavailable, which is the contract
+working rather than a broken scenario — and the ADK variant stays
+`status: coming-soon` in the console for exactly that reason.
+
+### It runs now — and every leg fails from inside the container
+
+With both fixes in, the ADK orchestrator completes: **5.0s wall**, the graph
+executes, the synthesiser writes a brief. And **0 of 3 legs answered**:
+
+| Leg | Failure from inside the GCP container |
+|---|---|
+| commercial (Foundry, Azure) | agent-card fetch error |
+| exposure (ADK, same cloud) | network communication error |
+| customer_comms (OpenAI, AWS) | runtime configuration error — no AWS credentials, as predicted |
+
+**The important part is what the orchestrator did with that.** It named all
+three units, marked each as a gap, said explicitly what decision each gap left
+unsupported, and invented nothing:
+
+> The `exposure` unit's response is unavailable, meaning the operational and
+> financial exposure to our EU manufacturing customers is unassessed.
+
+So the partial-failure contract holds in the declared-graph variant too, at the
+hardest possible coverage — 0/3 — where the temptation to confabulate is
+greatest. That is a stronger result than the 3/3 CMA run, because a brief that
+degrades honestly under total failure is the one property you cannot test with a
+happy path.
+
+**Why the legs fail is the lab's own central finding, arriving again.** The
+CMA orchestrator reaches all three from the laptop, which holds every
+credential. The ADK orchestrator reaches none from a GCP container, which holds
+one. Same code, same targets, same prompts — different identity context. Nothing
+about the protocol changed.
+
+Left at `status: coming-soon`. Closing it means wiring outbound identity from
+the Agent Engine container to two other clouds, which is WS8.1's cross-cloud
+identity triangle rather than an orchestration problem.

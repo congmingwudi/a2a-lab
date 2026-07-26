@@ -150,6 +150,14 @@ def runtime_env() -> dict[str, str]:
     env["A2ALAB_TRACE_DIR"] = "/tmp/traces"
     # where the bundled targets.yaml lands inside the container
     env["A2ALAB_TARGETS_PATH"] = "labconfig/targets.yaml"
+    # ADK's own OTel instrumentation is not concurrency-safe in google-adk 1.x:
+    # ParallelAgent runs its sub-agents in separate asyncio tasks, and
+    # opentelemetry then raises "Token ... was created in a different Context"
+    # from base_agent.run_async, failing the whole turn in ~3s. Disabling the
+    # SDK is the only lever the container exposes. Only the orchestrator needs
+    # it — the single-agent roles run their sub-agents sequentially.
+    if os.environ.get("A2ALAB_ADK_DISABLE_OTEL") == "1":
+        env["OTEL_SDK_DISABLED"] = "true"
     return env
 
 

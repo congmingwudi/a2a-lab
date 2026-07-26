@@ -303,9 +303,14 @@ def _leg_tool(leg):
         from interop.models import AgentRequest
         from interop.registry import Registry
 
-        registry = Registry.load()
-        client = registry.client_for(leg.target)
+        client = None
         try:
+            # Construction is INSIDE the try on purpose: building a client can
+            # itself fail — openai-agentcore needs AWS credentials, which a GCP
+            # container does not have — and an exception escaping here kills the
+            # whole ParallelAgent branch instead of degrading to one dead leg.
+            registry = Registry.load()
+            client = registry.client_for(leg.target)
             message, meta = delegation.delegate(
                 leg.prompt(situation),
                 caller="a2alab-supply-orchestrator-adk",
@@ -320,7 +325,8 @@ def _leg_tool(leg):
         except Exception as exc:  # a dead leg is data, not a crash
             return f"[leg unavailable: {leg.platform} — {type(exc).__name__}: {exc}]"
         finally:
-            await client.aclose()
+            if client is not None:
+                await client.aclose()
 
     consult.__name__ = f"consult_{leg.role}"
     consult.__doc__ = (
