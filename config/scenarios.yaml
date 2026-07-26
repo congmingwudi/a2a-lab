@@ -892,10 +892,20 @@ scenarios:
       Google ADK, Microsoft Foundry and OpenAI — then writes the brief.
       Custom tools run HOST-SIDE, so concurrency is the host's to own.
     target: claude-rest
+    mode: fanout
+    orchestrator: cma
     via_bridge: false
     status: live
     requires_mode: hosted
     tags: [fan-out, orchestration, claude, managed-agents, adk, foundry, openai, async]
+    # The kick-off prompt IS the disruption. Every other scenario asks a
+    # question; this one reports a situation, because that is what an
+    # orchestrator is for — nobody types "please fan out to three business
+    # units", they say what happened and expect the routing to be the agent's
+    # problem. Console prefills this; run_fanout.py's --task default matches.
+    question: >-
+      A port strike has halted all container traffic through Rotterdam as of
+      06:00 today. Assess the impact for our EU manufacturing customers.
     description: >
       THE SITUATION. A port strike halts container traffic through a major hub.
       A multinational manufacturer needs to know, within the hour: which orders
@@ -992,8 +1002,13 @@ scenarios:
       the framework schedules the concurrency and no lab host is attached.
     target: adk-orchestrator-a2a
     via_bridge: false
-    status: coming-soon
+    status: live
     tags: [fan-out, orchestration, adk, agent-engine, gemini, foundry, openai, parallel-agent]
+    # Deliberately the SAME words as the CMA variant: the comparison is only
+    # honest if both orchestrators are handed an identical situation.
+    question: >-
+      A port strike has halted all container traffic through Rotterdam as of
+      06:00 today. Assess the impact for our EU manufacturing customers.
     description: >
       SAME SCENARIO, DIFFERENT ORCHESTRATOR. The situation, the three business
       units and their agents are identical to the Claude-orchestrated run — what

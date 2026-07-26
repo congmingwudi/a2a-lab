@@ -1316,6 +1316,33 @@ def create_console_app(registry: Registry | None = None):
                         "the stack"
                     ),
                 )
+            if spec.get("mode") == "fanout":
+                # The orchestrator is not a target you can POST to. Its
+                # `consult_business_units` tool is a CUSTOM tool, which on
+                # Managed Agents means the HOST executes it — so running this
+                # scenario means driving a managed session from here and
+                # servicing the fan-out, exactly as scripts/run_fanout.py does.
+                # Routing it through spec["target"] instead would send the
+                # situation to the plain research agent, which has no such tool
+                # and would answer the disruption itself: a brief that looks
+                # right and consulted nobody.
+                from orchestration.cma import CmaOrchestrator
+
+                trace_id = body.get("trace_id") or new_trace_id()
+                result = await CmaOrchestrator().run(message, trace_id=trace_id)
+                fan = result.get("fanout")
+                if fan is None:
+                    # A real outcome, not an error: the model can decline to
+                    # fan out, and hiding that would flatter the platform.
+                    coverage = "the orchestrator never called consult_business_units"
+                else:
+                    coverage = f"{fan.ok_count}/{len(fan.results)} business units answered"
+                return {
+                    "ok": True,
+                    "trace_id": result.get("trace_id", trace_id),
+                    "text": f"{result.get('brief') or '(empty brief)'}\n\n---\n_{coverage}_",
+                    "latency_ms": result.get("wall_ms"),
+                }
             if spec.get("mode") == "async":
                 # Fire-and-return: the research session runs for minutes in
                 # the background; its hops stream into this turn's trace via

@@ -567,6 +567,14 @@ flowchart LR
 
 **Advisor take:** Distributed tracing for agent estates won't come from the protocols soon — none of REST, MCP, or A2A propagates a correlation id end-to-end today, and platforms drop what they don't understand. Put the correlation id in the message text as a convention and harvest it back out of each platform's logs. It's inelegant and it works — and it's the only mechanism the lab found that survives every seam, including ones you don't operate. Then check, per platform, whether the logs you get back actually contain text: where a platform emits span metadata only, plan a second join key (a response or operation id) before you promise a single pane of glass.
 
+### An LLM asked to relay an error paraphrases it — give failures a path out that does not pass through a model
+
+*Status: measured · refs: D27, D40, plan/03-results.md*
+
+**What the lab showed:** MEASURED 2026-07-26. The ADK orchestrator's partial-failure contract works exactly as designed: each business-unit agent is instructed to pass a "[leg unavailable: ...]" marker through verbatim, and the synthesiser reports it as a gap rather than inventing an answer. It faithfully did so — and rendered "InvalidConfigError ... CA bundle" as "a technical error accessing its tools". Both statements are true; only one is actionable, and it was not the one that reached a human. Three debugging cycles were spent on paraphrases before the leg markers were also printed to container stdout, at which point the raw AccessDenied named the caller's own OIDC claims and the fix was one line. Contrast the host-side variant, where the marker is produced by CODE and cannot be reworded.
+
+**Advisor take:** Any error you intend to debug from needs a route to your logs that skips the model. Structured relay through an agent is fine for the USER-facing summary and useless as telemetry — the paraphrase is lossy in exactly the direction that matters, dropping identifiers and keeping sentiment. This is also the sharpest argument for host-side tool execution: a contract enforced in code cannot be talked out of, whereas a declared graph buys ordering guarantees but still relies on three models relaying text faithfully.
+
 ## Method
 
 ### Interop claims deserve wire-level evidence — insist that demos enter through the real platform agent
@@ -595,34 +603,47 @@ flowchart LR
 
 **Advisor take:** Before promising multi-agent orchestration, ask what the system does when one agent of several does not answer — and check that the answer is not "produce a shorter report and call it success". Partial failure is the default state of any fan-out, so make it structural: every branch gets a section in the output whether or not it succeeded, and every result carries a coverage count. A degraded run that reads like a complete one is worse than an error, because nothing downstream — logs, dashboards, evals, or the human reading the summary — can tell the difference. Then verify you can still trace one logical task across every platform it touched; if you cannot, you have bought orchestration and sold your observability to pay for it.
 
-**Fan-out orchestration** — One task, three platforms, dispatched at once — the topology every enterprise actually has, and the one where a missing leg has to be visible rather than quietly absent.
+**Fan-out: two orchestrators** — The same task, three business units, three clouds — orchestrated two ways. On Managed Agents the fan-out is a custom tool the HOST executes; on ADK it is declared in the agent graph. One buys control at the seam, the other structure in the graph.
 
 ```mermaid
 flowchart TB
-    OP["Disruption task<br/>(port strike)"] --> ORC
+    T["Supplier disruption task"] --> C
+    T --> A
 
-    subgraph orc["Orchestrator — one task, two hostings compared"]
-        ORC["a2alab-supply-orchestrator<br/>CMA (cron async)<br/>or ADK (7-day async)"]
+    subgraph cma["Variant 1 - Anthropic Managed Agents"]
+        C["Orchestrator agent<br/>declarative: prompt + tool schema"]
+        C -- "custom tool" --> H["HOST executes<br/>asyncio.gather"]
     end
 
-    ORC -- "A2A · rider depth 1" --> L1
-    ORC -- "A2A · rider depth 1" --> L2
-    ORC -- "SigV4 · rider depth 1" --> L3
-
-    subgraph legs["Three business units, three clouds, dispatched CONCURRENTLY"]
-        L1["Logistics BU<br/>Google ADK · GCP<br/>exposure"]
-        L2["Commercial BU<br/>Foundry · Azure<br/>contracts"]
-        L3["Customer BU<br/>OpenAI · AWS<br/>comms"]
+    subgraph adk["Variant 2 - Google ADK on Agent Engine"]
+        A["SequentialAgent"] --> P["ParallelAgent<br/>framework schedules"]
+        P --> S["synthesiser<br/>reads state keys"]
     end
 
-    L1 --> SYN
-    L2 --> SYN
-    L3 --> SYN
-    SYN["Synthesis<br/>3 sections + coverage line<br/>missing legs NAMED"] --> CRM["Salesforce CRM<br/>(D16 delivery path)"]
+    H --> L1
+    H --> L2
+    H --> L3
+    P --> L1
+    P --> L2
+    P --> L3
 
-    L1 -.harvested.-> OBS[("Obs store<br/>joins 3 of 4 legs")]
-    L2 -."no utterance text<br/>joins by platform_ref".-> OBS
-    L3 -.harvested.-> OBS
-    ORC -.harvested.-> OBS
+    L1["Logistics<br/>ADK · GCP"]
+    L2["Commercial<br/>Foundry · Azure"]
+    L3["Customer comms<br/>OpenAI · AWS"]
+
+    L1 -.-> OBS[("join rate 1 of 4:<br/>only CMA is joinable<br/>from its own logs")]
+    L2 -.-> OBS
+    L3 -.-> OBS
+    C -.-> OBS
 ```
+
+## Identity and trust
+
+### An agent that leaves its own cloud needs an identity in the destination cloud — and that is a deploy problem, not a protocol one
+
+*Status: measured · refs: D39, D40, plan/03-results.md, plan/07-workstreams.md*
+
+**What the lab showed:** MEASURED 2026-07-26. The same orchestrator code, same targets, same prompts, reached 3/3 business units from a laptop and 0/3 from a Vertex AI Agent Engine container. Nothing about A2A changed between those two runs; the laptop held every credential and the container held one. Fixing it took three unrelated corrections, and the spread is the finding. (1) Two legs failed because the container received each target's NAME but not the ${VAR} its endpoint expands from — an unset var expands to "" and an empty endpoint fails as a NETWORK error, sending you to check connectivity for a deploy-manifest bug. (2) The GCP-to-GCP leg 403'd: Agent Engine runs as a Google-managed service agent that cannot query a sibling reasoning engine, so "same cloud" bought no permission. (3) The AWS leg needed federation because Bedrock AgentCore's data plane is SigV4-only with no HTTP front door — there is no bearer-token fallback, unlike the Azure and Google legs. After the fixes: 3/3 legs, 16.8s wall, no long-lived credential in the container at all.
+
+**Advisor take:** When someone says their agents are "multi-cloud", ask which credential each hop presents and where it came from. The protocol conversation is usually settled long before anyone has answered that. Prefer federation to keys where the destination supports it — AWS trusts accounts.google.com natively, so a GCP container can mint its own short-lived AWS credentials with nothing to rotate. And budget for the fact that a cloud's own identity plane is where the transport choice gets made for you: the one leg with no HTTP option was the only one that required real identity work.
 

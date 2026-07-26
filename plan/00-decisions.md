@@ -998,3 +998,60 @@ Scope note: `.env` remains the *deploy-time* source for these values
 (`deploy/obs/deploy_harvest.sh` reads it to populate the secret, and the ADK
 container's Entra SP is deployed from it). What changed is the *runtime*
 path — no process authenticates as a person.
+
+## 2026-07-26 — D40: Cross-cloud agent identity — federate, never key
+
+**Context.** The ADK fan-out orchestrator (WS8) runs inside a Vertex AI Agent
+Engine container and must reach three clouds: another Agent Engine (Google),
+Foundry's incoming A2A (Azure), and a Bedrock AgentCore runtime (AWS). The AWS
+leg is the hard one and not by accident — AgentCore's data plane is SigV4-only,
+with **no public HTTP endpoint**, so unlike the other two there is no
+bearer-token path to fall back on. The container has to hold an AWS identity.
+
+**Decision.** No cloud credential is ever placed in an agent container as a
+long-lived secret. Outbound identity is obtained one of two ways, and
+`src/interop/cloud_auth.py` is the only place either is constructed:
+
+1. **A service principal the platform already scopes** — Azure gets an explicit
+   `ClientSecretCredential`, never `DefaultAzureCredential` (D39's rule; a chain
+   that can find a developer login proves a human has access, not the service).
+2. **Identity federation** where the destination cloud supports it — AWS trusts
+   `accounts.google.com` natively, so the container mints a Google-signed OIDC
+   token for its own service account and trades it at STS for one-hour
+   credentials. No IAM OIDC provider to register, no key to rotate, nothing
+   durable in the container.
+
+`deploy/adk/provision_aws_federation.py` creates the AWS half: a role whose
+trust policy pins one Google subject and one audience, granting
+`bedrock-agentcore:InvokeAgentRuntime` on the two lab runtimes and nothing else.
+
+**Consequences, and the three things that actually cost time.**
+
+- **A target's NAME is not its ADDRESS.** Shipping `A2ALAB_LEG_*_TARGET` to the
+  container without the `${VAR}`s those targets expand from produced empty
+  endpoints, and an empty endpoint fails as a *network* error. Config absence
+  and connectivity failure are indistinguishable downstream; the deploy manifest
+  must ship both.
+- **Same cloud is not same permission.** The GCP→GCP leg 403'd. Agent Engine
+  runs as a Google-*managed* service agent holding
+  `reasoningEngineServiceAgent`, which cannot query a sibling reasoning engine.
+  "It's all Google" bought nothing; the grant is explicit
+  (`roles/aiplatform.user`) like any other.
+- **AWS remaps Google's audience claim, and says nothing when you get it
+  wrong.** Service-account tokens carry `azp`, and per the IAM condition-keys
+  reference that makes `accounts.google.com:aud` match **azp** while the
+  audience lands on `accounts.google.com:oaud`. The intuitive policy — pin
+  `:aud` to the audience you requested — fails with a bare `AccessDenied` that
+  names no key and is indistinguishable from a wrong `sub` or a propagation
+  delay. Pin `:oaud` + `:sub`.
+
+**Corollary that generalises past this decision: an error must have a path out
+that does not pass through a model.** These failures first reached us through
+the orchestrator's synthesiser, which faithfully paraphrased
+`InvalidConfigError: ... CA bundle` into *"a technical error accessing its
+tools"* — true, unactionable, and unfixable. Leg markers now also print to
+container stdout. Anything you intend to debug from cannot be relayed by an LLM.
+
+Applies to every future platform: a new agent that must call another cloud gets
+a federated identity or an explicitly-constructed service principal, added to
+`interop/cloud_auth.py`, never an access key in `env_vars`.

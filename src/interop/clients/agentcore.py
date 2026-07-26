@@ -74,10 +74,21 @@ class AgentCoreClient(RemoteAgentClient):
 
     def _boto(self):
         if self._client is None:
-            import boto3
+            from interop.cloud_auth import aws_session
 
+            # Region from the ARN, never from the environment: this client is
+            # reached from a GCP container and a Lambda as well as a laptop,
+            # and an ambient AWS_DEFAULT_REGION has misdirected boto3 here
+            # before. A fully-qualified ARN already names its region.
+            #
+            # aws_session() is the seam that lets a non-AWS caller reach this
+            # runtime at all — inside the ADK container it federates the
+            # container's Google identity into an AWS role (interop.cloud_auth);
+            # on the laptop it is a plain boto3 Session.
             region = self.runtime_arn.split(":")[3]
-            self._client = boto3.client("bedrock-agentcore", region_name=region)
+            self._client = aws_session(region=region).client(
+                "bedrock-agentcore", region_name=region
+            )
         return self._client
 
     def _runtime_session_id(self, lab_session_id: str | None) -> str:

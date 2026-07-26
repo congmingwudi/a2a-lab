@@ -323,7 +323,15 @@ def _leg_tool(leg):
             text = (resp.text or "").strip()
             return text or f"[leg unavailable: {leg.platform} — empty answer]"
         except Exception as exc:  # a dead leg is data, not a crash
-            return f"[leg unavailable: {leg.platform} — {type(exc).__name__}: {exc}]"
+            marker = f"[leg unavailable: {leg.platform} — {type(exc).__name__}: {exc}]"
+            # Also to stdout, which is Cloud Logging here. The marker's only
+            # other route out is through the synthesiser, and an LLM asked to
+            # relay an error PARAPHRASES it — the first cross-cloud failure
+            # reached us as "an InvalidConfigError related to its CA bundle",
+            # which is true but not the message you can act on. Debugging a
+            # container you cannot attach to needs the literal text.
+            print(f"[fanout] {leg.role} FAILED: {marker}", flush=True)
+            return marker
         finally:
             if client is not None:
                 await client.aclose()

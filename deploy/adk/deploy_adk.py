@@ -45,6 +45,10 @@ REQUIREMENTS = [
     "pydantic>=2",
     # cross-hyperscaler cell (WS3): Entra SP auth for calling Foundry A2A
     "azure-identity>=1.20",
+    # WS8: the orchestrator's customer-comms leg is a Bedrock AgentCore
+    # runtime, whose data plane is SigV4-only — there is no HTTP front door to
+    # call instead, so a GCP container that must reach it needs an AWS SDK.
+    "boto3>=1.34",
 ]
 
 # Env the container needs: the Agentforce twin credentials (ask_agentforce
@@ -72,6 +76,23 @@ ENV_KEYS = [
     "A2ALAB_LEG_EXPOSURE_TARGET",
     "A2ALAB_LEG_COMMERCIAL_TARGET",
     "A2ALAB_LEG_COMMS_TARGET",
+    # ...and the vars those TARGETS expand to. Shipping the target NAMES alone
+    # was the bug behind the orchestrator's 0/3: config/targets.yaml resolves
+    # each endpoint from ${VAR}, unset vars expand to "" (interop/registry.py),
+    # and an empty endpoint fails as a network error rather than as missing
+    # configuration. A leg's name is not its address.
+    "ADK_A2A_ENDPOINT",
+    "ADK_LOGISTICS_A2A_ENDPOINT",
+    "AZURE_FOUNDRY_PROJECT_ENDPOINT",
+    "OPENAI_AGENTCORE_ARN",
+    "CLAUDE_AGENTCORE_ARN",
+    # AWS from a GCP container: no access key, a federated role (D39/D40).
+    # AWS_PROFILE is deliberately NOT shipped — a profile name that resolves on
+    # the laptop resolves to nothing here, and boto3 fails on the profile
+    # rather than on the credential, which reads as the wrong problem.
+    # The role ARN is mapped in runtime_env(), not listed here, so it cannot
+    # switch the laptop into federation mode (see there).
+    "AWS_REGION",
 ]
 
 DISPLAY_NAME = "a2alab-adk-researcher"
@@ -138,6 +159,18 @@ def runtime_env() -> dict[str, str]:
     # runtimes — A2ALAB_TOKEN stays a laptop-only variable).
     if os.environ.get("A2ALAB_TOKEN"):
         env["AF_SHIM_TOKEN"] = os.environ["A2ALAB_TOKEN"]
+    # GCP -> AWS identity federation, renamed on the way in ON PURPOSE.
+    # interop.cloud_auth switches to federation the moment A2ALAB_AWS_ROLE_ARN
+    # is set, and on the laptop that would be wrong twice over: ADC there is a
+    # human's gcloud login, which cannot mint a service-account ID token at
+    # all, so every laptop call to an AgentCore runtime would start failing.
+    # Keeping the laptop-side name distinct means the .env value configures the
+    # container and only the container.
+    if os.environ.get("A2ALAB_ADK_AWS_ROLE_ARN"):
+        env["A2ALAB_AWS_ROLE_ARN"] = os.environ["A2ALAB_ADK_AWS_ROLE_ARN"]
+        env["A2ALAB_AWS_WEB_IDENTITY_AUDIENCE"] = (
+            os.environ.get("A2ALAB_ADK_AWS_AUDIENCE") or "a2a-interop-lab"
+        )
     env["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
     # WS6: the lab IdP's PUBLIC key — user-JWT verification in the engine
     # container (the signing key never leaves the laptop).
@@ -150,6 +183,14 @@ def runtime_env() -> dict[str, str]:
     env["A2ALAB_TRACE_DIR"] = "/tmp/traces"
     # where the bundled targets.yaml lands inside the container
     env["A2ALAB_TARGETS_PATH"] = "labconfig/targets.yaml"
+    # The Agent Engine base image ships
+    #   ENV REQUESTS_CA_BUNDLE=${AGENT_GATEWAY_ROOT_CERTIFICATES:+/etc/ssl/certs/ca-certificates.crt}
+    # which evaluates to the EMPTY STRING when that variable is unset — and
+    # botocore reads REQUESTS_CA_BUNDLE directly (endpoint.py), so every AWS
+    # call in this container fails on an empty CA path. httpx and
+    # azure-identity ignore the variable, which is why only the AWS leg broke
+    # and why the error named a CA bundle rather than a credential.
+    env["REQUESTS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"
     # ADK's own OTel instrumentation is not concurrency-safe in google-adk 1.x:
     # ParallelAgent runs its sub-agents in separate asyncio tasks, and
     # opentelemetry then raises "Token ... was created in a different Context"

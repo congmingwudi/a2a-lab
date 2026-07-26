@@ -498,3 +498,94 @@ about the protocol changed.
 Left at `status: coming-soon`. Closing it means wiring outbound identity from
 the Agent Engine container to two other clouds, which is WS8.1's cross-cloud
 identity triangle rather than an orchestration problem.
+
+### Wiring outbound identity: 0/3 → 2/3, and three different reasons
+
+2026-07-26. The three failures above looked like one problem ("the container
+has no credentials"). They were three, and only one of them was about identity
+at all — which is the finding, because "cross-cloud auth is hard" is the lazy
+version of it.
+
+| Leg | Real cause | Fix |
+|---|---|---|
+| commercial (Foundry, Azure) | `AZURE_FOUNDRY_PROJECT_ENDPOINT` was never shipped to the container. `targets.yaml` expands `${VAR}`, unset expands to `""`, so the endpoint became a bare path — reported as an agent-card fetch error | ship the var; also swapped `DefaultAzureCredential` → explicit SP (D39) |
+| exposure (ADK, same cloud) | endpoint var missing too — but once fixed, **403 Forbidden**. The Agent Engine service agent holds `reasoningEngineServiceAgent`, which cannot query a *sibling* reasoning engine | ship the var; grant `roles/aiplatform.user` to `service-<projnum>@gcp-sa-aiplatform-re` |
+| customer_comms (OpenAI, AWS) | two stacked causes — see below | in progress |
+
+**Three lessons worth separating.**
+
+1. **Config absence and network failure are indistinguishable downstream.** An
+   unset `${VAR}` expanding to `""` produced "network communication error" and
+   "card fetch error" — messages that send you to look at connectivity when the
+   problem is a deploy manifest. Shipping a target's NAME without the vars its
+   endpoint expands from is a deploy bug the registry cannot catch.
+2. **Same-cloud is not same-permission.** The most surprising failure was the
+   GCP→GCP leg. A container running as a Google-managed service agent had no
+   rights over another agent in the same project. "It's all Google" bought
+   nothing.
+3. **The base image can break one SDK and no other.** Agent Engine sets
+   `REQUESTS_CA_BUNDLE=${AGENT_GATEWAY_ROOT_CERTIFICATES:+/etc/ssl/certs/ca-certificates.crt}`,
+   which is the **empty string** when that variable is unset. botocore reads
+   `REQUESTS_CA_BUNDLE` directly; httpx and azure-identity ignore it. So AWS
+   calls failed on an empty CA path while the Azure leg in the same process
+   succeeded — and the error named a CA bundle, not a credential.
+
+**Measured after the fixes:** 2/3 legs, **49.0s wall** (trace
+`cb0db142a3204dd0833e022fb44bafbd`), brief named the missing unit and the
+decision it left unsupported. Earlier run in the same session: 1/3 at 19.1s.
+
+### GCP→AWS without a key
+
+The remaining leg is the one that is genuinely about identity. Bedrock
+AgentCore's data plane is SigV4-only — there is **no HTTP front door** to call
+instead — so a GCP container must hold an AWS identity, and the obvious move
+(paste an access key into the runtime's env) is the long-lived-secret-in-a-
+container pattern D39 exists to remove.
+
+Instead: AWS trusts `accounts.google.com` as a web identity provider natively,
+so the container mints a Google-signed OIDC token for its own service account
+and trades it at STS for one-hour credentials (`interop/cloud_auth.py`). No IAM
+OIDC provider to register, no key to rotate.
+
+The obstacle was pinning the trust policy: `accounts.google.com:sub` is the
+service account's numeric id, and Agent Engine runs as a **Google-managed**
+service agent in a project you do not own, so you cannot look it up. The
+resolution was to make the first federated call fail usefully — it reports the
+caller's own claims — so the error teaches you what to pin:
+
+```
+[leg unavailable: openai — RuntimeError: AssumeRoleWithWebIdentity ... (AccessDenied)
+ ... Caller identity was {'sub': '1147141287970546…', 'aud': 'a2a-interop-lab',
+ 'email': 'service-536083661167@gcp-sa-aiplatform-re.iam.gserviceaccount.com',
+ 'iss': 'https://accounts.google.com'}]
+```
+
+Worth noting separately: that message only became readable because the leg
+markers are now printed to container stdout. Routed through the synthesiser
+instead, the same failure arrived as *"an InvalidConfigError related to its CA
+bundle configuration"* — true, and useless. **An LLM asked to relay an error
+paraphrases it.** Anything you intend to debug from needs a path out that does
+not pass through a model.
+
+The trust policy still denied it, and the last obstacle is the one worth
+publishing. Google service-account tokens carry an `azp` claim, and AWS's
+condition-keys reference says that when `azp` is set,
+`accounts.google.com:aud` matches **azp** while the audience you requested
+lands on `accounts.google.com:oaud`. So the intuitive policy — pin `:aud` to
+your audience — fails with a bare `AccessDenied` naming no key, which reads
+exactly like a wrong `sub` or an IAM propagation delay. Both wrong guesses cost
+a retry cycle each. Pin `:oaud` + `:sub`.
+
+**Result: 3/3 legs, 16.8s wall** (trace `802a9a3b73f845798b89085abf2ba4e3`;
+`802a…`, `47c7…` and `1f65…` are consecutive runs across the fix). Zero leg
+failures in the container log. The ADK orchestrator now reaches Google, Azure
+and AWS from one GCP container with **no long-lived credential anywhere in it** —
+one Entra service principal fetched from config, and an AWS role assumed with a
+token the container mints for itself.
+
+For comparison, the CMA orchestrator's 3/3 was 37.4s. Not a like-for-like
+latency claim — different orchestrator models, and the CMA number included a
+cold managed session — but the declared-graph variant is not paying a penalty
+for having no host.
+
+`supplier-disruption-adk` is `status: live`.

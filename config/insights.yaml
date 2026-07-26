@@ -824,3 +824,74 @@ insights:
       every platform it touched; if you cannot, you have bought orchestration
       and sold your observability to pay for it.
     refs: [D16, D27, D34, plan/07-workstreams.md, plan/03-results.md]
+
+  - id: cross-cloud-agent-identity
+    category: Identity and trust
+    review: required
+    status: measured
+    headline: >-
+      An agent that leaves its own cloud needs an identity in the destination
+      cloud — and that is a deploy problem, not a protocol one
+    evidence: >-
+      MEASURED 2026-07-26. The same orchestrator code, same targets, same
+      prompts, reached 3/3 business units from a laptop and 0/3 from a Vertex
+      AI Agent Engine container. Nothing about A2A changed between those two
+      runs; the laptop held every credential and the container held one. Fixing
+      it took three unrelated corrections, and the spread is the finding.
+      (1) Two legs failed because the container received each target's NAME but
+      not the ${VAR} its endpoint expands from — an unset var expands to "" and
+      an empty endpoint fails as a NETWORK error, sending you to check
+      connectivity for a deploy-manifest bug. (2) The GCP-to-GCP leg 403'd:
+      Agent Engine runs as a Google-managed service agent that cannot query a
+      sibling reasoning engine, so "same cloud" bought no permission. (3) The
+      AWS leg needed federation because Bedrock AgentCore's data plane is
+      SigV4-only with no HTTP front door — there is no bearer-token fallback,
+      unlike the Azure and Google legs. After the fixes: 3/3 legs, 16.8s wall,
+      no long-lived credential in the container at all.
+    advisory: >-
+      When someone says their agents are "multi-cloud", ask which credential
+      each hop presents and where it came from. The protocol conversation is
+      usually settled long before anyone has answered that. Prefer federation
+      to keys where the destination supports it — AWS trusts accounts.google.com
+      natively, so a GCP container can mint its own short-lived AWS credentials
+      with nothing to rotate. And budget for the fact that a cloud's own
+      identity plane is where the transport choice gets made for you: the one
+      leg with no HTTP option was the only one that required real identity work.
+    refs:
+      - D39
+      - D40
+      - plan/03-results.md
+      - plan/07-workstreams.md
+
+  - id: errors-must-not-be-relayed-by-a-model
+    category: Observability
+    review: required
+    status: measured
+    headline: >-
+      An LLM asked to relay an error paraphrases it — give failures a path out
+      that does not pass through a model
+    evidence: >-
+      MEASURED 2026-07-26. The ADK orchestrator's partial-failure contract works
+      exactly as designed: each business-unit agent is instructed to pass a
+      "[leg unavailable: ...]" marker through verbatim, and the synthesiser
+      reports it as a gap rather than inventing an answer. It faithfully did
+      so — and rendered "InvalidConfigError ... CA bundle" as "a technical error
+      accessing its tools". Both statements are true; only one is actionable,
+      and it was not the one that reached a human. Three debugging cycles were
+      spent on paraphrases before the leg markers were also printed to container
+      stdout, at which point the raw AccessDenied named the caller's own OIDC
+      claims and the fix was one line. Contrast the host-side variant, where the
+      marker is produced by CODE and cannot be reworded.
+    advisory: >-
+      Any error you intend to debug from needs a route to your logs that skips
+      the model. Structured relay through an agent is fine for the USER-facing
+      summary and useless as telemetry — the paraphrase is lossy in exactly the
+      direction that matters, dropping identifiers and keeping sentiment. This
+      is also the sharpest argument for host-side tool execution: a contract
+      enforced in code cannot be talked out of, whereas a declared graph buys
+      ordering guarantees but still relies on three models relaying text
+      faithfully.
+    refs:
+      - D27
+      - D40
+      - plan/03-results.md

@@ -85,9 +85,13 @@ class A2AClient(RemoteAgentClient):
         if scheme == "azure-ad":
             import time as _time
 
-            from azure.identity import DefaultAzureCredential
+            from interop.cloud_auth import azure_credential
 
-            credential = DefaultAzureCredential()
+            # Explicit service principal, never DefaultAzureCredential (D39):
+            # the chain would find a developer's `az login` on the laptop and
+            # nothing at all in the ADK container, so the local run would pass
+            # while the hosted one failed — the exact failure that produced D39.
+            credential = azure_credential()
             scope = self.auth.get("scope", "https://ai.azure.com/.default")
             state: dict[str, Any] = {"token": None, "expires": 0.0}
 
