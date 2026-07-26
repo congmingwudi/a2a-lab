@@ -117,6 +117,60 @@ def by_role(role: str) -> LegAgent:
     raise KeyError(f"unknown leg role '{role}'")
 
 
+# ---- Attribution -----------------------------------------------------------
+# A synthesised brief that reads as one voice hides the only interesting thing
+# about it: four agents on four platforms produced it. Worse, it is
+# unverifiable — a reader cannot tell a claim the Commercial agent made from
+# one the orchestrator inferred, which is exactly the confabulation risk the
+# partial-failure contract exists to manage. So every section is labelled at
+# the source and the orchestrator is required to carry the label through.
+
+PLATFORM_LABELS = {
+    "adk": "Google Vertex AI Agent Engine",
+    "foundry": "Microsoft Foundry",
+    "openai": "OpenAI on Bedrock AgentCore",
+    "claude": "Anthropic Managed Agents",
+}
+
+
+def platform_label(platform: str) -> str:
+    return PLATFORM_LABELS.get(platform, platform)
+
+
+def source_header(role: str, *, target: str = "", latency_ms: int | None = None) -> str:
+    """The line that opens one unit's section, everywhere it appears.
+
+    Same text in the host-side fan-out and in the ADK graph, so the two
+    orchestrators are handed identically-shaped evidence and any difference in
+    their briefs is the orchestrator rather than the input.
+    """
+    agent = by_role(role)
+    bits = [f"agent {agent.agent_name}"]
+    if target:
+        bits.append(f"target {target}")
+    if latency_ms is not None:
+        bits.append(f"{latency_ms:,} ms")
+    return (
+        f"### {agent.business_unit} — {platform_label(agent.platform)} "
+        f"({', '.join(bits)})\n"
+        f"Cite this unit as [{agent.business_unit}]."
+    )
+
+
+CITATION_RULE = """
+ATTRIBUTION (required). Each section below came from a DIFFERENT agent on a
+DIFFERENT platform. Your brief must make that visible:
+- Tag every substantive statement with the unit it came from, e.g.
+  "Deliveries inside 14 days are exposed [Logistics]."
+- Never merge two units' claims into one untagged sentence, and never tag a
+  statement with a unit that did not make it.
+- Anything you add yourself — a synthesis, an inference, a recommendation —
+  is tagged [Orchestrator]. If you cannot attribute a claim, do not make it.
+- End with a "Sources" section listing, one line per unit: business unit,
+  platform, agent name, and whether it answered.
+""".strip()
+
+
 # ---- Orchestrators ---------------------------------------------------------
 # The same scenario, run by two platforms, so the CONFIGS can be compared. What
 # differs is not the prompt — it is where concurrency lives:
@@ -154,8 +208,10 @@ HARD RULES:
   is missing is worse than no brief.
 - Report the coverage line's numbers in your brief.
 - Be concrete and short: a title, one line of situation, one short paragraph
-  per unit that answered, then "Gaps" and "Recommended next actions".
-""".strip()
+  per unit that answered, then "Gaps", "Recommended next actions", "Sources".
+
+{citation_rule}
+""".strip().format(citation_rule=CITATION_RULE)
 
 FANOUT_TOOL = {
     "type": "custom",

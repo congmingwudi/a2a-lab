@@ -215,9 +215,20 @@ def test_config_reports_delegation(tmp_path, monkeypatch):
     assert data["mode"] == "local"
     d = data["delegation"]
     assert "A2A-LAB DELEGATION" in d["rider"]
-    assert d["max_depth"] >= 1 and len(d["seams"]) == 5  # 4 tool paths + bridge
+    assert d["max_depth"] >= 1
+    # Assert on CONTENT, not a count. The old `len(seams) == 5` passed happily
+    # while the exhibit listed only the Agentforce-consulting seams, so the
+    # fan-out scenarios — which delegate three times per run and never touch
+    # Salesforce — showed a seam list describing something they don't do.
+    assert any("bridge" == s for s in d["seams"])
+    assert any("ask_agentforce" in s for s in d["seams"])
+    assert any("consult_business_units" in s for s in d["seams"]), (
+        "the host-side fan-out is a delegation seam and must appear in the exhibit"
+    )
+    assert any("consult_<unit>" in s for s in d["seams"])
     # Placeholders are display-only; the API names the real seam identities.
     assert any("adk-gemini-agent" in c for c in d["callers"])
+    assert any("supply-orchestrator" in c for c in d["callers"])
     # D28: the channel-routing sibling exhibit
     assert "A2A-LAB ROUTING" in data["af_channel"]["routing_block"]
     assert data["af_channel"]["tools"]["a2a-shim"] == "ask_agentforce_a2a"

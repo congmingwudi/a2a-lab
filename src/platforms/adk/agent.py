@@ -298,12 +298,27 @@ def _leg_tool(leg):
 
     async def consult(situation: str) -> str:
         import asyncio
+        import time
 
         from interop import delegation
         from interop.models import AgentRequest
         from interop.registry import Registry
+        from orchestration.agents import source_header
 
         client = None
+        started = time.perf_counter()
+
+        def labelled(body: str) -> str:
+            # Same header the host-side fan-out emits, so both orchestrators
+            # synthesise from identically-shaped evidence and any difference
+            # in their briefs is the orchestrator, not the input.
+            head = source_header(
+                leg.role,
+                target=leg.target,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+            )
+            return f"{head}\n{body}"
+
         try:
             # Construction is INSIDE the try on purpose: building a client can
             # itself fail — openai-agentcore needs AWS credentials, which a GCP
@@ -321,7 +336,7 @@ def _leg_tool(leg):
                 client.ask(AgentRequest(message=message, metadata=meta)), timeout=120
             )
             text = (resp.text or "").strip()
-            return text or f"[leg unavailable: {leg.platform} — empty answer]"
+            return labelled(text or f"[leg unavailable: {leg.platform} — empty answer]")
         except Exception as exc:  # a dead leg is data, not a crash
             marker = f"[leg unavailable: {leg.platform} — {type(exc).__name__}: {exc}]"
             # Also to stdout, which is Cloud Logging here. The marker's only
@@ -331,7 +346,7 @@ def _leg_tool(leg):
             # which is true but not the message you can act on. Debugging a
             # container you cannot attach to needs the literal text.
             print(f"[fanout] {leg.role} FAILED: {marker}", flush=True)
-            return marker
+            return labelled(marker)
         finally:
             if client is not None:
                 await client.aclose()
@@ -375,6 +390,8 @@ def build_fanout_orchestrator():
         description="Consults all three business units concurrently.",
     )
 
+    from orchestration.agents import CITATION_RULE
+
     synthesiser = LlmAgent(
         model=adk_model(),
         name="synthesise_brief",
@@ -388,7 +405,8 @@ def build_fanout_orchestrator():
             "of the three units answered. A brief that reads complete while a "
             "unit is missing is worse than no brief.\n\n"
             "Structure: title, one line of situation, one short paragraph per "
-            "unit that answered, then 'Gaps' and 'Recommended next actions'."
+            "unit that answered, then 'Gaps', 'Recommended next actions', "
+            "'Sources'.\n\n" + CITATION_RULE
         ),
     )
 

@@ -21,6 +21,7 @@ non-toy examples — every claim in these notes points at a real file in this re
 | [05-hooks-notifications.md](05-hooks-notifications.md) | Hooks wired to a custom AWS logging service that routes Stop/Notification events to Slack — walk away from long runs |
 | [06-requirements-corpus-hardening.md](06-requirements-corpus-hardening.md) | A colleague's anti-pattern deck as a requirements corpus: evidence-graded audit against the codebase, then a security-hardening plan applied across the stack |
 | [07-permissions-guardrails.md](07-permissions-guardrails.md) | The permission gradient in practice: auto-mode classifier holds on production-org and hosted-infra writes, narrow allow rules, and the hard guardrails that don't yield to rules |
+| [08-coding-agent-telemetry.md](08-coding-agent-telemetry.md) | Claude Code and Codex OTel → CloudWatch, and the per-project / per-repo attribution that is *not* built in — plus two silent-failure modes worth showing a customer |
 | [screenshots/](screenshots/README.md) | Terminal screenshots captured at critical decision points — Claude as a thought partner |
 
 ## The one-paragraph story

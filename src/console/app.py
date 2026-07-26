@@ -929,6 +929,11 @@ def create_console_app(registry: Registry | None = None):
             "chatgpt-to-agentforce": ("openai-agents-sdk-agent", "openai"),
             "adk-to-agentforce": ("adk-gemini-agent", "adk"),
             "foundry-to-agentforce": ("foundry-agent", "foundry"),
+            # The fan-out scenarios delegate too — three times per run, to
+            # three platforms. Showing no rider there implied the guard was
+            # an Agentforce-only concern.
+            "supplier-disruption-cma": ("a2alab-supply-orchestrator", "claude"),
+            "supplier-disruption-adk": ("a2alab-supply-orchestrator-adk", "adk"),
         }
         pair = by_name.get(name)
         return delegation.rider_for(*pair) if pair else None
@@ -1117,12 +1122,19 @@ def create_console_app(registry: Registry | None = None):
             "delegation": {
                 "max_depth": delegation.max_depth(),
                 "rider": delegation.example_rider(),
+                # Every seam that stamps the rider, not just the Agentforce
+                # ones. The fan-out entries were missing, which made the
+                # exhibit read as "this is about consulting Agentforce" on a
+                # scenario that never touches Salesforce — the guard is
+                # general, and the list has to show that.
                 "seams": [
                     "ask_agentforce (sdk)",
                     "ask_agentforce (managed)",
                     "ask_agentforce (openai)",
                     "ask_agentforce (adk)",
                     "bridge",
+                    "consult_business_units (fan-out, host-side)",
+                    "consult_<unit> (fan-out, ADK ParallelAgent)",
                 ],
                 # The <placeholders> in the rider are display-only; real
                 # injected blocks carry the delegating seam's identity:
@@ -1132,6 +1144,8 @@ def create_console_app(registry: Registry | None = None):
                     "openai-agents-sdk-agent (openai)",
                     "adk-gemini-agent (adk)",
                     "agentforce-twin-via-bridge (agentforce)",
+                    "a2alab-supply-orchestrator (claude)",
+                    "a2alab-supply-orchestrator-adk (adk)",
                 ],
             },
             # D28 sibling exhibit: the per-run channel routing block the

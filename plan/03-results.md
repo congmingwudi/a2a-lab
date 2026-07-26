@@ -589,3 +589,40 @@ cold managed session — but the declared-graph variant is not paying a penalty
 for having no host.
 
 `supplier-disruption-adk` is `status: live`.
+
+### Attribution in the brief: what a citation contract surfaced
+
+2026-07-26. Both orchestrators were producing briefs that read as one voice,
+which hid the only interesting thing about them — four agents on four platforms
+wrote that text — and, worse, made them unverifiable: a reader could not tell a
+claim the Commercial agent made from one the orchestrator inferred.
+
+Two changes, applied identically to both variants so the comparison stays fair:
+each unit's section now opens with a machine-generated source header (business
+unit, platform, agent name, target, latency), and both orchestrator prompts
+carry the same `CITATION_RULE` — tag every statement with its unit, tag your own
+additions `[Orchestrator]`, end with a Sources block.
+
+**Measured, CMA (3/3, 62.6s, trace `43836c5a…`)** — and it did something the
+contract did not ask for:
+
+> **[Orchestrator] Synthesis:** All three units agree the exposure is real and
+> time-sensitive — Logistics' 7-day minimum estimate, Commercial/Legal's FM
+> notice requirement, and Customer Ops' 7–14 day delay messaging are broadly
+> consistent but not identical (7 vs. 7–14 days), so external communications
+> should use the wider, more conservative range.
+
+**That is the finding.** Forcing per-claim attribution made a cross-unit
+*inconsistency* visible. Un-attributed, the model had been free to pick one
+number and write a clean sentence; required to say who said what, it could not
+merge them and had to reconcile them explicitly instead. A citation contract is
+usually justified as an audit feature — here it improved the analysis.
+
+**Measured, ADK (3/3, 23.8s, trace `75ac1fa8…`)** — tagged every sentence
+correctly and produced a clean Sources block, but no reconciliation paragraph:
+it reported all three units' durations side by side without noticing that 7 and
+7–14 disagree. Same evidence, same instruction, different orchestrator model.
+
+Worth keeping separate from the platform comparison: this is a *model* result
+(Claude vs Gemini as synthesiser), not an architecture one. The
+declared-graph-vs-host-side axis is unchanged by it.

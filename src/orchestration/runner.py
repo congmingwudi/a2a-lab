@@ -47,8 +47,16 @@ class LegResult:
     latency_ms: int = 0
 
     def render(self) -> str:
-        """One section of the synthesised answer — present either way."""
-        header = f"{self.leg.business_unit} ({self.leg.platform}):"
+        """One section of the synthesised answer — present either way.
+
+        The header names the unit, the platform, the specific agent and the
+        latency, because the orchestrator can only attribute what it was told.
+        A bare "Logistics:" gives a model nothing to cite and quietly invites
+        it to blend three sources into one voice.
+        """
+        from orchestration.agents import source_header
+
+        header = source_header(self.leg.role, target=self.leg.target, latency_ms=self.latency_ms)
         if self.ok:
             return f"{header}\n{self.text.strip()}"
         return f"{header}\n[leg unavailable: {self.leg.platform} — {self.error}]"
