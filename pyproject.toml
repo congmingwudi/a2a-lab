@@ -51,6 +51,7 @@ packages = [
     "src/console",
     "src/observability",
     "src/obs_mcp",
+    "src/orchestration",
 ]
 
 [tool.pytest.ini_options]
