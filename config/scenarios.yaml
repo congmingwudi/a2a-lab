@@ -30,6 +30,10 @@ groups:
     title: "Microsoft Foundry - Agentforce"
   - id: cross-cloud
     title: "Cross-hyperscaler (Google × Microsoft)"
+  # The first 1:many group. Every group above is a PAIR — which is the shape
+  # the lab explored first and, until WS8, the only shape it had.
+  - id: fan-out
+    title: "Fan-out orchestration (1:many)"
   - id: langgraph-agentforce
     title: "LangGraph - Agentforce"
     upcoming: WS4
@@ -877,3 +881,101 @@ scenarios:
       detail: "The Foundry prompt agent answers from model knowledge (the rider
         guard skips its tools) — platform-interior, token usage visible in the
         harvested spans."
+
+  # ---- WS8: fan-out orchestration (the lab's first 1:many topology) --------
+  supplier-disruption-fanout:
+    group: fan-out
+    title: "Supplier Disruption Response (fan-out, async)"
+    summary: >
+      One orchestrator dispatches a single business task to THREE agents on
+      three platforms at once — Google ADK, Microsoft Foundry and OpenAI — then
+      synthesises one answer. The lab's first 1:many topology.
+    target: claude-rest
+    via_bridge: false
+    status: coming-soon
+    requires_mode: hosted
+    tags: [fan-out, orchestration, claude, managed-agents, adk, foundry, openai, async]
+    description: >
+      THE SITUATION. A port strike halts container traffic through a major hub.
+      A multinational manufacturer needs to know, within the hour: which orders
+      are exposed, what the contracts say about delay penalties and force
+      majeure, and what to tell affected customers — then act on all three.
+
+
+      WHY IT NEEDS MULTIPLE AGENTS. These three questions are owned by three
+      different functions, grounded in three different systems, and — in a
+      company of any size — served by three different AI platforms chosen by
+      three different business units at three different times. Logistics runs
+      on Google Cloud. Commercial and legal run on Microsoft. Customer
+      operations standardised on OpenAI. Nobody is going to re-platform because
+      a strike started at 6am.
+
+
+      WHY ORCHESTRATION RATHER THAN A CHAIN. The three questions are genuinely
+      independent — exposure does not depend on the contract position, and
+      neither depends on the customer message. Run sequentially they cost the
+      sum of three latencies; run in parallel they cost the slowest. In a
+      disruption that difference is the whole value.
+
+
+      WHY ASYNC. Nobody sits watching a spinner during a port strike. The work
+      is dispatched, runs for minutes, and lands in the systems people already
+      use — which is what the lab's async pattern (D16) already proved by
+      delivering briefs into CRM records rather than into an HTTP response.
+
+
+      WHAT IT MEASURES. Three things nothing else in the lab touches: the D27
+      delegation guard under PARALLEL dispatch rather than chaining; whether a
+      single run can be correlated across four platforms' own execution logs
+      (expect 3 of 4 — Foundry logs no utterance text, so it joins by
+      platform_ref instead of by the D34 rider); and partial failure, which at
+      fan-out is the normal case rather than the edge case.
+
+
+      THE CLAIM IT SUPPORTS. An enterprise does not need one agent platform. It
+      needs one protocol and an honest account of what crossing platform
+      boundaries costs — in latency, in identity plumbing, and in the
+      observability you lose at each seam.
+    note: >
+      Partial-failure policy is deliberate and visible: a leg that fails is
+      REPORTED, never omitted. Each failed leg renders "[leg unavailable:
+      <platform> — <reason>]" and every run carries a coverage line, so a
+      degraded run cannot read like a complete one. That is a direct response
+      to the 2026-07-25 measurement of Agentforce abandoning a slow action —
+      HTTP 200, section heading present, delegated content silently gone, full
+      cost paid. Built twice (Anthropic Managed Agents and Google ADK
+      orchestrators) because cron-scheduled and duration-based async are two
+      different patterns sharing one word. Sibling business cases in other
+      domains — vendor diligence, incident triage, M&A — are documented in
+      plan/07-workstreams.md WS8.
+    flow:
+      - source: operator
+        target: a2alab-supply-orchestrator
+        protocol: internal
+        detail: "The disruption task is handed to the orchestrator — an
+          Anthropic Managed Agent session (variant 1) or an ADK agent on Vertex
+          AI Agent Engine (variant 2). Same dispatch code either way, so the
+          comparison measures the hosting model rather than two
+          implementations."
+      - source: a2alab-supply-orchestrator
+        target: google-adk-a2a
+        protocol: a2a
+        detail: "LEG 1 — Logistics BU. Exposure assessment from the Gemini
+          agent on Agent Engine. Dispatched concurrently with legs 2 and 3;
+          D27 rider at depth 1, lab-trace line stamped."
+      - source: a2alab-supply-orchestrator
+        target: foundry-a2a
+        protocol: a2a
+        detail: "LEG 2 — Commercial/Legal BU. Contract and penalty position
+          from gpt-5-mini on Microsoft Foundry, over its native inbound A2A."
+      - source: a2alab-supply-orchestrator
+        target: openai-agentcore
+        protocol: agentcore-http
+        detail: "LEG 3 — Customer operations BU. Customer comms points from
+          the OpenAI agent on Bedrock AgentCore (SigV4)."
+      - source: a2alab-supply-orchestrator
+        target: operator
+        protocol: internal
+        detail: "Synthesis. The orchestrator receives all three sections plus
+          a coverage line and writes one brief. Delivery into Salesforce reuses
+          the D16/D17 brief path."

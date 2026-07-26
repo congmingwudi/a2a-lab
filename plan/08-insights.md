@@ -585,3 +585,44 @@ flowchart LR
 
 **Advisor take:** Read single-vendor best-practice decks as a target state, not a current-state playbook. For every "use the platform's governed surface" rule, ask: does that surface exist, in GA, on every platform in my estate, in the direction I need? Where it doesn't, the disciplined move is the labeled workaround — honest status, armed migration trigger — not abstinence.
 
+## Orchestration topology
+
+### Fan-out is where cross-platform observability stops being a slogan
+
+*Status: hypothesis · refs: D16, D27, D34, plan/07-workstreams.md, plan/03-results.md*
+
+**What the lab showed:** Twelve of the lab's first thirteen scenarios are 1:1 — one caller, one remote agent, one call path to reason about. Real enterprises are not shaped like that: a disruption, a diligence review or a security incident decomposes into independent questions owned by different functions, and in any company of scale those functions already run different agent platforms chosen at different times. WS8 builds the first 1:many cell — one orchestrator dispatching to Google ADK, Microsoft Foundry and OpenAI concurrently — to measure three things the 1:1 cells cannot reach. FIRST, the delegation guard under parallel dispatch rather than chaining: D27's depth limit was designed for chains, and a supervisor calling three platforms is depth-1 three times. SECOND, correlation: a 1:1 run spans at most two platforms' logs, while a fan-out spans four, each with its own retention, ingestion lag and join key — and the lab already measured that only platforms logging the utterance text can be joined by the D34 rider convention, with Foundry joining by response id instead. The expected result is that three of four legs can be traced back to the run that caused them, and THAT NUMBER is the deliverable. THIRD, partial failure, which at fan-out is the normal case rather than the edge case — and which the lab has already seen wearing a disguise: on 2026-07-25 an Agentforce action that blew its budget still returned HTTP 200 with its section heading present and the delegated content silently absent, at full cost. One leg of one call path. A fan-out has three times that surface.
+
+**Advisor take:** Before promising multi-agent orchestration, ask what the system does when one agent of several does not answer — and check that the answer is not "produce a shorter report and call it success". Partial failure is the default state of any fan-out, so make it structural: every branch gets a section in the output whether or not it succeeded, and every result carries a coverage count. A degraded run that reads like a complete one is worse than an error, because nothing downstream — logs, dashboards, evals, or the human reading the summary — can tell the difference. Then verify you can still trace one logical task across every platform it touched; if you cannot, you have bought orchestration and sold your observability to pay for it.
+
+**Fan-out orchestration** — One task, three platforms, dispatched at once — the topology every enterprise actually has, and the one where a missing leg has to be visible rather than quietly absent.
+
+```mermaid
+flowchart TB
+    OP["Disruption task<br/>(port strike)"] --> ORC
+
+    subgraph orc["Orchestrator — one task, two hostings compared"]
+        ORC["a2alab-supply-orchestrator<br/>CMA (cron async)<br/>or ADK (7-day async)"]
+    end
+
+    ORC -- "A2A · rider depth 1" --> L1
+    ORC -- "A2A · rider depth 1" --> L2
+    ORC -- "SigV4 · rider depth 1" --> L3
+
+    subgraph legs["Three business units, three clouds, dispatched CONCURRENTLY"]
+        L1["Logistics BU<br/>Google ADK · GCP<br/>exposure"]
+        L2["Commercial BU<br/>Foundry · Azure<br/>contracts"]
+        L3["Customer BU<br/>OpenAI · AWS<br/>comms"]
+    end
+
+    L1 --> SYN
+    L2 --> SYN
+    L3 --> SYN
+    SYN["Synthesis<br/>3 sections + coverage line<br/>missing legs NAMED"] --> CRM["Salesforce CRM<br/>(D16 delivery path)"]
+
+    L1 -.harvested.-> OBS[("Obs store<br/>joins 3 of 4 legs")]
+    L2 -."no utterance text<br/>joins by platform_ref".-> OBS
+    L3 -.harvested.-> OBS
+    ORC -.harvested.-> OBS
+```
+

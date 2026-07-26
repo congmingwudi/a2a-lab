@@ -158,10 +158,11 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "adk-agentforce",
         "foundry-agentforce",
         "cross-cloud",
+        "fan-out",
         "langgraph-agentforce",
         "strands-agentforce",
     ]
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 5 + [True] * 2
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 6 + [True] * 2
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
