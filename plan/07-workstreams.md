@@ -695,6 +695,34 @@ recording as a measured result the first time it passes.
 
 ## WS8 — Fan-out orchestration: the lab's missing shape (AD1, approved 2026-07-25)
 
+**Status 2026-07-26 (overnight build).** Dispatch layer built, tested, and
+**proven live**: two legs in parallel across GCP and Azure, 36.7s wall against a
+50.7s serial equivalent, and the partial-failure contract verified against a
+real dead leg rather than an injected one (plan/03-results.md).
+
+| Item | State |
+|---|---|
+| `src/orchestration/` — legs, parallel dispatch, partial-failure contract | ✅ built, 10 unit tests |
+| `scripts/run_fanout.py` — CLI runner, exits non-zero on a partial run | ✅ built, run live |
+| Scenario + business case + mermaid diagram + `fan-out` nav group | ✅ |
+| Insight `orchestration-topology` | ✅ `observed`, `review: required` |
+| **Five dedicated per-leg agents** | ⬜ **not deployed** — see below |
+| Claude (AWS) ↔ ADK pair | ⬜ blocked on AWS auth |
+| Four-platform join-rate measurement | ⬜ needs all legs + a harvest |
+
+**Read this before continuing: the live run used the lab's EXISTING
+general-purpose research agents, not the dedicated per-leg agents this
+workstream specifies.** That was deliberate — it proved the dispatch layer
+without waiting on provisioning — but it means the measured numbers describe
+the plumbing, not the scenario. The answers came from research agents being
+asked a logistics question, and it showed: see the instruction-adherence
+finding in plan/03-results.md.
+
+Swapping to dedicated agents is a **config change, not a code change** —
+`orchestration/legs.py` reads `A2ALAB_LEG_EXPOSURE_TARGET`,
+`A2ALAB_LEG_COMMERCIAL_TARGET` and `A2ALAB_LEG_COMMS_TARGET`, so each leg
+repoints via `.env` once its agent exists.
+
 **Goal.** One long-running orchestrator farms a single business task out to
 three agents on three different platforms *in parallel*, then synthesises one
 answer — built twice, once with an Anthropic Managed Agent and once with Google
@@ -868,6 +896,24 @@ Claude(AWS)↔ADK pair (~0.5 day) which lands first as a warm-up.
 ---
 
 ## WS9 — Build telemetry: what this lab cost to make (AD2, approved 2026-07-25)
+
+**Status 2026-07-26 (overnight build).** Everything that does not need AWS is
+done; the one step that does is the one that matters most.
+
+| Item | State |
+|---|---|
+| `src/observability/coding_source.py` + 6 tests | ✅ built; namespaces discovered, not hardcoded |
+| Registered in local harvest, Lambda map, and bundle (the Obs rule) | ✅ |
+| `/api/build-telemetry` + Build Telemetry console section | ✅ built, 3 tests |
+| Coding telemetry excluded from the Observability coverage panel | ✅ test-locked |
+| **Exporters switched on** | ⬜ **blocked — AWS SSO expired** |
+
+⚠️ **Step 1 is still the time-critical one and it is still not done.** The
+CloudWatch bearer token needs an authenticated AWS session. Until the exporters
+run, the section correctly renders its setup steps and says telemetry is not
+retroactive — which is honest, and also means every hour before it is switched
+on is an hour that can never be measured. **This is the first thing to do on
+waking, ahead of anything else in either workstream.**
 
 **Goal.** Capture Claude Code and Codex OpenTelemetry into CloudWatch, then
 surface it in the console as its own section — the lab measuring its own
