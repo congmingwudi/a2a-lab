@@ -43,7 +43,17 @@ from observability.base import HarvestResult, PlatformLogSource
 from observability.store import ObsStore
 
 WINDOW_DAYS = int(os.environ.get("A2ALAB_CODING_WINDOW_DAYS", "7"))
-PERIOD_S = 86400  # daily buckets — this is a build-cost view, not a live trace
+
+# Query step. NOT the reporting granularity — the daily rollup happens in
+# summarize_series, in Python. This is 5 minutes because CloudWatch aligns a
+# range query's evaluation points to epoch multiples of the step, so a
+# daily-stepped query's last point is last midnight and everything since is
+# invisible. Measured 2026-07-26: the same query returned 0 series at step
+# 86400/3600/900/600 and 4 series at step 300, purely because the only
+# telemetry that existed was 24 minutes old. A build-cost view that cannot see
+# today reads exactly like an exporter that is switched off — which is how this
+# was found, days after the exporters started working.
+PERIOD_S = 300
 
 # There is no metric enumeration on the PromQL surface, so the names are a
 # list. Claude Code's are from its published OTel schema; Codex's mirror them
@@ -195,29 +205,55 @@ class CodingSource(PlatformLogSource):
     def __init__(self, client: Any = None, names: tuple[str, ...] | None = None):
         self._client = client
         self._names = names
+        self.query_errors: list[str] = []
 
     # ---- fetch -------------------------------------------------------------
 
     def _metric_rows(self, client: Any) -> list[dict[str, Any]]:
         """Every coding-agent datapoint in the window, flattened.
 
-        One range query per metric name, stepped daily. Counters are read
-        through `increase(...[1d])` so each bucket is that day's delta rather
-        than a running total — cost and tokens are cumulative sums, and
-        charting the raw counter would show a staircase instead of daily spend.
+        One range query per metric name, stepped at PERIOD_S; summarize_series
+        rolls the points up per day afterwards.
+
+        The aggregation is `sum_over_time(...[<step>])` — window equal to the
+        step, so the buckets tile the range exactly once with no overlap and no
+        gap. Two forms were measured against the same live data on 2026-07-26
+        and both were wrong:
+
+          increase(...[5m])   2,531,607 tokens — under-counts, and silently
+                              drops any series with a single sample (increase
+                              needs two), so 4 of 8 series vanished
+          bare selector       3,160,892 tokens — over-counts, because an
+                              instant vector repeats the last sample through
+                              its 5-minute lookback at every step
+          sum_over_time       2,870,521 tokens — identical at step 60 and 300,
+                              which is the property that makes it right: an
+                              exact answer does not move when the resolution
+                              does
+
+        These are delta-temporality Sums, so each raw datapoint is already a
+        delta; summing them is the whole job, and rate-style functions are
+        actively harmful on them.
         """
         end = dt.datetime.now(dt.timezone.utc).timestamp()
         start = end - WINDOW_DAYS * 86400
         rows: list[dict[str, Any]] = []
+        self.query_errors = []
         for name in self._names or metric_names():
             tool_of_name = _tool_of(name)
             if not tool_of_name:
                 continue
             try:
-                series = client.query_range(f'increase({{"{name}"}}[1d])', start, end, PERIOD_S)
-            except Exception:
-                # One absent or malformed metric must not sink the harvest —
-                # most of these names will legitimately not exist.
+                series = client.query_range(
+                    f'sum_over_time({{"{name}"}}[{PERIOD_S}s])', start, end, PERIOD_S
+                )
+            except Exception as exc:
+                # One absent metric must not sink the harvest — most of these
+                # names will legitimately not exist. But swallowing the reason
+                # is how a query bug becomes "no telemetry yet": remember it, so
+                # a harvest that finds nothing can say whether nothing was there
+                # or nothing could be asked for.
+                self.query_errors.append(f"{name}: {type(exc).__name__}: {exc}"[:200])
                 continue
             for entry in series:
                 labels = entry.get("metric") or {}
@@ -272,16 +308,17 @@ class CodingSource(PlatformLogSource):
             return result
 
         if not rows:
-            result = HarvestResult(
-                platform=self.name,
-                status="blocked",
-                detail=(
-                    "no claude_code.* or codex.* metrics in CloudWatch — switch the "
-                    "exporters on (see the Build Telemetry section) and allow one export "
-                    "interval. Telemetry is not retroactive: whatever was built before "
-                    "collection started cannot be measured afterwards"
-                ),
+            detail = (
+                "no claude_code.* or codex.* metrics in CloudWatch — switch the "
+                "exporters on (see the Build Telemetry section) and allow one export "
+                "interval. Telemetry is not retroactive: whatever was built before "
+                "collection started cannot be measured afterwards"
             )
+            if self.query_errors:
+                # An empty result and an unaskable query look identical from
+                # here; only this line tells them apart.
+                detail += f" · {len(self.query_errors)} query error(s): {self.query_errors[0]}"
+            result = HarvestResult(platform=self.name, status="blocked", detail=detail)
             store.set_harvest_status(self.name, result.status, result.detail)
             return result
 

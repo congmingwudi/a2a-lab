@@ -908,7 +908,7 @@ done; the one step that does is the one that matters most.
 | Coding telemetry excluded from the Observability coverage panel | ✅ test-locked |
 | **Exporters switched on** | ✅ 2026-07-26 — key issued, helper wired, ingestion verified |
 | `observability/promql.py` | ✅ **the harvest was reading the wrong API** — see below |
-| First real coding metrics | ⏳ arrive on the next Claude Code session |
+| First real coding metrics | ✅ 2026-07-26 — `1 tool-day, $2.82 modelled`, after a second query fix |
 
 ### The correction that mattered
 
@@ -926,8 +926,38 @@ politely to "nothing here yet" can hide a total failure indefinitely.
 
 Verified rather than assumed, and worth keeping: a PromQL selector must name a
 metric; `/api/v1/label/__name__/values` is unsupported, so **there is no metric
-enumeration** and the name list must be fixed and extendable; counters are read
-through `increase(...[1d])` so each bucket is that day's delta.
+enumeration** and the name list must be fixed and extendable.
+
+### The second correction — same failure mode, one layer down
+
+Reading the right API was not enough. With the exporters confirmed working, the
+harvest still reported "no coding metrics — switch the exporters on" while this
+very session's `session.id` was queryable in CloudWatch. Two independent bugs,
+both measured on identical live data 2026-07-26:
+
+- **Step alignment.** CloudWatch aligns a range query's evaluation points to
+  epoch multiples of the step. Stepping daily put the last evaluation point at
+  last midnight, so everything recorded since was invisible — 0 series at step
+  86400 / 3600 / 900 / 600, and 4 series at step 300. A build-cost view that is
+  permanently a day behind is indistinguishable from an exporter that is off.
+  The step is now 300s; the daily rollup was always in Python
+  (`summarize_series`) and stays there.
+- **Wrong aggregation.** These are delta-temporality Sums, so each datapoint is
+  already a delta and rate-style functions are actively harmful on them.
+  `increase(...[5m])` read 2,531,607 tokens and silently dropped 4 of 8 series
+  (it needs two samples); a bare selector read 3,160,892 by repeating the last
+  sample through its 5-minute lookback; `sum_over_time` read 2,870,521 —
+  **identically at step 60 and step 300**, and that resolution-independence is
+  what identifies it as the correct one.
+
+**The pattern worth naming, because it has now cost three separate debugging
+sessions on this one source:** the harvest's failure message is a helpful
+instruction ("switch the exporters on"), and a helpful instruction is a claim
+about the cause. Each time, the cause was on the reading side and the message
+sent the reader to the writing side. The `except: continue` around each metric
+query made it worse by discarding the evidence. Query failures now appear in
+the harvest detail, so "nothing was recorded" and "nothing could be asked for"
+no longer read the same.
 
 ### Credential handling followed D39, not the vendor quickstart
 

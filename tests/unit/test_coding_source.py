@@ -167,8 +167,10 @@ def test_harvest_reads_promql_and_writes_sessions(tmp_path):
     assert result.status == "ok"
     assert result.sessions == 1
     assert "modelled build cost at list price" in result.detail
-    # counters are read as daily deltas, not running totals
-    assert all(q.startswith("increase(") for q in client.queries)
+    # Delta-temporality Sums are summed, never rate'd: increase() drops
+    # single-sample series and under-counts, and a bare selector double-counts
+    # through its lookback. See _metric_rows for the measured comparison.
+    assert all(q.startswith("sum_over_time(") for q in client.queries)
 
     sessions = store.list_sessions("coding")
     assert sessions[0]["native_id"] == "claude-code:2026-07-25"
@@ -236,4 +238,34 @@ def test_harvest_reports_error_without_raising(tmp_path):
     # every metric raises, so _metric_rows swallows each one and yields nothing
     result = CodingSource(client=Exploding()).harvest(store)
     assert result.status == "blocked"
+    # ...but "nothing was there" and "nothing could be asked for" must not read
+    # the same. Without this, a broken query masquerades as an idle exporter —
+    # which it did, for days.
+    assert "expired token" in result.detail
+    assert "query error" in result.detail
+    store.close()
+
+
+def test_query_step_is_fine_grained_enough_to_see_today(tmp_path):
+    """CloudWatch aligns evaluation points to epoch multiples of the step, so a
+    daily step cannot see anything recorded since midnight. Measured live
+    2026-07-26: 0 series at step 86400/3600/900/600, 4 series at step 300, on
+    identical data. A build-cost view that is always a day behind reads as an
+    exporter that is switched off."""
+    seen: list[int] = []
+
+    class StepRecording(FakePromQL):
+        def query_range(self, query, start, end, step_s):
+            seen.append(step_s)
+            return super().query_range(query, start, end, step_s)
+
+    client = StepRecording(
+        {"claude_code.cost.usage": [_series({"@resource.tool": "claude-code"}, [(DAY, 1.0)])]}
+    )
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    CodingSource(client=client).harvest(store)
+    assert seen and max(seen) <= 300
+    # the window the aggregation covers must equal the step, or the buckets
+    # either overlap (double count) or leave gaps (undercount)
+    assert all(f"[{step}s]" in q for step, q in zip(seen, client.queries))
     store.close()
