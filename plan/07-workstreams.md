@@ -906,14 +906,42 @@ done; the one step that does is the one that matters most.
 | Registered in local harvest, Lambda map, and bundle (the Obs rule) | ✅ |
 | `/api/build-telemetry` + Build Telemetry console section | ✅ built, 3 tests |
 | Coding telemetry excluded from the Observability coverage panel | ✅ test-locked |
-| **Exporters switched on** | ⬜ **blocked — AWS SSO expired** |
+| **Exporters switched on** | ✅ 2026-07-26 — key issued, helper wired, ingestion verified |
+| `observability/promql.py` | ✅ **the harvest was reading the wrong API** — see below |
+| First real coding metrics | ⏳ arrive on the next Claude Code session |
 
-⚠️ **Step 1 is still the time-critical one and it is still not done.** The
-CloudWatch bearer token needs an authenticated AWS session. Until the exporters
-run, the section correctly renders its setup steps and says telemetry is not
-retroactive — which is honest, and also means every hour before it is switched
-on is an hour that can never be measured. **This is the first thing to do on
-waking, ahead of anything else in either workstream.**
+### The correction that mattered
+
+**OTLP metrics ingested through CloudWatch's native endpoint do not appear in
+`ListMetrics` or `GetMetricStatistics` at all.** They land in a
+Prometheus-compatible store queried over SigV4 at
+`monitoring.<region>.amazonaws.com/api/v1/*`.
+
+The first `coding_source` used ListMetrics. Ingestion returned HTTP 200 and
+discovery returned nothing, so **both halves looked healthy** and the harvest
+would have reported "no coding metrics yet, switch the exporters on" forever
+while the exporters worked perfectly. It was only found by sending a real
+metric and failing to read it back — a reminder that a source which degrades
+politely to "nothing here yet" can hide a total failure indefinitely.
+
+Verified rather than assumed, and worth keeping: a PromQL selector must name a
+metric; `/api/v1/label/__name__/values` is unsupported, so **there is no metric
+enumeration** and the name list must be fixed and extendable; counters are read
+through `increase(...[1d])` so each bucket is that day's delta.
+
+### Credential handling followed D39, not the vendor quickstart
+
+The AWS guide has you paste the bearer token into a shell profile. Instead: an
+IAM user with `CloudWatchAPIKeyAccess`, a 90-day service-specific credential
+(expires 2026-10-24), the key written **straight into Secrets Manager without
+passing through a terminal**, and `scripts/otel_headers.sh` fetching it at
+runtime via `otelHeadersHelper`. A token pasted into a config file is exactly
+the long-lived laptop credential D39 exists to remove.
+
+**Also corrected against the AWS docs, three counts the first draft got wrong:**
+the `/v1/metrics` PATH is required; the protocol is `http/protobuf`, not
+`http/json`; and a metrics bearer token **cannot carry logs or traces**, so
+`OTEL_LOGS_EXPORTER` against the same endpoint silently yields nothing.
 
 **Goal.** Capture Claude Code and Codex OpenTelemetry into CloudWatch, then
 surface it in the console as its own section — the lab measuring its own
