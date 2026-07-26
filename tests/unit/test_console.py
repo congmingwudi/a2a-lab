@@ -752,3 +752,7 @@ def test_build_telemetry_explains_setup_when_nothing_collected(tmp_path, monkeyp
     steps = " ".join(s["step"] + s["detail"] for s in data["setup"])
     assert "CloudWatchAPIKeyAccess" in steps
     assert "tool=codex" in steps
+    # the three things the AWS docs corrected in the first draft, kept honest
+    assert "/v1/metrics" in steps  # the PATH is required
+    assert "http/protobuf" in steps  # not http/json
+    assert "cannot call the logs" in steps  # a metrics token is metrics-only

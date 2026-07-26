@@ -1,4 +1,4 @@
-"""WS9 coding-agent telemetry source — canned CloudWatch payloads, no AWS."""
+"""WS9 coding-agent telemetry source — canned PromQL payloads, no AWS."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import json
 from observability.coding_source import (
     CodingSource,
     _tool_of,
+    metric_names,
     summarize_series,
 )
 from observability.store import ObsStore
@@ -16,32 +17,23 @@ DAY = dt.datetime(2026, 7, 25, 12, 0, tzinfo=dt.timezone.utc)
 NEXT_DAY = dt.datetime(2026, 7, 26, 12, 0, tzinfo=dt.timezone.utc)
 
 
-class FakeCloudWatch:
-    """Minimal stand-in for the two CloudWatch calls the source makes."""
+class FakePromQL:
+    """Stands in for PromQLClient. Keyed by metric name inside the selector."""
 
-    def __init__(self, metrics, datapoints):
-        self._metrics = metrics
-        self._datapoints = datapoints
-        self.calls = []
+    def __init__(self, series_by_metric):
+        self._series = series_by_metric
+        self.queries = []
 
-    def list_metrics(self, **kwargs):
-        self.calls.append(("list_metrics", kwargs))
-        ns = kwargs.get("Namespace")
-        metrics = [m for m in self._metrics if ns is None or m["Namespace"] == ns]
-        return {"Metrics": metrics}
-
-    def get_metric_statistics(self, **kwargs):
-        self.calls.append(("get_metric_statistics", kwargs))
-        key = (kwargs["Namespace"], kwargs["MetricName"])
-        return {"Datapoints": self._datapoints.get(key, [])}
+    def query_range(self, query, start, end, step_s):
+        self.queries.append(query)
+        for name, series in self._series.items():
+            if f'"{name}"' in query:
+                return series
+        return []
 
 
-def _metric(name, namespace="ClaudeCode", **dims):
-    return {
-        "Namespace": namespace,
-        "MetricName": name,
-        "Dimensions": [{"Name": k, "Value": v} for k, v in dims.items()],
-    }
+def _series(labels, points):
+    return {"metric": labels, "values": [[ts.timestamp(), str(v)] for ts, v in points]}
 
 
 # ---- pure rollup ----------------------------------------------------------
@@ -91,7 +83,6 @@ def test_summarize_buckets_by_tool_and_day():
             "timestamp": DAY,
             "value": 7200,
         },
-        # a different day, and a different tool, must not merge into the above
         {
             "metric": "claude_code.cost.usage",
             "tool": "claude-code",
@@ -119,40 +110,65 @@ def test_summarize_buckets_by_tool_and_day():
     assert day["tokens"] == {"input": 10_000, "output": 2_000}
     assert day["sessions"] == 3
     assert day["active_time_s"] == 7200
-    # per-model split preserved so "which model cost what" is answerable
     assert day["by_model"]["opus"]["cost_usd"] == 1.25
     assert day["by_model"]["haiku"]["cost_usd"] == 0.25
+    # regression: Codex metrics are classified by SUFFIX, not full name —
+    # comparing full names scored every Codex metric as zero
     assert buckets["codex:2026-07-25"]["cost_usd"] == 0.75
 
 
 def test_tool_detection_by_prefix():
     assert _tool_of("claude_code.cost.usage") == "claude-code"
     assert _tool_of("codex.token.usage") == "codex"
-    # an unrelated CloudWatch metric must not be swept in
     assert _tool_of("AWS/Lambda.Invocations") is None
     assert _tool_of("my_app.claude_code.cost") is None
+
+
+def test_metric_names_are_extendable_and_deduped(monkeypatch):
+    """There is no metric enumeration on the PromQL surface, so the list is
+    fixed — but it has to be extendable when a tool adds a name."""
+    monkeypatch.setenv("A2ALAB_CODING_METRICS", "codex.turn.count, claude_code.cost.usage")
+    names = metric_names()
+    assert "codex.turn.count" in names
+    assert names.count("claude_code.cost.usage") == 1  # already present, not duplicated
 
 
 # ---- harvest --------------------------------------------------------------
 
 
-def test_harvest_writes_sessions_and_events(tmp_path):
-    metrics = [
-        _metric("claude_code.cost.usage", model="opus"),
-        _metric("claude_code.token.usage", type="input"),
-        # noise in the same namespace must be ignored, not harvested
-        _metric("SomeOtherApp.requests"),
-    ]
-    datapoints = {
-        ("ClaudeCode", "claude_code.cost.usage"): [{"Timestamp": DAY, "Sum": 2.0}],
-        ("ClaudeCode", "claude_code.token.usage"): [{"Timestamp": DAY, "Sum": 5000}],
-    }
+def test_harvest_reads_promql_and_writes_sessions(tmp_path):
+    client = FakePromQL(
+        {
+            "claude_code.cost.usage": [
+                _series(
+                    {
+                        "__name__": "claude_code.cost.usage",
+                        "@resource.tool": "claude-code",
+                        "model": "opus",
+                    },
+                    [(DAY, 2.0)],
+                )
+            ],
+            "claude_code.token.usage": [
+                _series(
+                    {
+                        "__name__": "claude_code.token.usage",
+                        "@resource.tool": "claude-code",
+                        "type": "input",
+                    },
+                    [(DAY, 5000)],
+                )
+            ],
+        }
+    )
     store = ObsStore(db_path=tmp_path / "lab.db")
-    result = CodingSource(client=FakeCloudWatch(metrics, datapoints)).harvest(store)
+    result = CodingSource(client=client).harvest(store)
 
     assert result.status == "ok"
     assert result.sessions == 1
     assert "modelled build cost at list price" in result.detail
+    # counters are read as daily deltas, not running totals
+    assert all(q.startswith("increase(") for q in client.queries)
 
     sessions = store.list_sessions("coding")
     assert sessions[0]["native_id"] == "claude-code:2026-07-25"
@@ -160,45 +176,64 @@ def test_harvest_writes_sessions_and_events(tmp_path):
     assert usage["cost_usd_estimated"] == 2.0
     assert usage["input_tokens"] == 5000
     raw = json.loads(sessions[0]["raw_json"])
-    # the honesty caveat travels with the data, not just the docs
     assert "not an invoice" in raw["cost_note"]
     store.close()
 
 
-def test_harvest_blocked_when_no_coding_metrics_exist(tmp_path):
-    """The state this will be in until the exporters are switched on.
-
-    It must read as 'blocked, here is what to do' rather than as an error —
-    the coverage panel renders this string.
-    """
-    store = ObsStore(db_path=tmp_path / "lab.db")
-    result = CodingSource(client=FakeCloudWatch([_metric("AWS/Lambda.Invocations")], {})).harvest(
-        store
+def test_resource_tool_label_wins_over_the_name_prefix(tmp_path):
+    """A tool that renames its metrics still attributes correctly if it sets
+    the tool resource attribute."""
+    client = FakePromQL(
+        {
+            "codex.cost.usage": [
+                _series(
+                    {"__name__": "codex.cost.usage", "@resource.tool": "codex-cli"}, [(DAY, 1.0)]
+                )
+            ]
+        }
     )
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    CodingSource(client=client).harvest(store)
+    assert store.list_sessions("coding")[0]["native_id"] == "codex-cli:2026-07-25"
+    store.close()
+
+
+def test_harvest_blocked_when_no_metrics_exist(tmp_path):
+    """The true state until the exporters are switched on. Must read as
+    'blocked, here is what to do' — the coverage panel renders this string."""
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    result = CodingSource(client=FakePromQL({})).harvest(store)
     assert result.status == "blocked"
     assert "not retroactive" in result.detail
     store.close()
 
 
-def test_harvest_reports_error_without_raising(tmp_path):
-    class Exploding:
-        def list_metrics(self, **kwargs):
-            raise RuntimeError("expired token")
+def test_one_missing_metric_does_not_sink_the_harvest(tmp_path):
+    """Most of the fixed name list will legitimately not exist."""
 
+    class PartlyBroken(FakePromQL):
+        def query_range(self, query, start, end, step_s):
+            if "token.usage" in query:
+                raise RuntimeError("no such metric")
+            return super().query_range(query, start, end, step_s)
+
+    client = PartlyBroken(
+        {"claude_code.cost.usage": [_series({"@resource.tool": "claude-code"}, [(DAY, 3.0)])]}
+    )
     store = ObsStore(db_path=tmp_path / "lab.db")
-    result = CodingSource(client=Exploding()).harvest(store)
-    assert result.status == "error"
-    assert "expired token" in result.detail
+    result = CodingSource(client=client).harvest(store)
+    assert result.status == "ok"
+    assert json.loads(store.list_sessions("coding")[0]["usage_json"])["cost_usd_estimated"] == 3.0
     store.close()
 
 
-def test_explicit_namespaces_skip_discovery(monkeypatch, tmp_path):
-    monkeypatch.setenv("A2ALAB_CODING_NAMESPACES", "Custom/Coding")
-    metrics = [_metric("claude_code.cost.usage", namespace="Custom/Coding")]
-    datapoints = {("Custom/Coding", "claude_code.cost.usage"): [{"Timestamp": DAY, "Sum": 1.0}]}
-    cw = FakeCloudWatch(metrics, datapoints)
+def test_harvest_reports_error_without_raising(tmp_path):
+    class Exploding:
+        def query_range(self, *a, **k):
+            raise RuntimeError("expired token")
+
     store = ObsStore(db_path=tmp_path / "lab.db")
-    result = CodingSource(client=cw).harvest(store)
-    assert result.status == "ok"
-    assert "Custom/Coding" in result.detail
+    # every metric raises, so _metric_rows swallows each one and yields nothing
+    result = CodingSource(client=Exploding()).harvest(store)
+    assert result.status == "blocked"
     store.close()

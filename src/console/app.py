@@ -1552,21 +1552,45 @@ def create_console_app(registry: Registry | None = None):
     # was built before the exporters were switched on is unmeasurable.
     BUILD_TELEMETRY_SETUP = [
         {
-            "step": "Create a CloudWatch API bearer token",
+            "step": "Create the ingest identity and API key",
             "detail": (
-                "An IAM user with the CloudWatchAPIKeyAccess policy in the lab's AWS "
-                "account. CloudWatch exposes a MANAGED OTLP endpoint — no collector "
-                "and no sidecar are needed."
+                "An IAM user with the CloudWatchAPIKeyAccess managed policy, then "
+                "`aws iam create-service-specific-credential --service-name "
+                "cloudwatch.amazonaws.com --credential-age-days 90`. Done for this "
+                "lab as a2alab-cw-metrics-otlp; the key lives in the Secrets Manager "
+                "secret a2alab/telemetry/cw-metrics-api-key and expires 2026-10-24."
             ),
         },
         {
-            "step": "Point Claude Code at it",
+            "step": "Fetch the token at runtime, never store it",
+            "detail": (
+                "scripts/otel_headers.sh reads the secret with the developer's "
+                "existing AWS session and prints the Authorization header; Claude "
+                "Code calls it via otelHeadersHelper and refreshes every ~29 min. "
+                "D39 applied to the laptop — a bearer token pasted into a config "
+                "file is the long-lived credential that rule exists to remove."
+            ),
+        },
+        {
+            "step": "Point Claude Code at the metrics endpoint",
             "detail": (
                 "CLAUDE_CODE_ENABLE_TELEMETRY=1, OTEL_METRICS_EXPORTER=otlp, "
-                "OTEL_LOGS_EXPORTER=otlp, OTEL_EXPORTER_OTLP_PROTOCOL=http/json, "
-                "OTEL_EXPORTER_OTLP_ENDPOINT=https://monitoring.<region>.amazonaws.com, "
-                "OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer <token>', and "
-                "OTEL_RESOURCE_ATTRIBUTES='project=a2a-lab,tool=claude-code'."
+                "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf, and "
+                "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="
+                "https://monitoring.<region>.amazonaws.com/v1/metrics — note the "
+                "/v1/metrics PATH and the protobuf protocol, both required. Add "
+                "OTEL_RESOURCE_ATTRIBUTES with user.id/user.email/team.id, which is "
+                "the shape Coding Agent Insights groups by."
+            ),
+        },
+        {
+            "step": "Metrics only — the token cannot carry logs or traces",
+            "detail": (
+                "A CloudWatch metrics bearer token works ONLY against the OTLP "
+                "metrics endpoint. It cannot call the logs or traces endpoints, nor "
+                "any query API. So OTEL_LOGS_EXPORTER=otlp against the same endpoint "
+                "silently gets you nothing; per-event logs need the Logs endpoint "
+                "and its own separate key."
             ),
         },
         {

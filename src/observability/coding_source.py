@@ -12,13 +12,19 @@ five columns being the same kind of thing. Claude Code is not a partner agent
 platform — it is the tool that built the lab. It gets its own console section
 and shares only the harvest plumbing and the store.
 
-**Namespaces are discovered, not hardcoded.** OTLP metrics arriving at
-CloudWatch are grouped under a namespace derived from the exporter's resource
-attributes, which depends on how the tools are configured and has changed
-between releases. Rather than guess, this source calls ListMetrics and keeps
-whatever namespace actually carries metrics named `claude_code.*` / `codex.*` —
-the same discover-don't-hardcode posture as the Salesforce source's
-`SELECT FIELDS(ALL)`. Set A2ALAB_CODING_NAMESPACES to skip discovery.
+**Read via PromQL, not ListMetrics.** OTLP metrics ingested through
+CloudWatch's native endpoint do not appear in the classic
+`ListMetrics`/`GetMetricStatistics` APIs at all — they land in a
+Prometheus-compatible store (see `observability/promql.py`). The first version
+of this file used ListMetrics and would have reported "no coding metrics yet"
+forever while the exporters worked perfectly: ingestion returns HTTP 200 and
+discovery returns nothing, so both halves look healthy in isolation.
+
+**Metric names are a fixed list, because the API offers no enumeration.**
+`/api/v1/label/__name__/values` is unsupported and a selector without a metric
+name is rejected, so there is no way to ask "what coding metrics exist". The
+Claude Code names come from its published OTel schema; Codex's are best-effort
+and extendable via A2ALAB_CODING_METRICS.
 
 Cost honesty: `claude_code.cost.usage` is a **client-side USD estimate computed
 from token counts at list prices**, not an invoice, and on subscription or
@@ -38,6 +44,38 @@ from observability.store import ObsStore
 
 WINDOW_DAYS = int(os.environ.get("A2ALAB_CODING_WINDOW_DAYS", "7"))
 PERIOD_S = 86400  # daily buckets — this is a build-cost view, not a live trace
+
+# There is no metric enumeration on the PromQL surface, so the names are a
+# list. Claude Code's are from its published OTel schema; Codex's mirror them
+# on its own prefix and are best-effort until observed live.
+CLAUDE_METRICS = (
+    "claude_code.cost.usage",
+    "claude_code.token.usage",
+    "claude_code.session.count",
+    "claude_code.active_time.total",
+    "claude_code.lines_of_code.count",
+    "claude_code.commit.count",
+    "claude_code.pull_request.count",
+    "claude_code.code_edit_tool.decision",
+)
+CODEX_METRICS = (
+    "codex.cost.usage",
+    "codex.token.usage",
+    "codex.session.count",
+)
+
+
+def metric_names() -> tuple[str, ...]:
+    extra = os.environ.get("A2ALAB_CODING_METRICS", "")
+    names = list(CLAUDE_METRICS) + list(CODEX_METRICS)
+    names += [n.strip() for n in extra.split(",") if n.strip()]
+    return tuple(dict.fromkeys(names))
+
+
+# OTel resource attributes flatten to `@resource.<attr>`; datapoint attributes
+# stay bare. `tool` is set through OTEL_RESOURCE_ATTRIBUTES on each exporter, so
+# it is the resource-scoped one.
+TOOL_LABEL = "@resource.tool"
 
 # Metric-name prefixes that identify coding-agent telemetry, per tool.
 TOOL_PREFIXES = {
@@ -144,67 +182,64 @@ def _summary_line(bucket: dict[str, Any]) -> str:
 
 
 class CodingSource(PlatformLogSource):
-    """CloudWatch-backed coding-agent telemetry.
+    """PromQL-backed coding-agent telemetry.
 
     `client` is injectable so tests run against canned payloads; in production
-    it is a boto3 CloudWatch client built from the AWS auth that D39 made the
-    lab's single human login. No new credential is required — the first source
-    to land under that rule needing none.
+    it is a `PromQLClient` signing with the AWS auth that D39 made the lab's
+    single human login. No new credential — the first source to land under that
+    rule needing none.
     """
 
     name = "coding"
 
-    def __init__(self, client: Any = None, namespaces: list[str] | None = None):
+    def __init__(self, client: Any = None, names: tuple[str, ...] | None = None):
         self._client = client
-        self._namespaces = namespaces
+        self._names = names
 
-    # ---- discovery ---------------------------------------------------------
+    # ---- fetch -------------------------------------------------------------
 
-    def discover_namespaces(self, client: Any) -> list[str]:
-        configured = os.environ.get("A2ALAB_CODING_NAMESPACES")
-        if configured:
-            return [n.strip() for n in configured.split(",") if n.strip()]
-        found: set[str] = set()
-        paginator_pages = client.list_metrics()
-        pages = paginator_pages if isinstance(paginator_pages, list) else [paginator_pages]
-        for page in pages:
-            for metric in page.get("Metrics", []):
-                if _tool_of(metric.get("MetricName", "")):
-                    found.add(metric["Namespace"])
-        return sorted(found)
+    def _metric_rows(self, client: Any) -> list[dict[str, Any]]:
+        """Every coding-agent datapoint in the window, flattened.
 
-    def _metric_rows(self, client: Any, namespaces: list[str]) -> list[dict[str, Any]]:
-        """Every coding-agent datapoint in the window, flattened."""
-        end = dt.datetime.now(dt.timezone.utc)
-        start = end - dt.timedelta(days=WINDOW_DAYS)
+        One range query per metric name, stepped daily. Counters are read
+        through `increase(...[1d])` so each bucket is that day's delta rather
+        than a running total — cost and tokens are cumulative sums, and
+        charting the raw counter would show a staircase instead of daily spend.
+        """
+        end = dt.datetime.now(dt.timezone.utc).timestamp()
+        start = end - WINDOW_DAYS * 86400
         rows: list[dict[str, Any]] = []
-        for namespace in namespaces:
-            listed = client.list_metrics(Namespace=namespace)
-            pages = listed if isinstance(listed, list) else [listed]
-            metrics = [m for page in pages for m in page.get("Metrics", [])]
-            for metric in metrics:
-                name = metric.get("MetricName", "")
-                tool = _tool_of(name)
-                if not tool:
-                    continue
-                dims = {d["Name"]: d["Value"] for d in metric.get("Dimensions", [])}
-                stats = client.get_metric_statistics(
-                    Namespace=namespace,
-                    MetricName=name,
-                    Dimensions=metric.get("Dimensions", []),
-                    StartTime=start,
-                    EndTime=end,
-                    Period=PERIOD_S,
-                    Statistics=["Sum"],
-                )
-                for point in stats.get("Datapoints", []):
+        for name in self._names or metric_names():
+            tool_of_name = _tool_of(name)
+            if not tool_of_name:
+                continue
+            try:
+                series = client.query_range(f'increase({{"{name}"}}[1d])', start, end, PERIOD_S)
+            except Exception:
+                # One absent or malformed metric must not sink the harvest —
+                # most of these names will legitimately not exist.
+                continue
+            for entry in series:
+                labels = entry.get("metric") or {}
+                # the resource attribute wins; fall back to the name's prefix
+                tool = labels.get(TOOL_LABEL) or tool_of_name
+                dims = {
+                    k: v
+                    for k, v in labels.items()
+                    if not k.startswith("@") and not k.startswith("__")
+                }
+                for point in entry.get("values") or []:
+                    try:
+                        ts, raw_value = point[0], float(point[1])
+                    except (IndexError, TypeError, ValueError):
+                        continue
                     rows.append(
                         {
                             "metric": name,
                             "tool": tool,
                             "dimensions": dims,
-                            "timestamp": point.get("Timestamp"),
-                            "value": point.get("Sum", 0),
+                            "timestamp": dt.datetime.fromtimestamp(ts, dt.timezone.utc),
+                            "value": raw_value,
                         }
                     )
         return rows
@@ -215,39 +250,37 @@ class CodingSource(PlatformLogSource):
         client = self._client
         if client is None:
             try:
-                import boto3
+                from observability.promql import PromQLClient
 
-                region = os.environ.get("AWS_REGION") or os.environ.get(
-                    "AWS_DEFAULT_REGION", "us-east-1"
-                )
-                client = boto3.client("cloudwatch", region_name=region)
+                client = PromQLClient()
             except Exception as exc:
                 result = HarvestResult(
                     platform=self.name,
                     status="blocked",
-                    detail=f"no CloudWatch client ({type(exc).__name__}) — AWS auth required",
+                    detail=f"no PromQL client ({type(exc).__name__}) — AWS auth required",
                 )
                 store.set_harvest_status(self.name, result.status, result.detail)
                 return result
 
         try:
-            namespaces = self._namespaces or self.discover_namespaces(client)
-            if not namespaces:
-                result = HarvestResult(
-                    platform=self.name,
-                    status="blocked",
-                    detail=(
-                        "no CloudWatch metrics named claude_code.* or codex.* — enable the "
-                        "exporters (see the Build Telemetry section) and allow one export "
-                        "interval; telemetry is not retroactive"
-                    ),
-                )
-                store.set_harvest_status(self.name, result.status, result.detail)
-                return result
-            rows = self._metric_rows(client, namespaces)
+            rows = self._metric_rows(client)
         except Exception as exc:
             result = HarvestResult(
                 platform=self.name, status="error", detail=f"{type(exc).__name__}: {exc}"[:300]
+            )
+            store.set_harvest_status(self.name, result.status, result.detail)
+            return result
+
+        if not rows:
+            result = HarvestResult(
+                platform=self.name,
+                status="blocked",
+                detail=(
+                    "no claude_code.* or codex.* metrics in CloudWatch — switch the "
+                    "exporters on (see the Build Telemetry section) and allow one export "
+                    "interval. Telemetry is not retroactive: whatever was built before "
+                    "collection started cannot be measured afterwards"
+                ),
             )
             store.set_harvest_status(self.name, result.status, result.detail)
             return result
@@ -295,8 +328,7 @@ class CodingSource(PlatformLogSource):
 
         result.detail = (
             f"{len(buckets)} tool-day(s) over {WINDOW_DAYS}d · ${total_cost:.2f} modelled "
-            f"build cost at list price (client-side estimate, not an invoice) · "
-            f"namespaces: {', '.join(namespaces)}"
+            f"build cost at list price (client-side estimate, not an invoice)"
         )
         store.set_harvest_status(self.name, result.status, result.detail)
         return result
