@@ -875,6 +875,15 @@
         <div id="obsSide"></div>
       </div>
     </details>
+    <details class="acc" id="accBuild">
+      <summary onclick="buildNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13.4h12"/><path d="M3.6 13.4V7.2M7.2 13.4V3.6M10.8 13.4V9M14 13.4v-3"/></svg>Build telemetry <span class="count" id="buildCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">What this lab cost to build — Claude Code and Codex.</span>
+        </div>
+        <div id="buildSide"></div>
+      </div>
+    </details>
     <details class="acc" id="accInsights" open>
       <summary onclick="insightsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 12.6h4M6.6 14.4h2.8"/><path d="M8 1.6a4.4 4.4 0 0 0-2.6 7.9c.4.3.6.8.6 1.1h4c0-.3.2-.8.6-1.1A4.4 4.4 0 0 0 8 1.6z"/></svg>Insights <span class="count" id="insightCount"></span></summary>
       <div class="acc-body">
@@ -2457,6 +2466,106 @@ function renderModeBadge() {
     : "Deployment mode: local — runs hit the lab's local servers (A2ALAB_MODE flips this)";
 }
 
+// ---- Build telemetry (WS9) -------------------------------------------------
+// The lab measuring its own construction. Deliberately NOT a sixth column in
+// Observability: that section's coverage panel answers "what did the agents do,
+// per platform", and every column in it is an agent platform whose interior
+// logs the lab harvests. Claude Code is the tool that BUILT the lab — listing
+// it beside Agentforce would quietly claim they are the same kind of thing.
+let buildData = null;
+
+async function loadBuildTelemetry() {
+  try {
+    const r = await fetch(apiUrl("/api/build-telemetry"));
+    if (r.status === 404) return; // console server predates this API
+    buildData = await r.json();
+    const count = document.getElementById("buildCount");
+    if (count) count.textContent = buildData.enabled ? `$${(buildData.totals.cost_usd || 0).toFixed(2)}` : "";
+    renderBuildSide();
+    if (view && view.type === "build") renderMain(true);
+  } catch (_e) { /* section stays empty */ }
+}
+
+function renderBuildSide() {
+  const el = document.getElementById("buildSide");
+  if (!el || !buildData) return;
+  if (!buildData.enabled) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">Not collecting yet — open for setup.</div>`;
+    return;
+  }
+  el.innerHTML = buildData.by_tool.map(t => `
+    <div class="obs-plat" onclick="buildNav(event)">
+      <span>${esc(t.tool)}</span>
+      <span class="count">$${t.cost_usd.toFixed(2)}</span>
+    </div>`).join("");
+}
+
+function buildHtml() {
+  if (!buildData) return `<div class="empty">Loading…</div>`;
+  const note = `<div class="hint" style="margin:10px 0 18px">⚠️ ${esc(buildData.cost_note)}</div>`;
+
+  if (!buildData.enabled) {
+    // The honest first-run state. Telemetry is not retroactive, so the useful
+    // answer is how to start — not an empty chart.
+    const steps = buildData.setup.map((s, i) => `
+      <div class="hop" style="margin-bottom:8px">
+        <div class="hop-head"><b>${i + 1}. ${esc(s.step)}</b></div>
+        <div style="padding:8px 12px" class="hint">${esc(s.detail)}</div>
+      </div>`).join("");
+    return `
+      <h2>Build telemetry</h2>
+      <p class="hint">Claude Code and the Codex CLI both export OpenTelemetry, and
+      CloudWatch accepts OTLP on a managed endpoint — no collector. Point both at it
+      and this section shows what the lab cost to build, per tool, per day.</p>
+      <div class="hint" style="margin:10px 0 18px"><b>Telemetry is not retroactive.</b>
+      Whatever was built before the exporters were switched on cannot be measured
+      after the fact — only what happens from now on.</div>
+      ${steps}${note}`;
+  }
+
+  const t = buildData.totals;
+  const tiles = `
+    <div class="obs-cards">
+      <div class="obs-card"><div class="k">modelled cost</div><div class="v">$${(t.cost_usd || 0).toFixed(2)}</div></div>
+      <div class="obs-card"><div class="k">input tokens</div><div class="v">${(t.input_tokens || 0).toLocaleString()}</div></div>
+      <div class="obs-card"><div class="k">output tokens</div><div class="v">${(t.output_tokens || 0).toLocaleString()}</div></div>
+      <div class="obs-card"><div class="k">sessions</div><div class="v">${t.sessions || 0}</div></div>
+    </div>`;
+
+  const byTool = buildData.by_tool.map(b => `
+    <tr><td>${esc(b.tool)}</td><td>$${b.cost_usd.toFixed(2)}</td>
+        <td>${b.input_tokens.toLocaleString()}</td>
+        <td>${b.output_tokens.toLocaleString()}</td><td>${b.days}</td></tr>`).join("");
+
+  const days = buildData.days.map(d => `
+    <tr><td>${esc(d.date)}</td><td>${esc(d.tool)}</td><td>$${d.cost_usd.toFixed(2)}</td>
+        <td>${(d.input_tokens || 0).toLocaleString()}</td>
+        <td>${(d.output_tokens || 0).toLocaleString()}</td>
+        <td>${d.sessions ?? "—"}</td>
+        <td>${d.active_time_s ? (d.active_time_s / 3600).toFixed(1) + "h" : "—"}</td></tr>`).join("");
+
+  return `
+    <h2>Build telemetry</h2>
+    <p class="hint">The lab measuring its own construction — two coding tools, one
+    OTLP endpoint, harvested through the same seam as every agent platform.</p>
+    ${tiles}${note}
+    <h3>By tool</h3>
+    <table class="obs-table"><thead><tr><th>tool</th><th>cost</th><th>input</th><th>output</th><th>days</th></tr></thead>
+    <tbody>${byTool}</tbody></table>
+    <h3>By day</h3>
+    <table class="obs-table"><thead><tr><th>date</th><th>tool</th><th>cost</th><th>input</th><th>output</th><th>sessions</th><th>active</th></tr></thead>
+    <tbody>${days}</tbody></table>`;
+}
+
+window.buildNav = ev => {
+  if (ev) ev.preventDefault();
+  document.getElementById("accBuild").open = true;
+  if (view && view.type === "build") return;
+  pushNav();
+  view = { type: "build" };
+  renderSidebar(); renderMain(true);
+};
+
 window.insightsNav = ev => {
   // Same pattern as Observability: the header click navigates the canvas
   // instead of collapsing the accordion.
@@ -3549,6 +3658,12 @@ function renderMain(force) {
     return;
   }
 
+  if (view.type === "build") {
+    mainKey = "build";
+    el.innerHTML = buildHtml();
+    return;
+  }
+
   if (view.type === "obs") {
     mainKey = `obs:${view.platform || "*"}:${view.session || ""}:${obs.tab || "dashboard"}`;
     if (view.session) {
@@ -4035,6 +4150,7 @@ load().then(connectStream);
 loadLaunchers().then(renderMain);
 loadObs();
 loadInsights();
+loadBuildTelemetry();
 loadConfig();
 loadWarmup();
 loadDecisions();

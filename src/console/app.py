@@ -1543,6 +1543,49 @@ def create_console_app(registry: Registry | None = None):
 
     # The honest capability matrix (plan/05-observability.md) — rendered
     # live in the coverage panel next to what was actually harvested.
+    # WS9. The obs store's platform key for coding-agent telemetry — filtered
+    # out of the Observability coverage panel and rendered in its own section.
+    BUILD_TELEMETRY_PLATFORM = "coding"
+
+    # Shown in the Build Telemetry section when nothing has been collected yet,
+    # which is the honest default: telemetry is NOT retroactive, so whatever
+    # was built before the exporters were switched on is unmeasurable.
+    BUILD_TELEMETRY_SETUP = [
+        {
+            "step": "Create a CloudWatch API bearer token",
+            "detail": (
+                "An IAM user with the CloudWatchAPIKeyAccess policy in the lab's AWS "
+                "account. CloudWatch exposes a MANAGED OTLP endpoint — no collector "
+                "and no sidecar are needed."
+            ),
+        },
+        {
+            "step": "Point Claude Code at it",
+            "detail": (
+                "CLAUDE_CODE_ENABLE_TELEMETRY=1, OTEL_METRICS_EXPORTER=otlp, "
+                "OTEL_LOGS_EXPORTER=otlp, OTEL_EXPORTER_OTLP_PROTOCOL=http/json, "
+                "OTEL_EXPORTER_OTLP_ENDPOINT=https://monitoring.<region>.amazonaws.com, "
+                "OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer <token>', and "
+                "OTEL_RESOURCE_ATTRIBUTES='project=a2a-lab,tool=claude-code'."
+            ),
+        },
+        {
+            "step": "Point Codex at the same endpoint",
+            "detail": (
+                "The Codex CLI ships its own OpenTelemetry exporter. Same endpoint, "
+                "tool=codex in the resource attributes — that one label is the whole "
+                "'two team members, two coding tools' comparison."
+            ),
+        },
+        {
+            "step": "Harvest",
+            "detail": (
+                "uv run python scripts/obs_harvest.py coding — or wait for the "
+                "6-hourly harvest Lambda. Namespaces are discovered, not hardcoded."
+            ),
+        },
+    ]
+
     OBS_CAPABILITIES = {
         "claude": {
             "label": "Claude Managed Agents",
@@ -1620,8 +1663,88 @@ def create_console_app(registry: Registry | None = None):
             data = store.summary()
         finally:
             store.close()
+        # WS9: coding-agent telemetry shares the store but is NOT a platform
+        # column. The coverage panel's honesty depends on its five columns
+        # being the same kind of thing — each an agent platform whose interior
+        # logs the lab harvests. Claude Code is the tool that BUILT the lab;
+        # listing it beside Agentforce would quietly imply otherwise.
+        data["platforms"].pop(BUILD_TELEMETRY_PLATFORM, None)
         data["capabilities"] = OBS_CAPABILITIES
         return data
+
+    @app.get("/api/build-telemetry")
+    async def build_telemetry():
+        """What the lab cost to build, per coding tool per day (WS9).
+
+        Its own section rather than a sixth Observability column — see the
+        note in obs_summary. Returns the setup steps too, because until the
+        exporters are switched on there is nothing to show and the useful
+        answer is "here is how to start collecting".
+        """
+        store = _obs_store()
+        try:
+            sessions = store.list_sessions(BUILD_TELEMETRY_PLATFORM)
+            summary = store.summary()
+        finally:
+            store.close()
+
+        by_tool: dict[str, dict] = {}
+        days: list[dict] = []
+        totals = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "sessions": 0}
+        for row in sessions:
+            try:
+                usage = json.loads(row.get("usage_json") or "{}")
+                raw = json.loads(row.get("raw_json") or "{}")
+            except (ValueError, TypeError):
+                usage, raw = {}, {}
+            tool = raw.get("tool") or str(row.get("native_id", "")).split(":")[0]
+            cost = float(usage.get("cost_usd_estimated") or 0)
+            tin = int(usage.get("input_tokens") or 0)
+            tout = int(usage.get("output_tokens") or 0)
+            bucket = by_tool.setdefault(
+                tool,
+                {"tool": tool, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "days": 0},
+            )
+            bucket["cost_usd"] += cost
+            bucket["input_tokens"] += tin
+            bucket["output_tokens"] += tout
+            bucket["days"] += 1
+            totals["cost_usd"] += cost
+            totals["input_tokens"] += tin
+            totals["output_tokens"] += tout
+            totals["sessions"] += int(raw.get("sessions") or 0)
+            days.append(
+                {
+                    "id": row.get("native_id"),
+                    "tool": tool,
+                    "date": str(row.get("created_at") or "")[:10],
+                    "cost_usd": round(cost, 4),
+                    "input_tokens": tin,
+                    "output_tokens": tout,
+                    "sessions": raw.get("sessions"),
+                    "active_time_s": raw.get("active_time_s"),
+                    "by_model": raw.get("by_model") or {},
+                }
+            )
+        days.sort(key=lambda d: (d["date"], d["tool"]), reverse=True)
+        totals["cost_usd"] = round(totals["cost_usd"], 4)
+        for bucket in by_tool.values():
+            bucket["cost_usd"] = round(bucket["cost_usd"], 4)
+
+        harvest = (summary.get("platforms", {}).get(BUILD_TELEMETRY_PLATFORM) or {}).get("harvest")
+        return {
+            "enabled": bool(days),
+            "harvest": harvest,
+            "totals": totals,
+            "by_tool": sorted(by_tool.values(), key=lambda b: -b["cost_usd"]),
+            "days": days,
+            "cost_note": (
+                "Modelled build cost at LIST PRICE — a client-side estimate the "
+                "coding agent computes from token counts, not an invoice. On "
+                "subscription or credit plans it is not money that changed hands."
+            ),
+            "setup": BUILD_TELEMETRY_SETUP,
+        }
 
     @app.get("/api/obs/sessions")
     async def obs_sessions(platform: str | None = None):
