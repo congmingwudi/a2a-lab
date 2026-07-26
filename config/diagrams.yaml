@@ -171,35 +171,38 @@ diagrams:
           MS -- "0.3 JSON-RPC message/send<br/>a 1.x-only server answers -32601" --> COMPAT
           SRV -- "pinned a2a-version: 1.0<br/>omit it and you get VERSION_NOT_SUPPORTED" --> GOOG
   - id: fan-out-orchestration
-    title: "Fan-out orchestration"
+    title: "Fan-out: two orchestrators"
     caption: >
-      One task, three platforms, dispatched at once — the topology every enterprise actually has, and the one where a missing leg has to be visible rather than quietly absent.
+      The same task, three business units, three clouds — orchestrated two ways. On Managed Agents the fan-out is a custom tool the HOST executes; on ADK it is declared in the agent graph. One buys control at the seam, the other structure in the graph.
     insights: [orchestration-topology]
-    readme: false
+    readme: true
     mermaid: |
       flowchart TB
-          OP["Disruption task<br/>(port strike)"] --> ORC
+          T["Supplier disruption task"] --> C
+          T --> A
 
-          subgraph orc["Orchestrator — one task, two hostings compared"]
-              ORC["a2alab-supply-orchestrator<br/>CMA (cron async)<br/>or ADK (7-day async)"]
+          subgraph cma["Variant 1 - Anthropic Managed Agents"]
+              C["Orchestrator agent<br/>declarative: prompt + tool schema"]
+              C -- "custom tool" --> H["HOST executes<br/>asyncio.gather"]
           end
 
-          ORC -- "A2A · rider depth 1" --> L1
-          ORC -- "A2A · rider depth 1" --> L2
-          ORC -- "SigV4 · rider depth 1" --> L3
-
-          subgraph legs["Three business units, three clouds, dispatched CONCURRENTLY"]
-              L1["Logistics BU<br/>Google ADK · GCP<br/>exposure"]
-              L2["Commercial BU<br/>Foundry · Azure<br/>contracts"]
-              L3["Customer BU<br/>OpenAI · AWS<br/>comms"]
+          subgraph adk["Variant 2 - Google ADK on Agent Engine"]
+              A["SequentialAgent"] --> P["ParallelAgent<br/>framework schedules"]
+              P --> S["synthesiser<br/>reads state keys"]
           end
 
-          L1 --> SYN
-          L2 --> SYN
-          L3 --> SYN
-          SYN["Synthesis<br/>3 sections + coverage line<br/>missing legs NAMED"] --> CRM["Salesforce CRM<br/>(D16 delivery path)"]
+          H --> L1
+          H --> L2
+          H --> L3
+          P --> L1
+          P --> L2
+          P --> L3
 
-          L1 -.harvested.-> OBS[("Obs store<br/>joins 3 of 4 legs")]
-          L2 -."no utterance text<br/>joins by platform_ref".-> OBS
-          L3 -.harvested.-> OBS
-          ORC -.harvested.-> OBS
+          L1["Logistics<br/>ADK · GCP"]
+          L2["Commercial<br/>Foundry · Azure"]
+          L3["Customer comms<br/>OpenAI · AWS"]
+
+          L1 -.-> OBS[("join rate 1 of 4:<br/>only CMA is joinable<br/>from its own logs")]
+          L2 -.-> OBS
+          L3 -.-> OBS
+          C -.-> OBS

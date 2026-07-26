@@ -981,3 +981,84 @@ scenarios:
         detail: "Synthesis. The orchestrator receives all three sections plus
           a coverage line and writes one brief. Delivery into Salesforce reuses
           the D16/D17 brief path."
+
+  supplier-disruption-adk:
+    group: fan-out
+    title: "Supplier Disruption — orchestrated by Google ADK (ParallelAgent)"
+    summary: >
+      The SAME scenario and the same three business-unit agents, orchestrated by
+      Google ADK on Vertex AI Agent Engine. Here the fan-out is DECLARED in the
+      agent graph — SequentialAgent[ParallelAgent[3 units] → synthesiser] — so
+      the framework schedules the concurrency and no lab host is attached.
+    target: adk-orchestrator-a2a
+    via_bridge: false
+    status: coming-soon
+    tags: [fan-out, orchestration, adk, agent-engine, gemini, foundry, openai, parallel-agent]
+    description: >
+      SAME SCENARIO, DIFFERENT ORCHESTRATOR. The situation, the three business
+      units and their agents are identical to the Claude-orchestrated run — what
+      changes is WHERE THE FAN-OUT LIVES, and that is the whole point of building
+      it twice.
+
+
+      ON ANTHROPIC MANAGED AGENTS the orchestrator is a declarative
+      control-plane object (name, model, system prompt, tool schemas) and its
+      fan-out tool is a `custom` tool, which on that platform means the HOST
+      executes it. The model decides only WHEN to fan out; the lab's code owns
+      concurrency, per-leg timeouts and the partial-failure contract. A rule
+      enforced in code cannot be talked out of by a model — but the orchestrator
+      cannot run unattended, because something must service the tool.
+
+
+      ON GOOGLE ADK the orchestrator is code in a container and the fan-out is
+      DECLARED: a ParallelAgent whose sub-agents are the three business units,
+      wrapped in a SequentialAgent that synthesises afterwards. The framework
+      schedules the concurrency, ordering is structural rather than prompted,
+      and each unit writes to a named state key the synthesiser interpolates.
+      Nothing calls back to a lab host, so it runs by itself.
+
+
+      THE TRADE, STATED PLAINLY: one buys you control at the seam, the other
+      structure in the graph, and neither gives you both. The declared graph
+      guarantees the units run before the synthesiser — but the
+      "[leg unavailable: ...]" markers survive only if three separate models
+      relay them faithfully, where the host-side variant produces those markers
+      in code. Declared structure buys ordering guarantees; it does not buy
+      fidelity of content.
+    note: >
+      Deployed as its own Agent Engine (deploy/adk/deploy_adk.py --role
+      orchestrator). status: coming-soon until a clean live run is recorded —
+      the customer-comms leg calls Bedrock AgentCore, which needs AWS
+      credentials inside a GCP container, and that cross-cloud identity edge
+      (AWS←GCP) is the one direction the lab has not yet wired. Expect that leg
+      to render as "[leg unavailable: openai — ...]" until it is, which is the
+      partial-failure contract doing its job rather than a broken scenario.
+    flow:
+      - source: remote-caller
+        target: adk-orchestrator-a2a
+        protocol: a2a
+        detail: "The disruption task arrives at Agent Engine's platform-native
+          A2A endpoint. Inside, a SequentialAgent runs a ParallelAgent of three
+          business-unit sub-agents, then a synthesiser."
+      - source: adk-orchestrator
+        target: adk-logistics-a2a
+        protocol: a2a
+        detail: "LEG 1 — Logistics BU, scheduled concurrently by ParallelAgent.
+          Each unit is an LlmAgent with one A2A tool and an output_key."
+      - source: adk-orchestrator
+        target: foundry-commercial-a2a
+        protocol: a2a
+        detail: "LEG 2 — Commercial/Legal BU on Azure. Cross-cloud from the GCP
+          container, using the Entra service principal (the sanctioned
+          service-identity pattern, same as the WS3 capstone)."
+      - source: adk-orchestrator
+        target: openai-agentcore
+        protocol: agentcore-http
+        detail: "LEG 3 — Customer operations on AWS. Needs SigV4 from inside a
+          GCP container; until that identity is wired the leg reports as
+          unavailable rather than silently vanishing."
+      - source: adk-orchestrator
+        target: remote-caller
+        protocol: a2a
+        detail: "The synthesiser reads the three state keys and writes one
+          brief, reporting any unit that did not answer as an explicit gap."

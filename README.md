@@ -119,6 +119,123 @@ route, D30), and **Microsoft Foundry ↔ Agentforce** — plus the async
   `python -m briefs --watch` (part of run_local.sh) services cron-fired
   sessions.
 
+## Fan-out orchestration — one task, three platforms, two orchestrators (WS8)
+
+Every experiment above is **1:1** — one caller, one remote agent, one call
+path. Real enterprises are not shaped like that. A disruption decomposes into
+independent questions owned by different functions, and in any company of scale
+those functions already run different agent platforms, chosen at different
+times, by different business units.
+
+So the lab's first **1:many** cell: one orchestrator dispatches a single
+business task to three business-unit agents on three clouds *concurrently*,
+then writes one brief.
+
+**Scenario — supplier disruption.** A port strike halts container traffic
+through Rotterdam. Within the hour someone needs to know which orders are
+exposed, what the contracts say about penalties and force majeure, and what to
+tell customers. Three questions, three owners, three platforms:
+
+| Business unit | Agent | Platform |
+|---|---|---|
+| Logistics — exposure | `a2alab-logistics-agent` | Google ADK / Vertex AI Agent Engine |
+| Commercial & Legal — contracts | `a2alab-commercial-agent` | Microsoft Foundry (gpt-5-mini) |
+| Customer Operations — messaging | shared OpenAI runtime | OpenAI Agents SDK on Bedrock AgentCore |
+
+Each leg is a **dedicated** agent, not the lab's general researchers — so each
+platform's own logs attribute this experiment. The measured payoff: the
+logistics agent answers in **2.5s against 39.8s** for the general researcher on
+the same question, because it has no research toolset to reach for.
+
+### The same scenario, orchestrated by two different platforms
+
+The point of building it twice is that **the fan-out lives in a different place
+on each platform**:
+
+```mermaid
+flowchart TB
+    T["Supplier disruption task"] --> C
+    T --> A
+
+    subgraph cma["Variant 1 - Anthropic Managed Agents"]
+        C["Orchestrator agent<br/>declarative: prompt + tool schema"]
+        C -- "custom tool" --> H["HOST executes<br/>asyncio.gather"]
+    end
+
+    subgraph adk["Variant 2 - Google ADK on Agent Engine"]
+        A["SequentialAgent"] --> P["ParallelAgent<br/>framework schedules"]
+        P --> S["synthesiser<br/>reads state keys"]
+    end
+
+    H --> L1
+    H --> L2
+    H --> L3
+    P --> L1
+    P --> L2
+    P --> L3
+
+    L1["Logistics<br/>ADK · GCP"]
+    L2["Commercial<br/>Foundry · Azure"]
+    L3["Customer comms<br/>OpenAI · AWS"]
+
+    L1 -.-> OBS[("join rate 1 of 4:<br/>only CMA is joinable<br/>from its own logs")]
+    L2 -.-> OBS
+    L3 -.-> OBS
+    C -.-> OBS
+```
+
+**Managed Agents gives you control at the seam; ADK gives you structure in the
+graph.** On Managed Agents the fan-out is a `custom` tool, which means the *host*
+executes it: the model decides only *when* to fan out, and your code owns
+concurrency, per-leg timeouts and the partial-failure contract. On ADK the
+fan-out is *declared* — a `ParallelAgent` of three sub-agents wrapped in a
+`SequentialAgent` — so the framework schedules it and nothing calls back to a
+lab host at all.
+
+Neither gives you both. Host-side tools mean a rule enforced in code cannot be
+talked out of by a model, but the orchestrator cannot run unattended. A declared
+graph runs by itself and guarantees ordering, but the `[leg unavailable: …]`
+markers survive only if three separate models relay them faithfully.
+
+### Partial failure is the normal case
+
+A missing leg is **reported, never omitted**. Every leg gets a section whether
+or not it answered, and every run carries a coverage line:
+
+```
+Customer operations (openai):
+[leg unavailable: openai — TokenRetrievalError: Token has expired]
+
+[fan-out coverage: 2/3 legs answered]
+```
+
+`scripts/run_fanout.py` exits non-zero on a partial run. This is deliberate: a
+scheduled fan-out that returns a short brief with a success code is the
+multi-agent form of an Agentforce action blowing its budget and returning HTTP
+200 with its section heading present and the content silently gone — both
+measured in this lab, a day apart.
+
+### The join rate: 1 of 4
+
+The number WS8 exists to produce. After a successful 3/3 run, how many of the
+four platforms can be joined back to it **from their own execution logs**?
+
+| Platform | Joined | Why |
+|---|---|---|
+| Anthropic CMA | ✅ | `platform_ref` = managed session id, stamped at emit |
+| Google ADK | ❌ | **structural** — no per-turn session exists to join to |
+| Microsoft Foundry | ❌ | **fixable** — emits a per-turn id the lab never records |
+| OpenAI | ❌ | **fixable-ish** — lab records the AgentCore id, not the OpenAI one |
+
+Every platform returned 200 and a good answer; the brief was complete; nothing
+reported a problem. And afterwards three of four could not tell you they had
+participated. **Cross-platform observability degrades silently, and it degrades
+as the topology widens** — a 1:1 cell hides this because two platforms are easy
+to correlate by hand.
+
+Run it: `uv run python scripts/run_fanout.py --orchestrator cma`, then
+`uv run python scripts/fanout_join_rate.py --latest`.
+
 ## Architecture
 
 **The platform map** — five platforms, every pair a closed two-platform

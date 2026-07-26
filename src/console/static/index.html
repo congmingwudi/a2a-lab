@@ -3086,8 +3086,10 @@ function archSvg() {
     ${box(22, "Salesforce Agentforce", "service agent · Agent API", "Apex → bridge / direct A2A")}
     ${box(528, "Research agents", "Claude · OpenAI · Gemini", "gpt-5-mini (Azure Foundry)")}
     ${wires}
-    <text x="380" y="172" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
+    <text x="380" y="166" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
       five platforms, three clouds — same scenario over each protocol, every raw wire payload recorded</text>
+    <text x="380" y="182" text-anchor="middle" fill="#8fc0e8" font-size="10">
+      …and one 1:many cell: a single task fanned out to three business units on three clouds at once</text>
   </svg>`;
 }
 
@@ -3184,6 +3186,44 @@ function landingHtml() {
           <span class="mono">:8003</span>, or the Agentforce shims on <span class="mono">:8021/:8023</span> —
           with live A2A agent cards on the A2A calls.</p>
         <button class="ghost" onclick="browseCells()">Browse protocol calls</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Fan-out orchestration — one task, three platforms</h2>
+      <p class="lede">Every experiment above is <b>1:1</b> — one caller, one remote agent. Real
+        enterprises aren't shaped like that. A disruption splits into independent questions owned by
+        different functions, and those functions already run different agent platforms.</p>
+
+      <div class="intro-grid">
+        <div class="intro-card" style="--d1:#09decb;--d2:#7db9e8">
+          <h3><span class="dot"></span>The scenario</h3>
+          <p>A port strike halts container traffic through Rotterdam. Within the hour: which orders are
+             exposed, what the contracts say, what to tell customers. Three questions,
+             <b>three business units</b>, three clouds — Logistics on Google ADK, Commercial on
+             Microsoft Foundry, Customer Ops on OpenAI. Each is its own dedicated agent.</p>
+        </div>
+        <div class="intro-card" style="--d1:#a8a2ec;--d2:#c99df0">
+          <h3><span class="dot"></span>Two anchor orchestrators</h3>
+          <p>The same scenario, run by <b>two platforms</b>. On Anthropic Managed Agents the fan-out is
+             a custom tool the <b>host</b> executes — you own concurrency. On Google ADK it's
+             <b>declared</b> in the agent graph with <code>ParallelAgent</code> — the framework
+             schedules it. Control at the seam, or structure in the graph.</p>
+        </div>
+        <div class="intro-card" style="--d1:#f0a8a2;--d2:#c99df0">
+          <h3><span class="dot"></span>Partial failure is normal</h3>
+          <p>A missing leg is <b>reported, never omitted</b>: every branch gets a section and every run
+             carries a coverage line. A fan-out that quietly returns a short brief with a success code
+             is the multi-agent form of a timeout that returns HTTP 200 with nothing in it.</p>
+        </div>
+      </div>
+
+      <div class="cells-strip" style="margin-top:18px">
+        <p><b>The number this produced: 1 of 4.</b> After a clean 3/3 run — every platform returning
+          200, the brief complete, nothing reporting a problem — only <b>one</b> of the four platforms
+          could be joined back to that run from its own execution logs. One is structurally unjoinable
+          (no per-turn session exists), two hand back an id the lab never recorded. Cross-platform
+          observability degrades silently, and it degrades as the topology widens.</p>
       </div>
     </section>
 

@@ -115,6 +115,13 @@ def assemble_bundle() -> list[str]:
     # the deployed agent's instructions identical to the ones the lab's own
     # tests and docs reference — one definition, not a copy that drifts.
     shutil.copytree(REPO / "src" / "orchestration", BUILD / "orchestration")
+    # The orchestrator variant resolves legs by TARGET NAME, so the registry
+    # needs its config inside the container. Shipped as a package-adjacent copy
+    # and pointed at with A2ALAB_TARGETS_PATH (runtime_env) — the researcher
+    # builds clients straight from endpoint env vars and never reads this.
+    (BUILD / "labconfig").mkdir(parents=True, exist_ok=True)
+    (BUILD / "labconfig" / "__init__.py").write_text("")
+    shutil.copy(REPO / "config" / "targets.yaml", BUILD / "labconfig" / "targets.yaml")
     (BUILD / "platforms" / "__init__.py").write_text("")
     for pkg in ("adk", "agentforce"):
         shutil.copytree(REPO / "src" / "platforms" / pkg, BUILD / "platforms" / pkg)
@@ -122,7 +129,7 @@ def assemble_bundle() -> list[str]:
     # the given path structure, so top-level names are what make
     # `import interop` / `import platforms` resolve in the runtime —
     # absolute paths break placement (learned from a failed first deploy).
-    return ["interop", "orchestration", "platforms"]
+    return ["interop", "orchestration", "platforms", "labconfig"]
 
 
 def runtime_env() -> dict[str, str]:
@@ -141,6 +148,8 @@ def runtime_env() -> dict[str, str]:
     # The container FS: keep the trace layer writing somewhere writable —
     # these hops are ephemeral (the caller's client hop is the lab record).
     env["A2ALAB_TRACE_DIR"] = "/tmp/traces"
+    # where the bundled targets.yaml lands inside the container
+    env["A2ALAB_TARGETS_PATH"] = "labconfig/targets.yaml"
     return env
 
 

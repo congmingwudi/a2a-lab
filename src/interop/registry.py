@@ -13,7 +13,11 @@ from typing import Any
 
 import yaml
 
-DEFAULT_TARGETS_PATH = Path("config/targets.yaml")
+# Relative by default (the repo layout), overridable by env so code running
+# somewhere without the repo — an Agent Engine container, a Lambda — can point
+# at a bundled copy. Deployed agents that build clients by TARGET NAME need
+# this; the ones that build clients straight from endpoint env vars do not.
+DEFAULT_TARGETS_PATH = Path(os.environ.get("A2ALAB_TARGETS_PATH") or "config/targets.yaml")
 
 
 @dataclass

@@ -233,6 +233,19 @@ targets:
     status: native
     options: {timeout: 65, transport: http_json, warmup: true}
     auth: {scheme: google-adc}
+  # WS8 orchestrator variant 2: the same fan-out with concurrency DECLARED in
+  # the agent graph (SequentialAgent[ParallelAgent[3 units], synthesiser])
+  # rather than executed host-side by a custom tool. Self-contained — it fans
+  # out from inside the container, so no lab host is attached while it runs.
+  adk-orchestrator-a2a:
+    platform: adk
+    protocol: a2a
+    endpoint: "${ADK_ORCHESTRATOR_A2A_ENDPOINT}"
+    status: native
+    # a fan-out of three legs inside one turn: the whole point is that it
+    # takes the slowest leg, but that is still slower than a single hop
+    options: {timeout: 180, transport: http_json, warmup: true}
+    auth: {scheme: google-adc}
 
 # Deployment modes (D26): A2ALAB_MODE=hosted transparently remaps these
 # names wherever a client is resolved (bridge, custom tools, console runs) —
