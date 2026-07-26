@@ -1,4 +1,8 @@
-"""obs_mcp: hand-rolled MCP Streamable HTTP transport (ADR D23)."""
+"""mcp_http: hand-rolled MCP Streamable HTTP transport (ADR D23, WS7 item 4).
+
+Shared by both lab MCP servers, so these tests are about the transport alone —
+per-server tool behaviour lives in test_obs_tools.py and test_fanout_mcp.py.
+"""
 
 import base64
 import json
@@ -6,7 +10,7 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from obs_mcp import ToolDef, ToolRegistry, create_local_app, handle_message, make_lambda_handler
+from mcp_http import ToolDef, ToolRegistry, create_local_app, handle_message, make_lambda_handler
 
 
 def make_registry() -> ToolRegistry:
@@ -45,7 +49,16 @@ def test_initialize_echoes_known_protocol_versions(version):
     assert reply["id"] == 1
     assert reply["result"]["protocolVersion"] == version
     assert reply["result"]["capabilities"] == {"tools": {}}
-    assert reply["result"]["serverInfo"] == {"name": "a2alab-obs-mcp", "version": "0.1.0"}
+    assert reply["result"]["serverInfo"] == {"name": "a2alab-mcp", "version": "0.1.0"}
+
+
+def test_server_info_is_per_server_not_baked_into_the_transport():
+    """`initialize` is where a client learns which server it reached. Two lab
+    servers answering with one name would make a misrouted URL look identical
+    to a working one."""
+    info = {"name": "a2alab-fanout-mcp", "version": "9.9.9"}
+    reply = handle_message(rpc("initialize", {}), make_registry(), info)
+    assert reply["result"]["serverInfo"] == info
 
 
 @pytest.mark.parametrize("params", [{"protocolVersion": "1999-01-01"}, {}, None])

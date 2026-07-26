@@ -16,7 +16,7 @@ import os
 import time
 from typing import Any
 
-from obs_mcp.core import ToolDef, ToolRegistry
+from mcp_http.core import ToolDef, ToolRegistry
 from observability.pg import CLUSTER_ARN_ENV, SCHEMA, PgClient
 
 WRITER_SECRET_ENV = "A2ALAB_PG_WRITER_SECRET_ARN"

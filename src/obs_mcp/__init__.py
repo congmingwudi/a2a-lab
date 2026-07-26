@@ -1,19 +1,17 @@
-"""Hand-rolled MCP "Streamable HTTP" server transport for the lab's hosted
-observability MCP server (ADR D23).
+"""The lab's hosted observability MCP server (ADR D23).
 
-Deliberately built without the `mcp` SDK: this repo is a protocol lab and the
-module doubles as a raw-wire artifact. `core` is transport-agnostic JSON-RPC
-dispatch; `http` provides a local Starlette app and an AWS Lambda Function URL
-handler over the same dispatch. Tools are registered elsewhere via ToolRegistry.
+The analyst agent reads the obs store only through this server: read-only SQL
+against Aurora plus a delivery tool for the finished brief. It runs as a Lambda
+behind API Gateway, so the nightly deployment needs no process attached.
+
+The transport moved to `mcp_http/` when the fan-out server (WS7 item 4) became
+the second thing to need it — nothing in it was observability-specific. What
+remains here is the part that is: the two tools and their store access.
 """
 
-from obs_mcp.core import ToolDef, ToolRegistry, handle_message
-from obs_mcp.http import create_local_app, make_lambda_handler
+SERVER_INFO = {"name": "a2alab-obs-mcp", "version": "0.1.0"}
 
-__all__ = [
-    "ToolDef",
-    "ToolRegistry",
-    "handle_message",
-    "create_local_app",
-    "make_lambda_handler",
-]
+# No `from obs_mcp.tools import ...` here: tools pulls in the Postgres client,
+# so importing it from the package root would make `import obs_mcp` cost a
+# database dependency for callers that only wanted the server name.
+__all__ = ["SERVER_INFO"]

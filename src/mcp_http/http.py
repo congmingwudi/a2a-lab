@@ -13,7 +13,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from obs_mcp.core import ToolRegistry, handle_message
+from mcp_http.core import ToolRegistry, handle_message
 
 
 def _parse_error_body() -> dict:
@@ -29,7 +29,7 @@ def _auth_ok(authorization: str | None, token: str | None) -> bool:
     return hmac.compare_digest(authorization[len("Bearer ") :], token)
 
 
-def create_local_app(registry: ToolRegistry, token: str | None):
+def create_local_app(registry: ToolRegistry, token: str | None, server_info: dict | None = None):
     """Starlette app: POST / and /mcp dispatch JSON-RPC, GET /healthz is open."""
     from starlette.applications import Starlette
     from starlette.requests import Request
@@ -45,7 +45,7 @@ def create_local_app(registry: ToolRegistry, token: str | None):
             return JSONResponse(_parse_error_body(), status_code=400)
         if not isinstance(body, dict):
             return JSONResponse(_parse_error_body(), status_code=400)
-        reply = handle_message(body, registry)
+        reply = handle_message(body, registry, server_info)
         if reply is None:
             return Response(status_code=202)
         return JSONResponse(reply)
@@ -62,7 +62,9 @@ def create_local_app(registry: ToolRegistry, token: str | None):
     )
 
 
-def make_lambda_handler(registry: ToolRegistry, token: str | None) -> Callable[[dict, Any], dict]:
+def make_lambda_handler(
+    registry: ToolRegistry, token: str | None, server_info: dict | None = None
+) -> Callable[[dict, Any], dict]:
     """AWS Lambda Function URL handler (payload format 2.0), stdlib only."""
 
     def _response(status: int, payload: dict | None = None) -> dict:
@@ -97,7 +99,7 @@ def make_lambda_handler(registry: ToolRegistry, token: str | None) -> Callable[[
         if not isinstance(body, dict):
             return _response(400, _parse_error_body())
 
-        reply = handle_message(body, registry)
+        reply = handle_message(body, registry, server_info)
         if reply is None:
             return _response(202)
         return _response(200, reply)

@@ -67,12 +67,16 @@ class A2AClient(RemoteAgentClient):
         key auth is not offered there)."""
         scheme = self.auth.get("scheme")
         if scheme == "google-adc":
-            from google.auth import default as google_default
             from google.auth.transport.requests import Request as AuthRequest
 
-            credentials, _ = google_default(
-                scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
+            from interop.cloud_auth import google_credentials
+
+            # Not google.auth.default() directly: on AWS there IS no ambient
+            # Google identity for it to find, and the fan-out MCP server is a
+            # Lambda. cloud_auth federates when a workload identity pool is
+            # configured and falls through to plain ADC when it is not, so the
+            # laptop and the Agent Engine container behave exactly as before.
+            credentials = google_credentials()
 
             class _AdcAuth(httpx.Auth):
                 def auth_flow(self, request):

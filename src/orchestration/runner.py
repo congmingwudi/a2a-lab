@@ -147,6 +147,50 @@ async def _run_leg(
             await client.aclose()
 
 
+async def run_one(
+    role: str,
+    task: str,
+    *,
+    caller: str,
+    caller_platform: str,
+    scenario: str = "supplier-disruption",
+    trace_id: str,
+    registry: Registry | None = None,
+    inbound_depth: int = 0,
+) -> LegResult:
+    """One leg, on its own. The seam the remote MCP fan-out server calls.
+
+    `dispatch` runs the fan-out HERE and owns the concurrency; this runs a
+    single leg and lets someone else decide what runs beside it. That someone
+    is the orchestrating MODEL: as three separate MCP tools, the legs are
+    scheduled on the orchestration layer rather than by a host-side
+    `asyncio.gather`, which is the whole question WS7 item 4 exists to answer —
+    does the model actually fan out, and in what order.
+
+    `trace_id` is REQUIRED, not defaulted. Each tool call is a separate process
+    (a separate Lambda invocation, even), so nothing ambient connects them; the
+    id has to be passed in or the run fragments into three unrelated traces and
+    the join-rate measurement is meaningless. Making it a keyword with no
+    default means that mistake is a TypeError rather than a silently useless
+    trace.
+
+    Never raises for a leg failure — same contract as `dispatch`, so a failed
+    leg comes back as a LegResult whose `render()` names what is missing.
+    """
+    legs = {leg.role: leg for leg in legs_for(scenario)}
+    if role not in legs:
+        raise KeyError(f"unknown leg role '{role}' — known: {', '.join(sorted(legs))}")
+    return await _run_leg(
+        registry or Registry.load(),
+        legs[role],
+        task,
+        caller=caller,
+        caller_platform=caller_platform,
+        trace_id=trace_id,
+        inbound_depth=inbound_depth,
+    )
+
+
 async def dispatch(
     task: str,
     *,

@@ -22,6 +22,6 @@ closest existing analogue.
 """
 
 from orchestration.legs import LEGS, Leg, legs_for
-from orchestration.runner import FanOutResult, LegResult, dispatch
+from orchestration.runner import FanOutResult, LegResult, dispatch, run_one
 
-__all__ = ["FanOutResult", "LegResult", "dispatch", "LEGS", "Leg", "legs_for"]
+__all__ = ["FanOutResult", "LegResult", "dispatch", "run_one", "LEGS", "Leg", "legs_for"]

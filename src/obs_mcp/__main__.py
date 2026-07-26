@@ -12,7 +12,8 @@ import os
 import uvicorn
 from dotenv import load_dotenv
 
-from obs_mcp.http import create_local_app
+from mcp_http.http import create_local_app
+from obs_mcp import SERVER_INFO
 from obs_mcp.tools import build_registry
 
 
@@ -22,7 +23,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8250)
     parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
-    app = create_local_app(build_registry(), os.environ.get("A2ALAB_OBS_MCP_TOKEN"))
+    app = create_local_app(build_registry(), os.environ.get("A2ALAB_OBS_MCP_TOKEN"), SERVER_INFO)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 

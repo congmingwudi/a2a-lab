@@ -27,9 +27,28 @@ Two rules, both learned the hard way:
   and trades it at STS for short-lived AWS credentials. No AWS access key ever
   exists to leak, rotate, or commit.
 
+Then WS7 item 4 pushed the same problem back the other way. The fan-out MCP
+server runs as an AWS Lambda and has to reach Vertex AI Agent Engine, so an AWS
+workload now needs a *Google* identity — the exact mirror of the case above.
+Both directions are here, and comparing them is the point:
+
+    GCP -> AWS   the container mints a Google OIDC token; AWS trusts
+                 ``accounts.google.com`` natively, so nothing is registered on
+                 the AWS side and the role's trust policy does the pinning
+    AWS -> GCP   the Lambda presents a *signed GetCallerIdentity request* as
+                 its credential; Google will not trust AWS until you create a
+                 workload identity pool and provider, then bind them to a
+                 service account to impersonate
+
+Same guarantee reached two ways, and the asymmetry is a real finding: Google
+requires standing infrastructure per trust relationship where AWS requires
+none, and Google's side is where the identity is *shaped* (attribute mapping,
+attribute conditions) rather than merely accepted.
+
 Both helpers degrade to the ambient behaviour when unconfigured, so the laptop
 and the Lambda keep working unchanged: ``aws_session()`` without a role ARN is
-just ``boto3.Session()``.
+just ``boto3.Session()``, and ``google_credentials()`` without a pool is plain
+ADC.
 """
 
 from __future__ import annotations
@@ -68,6 +87,104 @@ def azure_credential():
         client_id=os.environ["AZURE_CLIENT_ID"],
         client_secret=os.environ["AZURE_CLIENT_SECRET"],
     )
+
+
+# ---- Google, reached from AWS ----------------------------------------------
+
+GOOGLE_AUDIENCE_VAR = "A2ALAB_GCP_WORKLOAD_AUDIENCE"
+GOOGLE_SA_VAR = "A2ALAB_GCP_IMPERSONATE_SA"
+GOOGLE_SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
+
+_google_lock = threading.Lock()
+_google_cache: dict[tuple[str, str], Any] = {}
+
+
+def google_federation_configured() -> bool:
+    return bool(os.environ.get(GOOGLE_AUDIENCE_VAR) and os.environ.get(GOOGLE_SA_VAR))
+
+
+def _external_account_config(audience: str, service_account: str) -> dict[str, Any]:
+    """The external_account credential Google's client library expects.
+
+    ``credential_source.environment_id: aws1`` selects google-auth's AWS
+    supplier, which reads ``AWS_ACCESS_KEY_ID`` / ``AWS_SECRET_ACCESS_KEY`` /
+    ``AWS_SESSION_TOKEN`` / ``AWS_REGION`` from the environment **before**
+    trying the EC2 metadata service (google/auth/aws.py, and its own comment
+    names Lambda as the reason). Lambda sets all four from the execution role,
+    so the function needs no metadata endpoint and holds no Google key.
+
+    The subject token is not a bearer token at all: it is a *signed but
+    unsent* ``sts:GetCallerIdentity`` request. Google replays it against AWS
+    STS to learn who the caller is. So the credential presented to Google is
+    one AWS can vouch for and Google can verify, and it expires with the
+    Lambda's own short-lived role credentials.
+
+    ``service_account_impersonation_url`` is what makes this usable: the
+    federated principal itself has no Google permissions, and Agent Engine
+    authorizes service accounts. The pool grants the AWS role the right to
+    impersonate one service account, and that account holds the actual
+    ``aiplatform.reasoningEngines`` grant.
+    """
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+    return {
+        "type": "external_account",
+        "audience": audience,
+        "subject_token_type": "urn:ietf:params:aws:token-type:aws4_request",
+        "token_url": "https://sts.googleapis.com/v1/token",
+        "credential_source": {
+            "environment_id": "aws1",
+            "region_url": "http://169.254.169.254/latest/meta-data/placement/availability-zone",
+            "url": "http://169.254.169.254/latest/meta-data/iam/security-credentials",
+            "regional_cred_verification_url": (
+                f"https://sts.{region}.amazonaws.com?Action=GetCallerIdentity&Version=2011-06-15"
+            ),
+        },
+        "service_account_impersonation_url": (
+            "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/"
+            f"{service_account}:generateAccessToken"
+        ),
+    }
+
+
+def google_credentials(scopes: tuple[str, ...] = GOOGLE_SCOPES) -> Any:
+    """Google credentials for wherever this is running.
+
+    With the workload-identity vars set (the fan-out MCP Lambda), federates the
+    ambient AWS identity into a Google service account. Without them, plain
+    ADC — which is what the laptop and the Agent Engine container want, and why
+    every existing caller keeps working untouched.
+    """
+    audience = os.environ.get(GOOGLE_AUDIENCE_VAR)
+    service_account = os.environ.get(GOOGLE_SA_VAR)
+    if not (audience and service_account):
+        from google.auth import default as google_default
+
+        credentials, _ = google_default(scopes=list(scopes))
+        return credentials
+
+    key = (audience, service_account)
+    with _google_lock:
+        cached = _google_cache.get(key)
+        if cached is None:
+            # google.auth.aws, NOT google.auth.identity_pool: identity_pool is
+            # for file- and URL-sourced subject tokens, and it rejects an
+            # `environment_id` credential source. The AWS class is the one that
+            # knows how to build and sign the GetCallerIdentity request.
+            from google.auth import aws as google_aws
+
+            try:
+                cached = google_aws.Credentials.from_info(
+                    _external_account_config(audience, service_account)
+                ).with_scopes(list(scopes))
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Google workload identity federation failed to initialise for "
+                    f"audience {audience} impersonating {service_account} "
+                    f"({type(exc).__name__}: {exc}). Provision the pool with "
+                    "deploy/fanout/provision_gcp_federation.py."
+                ) from exc
+            _google_cache[key] = cached
+    return cached
 
 
 # ---- AWS, reached from another cloud ---------------------------------------
