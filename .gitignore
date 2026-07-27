@@ -23,3 +23,19 @@ deploy/shim/dist/
 # never commit. Ignored rather than trusted to discipline: a `git add -A`
 # swept these into a public repo on 2026-07-25 despite the standing rule.
 salesforce/force-app/main/default/extlClntAppGlobalOauthSets/
+
+# Personal Claude Code settings: absolute paths, telemetry endpoints, and the
+# permission allowlist for one developer — never shared repo config. This was
+# already covered by a rule in the author's ~/.gitignore_global, which is
+# exactly the problem: protection that lives outside the repository does not
+# travel with a clone, so anyone else's checkout was one `git add -A` away from
+# committing it. Same lesson as the line above. `.claude/` itself stays
+# tracked — the saved workflows in .claude/workflows/ are shared on purpose.
+**/.claude/settings.local.json
+
+# Timestamped backups made before editing config by hand (settings, .env,
+# config.toml). Convenient locally, and the last thing that should reach a
+# public repo, since they hold the pre-redaction copy of whatever was fixed.
+*.bak
+*.bak-*
+*.orig
