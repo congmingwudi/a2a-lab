@@ -1307,3 +1307,120 @@ the mermaid text stays the single source of truth with no regeneration step
 to forget. Diagrams that README.md also embeds carry `readme: true`, and
 `tests/unit/test_diagrams.py` asserts the two copies stay identical, so
 editing one and not the other fails the suite instead of the demo.
+
+---
+
+## WS11 — A2A fire-then-poll: the protocol's own answer to the gateway ceiling (raised 2026-07-26)
+
+**Why this exists.** D41 measured the cost of putting agent work behind a
+managed gateway: the fan-out MCP server's legs inherit API Gateway's 30s
+ceiling, against 120s host-side. The workaround so far is to keep legs fast and
+report the ones that do not fit as unavailable. **A2A already specifies the
+right fix**, and the lab has been using only half the protocol.
+
+### What the spec provides (verified against a2a-protocol.org)
+
+A2A is asynchronous at heart. `SendMessage` **"MUST return immediately with
+either task information or response message"**, and **"task processing MAY
+continue asynchronously after the response."** The client then polls `GetTask`
+(JSON-RPC `tasks/get`) with the task id, or subscribes with `SubscribeToTask`,
+or registers a webhook via the push-notification config.
+
+The seven task states are the state machine to drive off:
+
+| State | Meaning |
+|---|---|
+| `TASK_STATE_SUBMITTED` | acknowledged, not started |
+| `TASK_STATE_WORKING` | actively processing |
+| `TASK_STATE_INPUT_REQUIRED` | interrupted, needs input |
+| `TASK_STATE_AUTH_REQUIRED` | interrupted, needs auth |
+| `TASK_STATE_COMPLETED` / `FAILED` / `CANCELED` | terminal |
+
+**This dissolves the ceiling rather than working around it.** The MCP tool call
+becomes: submit the task, return the task id — a sub-second call, nowhere near
+30s. The model then calls a second tool to poll. The gateway never holds a
+connection open across the agent's actual work.
+
+It also makes the orchestrator *more* agentic, not less: the model manages
+in-flight work and decides when to check back, which is a strictly larger
+decision surface than "call three tools and wait".
+
+### What the lab has today, and the one line that blocks it
+
+`interop/servers/a2a.py` is already most of the way there. It runs
+`InMemoryTaskStore`, so `tasks/get` is served by the framework, and
+`AdapterExecutor` already walks SUBMITTED → `start_work()` → `add_artifact()` →
+`complete()`. **The blocker is that `execute()` awaits `self.adapter.handle(req)`
+inline**, so the HTTP request for `message/send` does not return until the work
+is done. The lab implements the async lifecycle and then drives it
+synchronously — exactly the "async-capable protocol everyone drives
+synchronously" insight already published, now with a concrete cost attached.
+
+### Build sketch
+
+1. **Server:** `AdapterExecutor` dispatches the adapter call as a background
+   task and returns once WORKING is enqueued. Needs care with the a2a-sdk's
+   request/event-queue lifetime — verify the queue and task store survive the
+   originating request, and that a completion arriving after the response is
+   still recorded.
+2. **Client:** `A2AClient` grows `submit()` (returns task id, does not wait) and
+   `poll(task_id)` on top of `tasks/get`, alongside today's blocking `ask()`.
+3. **Fan-out MCP server:** each unit gets a submit tool and a check tool, or one
+   tool with a `mode` argument. The run id already threads the units together;
+   the task id threads a single unit across calls.
+4. **Orchestrator prompt:** submit all three, then poll — the model chooses the
+   cadence. Measure whether it polls sensibly or busy-waits; that is a finding
+   either way.
+5. **Partial failure contract is unchanged in spirit** but gains a state: a leg
+   can now be *still working* rather than only answered/unavailable, and a brief
+   must say so rather than treating pending as absent.
+
+### The honest limitation, and the measurement worth taking
+
+**Not every leg is A2A.** `openai-agentcore` is a SigV4 AgentCore call and
+Agentforce is the Agent API — neither has A2A's task lifecycle, so those would
+need the lab's own submit/poll store rather than the protocol's. Fire-then-poll
+via A2A covers the ADK and Foundry legs natively and nothing else.
+
+**And vendor support for the async half is unverified.** The spec says an
+implementation MAY continue processing after responding; it does not say every
+implementation does. Whether Agent Engine's and Foundry's A2A endpoints
+actually hold a task and serve `tasks/get` — rather than blocking like ours —
+is a per-platform question. **That measurement is itself the most valuable
+output here:** the matrix currently records who speaks A2A, not who implements
+the asynchronous half of it. "Everyone ships the sync subset" would be a
+first-class finding, and so would the opposite.
+
+**Exit criteria:** one fan-out leg submitted and polled to completion through
+the MCP server with the gateway never holding a connection over ~2s; a recorded
+per-platform table of who honours the async lifecycle; the orchestrator's poll
+behaviour observed and written up.
+
+---
+
+## Console and exhibit backlog (raised 2026-07-26, after the hosted bridge)
+
+Not a workstream — UI and presentation debt to clear before the demo.
+
+1. **"Not yet available" components.** Diagnosed: `components_for()` renders a
+   component as unavailable when its console URL env var is unset, and four are
+   missing from `.env` — `OPENAI_CONSOLE_URL` (this is the M9 one),
+   `SF_LIGHTNING_DOMAIN`, `ADK_CONSOLE_URL`, `FOUNDRY_CONSOLE_URL`. Setting
+   them is the whole fix; no code change.
+2. **Chips are too prominent.** Shrink the platform/product/feature chips
+   relative to surrounding text.
+3. **Chips at group level.** Platform chips currently sit on individual
+   experiments; add them to the Control Panel → Experiments *subsection*
+   headers too (Claude – Agentforce, OpenAI – Agentforce, …).
+4. **Chip iconography cleanup**, with one decision to make deliberately:
+   - **Vendor chips should name the vendor, not the model.** Every other chip
+     is a company — AWS, Microsoft, Google, OpenAI — so **Anthropic** is the
+     consistent choice for that tier, and Claude belongs on the product/model
+     tier where the lab already distinguishes Managed Agents from the
+     self-hosted SDK. The rule to apply everywhere: tier 1 names who operates
+     the cloud, tier 2 names which product or model runs on it. Picking Claude
+     for tier 1 means Google's chip should say Gemini, which nobody wants.
+   - Use the **Google Cloud** logo (not the Gemini spark) for Google ADK and
+     everywhere else Google appears as the platform.
+   - Warm-up panel: the `aws-shim` product chip should carry an **AWS** logo
+     rather than a generic one.
