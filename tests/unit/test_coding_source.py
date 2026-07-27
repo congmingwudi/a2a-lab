@@ -185,11 +185,15 @@ def test_harvest_reads_promql_and_writes_sessions(tmp_path):
 def test_resource_tool_label_wins_over_the_name_prefix(tmp_path):
     """A tool that renames its metrics still attributes correctly if it sets
     the tool resource attribute."""
+    # codex.thread.started, not codex.cost.usage: Codex emits no cost metric at
+    # all (observed live 2026-07-26), and only names in CODEX_METRICS are ever
+    # queried, so a fixture keyed on a non-existent metric tests nothing.
     client = FakePromQL(
         {
-            "codex.cost.usage": [
+            "codex.thread.started": [
                 _series(
-                    {"__name__": "codex.cost.usage", "@resource.tool": "codex-cli"}, [(DAY, 1.0)]
+                    {"__name__": "codex.thread.started", "@resource.tool": "codex-cli"},
+                    [(DAY, 1.0)],
                 )
             ]
         }
@@ -268,4 +272,99 @@ def test_query_step_is_fine_grained_enough_to_see_today(tmp_path):
     # the window the aggregation covers must equal the step, or the buckets
     # either overlap (double count) or leave gaps (undercount)
     assert all(f"[{step}s]" in q for step, q in zip(seen, client.queries))
+    store.close()
+
+
+# ---- per-repository attribution -------------------------------------------
+
+
+def test_summarize_splits_cost_per_repo_and_sums_to_the_total():
+    """The whole point of setting @resource.repo: cost per codebase.
+
+    The per-repo split must reconcile exactly with the bucket total — a
+    breakdown that does not add up is worse than no breakdown.
+    """
+    rows = [
+        {
+            "metric": "claude_code.cost.usage",
+            "tool": "claude-code",
+            "repo": "acme/lab",
+            "project": "lab",
+            "dimensions": {"model": "opus"},
+            "timestamp": DAY,
+            "value": 3.0,
+        },
+        {
+            "metric": "claude_code.cost.usage",
+            "tool": "claude-code",
+            "repo": "acme/logging-service",
+            "project": "logging-service",
+            "dimensions": {"model": "opus"},
+            "timestamp": DAY,
+            "value": 1.0,
+        },
+        {
+            "metric": "claude_code.token.usage",
+            "tool": "claude-code",
+            "repo": "acme/logging-service",
+            "project": "logging-service",
+            "dimensions": {"type": "input"},
+            "timestamp": DAY,
+            "value": 500,
+        },
+    ]
+    bucket = summarize_series(rows)["claude-code:2026-07-25"]
+    by_repo = bucket["by_repo"]
+
+    assert set(by_repo) == {"acme/lab", "acme/logging-service"}
+    assert by_repo["acme/lab"]["cost_usd"] == 3.0
+    assert by_repo["acme/logging-service"]["cost_usd"] == 1.0
+    assert by_repo["acme/logging-service"]["tokens"]["input"] == 500
+    assert by_repo["acme/logging-service"]["project"] == "logging-service"
+    # reconciliation
+    assert sum(r["cost_usd"] for r in by_repo.values()) == bucket["cost_usd"] == 4.0
+
+
+def test_datapoints_without_a_repo_label_are_kept_as_unattributed():
+    """Dropping them would make the per-repo view disagree with the total."""
+    rows = [
+        {
+            "metric": "claude_code.cost.usage",
+            "tool": "claude-code",
+            "repo": "unattributed",
+            "project": "unattributed",
+            "dimensions": {},
+            "timestamp": DAY,
+            "value": 2.5,
+        }
+    ]
+    bucket = summarize_series(rows)["claude-code:2026-07-25"]
+    assert bucket["by_repo"]["unattributed"]["cost_usd"] == 2.5
+    assert sum(r["cost_usd"] for r in bucket["by_repo"].values()) == bucket["cost_usd"]
+
+
+def test_harvest_keeps_the_resource_repo_label_off_the_wire(tmp_path):
+    """Regression: an earlier version stripped every '@' label in _metric_rows,
+    throwing away the attribution the exporters were configured to produce."""
+    client = FakePromQL(
+        {
+            "claude_code.cost.usage": [
+                _series(
+                    {
+                        "__name__": "claude_code.cost.usage",
+                        "@resource.tool": "claude-code",
+                        "@resource.repo": "acme/lab",
+                        "@resource.project": "lab",
+                        "model": "opus",
+                    },
+                    [(DAY, 7.0)],
+                )
+            ]
+        }
+    )
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    CodingSource(client=client).harvest(store)
+    raw = json.loads(store.list_sessions("coding")[0]["raw_json"])
+    assert raw["by_repo"]["acme/lab"]["cost_usd"] == 7.0
+    assert raw["by_repo"]["acme/lab"]["project"] == "lab"
     store.close()

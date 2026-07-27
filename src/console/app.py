@@ -1605,6 +1605,47 @@ def create_console_app(registry: Registry | None = None):
     # out of the Observability coverage panel and rendered in its own section.
     BUILD_TELEMETRY_PLATFORM = "coding"
 
+    # Per-tool metric coverage. The two coding agents do NOT emit the same
+    # shapes, and a table that renders $0.00 for a tool with no cost metric is
+    # a lie by omission — so the section states the coverage instead of
+    # implying a zero. Observed live 2026-07-26 against CloudWatch.
+    BUILD_TELEMETRY_TOOL_NOTES = {
+        "claude-code": {
+            "label": "Claude Code",
+            "cost": True,
+            "tokens": True,
+            "detail": (
+                "Eight documented metrics, all delta Sums: cost.usage in USD, "
+                "token.usage by type, session.count, active_time.total, "
+                "lines_of_code/commit/pull_request counts and "
+                "code_edit_tool.decision. Attribution rides "
+                "OTEL_RESOURCE_ATTRIBUTES from .claude/settings.local.json, so "
+                "project and repo are set per checkout."
+            ),
+        },
+        "codex": {
+            "label": "Codex CLI",
+            "cost": False,
+            "tokens": False,
+            "detail": (
+                "Live since 2026-07-26 and correctly attributed "
+                "(tool=codex, project, repo), but it does NOT mirror Claude "
+                "Code's schema and the gaps are structural, not cosmetic. "
+                "There is NO cost metric at all — cross-tool cost has to be "
+                "modelled from tokens and a price table. And "
+                "codex.turn.token_usage is a delta HISTOGRAM dimensioned by "
+                "token_type, where Claude Code's token.usage is a delta SUM "
+                "dimensioned by type; sum_over_time returns the series but no "
+                "scalar for a histogram on this surface, so tokens are not "
+                "wired up yet. What IS read today are the Sums: "
+                "codex.thread.started (sessions) and "
+                "codex.conversation.turn.count (turns). Attribution comes from "
+                "scripts/codex_otel.sh at launch, because Codex ignores otel "
+                "in project-local .codex/config.toml."
+            ),
+        },
+    }
+
     # Shown in the Coding Agents Telemetry section when nothing has been collected yet,
     # which is the honest default: telemetry is NOT retroactive, so whatever
     # was built before the exporters were switched on is unmeasurable.
@@ -1679,15 +1720,27 @@ def create_console_app(registry: Registry | None = None):
             ),
         },
         {
-            "step": "Point Codex at the same endpoint",
+            "step": "Point Codex at the same endpoint — NOT YET VERIFIED",
             "detail": (
                 "The Codex CLI ships its own OpenTelemetry exporter, configured in "
-                "~/.codex/config.toml under [otel] with a single exporter for all "
-                "signals. Same endpoint, tool=codex in the resource attributes — "
-                "that one label is the whole 'two team members, two coding tools' "
-                "comparison. Asymmetry worth knowing: Codex has no headers-helper "
-                "hook, so its token is ${VAR} interpolation resolved ONCE at launch "
-                "(hence the wrapper) while Claude Code re-fetches every ~29 min."
+                "~/.codex/config.toml (project-local .codex/config.toml explicitly "
+                "IGNORES otel, so this cannot be made per-repo the way Claude Code "
+                "can). Codex has THREE separate exporters, not one: otel.exporter "
+                "is logs/events (default none), otel.trace_exporter is traces "
+                "(default none), and otel.metrics_exporter is metrics — and it "
+                "defaults to statsig, not OTLP. The wrapper still sets tool=codex "
+                "in the resource attributes — that one label is the whole 'two "
+                "team members, two coding tools' comparison, once anything "
+                "arrives. Measured 2026-07-26: a real Codex "
+                "session run through scripts/codex_otel.sh produced ZERO codex.* "
+                "datapoints, because this lab's [otel] block set `exporter` (logs) "
+                "to the CloudWatch METRICS endpoint with a metrics-only bearer "
+                "token and never set metrics_exporter at all. Signal, endpoint and "
+                "credential must agree; see the Codex config reference for the "
+                "exact metrics_exporter syntax before retrying. Second asymmetry: "
+                "Codex has no headers-helper hook, so its token is ${VAR} "
+                "interpolation resolved ONCE at launch (hence the wrapper) while "
+                "Claude Code re-fetches every ~29 min."
             ),
         },
         {
@@ -1802,6 +1855,7 @@ def create_console_app(registry: Registry | None = None):
             store.close()
 
         by_tool: dict[str, dict] = {}
+        by_repo: dict[str, dict] = {}
         days: list[dict] = []
         totals = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "sessions": 0}
         for row in sessions:
@@ -1818,6 +1872,9 @@ def create_console_app(registry: Registry | None = None):
                 tool,
                 {"tool": tool, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "days": 0},
             )
+            note = BUILD_TELEMETRY_TOOL_NOTES.get(tool) or {}
+            bucket["cost_supported"] = bool(note.get("cost", True))
+            bucket["tokens_supported"] = bool(note.get("tokens", True))
             bucket["cost_usd"] += cost
             bucket["input_tokens"] += tin
             bucket["output_tokens"] += tout
@@ -1826,6 +1883,41 @@ def create_console_app(registry: Registry | None = None):
             totals["input_tokens"] += tin
             totals["output_tokens"] += tout
             totals["sessions"] += int(raw.get("sessions") or 0)
+
+            # Per-repository roll-up. This is the "what did each codebase
+            # cost" view: the resource attributes were always on the wire, and
+            # the harvest now keeps them instead of stripping them.
+            for repo_name, rb in (raw.get("by_repo") or {}).items():
+                rtok = rb.get("tokens") or {}
+                agg = by_repo.setdefault(
+                    repo_name,
+                    {
+                        "repo": repo_name,
+                        "project": rb.get("project") or repo_name,
+                        "cost_usd": 0.0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "sessions": 0,
+                        "active_time_s": 0.0,
+                        "tools": {},
+                        "days": set(),
+                    },
+                )
+                if agg["project"] in (None, "", "unattributed"):
+                    agg["project"] = rb.get("project") or repo_name
+                rcost = float(rb.get("cost_usd") or 0)
+                agg["cost_usd"] += rcost
+                agg["input_tokens"] += int(rtok.get("input") or 0)
+                agg["output_tokens"] += int(rtok.get("output") or 0)
+                agg["sessions"] += int(rb.get("sessions") or 0)
+                agg["active_time_s"] += float(rb.get("active_time_s") or 0)
+                agg["days"].add(str(row.get("created_at") or "")[:10])
+                tb = agg["tools"].setdefault(
+                    tool, {"tool": tool, "cost_usd": 0.0, "sessions": 0}
+                )
+                tb["cost_usd"] += rcost
+                tb["sessions"] += int(rb.get("sessions") or 0)
+
             days.append(
                 {
                     "id": row.get("native_id"),
@@ -1837,6 +1929,12 @@ def create_console_app(registry: Registry | None = None):
                     "sessions": raw.get("sessions"),
                     "active_time_s": raw.get("active_time_s"),
                     "by_model": raw.get("by_model") or {},
+                    "cost_supported": bool(
+                        (BUILD_TELEMETRY_TOOL_NOTES.get(tool) or {}).get("cost", True)
+                    ),
+                    "tokens_supported": bool(
+                        (BUILD_TELEMETRY_TOOL_NOTES.get(tool) or {}).get("tokens", True)
+                    ),
                 }
             )
         days.sort(key=lambda d: (d["date"], d["tool"]), reverse=True)
@@ -1844,17 +1942,49 @@ def create_console_app(registry: Registry | None = None):
         for bucket in by_tool.values():
             bucket["cost_usd"] = round(bucket["cost_usd"], 4)
 
+        repos = []
+        for agg in by_repo.values():
+            agg["cost_usd"] = round(agg["cost_usd"], 4)
+            agg["days"] = len(agg["days"])
+            agg["tools"] = sorted(
+                (
+                    {**t, "cost_usd": round(t["cost_usd"], 4)}
+                    for t in agg["tools"].values()
+                ),
+                key=lambda t: -t["cost_usd"],
+            )
+            # Share of the measured total, so "this project vs the ones
+            # supporting it" is readable without doing the arithmetic.
+            agg["cost_share"] = (
+                round(agg["cost_usd"] / totals["cost_usd"], 4) if totals["cost_usd"] else 0.0
+            )
+            repos.append(agg)
+        repos.sort(key=lambda r: (-r["cost_usd"], r["repo"]))
+
         harvest = (summary.get("platforms", {}).get(BUILD_TELEMETRY_PLATFORM) or {}).get("harvest")
         return {
             "enabled": bool(days),
             "harvest": harvest,
             "totals": totals,
             "by_tool": sorted(by_tool.values(), key=lambda b: -b["cost_usd"]),
+            "by_repo": repos,
             "days": days,
             "cost_note": (
                 "Modelled build cost at LIST PRICE — a client-side estimate the "
                 "coding agent computes from token counts, not an invoice. On "
                 "subscription or credit plans it is not money that changed hands."
+            ),
+            "tool_notes": [
+                {"tool": k, **v} for k, v in BUILD_TELEMETRY_TOOL_NOTES.items()
+            ],
+            "scope_note": (
+                "The totals above are account-wide: the harvest queries each "
+                "metric name with no label selector, so every repository "
+                "exporting to this CloudWatch endpoint is included. Use the "
+                "By repository table to see one codebase on its own, or this "
+                "project beside the repos that support it. Work whose "
+                "exporter ran without resource attributes appears as "
+                "'unattributed' rather than being dropped."
             ),
             "setup": BUILD_TELEMETRY_SETUP,
         }

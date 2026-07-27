@@ -2525,7 +2525,7 @@ function renderBuildSide() {
   el.innerHTML = buildData.by_tool.map(t => `
     <div class="obs-plat" onclick="buildNav(event)">
       <span>${esc(t.tool)}</span>
-      <span class="count">$${t.cost_usd.toFixed(2)}</span>
+      <span class="count">${t.cost_supported === false ? "no cost metric" : "$" + (t.cost_usd || 0).toFixed(2)}</span>
     </div>`).join("");
 }
 
@@ -2561,26 +2561,115 @@ function buildHtml() {
       <div class="obs-card"><div class="k">sessions</div><div class="v">${t.sessions || 0}</div></div>
     </div>`;
 
+  // A tool with no cost metric must render "n/a", never "$0.00" — a zero here
+  // reads as "this tool was free", which is the opposite of "we cannot see it".
+  const money = (v, ok) => ok === false ? `<span class="hint">n/a</span>` : `$${(v || 0).toFixed(2)}`;
+  const num = (v, ok) => ok === false ? `<span class="hint">n/a</span>` : (v || 0).toLocaleString();
+
   const byTool = buildData.by_tool.map(b => `
-    <tr><td>${esc(b.tool)}</td><td>$${b.cost_usd.toFixed(2)}</td>
-        <td>${b.input_tokens.toLocaleString()}</td>
-        <td>${b.output_tokens.toLocaleString()}</td><td>${b.days}</td></tr>`).join("");
+    <tr><td>${esc(b.tool)}</td><td>${money(b.cost_usd, b.cost_supported)}</td>
+        <td>${num(b.input_tokens, b.tokens_supported)}</td>
+        <td>${num(b.output_tokens, b.tokens_supported)}</td><td>${b.days}</td></tr>`).join("");
 
   const days = buildData.days.map(d => `
-    <tr><td>${esc(d.date)}</td><td>${esc(d.tool)}</td><td>$${d.cost_usd.toFixed(2)}</td>
-        <td>${(d.input_tokens || 0).toLocaleString()}</td>
-        <td>${(d.output_tokens || 0).toLocaleString()}</td>
+    <tr><td>${esc(d.date)}</td><td>${esc(d.tool)}</td><td>${money(d.cost_usd, d.cost_supported)}</td>
+        <td>${num(d.input_tokens, d.tokens_supported)}</td>
+        <td>${num(d.output_tokens, d.tokens_supported)}</td>
         <td>${d.sessions ?? "—"}</td>
         <td>${d.active_time_s ? (d.active_time_s / 3600).toFixed(1) + "h" : "—"}</td></tr>`).join("");
+
+  // Per-tool coverage. The headline finding of this section is that the two
+  // agents do NOT emit comparable metrics, so the differences get stated
+  // rather than silently averaged into one number.
+  const seen = new Set(buildData.by_tool.map(b => b.tool));
+  const notes = (buildData.tool_notes || []).map(n => {
+    const live = seen.has(n.tool);
+    const caps = [
+      `sessions <b>yes</b>`,
+      `tokens <b>${n.tokens ? "yes" : "no"}</b>`,
+      `cost <b>${n.cost ? "yes" : "no"}</b>`,
+    ].join(" · ");
+    return `
+      <div class="hop" style="margin-bottom:8px">
+        <div class="hop-head">
+          <b>${esc(n.label || n.tool)}</b>
+          <span class="count">${live ? "collecting" : "no data yet"}</span>
+        </div>
+        <div style="padding:8px 12px">
+          <div class="hint" style="margin-bottom:6px">${caps}</div>
+          <div class="hint">${esc(n.detail)}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  const scope = buildData.scope_note
+    ? `<div class="hint" style="margin:10px 0 18px">⚠️ <b>Scope:</b> ${esc(buildData.scope_note)}</div>`
+    : "";
+
+  // ---- By repository -------------------------------------------------------
+  // The point of setting project/repo on every datapoint: cost per codebase,
+  // so this project can be read on its own and beside the repos that support
+  // it. A bar per repo rather than a chart library — one dependency-free
+  // element that reads correctly at any width.
+  const repos = buildData.by_repo || [];
+  const maxRepoCost = Math.max(...repos.map(r => r.cost_usd || 0), 0);
+  const repoRows = repos.map(r => {
+    const pct = maxRepoCost > 0 ? Math.round((r.cost_usd / maxRepoCost) * 100) : 0;
+    const share = ((r.cost_share || 0) * 100).toFixed(1);
+    const unattributed = r.repo === "unattributed";
+    const tools = (r.tools || []).map(t =>
+      `${esc(t.tool)}${t.cost_usd ? " $" + t.cost_usd.toFixed(2) : ""}`).join(" · ");
+    return `
+      <div class="hop" style="margin-bottom:8px">
+        <div class="hop-head">
+          <b>${esc(r.repo)}</b>
+          <span class="count">$${(r.cost_usd || 0).toFixed(2)} · ${share}%</span>
+        </div>
+        <div style="padding:8px 12px">
+          <div style="background:var(--line,#2a2a2a);border-radius:3px;height:8px;overflow:hidden;margin-bottom:8px">
+            <div style="width:${pct}%;height:100%;background:${unattributed ? "#8a8a8a" : "var(--accent,#4c8bf5)"}"></div>
+          </div>
+          <div class="hint">
+            project <b>${esc(r.project || "—")}</b> ·
+            ${(r.input_tokens || 0).toLocaleString()} in ·
+            ${(r.output_tokens || 0).toLocaleString()} out ·
+            ${r.sessions || 0} sessions ·
+            ${r.days || 0} day${r.days === 1 ? "" : "s"}
+            ${tools ? " · " + tools : ""}
+            ${r.active_time_s ? " · " + (r.active_time_s / 3600).toFixed(1) + "h active" : ""}
+          </div>
+          ${unattributed ? `<div class="hint" style="margin-top:6px">No resource attributes on these
+          datapoints — an exporter ran without OTEL_RESOURCE_ATTRIBUTES. Counted here so the
+          per-repo view still sums to the total.</div>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+
+  const repoHtml = repos.length ? `
+    <h3>By repository</h3>
+    <p class="hint">Cost per codebase, from the <code>@resource.repo</code> label
+    the exporters attach to every datapoint. Neither coding agent emits this on
+    its own — it is configuration, which is the whole point of the section.</p>
+    ${repoRows}` : `
+    <h3>By repository</h3>
+    <p class="hint">No per-repository data yet. Re-run
+    <code>scripts/obs_harvest.py coding</code> after an attributed session —
+    rows harvested before this view existed carry no repo breakdown.</p>`;
 
   return `
     <h2>Coding Agents Telemetry</h2>
     <p class="hint">The lab measuring its own construction — two coding tools, one
     OTLP endpoint, harvested through the same seam as every agent platform.</p>
-    ${tiles}${note}
+    ${tiles}${note}${scope}
+    ${repoHtml}
     <h3>By tool</h3>
     <table class="obs-table"><thead><tr><th>tool</th><th>cost</th><th>input</th><th>output</th><th>days</th></tr></thead>
     <tbody>${byTool}</tbody></table>
+    <h3>Per-tool coverage</h3>
+    <p class="hint">The two agents do not emit the same metrics. Where a column
+    reads <i>n/a</i> above, the tool does not publish that measure at all —
+    it is not a zero.</p>
+    ${notes}
     <h3>By day</h3>
     <table class="obs-table"><thead><tr><th>date</th><th>tool</th><th>cost</th><th>input</th><th>output</th><th>sessions</th><th>active</th></tr></thead>
     <tbody>${days}</tbody></table>`;

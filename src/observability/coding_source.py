@@ -68,10 +68,27 @@ CLAUDE_METRICS = (
     "claude_code.pull_request.count",
     "claude_code.code_edit_tool.decision",
 )
+# OBSERVED LIVE 2026-07-26 (not mirrored from Claude Code's schema, which is
+# what the previous three names here were — `codex.cost.usage`,
+# `codex.token.usage` and `codex.session.count` do not exist and never
+# returned a series). Codex names its metrics on its own scheme, and the
+# differences are not cosmetic:
+#
+#   - There is NO cost metric. Claude Code reports `cost.usage` in USD; Codex
+#     reports nothing equivalent, so cross-tool cost has to be modelled from
+#     tokens and a price table.
+#   - `codex.turn.token_usage` is a delta HISTOGRAM dimensioned by
+#     `token_type` (input / cached_input / cache_write_input / output /
+#     reasoning / tool), where Claude Code's `token.usage` is a delta SUM
+#     dimensioned by `type`. sum_over_time returns the series but no scalar
+#     for a histogram on this surface, so tokens are deliberately NOT wired up
+#     here yet — see the note in build-notes/claude/08.
+#
+# Only the Sums are listed: they are the ones this module's arithmetic can
+# consume correctly today.
 CODEX_METRICS = (
-    "codex.cost.usage",
-    "codex.token.usage",
-    "codex.session.count",
+    "codex.thread.started",
+    "codex.conversation.turn.count",
 )
 
 
@@ -86,6 +103,14 @@ def metric_names() -> tuple[str, ...]:
 # stay bare. `tool` is set through OTEL_RESOURCE_ATTRIBUTES on each exporter, so
 # it is the resource-scoped one.
 TOOL_LABEL = "@resource.tool"
+REPO_LABEL = "@resource.repo"
+PROJECT_LABEL = "@resource.project"
+
+# Datapoints that predate the exporter being attributed — or that come from a
+# checkout with no git remote — carry no repo label. They are kept and shown
+# under this name rather than dropped: an unattributed cost is still a cost,
+# and hiding it would make the per-repo view silently disagree with the total.
+UNATTRIBUTED = "unattributed"
 
 # Metric-name prefixes that identify coding-agent telemetry, per tool.
 TOOL_PREFIXES = {
@@ -99,10 +124,13 @@ TOOL_PREFIXES = {
 # earlier version of this file compared full names and silently scored every
 # Codex metric as zero. Anything whose suffix is unrecognised still lands in
 # `metrics` verbatim rather than being dropped.
-COST_SUFFIX = "cost.usage"
-TOKEN_SUFFIX = "token.usage"
-SESSION_SUFFIX = "session.count"
-ACTIVE_TIME_SUFFIX = "active_time.total"
+# Tuples rather than single strings because the two tools name the same
+# concept differently: a Claude Code session is `session.count`, a Codex one is
+# `thread.started`. Anything unmatched still lands in `metrics` verbatim.
+COST_SUFFIX = ("cost.usage",)
+TOKEN_SUFFIX = ("token.usage",)
+SESSION_SUFFIX = ("session.count", "thread.started")
+ACTIVE_TIME_SUFFIX = ("active_time.total",)
 
 
 def _tool_of(metric_name: str) -> str | None:
@@ -126,9 +154,15 @@ def summarize_series(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     Pure function so the arithmetic is testable without AWS — the same reason
     `adk_source.summarize_metrics` exists.
 
-    Each row: {metric, tool, dimensions: {...}, timestamp: datetime, value: float}
+    Each row: {metric, tool, repo, project, dimensions: {...},
+               timestamp: datetime, value: float}
     Returns {"<tool>:<YYYY-MM-DD>": {tool, date, cost_usd, tokens{}, sessions,
-             active_time_s, by_model{}, metrics{}}}
+             active_time_s, by_model{}, by_repo{}, metrics{}}}
+
+    The bucket key stays (tool, day) rather than becoming (tool, repo, day):
+    that keeps `native_id` stable for rows already in the store, and the
+    per-repo split rides inside the bucket as `by_repo`. Same numbers, one
+    level finer, no migration.
     """
     buckets: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -146,6 +180,7 @@ def summarize_series(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
                 "sessions": 0,
                 "active_time_s": 0.0,
                 "by_model": defaultdict(lambda: defaultdict(float)),
+                "by_repo": {},
                 "metrics": defaultdict(float),
             },
         )
@@ -154,27 +189,51 @@ def summarize_series(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         dims = row.get("dimensions") or {}
         model = dims.get("model")
 
+        repo = row.get("repo") or UNATTRIBUTED
+        r = b["by_repo"].setdefault(
+            repo,
+            {
+                "repo": repo,
+                "project": row.get("project") or UNATTRIBUTED,
+                "cost_usd": 0.0,
+                "tokens": defaultdict(int),
+                "sessions": 0,
+                "active_time_s": 0.0,
+            },
+        )
+        # A repo can legitimately report several project names over time (a
+        # rename, or two checkouts labelled differently). Keep the first real
+        # one rather than letting "unattributed" overwrite it.
+        if r["project"] == UNATTRIBUTED and (row.get("project") or UNATTRIBUTED) != UNATTRIBUTED:
+            r["project"] = row["project"]
+
         b["metrics"][metric] += value
         suffix = _suffix_of(metric)
-        if suffix == COST_SUFFIX:
+        if suffix in COST_SUFFIX:
             b["cost_usd"] += value
+            r["cost_usd"] += value
             if model:
                 b["by_model"][model]["cost_usd"] += value
-        elif suffix == TOKEN_SUFFIX:
+        elif suffix in TOKEN_SUFFIX:
             # `type` is input / output / cacheRead / cacheCreation
             b["tokens"][dims.get("type", "unknown")] += int(value)
+            r["tokens"][dims.get("type", "unknown")] += int(value)
             if model:
                 b["by_model"][model]["tokens"] += value
-        elif suffix == SESSION_SUFFIX:
+        elif suffix in SESSION_SUFFIX:
             b["sessions"] += int(value)
-        elif suffix == ACTIVE_TIME_SUFFIX:
+            r["sessions"] += int(value)
+        elif suffix in ACTIVE_TIME_SUFFIX:
             b["active_time_s"] += value
+            r["active_time_s"] += value
 
     # defaultdicts are awkward to serialize and to assert on; flatten them.
     for b in buckets.values():
         b["tokens"] = dict(b["tokens"])
         b["metrics"] = dict(b["metrics"])
         b["by_model"] = {m: dict(v) for m, v in b["by_model"].items()}
+        for r in b["by_repo"].values():
+            r["tokens"] = dict(r["tokens"])
     return buckets
 
 
@@ -273,6 +332,16 @@ class CodingSource(PlatformLogSource):
                         {
                             "metric": name,
                             "tool": tool,
+                            # Kept out of `dimensions` on purpose: that dict is
+                            # the datapoint's own labels (type, model, …) and
+                            # is what by_model keys off. repo/project are
+                            # RESOURCE attributes describing where the work
+                            # happened, so they get their own fields. The
+                            # earlier version stripped every "@" label here,
+                            # which threw away the per-repo attribution the
+                            # exporters were configured to produce.
+                            "repo": labels.get(REPO_LABEL) or UNATTRIBUTED,
+                            "project": labels.get(PROJECT_LABEL) or UNATTRIBUTED,
                             "dimensions": dims,
                             "timestamp": dt.datetime.fromtimestamp(ts, dt.timezone.utc),
                             "value": raw_value,
@@ -344,6 +413,7 @@ class CodingSource(PlatformLogSource):
                 raw={
                     "tool": bucket["tool"],
                     "by_model": bucket["by_model"],
+                    "by_repo": bucket["by_repo"],
                     "metrics": bucket["metrics"],
                     "sessions": bucket["sessions"],
                     "active_time_s": bucket["active_time_s"],
