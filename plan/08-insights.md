@@ -575,6 +575,14 @@ flowchart LR
 
 **Advisor take:** Any error you intend to debug from needs a route to your logs that skips the model. Structured relay through an agent is fine for the USER-facing summary and useless as telemetry — the paraphrase is lossy in exactly the direction that matters, dropping identifiers and keeping sentiment. This is also the sharpest argument for host-side tool execution: a contract enforced in code cannot be talked out of, whereas a declared graph buys ordering guarantees but still relies on three models relaying text faithfully.
 
+### A telemetry config that parses is not evidence of telemetry — only a query at the destination is
+
+*Status: measured · refs: D39, build-notes/claude/08-coding-agent-telemetry.md, src/observability/coding_source.py, scripts/codex_otel.sh*
+
+**What the lab showed:** Two coding agents, one CloudWatch OTLP endpoint, one credential, the same afternoon. MEASURED 2026-07-26 over a 2-day window: Claude Code landed 28 series / 119,754,973 tokens / 3 sessions, each carrying queryable @resource.tool, @resource.project, @resource.repo and @resource.team.id — per-repo cost attribution working end to end. Codex, launched through scripts/codex_otel.sh for a real working session in the same window, landed exactly zero datapoints under codex.cost.usage, codex.token.usage and codex.session.count. The cause was three silent mismatches in one config line: Codex has THREE exporters (otel.exporter = logs/events, default none; otel.trace_exporter = traces, default none; otel.metrics_exporter = metrics, default statsig — NOT OTLP), and the lab had set `exporter` (logs) to the CloudWatch metrics endpoint, with a metrics-only bearer token, and never set metrics_exporter at all. This is the third silent-zero in the same subsystem: an otelHeadersHelper running without AWS_PROFILE fell back to a different account and returned {} for days, and OTEL_LOGS_EXPORTER=otlp against the metrics endpoint returned nothing. Every one of them looked like correct configuration from the client side and logged nothing anywhere.
+
+**Advisor take:** Treat signal, endpoint, and credential as one unit, and never mark a telemetry path done on the strength of a config file or a helper that exits 0 — those prove the client tried, not that anything arrived. The acceptance test is a query at the destination that returns your own labels. Budget for the fact that per-tool telemetry is NOT symmetric: neither Claude Code nor Codex emits any built-in attribute naming the project, working directory or repository, so codebase attribution is always something you add — and the mechanism differs per tool (Claude Code takes it from a per-project settings file, while Codex ignores `otel` in project-local config entirely and needs a launch wrapper). Assume nothing carries over from one agent's setup to another's.
+
 ## Method
 
 ### Interop claims deserve wire-level evidence — insist that demos enter through the real platform agent

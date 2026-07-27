@@ -1131,6 +1131,30 @@ Report the *measured* phase (WS8 onward) rather than guessing at the past.
 Reconstructing history from local session data is a bonus, clearly labelled,
 only if the data turns out to be there.
 
+### Follow-up: a static credential in `~/.codex/config.toml` (raised 2026-07-26)
+
+Found while fixing the Codex OTel exporter. `~/.codex/config.toml` carries a
+plaintext `LOGGING_API_KEY` (plus `LOGGING_API_URL`) in
+`shell_environment_policy.set`, so the hooks→Slack bridge key sits on disk as a
+long-lived literal.
+
+It does not contradict `build-notes/claude/05` — that note says these live in
+user-level settings outside the repo, and they do — but it *is* the one
+credential in the build-tooling path that D39 hasn't reached: every other
+secret is now a service identity fetched from Secrets Manager with the
+developer's AWS session. The Codex OTel token was just moved to exactly that
+model (fetched by `scripts/codex_otel.sh`, injected with `codex -c`, never
+written to a file), which makes this one the odd remaining case.
+
+Options, cheapest first: (a) rotate it and accept a file-scoped secret, mode
+0600, documented as a known exception; (b) have the hook script fetch it from
+Secrets Manager the way `otel_headers.sh` does, so nothing durable is on the
+laptop; (c) drop the shared key for a per-developer identity. (b) matches D39
+and reuses code that already exists.
+
+**Effort:** ~1 hour for (b). Not scheduled — logged so the exception is
+deliberate rather than forgotten.
+
 ### Related finding worth chasing separately
 
 Four of five agent platforms emit OTel in some form: Foundry natively
