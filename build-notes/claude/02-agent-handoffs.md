@@ -3,6 +3,12 @@
 **Feature area:** multi-agent development across *different* coding agents
 (Claude Code as architect/integrator, OpenAI Codex as a contract implementer).
 
+## Engineering takeaway
+
+Delegating code to another agent is an interface and ownership problem, not a
+prompting problem. A written contract, a narrow seam, and shared tests remove
+more ambiguity than any amount of extra handoff prose.
+
 ## What happened (D24)
 
 The lab needed an OpenAI Agents SDK interior for the Path C experiments. Rather
@@ -54,3 +60,26 @@ vendor's agent.
 - `CLAUDE.md` is where cross-agent ownership rules live — it's read at the
   start of every session, so the boundary survives context loss.
 - Shared tests are the neutral arbiter between agents with different styles.
+
+## Evidence and limits
+
+- **Repository-backed:** `plan/06-openai-codex-handoff.md` defines the allowed
+  files, interfaces, non-goals, and acceptance checks; D24 records the
+  ownership rule; `CLAUDE.md` enforces it; the `agents-sdk` backend and its
+  tests exist behind the shared adapter seam.
+- This is one successful bounded handoff. It's a reusable pattern, not evidence
+  that cross-agent delegation works without a strong interface and an
+  integration review.
+
+## Put this in the presentation
+
+**Slide headline:** The contract file is the API between coding agents.
+
+- Define the seam and the acceptance tests *before* delegating.
+- Record file ownership and out-of-scope areas where every session reloads them.
+- Integrate against shared tests, not stylistic agreement.
+
+**Visual:** a contract box between "architect/integrator" and "implementer",
+with the typed interface entering the box and the shared test suite as the
+acceptance gate on the way out. The five-step repeatable pattern above works as
+the speaker-note spine.

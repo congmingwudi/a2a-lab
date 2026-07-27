@@ -3,6 +3,12 @@
 **Feature area:** Claude Code hooks (`Stop`, `SubagentStop`, `Notification`),
 layered settings, and wiring the harness to external infrastructure.
 
+## Engineering takeaway
+
+Long-running automation needs an out-of-band control loop. Lifecycle hooks turn
+"finished" and "needs you" into deterministic notifications, so a human can
+leave the terminal without losing the ability to intervene.
+
 ## The setup
 
 Three hooks in user-level settings (`~/.claude-personal/settings.json`) all
@@ -50,8 +56,36 @@ lab's A2A traffic — evidence of the same architectural instinct applied to
 both the product and the tooling around it.
 
 Secrets note: `LOGGING_API_URL`/`LOGGING_API_KEY` live in user-level settings
-`env`, outside the repo — the checked-in project settings carry only the
-channel name.
+`env`, outside the repo — the project-level settings file carries only the
+channel name (and is gitignored, so nothing about this wiring reaches the
+public repo).
+
+## Evidence and limits
+
+- **Vendor-documented:** `Stop`, `SubagentStop`, and `Notification` hooks
+  receive structured event JSON on stdin, and notification hooks are intended
+  for exactly this kind of side effect.
+- **Observed in this project:** the bridge script, the AWS endpoint, the
+  user-level settings, and the Slack route all live *outside* this repository.
+  This note documents a working operating setup; it is not a
+  copy-paste-reproducible deployment recipe.
+- The script deliberately exits 0 on every failure path. That's correct for
+  notifications and **wrong** for a policy hook whose job is to block an unsafe
+  action — a gate that fails open isn't a gate.
+
+## Put this in the presentation
+
+**Slide headline:** Hooks make long agent runs operable, not just autonomous.
+
+- The harness emits lifecycle events, so delivery doesn't depend on the model
+  remembering an instruction.
+- One small bridge normalizes events into infrastructure you already run.
+- Failure is non-blocking, because a lost notification must never break the work.
+
+**Visual:** Claude Code event → hook script → logging API → Slack, with a dashed
+failure branch labeled "exit 0; session continues". Pair it with the pattern
+callout: this is the same wiretap shape as the lab's own trace layer, applied to
+the build process instead of the product.
 
 <!-- TODO(ryan): screenshot of the Slack channel showing a Stop notification
      arriving from a long deploy — pairs well with the "walk away from long

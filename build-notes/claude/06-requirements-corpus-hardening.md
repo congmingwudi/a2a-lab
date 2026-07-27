@@ -4,6 +4,13 @@
 code investigation with evidence discipline, plan-then-implement across code,
 cloud runtimes, and a production Salesforce org.
 
+## Engineering takeaway
+
+Unstructured expert guidance becomes actionable when you decompose it into
+atomic claims, grade each one against evidence, and route the results into
+tracked fixes, experiments, and documented exceptions. "Do we comply?" is the
+wrong question; "is it true, and what do we do, and why" is three.
+
 ## The story
 
 A trusted source — a colleague's internal "Headless 360 Anti-Patterns &
@@ -19,7 +26,7 @@ The result was a working document built from **two code audits with
 cross-referenced against `config/insights.yaml`, `plan/02-matrix.md`, and
 ADRs D7–D34. Everything durable from it now lives in the plan: the audit and
 its remediation pass as **D37**, the six follow-on experiments in
-`plan/07-workstreams.md`, and four published insights.
+`plan/07-workstreams.md`, and five published insights.
 
 ## What made the analysis honest instead of performative
 
@@ -98,3 +105,29 @@ published. A scratch doc earns its keep by emptying itself into the record.
 - **Hardening as a story arc:** trusted-source corpus → evidence audit →
   prioritized plan → fixes applied across code, cloud, and org — then
   showcased in the readout deck as "practiced, not just preached."
+
+## Evidence and limits
+
+- **Repository-backed:** D37 records all eight F1–F8 remediations as shipped
+  and the five resulting insights; E1–E6 remain in `plan/07-workstreams.md`.
+- The original slide screenshots and the scratch analysis were *working
+  inputs*, not durable records. The durable evidence is what they produced: the
+  ADR, the code changes, the tests, the experiment backlog, the insights.
+- Two-axis grading prevents false certainty but is still engineering judgment.
+  Claims without sufficient evidence stayed experiments rather than becoming
+  conclusions — that's the discipline, not a limitation of it.
+
+## Put this in the presentation
+
+**Slide headline:** Turn advice into evidence-backed engineering work.
+
+- Decompose a trusted source into atomic, checkable claims.
+- Grade "is it true?" separately from "what does our system actually do?"
+- Route each result to a fix, an experiment, an insight, or a documented
+  deliberate exception.
+
+**Visual:** corpus (2 screenshots) → 34 claims → two-axis scorecard → F1–F8
+fixes / E1–E6 experiments / 5 insights. Call out that all eight recorded fixes
+shipped, and that the lab **falsified** some of the source's claims with its own
+measurements — the audit ran in both directions, which is what makes it an
+audit rather than a compliance pass.
