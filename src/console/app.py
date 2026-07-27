@@ -1342,10 +1342,26 @@ def create_console_app(registry: Registry | None = None):
                 # right and consulted nobody.
                 from orchestration.cma import CmaOrchestrator
 
+                # Which topology to run. "tool" keeps the host-side fan-out
+                # (the control); "mcp" gives the model three remote MCP tools
+                # and lets it schedule them (D41). The operator picks per run,
+                # because the interesting comparison is same-agent-same-prompt.
+                variant = "mcp" if body.get("variant") == "mcp" else "tool"
                 trace_id = body.get("trace_id") or new_trace_id()
-                result = await CmaOrchestrator().run(message, trace_id=trace_id)
+                result = await CmaOrchestrator(variant=variant).run(message, trace_id=trace_id)
                 fan = result.get("fanout")
-                if fan is None:
+                if variant == "mcp":
+                    # No host-side FanOutResult — the legs ran in the Lambda.
+                    # What the MODEL did is the observable here, so report the
+                    # call path instead of a coverage count we did not compute.
+                    path = result["call_path"]
+                    units = len({c.name for c in path.calls})
+                    coverage = (
+                        f"{units}/3 business units consulted · {path.render()}"
+                        if path.calls
+                        else "the orchestrator never consulted a business unit"
+                    )
+                elif fan is None:
                     # A real outcome, not an error: the model can decline to
                     # fan out, and hiding that would flatter the platform.
                     coverage = "the orchestrator never called consult_business_units"
@@ -1356,6 +1372,7 @@ def create_console_app(registry: Registry | None = None):
                     "trace_id": result.get("trace_id", trace_id),
                     "text": f"{result.get('brief') or '(empty brief)'}\n\n---\n_{coverage}_",
                     "latency_ms": result.get("wall_ms"),
+                    "variant": variant,
                 }
             if spec.get("mode") == "async":
                 # Fire-and-return: the research session runs for minutes in

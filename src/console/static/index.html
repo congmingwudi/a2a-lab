@@ -945,6 +945,7 @@ let drafts = {};          // key -> composer draft (survives re-renders)
 let afChannels = {};      // key -> "agent-api" | "a2a-shim" (D28 channel radio)
 let afRoutes = {};        // key -> "bridge" | "direct" (Agentforce outbound route radio)
 let viaBridges = {};      // key -> bool (protocol cells: route via the lab bridge)
+let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
 // turn's call path.
@@ -2335,6 +2336,30 @@ function afChannelRowHtml(key) {
   </div>`;
 }
 
+// Fan-out topology: where the business-unit tools execute (D41).
+window.setFanoutVariant = v => {
+  if (!view || view.type !== "experiment") return;
+  fanoutVariants[expKey(view.kind, view.name)] = v;
+  renderMain(true);
+};
+
+function fanoutVariantRowHtml(key) {
+  const v = fanoutVariants[key] || "tool";
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Fan-out topology</span>
+    <label><input type="radio" name="fanoutVariant" value="tool" ${v === "tool" ? "checked" : ""}
+      onchange="setFanoutVariant('tool')"> host-side tool</label>
+    <label><input type="radio" name="fanoutVariant" value="mcp" ${v === "mcp" ? "checked" : ""}
+      onchange="setFanoutVariant('mcp')"> remote MCP tools</label>
+    <span class="chan-hint">Same agent, same prompt, two tool inventories (swapped per run via
+      agent_with_overrides). <b>host-side tool</b>: one custom tool, the fan-out runs on this laptop
+      and the host picks the order. <b>remote MCP tools</b>: one tool per business unit on a hosted
+      MCP server, so nothing is attached to the session and the <i>model</i> chooses what to call and
+      whether to call them together — the run reports which it did.</span>
+  </div>`;
+}
+
 // Protocol cells: per-cell "via bridge" toggle (lives in the Run tab).
 window.setViaBridge = on => {
   if (!view || view.type !== "experiment") return;
@@ -3398,6 +3423,7 @@ async function sendTurn(kind, name, message) {
     const spec = scenarios.find(s => s.name === name);
     if (spec && spec.af_channel_toggle) body.af_channel = afChannels[key] || "agent-api";
     if (spec && spec.af_route_toggle) body.af_route = afRoutes[key] || "bridge";
+    if (spec && spec.fanout_variant_toggle) body.variant = fanoutVariants[key] || "tool";
   } else {
     body.target = name;
     body.via_bridge = !!viaBridges[key];
@@ -3764,6 +3790,8 @@ function renderMain(force) {
           </div>
           ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_route_toggle ? afRouteRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.fanout_variant_toggle
+            ? fanoutVariantRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set

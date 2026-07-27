@@ -678,8 +678,23 @@ WS7.**
    multiplexing protocols. **Decide deliberately — this is the item that
    determines whether `A2ALAB_MODE=hosted` can ever mean "all of it".**
 3. **Hosted watcher** — item (b) above.
-4. **Remote MCP fan-out server** — item (c) above; also the mechanism WS8's CMA
-   orchestrator eventually uses.
+4. ✅ **Remote MCP fan-out server** — item (c) above, **done 2026-07-26 (D41)**.
+   `src/fanout_mcp/` exposes one tool per business unit on a Lambda behind API
+   Gateway; the transport moved to `src/mcp_http/` now that two servers share
+   it. The CMA orchestrator selects the topology per run through
+   `agent_with_overrides` — same agent, two tool inventories — so the host-side
+   variant survives as a control rather than being replaced.
+
+   **Measured:** the model issued all three units in a single turn on both runs
+   (traces `ede9e3bc…` 3/3 50.5s, `161d7a46…` 3/3 42.6s) and reported its own
+   coverage correctly without code computing it. The cost is a request budget
+   the host-side path does not have — API Gateway's 29s integration timeout,
+   not raisable for HTTP APIs. Full numbers in plan/03-results.md.
+
+   Also lands the AWS→GCP half of cross-cloud identity (`interop/cloud_auth.py`):
+   the Lambda federates its IAM role into a Google service account and holds no
+   Google key. **This does not close item (b)** — the hosted watcher is still
+   needed for the D16 async brief, which remains laptop-bound.
 5. **Widen the `modes:` map** in `config/targets.yaml` as each hosted
    counterpart lands, so one flip really does move the whole stack.
 6. **Retire or re-scope the tunnel.** Once 1–2 land, cloudflared should be a

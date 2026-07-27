@@ -36,24 +36,39 @@ DEFAULT_TASK = (
 )
 
 
-async def _run_cma(args) -> int:
-    """The Managed Agents orchestrator variant: the MODEL decides to fan out.
+async def _run_cma(args, variant: str = "tool") -> int:
+    """The Managed Agents orchestrator variants: the MODEL decides to fan out.
 
     Everything the legs do is identical to the direct path — same dispatch,
     same rider, same partial-failure contract. What is added is the platform's
     own orchestration layer on top, which is the thing being compared.
+
+    `tool` runs the fan-out host-side behind one custom tool; `mcp` gives the
+    model three separate remote tools and lets it schedule them. The call path
+    printed at the end is the measurement that separates the two.
     """
     from orchestration.cma import CmaOrchestrator
 
     trace_id = new_trace_id()
-    print("orchestrator  Anthropic Managed Agents (custom tool, host-side fan-out)")
+    label = (
+        "Anthropic Managed Agents (custom tool, host-side fan-out)"
+        if variant == "tool"
+        else "Anthropic Managed Agents (remote MCP, model-scheduled fan-out)"
+    )
+    print(f"orchestrator  {label}")
     print(f"trace         {trace_id}")
     print(f"task          {args.task}\n")
 
-    result = await CmaOrchestrator().run(args.task, trace_id=trace_id)
+    result = await CmaOrchestrator(variant=variant).run(args.task, trace_id=trace_id)
     fan = result["fanout"]
+    path = result["call_path"]
 
-    if fan is None:
+    if variant == "mcp":
+        # There is no host-side FanOutResult here — the legs ran inside the
+        # Lambda. What the model DID is the observable, so print it.
+        print(f"call path {path.render()}")
+        print(f"units     {len(path.calls)} tool call(s) over {path.turns} model turn(s)")
+    elif fan is None:
         print("!! the orchestrator never called consult_business_units")
         print("   (that is a finding, not a crash — the model chose not to fan out)")
     else:
@@ -67,7 +82,13 @@ async def _run_cma(args) -> int:
     print(f"trace     {result['trace_id']}")
     print("\n--- orchestrator's brief ---\n")
     print(result["brief"] or "(empty)")
-    # Same rule as the direct path: a short brief must not exit 0.
+
+    # Same rule as the direct path: a short run must not exit 0. For the MCP
+    # variant "short" means the model did not consult every unit — which is
+    # exactly the failure mode being measured, so it must be visible in the
+    # exit code rather than only in the prose.
+    if variant == "mcp":
+        return 0 if len({c.name for c in path.calls}) == 3 else 1
     return 0 if (fan and fan.complete) else 1
 
 
@@ -85,17 +106,20 @@ async def main() -> int:
     ap.add_argument(
         "--orchestrator",
         default="none",
-        choices=("none", "cma"),
+        choices=("none", "cma", "cma-mcp"),
         help=(
             "none = drive the dispatch layer directly (measures the legs). "
-            "cma = run the real Anthropic Managed Agents orchestrator, which "
-            "decides when to fan out and writes the brief."
+            "cma = the Managed Agents orchestrator with one host-side custom "
+            "tool (the control). cma-mcp = the same agent with three remote MCP "
+            "tools, where the MODEL schedules the units."
         ),
     )
     args = ap.parse_args()
 
     if args.orchestrator == "cma":
-        return await _run_cma(args)
+        return await _run_cma(args, variant="tool")
+    if args.orchestrator == "cma-mcp":
+        return await _run_cma(args, variant="mcp")
 
     all_legs = legs_for()  # resolved now, so .env overrides apply
     wanted = {r.strip() for r in args.legs.split(",") if r.strip()}

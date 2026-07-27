@@ -1055,3 +1055,63 @@ container stdout. Anything you intend to debug from cannot be relayed by an LLM.
 Applies to every future platform: a new agent that must call another cloud gets
 a federated identity or an explicitly-constructed service principal, added to
 `interop/cloud_auth.py`, never an access key in `env_vars`.
+
+---
+
+## 2026-07-26 — D41: The fan-out legs become remote MCP tools, and the model schedules them
+
+**Context.** The CMA fan-out orchestrator's three business units were one
+`custom` tool. On Managed Agents that means the HOST executes it, which cost two
+things WS7 exists to recover. It needed a laptop attached to the session for the
+whole run — the same constraint as the D16 async brief, and the reason WS7 lists
+a hosted watcher. And it was not agentic in any load-bearing sense: with a single
+tool the model's only decision is *when* to fan out; the order and the
+parallelism were `asyncio.gather` in our code. Writing "call unit 1, then unit 2"
+is a program with a language model in it.
+
+**Decision.** Each business unit is its own tool on a **remote MCP server**
+(`src/fanout_mcp/`, a Lambda behind API Gateway — the D23/D28 pattern, since the
+org SCP denies `lambda:AddPermission` and rules out Function URLs). MCP tools
+execute on Anthropic's orchestration layer, so the session needs nothing
+attached, and the model chooses which units to call, in what order, and whether
+to issue them together.
+
+**The host-side variant is kept as a deliberate control, not deprecated.** Same
+agent id, two tool inventories selected per run through `agent_with_overrides`
+on `sessions.create` — a tool inventory is not something a prompt can change.
+One agent rather than two on purpose: two would drift, and the experiment's
+claim is that the only difference between the runs is where the tools execute.
+
+**Measured on the first live run** (trace `ede9e3bc`, session `sesn_01VrSn52`):
+the model issued **all three units in a single turn** — `parallel — turn 1:
+consult_logistics + consult_commercial + consult_customer_operations` — 3/3
+units, 50.5s wall, and it reported its own coverage correctly ("Coverage: 3 of
+3 units") with every claim attributed to the unit that made it.
+
+That last part was the open question. The host-side tool ends its result with
+`[fan-out coverage: n/3]`, computed by code that knows how many legs exist;
+three independent tools have no such vantage point, so nothing but the model
+knows whether it called all three. We stated the roster in the prompt and asked
+it to reconcile — and it did. **Coverage accounting survived being moved from
+code into the model, on this model, with the roster stated.** That is a
+measurement, not a property to assume, and the exit code checks it rather than
+trusting the prose.
+
+**What it costs.** The legs now run inside an HTTP request/response, so they
+inherit API Gateway's **29s integration timeout** — not raisable for HTTP APIs
+(AWS's >29s support covers Regional and private REST APIs only; a quota request
+is filed). Per-leg budget is 25s through this path against 120s host-side. Warm
+legs measure 1–13s and fit; a cold platform does not, and is reported unavailable
+by the existing partial-failure contract. **Moving a tool from the host to the
+orchestration layer imposes a request budget on work that previously had none** —
+worth stating plainly, because nothing about the MCP protocol says so.
+
+**Also settled here: AWS→GCP federation** (`interop/cloud_auth.py`). The Lambda
+holds no Google key; google-auth signs a `GetCallerIdentity` request with the
+function's ambient role, Google replays it at AWS STS, then impersonates a
+service account. This is D40 in the mirror, and the asymmetry is the finding:
+AWS trusts `accounts.google.com` natively and needs one role, while Google needs
+five objects — pool, AWS provider, attribute mapping, attribute condition,
+impersonation binding — before it will trust AWS at all. "Keyless federation"
+costs very different amounts depending on direction, and Google's side is where
+the identity is *shaped* rather than merely accepted.

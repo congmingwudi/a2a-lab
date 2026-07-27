@@ -887,13 +887,18 @@ scenarios:
     group: fan-out
     title: "Supplier Disruption — orchestrated by Claude (Managed Agents)"
     summary: >
-      An Anthropic Managed Agent orchestrates: it calls ONE custom tool that
-      fans out to three business-unit agents on three platforms at once —
-      Google ADK, Microsoft Foundry and OpenAI — then writes the brief.
-      Custom tools run HOST-SIDE, so concurrency is the host's to own.
+      An Anthropic Managed Agent orchestrates three business-unit agents on
+      three platforms — Google ADK, Microsoft Foundry and OpenAI — then writes
+      the brief. Run it two ways: ONE host-side custom tool, where the host owns
+      concurrency, or one REMOTE MCP tool per unit, where the model does. Same
+      agent, same prompt; the topology is the variable (D41).
     target: claude-rest
     mode: fanout
     orchestrator: cma
+    # The two tool inventories are swapped per run via agent_with_overrides —
+    # a prompt cannot add a tool, so this has to be a run-time control rather
+    # than a second scenario that would drift from this one.
+    fanout_variant_toggle: true
     via_bridge: false
     status: live
     requires_mode: hosted

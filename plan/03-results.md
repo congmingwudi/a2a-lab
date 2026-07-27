@@ -626,3 +626,93 @@ it reported all three units' durations side by side without noticing that 7 and
 Worth keeping separate from the platform comparison: this is a *model* result
 (Claude vs Gemini as synthesiser), not an architecture one. The
 declared-graph-vs-host-side axis is unchanged by it.
+
+---
+
+## 2026-07-26 — The fan-out legs as remote MCP tools: the model schedules them (D41, WS7 item 4)
+
+The CMA orchestrator's three business units moved from one host-side custom
+tool to three tools on a hosted MCP server (`src/fanout_mcp/`, a Lambda behind
+API Gateway). Two things were being tested, and both now have numbers.
+
+### Does the model actually fan out?
+
+**Yes, on the first attempt, and reproducibly.** Two runs, two different
+disruptions, identical shape:
+
+| Run | Trace | Call path | Units | Wall |
+|---|---|---|---|---|
+| Rotterdam port strike | `ede9e3bc…` | **parallel — turn 1: logistics + commercial + customer_operations** | 3/3 | 50.5s |
+| Kaohsiung typhoon | `161d7a46…` | **parallel — turn 1: logistics + commercial + customer_operations** | 3/3 | 42.6s |
+
+Both issued all three units in a **single model turn**, then wrote the brief on
+the second. The prompt does not tell it to — prescribing "call all three at
+once" would have answered the question by assertion. It says only that the units
+are independent and the model may call them in any order and combination.
+
+Parallelism is measured off `span.model_request_start`, the one turn boundary
+the event stream offers: tool calls between two model requests were issued
+together. A flat list of calls cannot distinguish "three at once" from "three in
+a row", which is why the measurement is per-turn rather than per-call.
+
+### Does coverage survive being moved from code into the model?
+
+**Yes, with the roster stated — and this was the real open question.** The
+host-side tool ends its result with `[fan-out coverage: n/3 legs answered]`,
+computed by code that knows how many legs exist. Three independent tools have no
+such vantage point: nothing but the model knows whether it called all three.
+
+Both runs reported **"Coverage: 3 of 3 units"** unprompted, attributed every
+claim to the unit that made it, and produced a complete Sources block naming
+each unit's platform and agent. The Rotterdam run went further and flagged in
+its own Gaps section that Commercial's contract terms were stated as
+assumptions rather than verified — an accuracy caveat no instruction asked for.
+
+This is a measurement, not a property. `run_fanout.py --orchestrator cma-mcp`
+exits non-zero unless three distinct units were consulted, because a brief that
+reads complete while a unit was never called is precisely the failure this lab
+measures, and prose is not a check.
+
+### What it costs: a request budget where there was none
+
+Legs now run inside an HTTP request/response and inherit **API Gateway's 29s
+integration timeout** — 25s per leg through this path against 120s host-side.
+Not raisable for HTTP APIs: AWS's >29s support covers Regional and private REST
+APIs only (quota request `7e7325274c…` filed anyway, and it would additionally
+require migrating the endpoint from `apigatewayv2` to `apigatewayv1`).
+
+Warm legs measured from inside the Lambda: **Logistics 3.9s (GCP), Commercial
+12.8s (Azure), Customer operations 10.9s (AWS)** — all comfortably inside the
+budget. A cold platform is not: AgentCore cold-starts at 31–56s and Agent Engine
+at ~34s p95, and the first Agent Engine call through the Lambda did time out at
+25s before the warm path settled at ~1s. Those legs report as unavailable
+through the existing partial-failure contract rather than hanging.
+
+**Moving a tool from the host to the orchestration layer imposes a request
+budget on work that previously had none.** Nothing in the MCP protocol says so;
+it falls out of where the tool is executed.
+
+### AWS → GCP federation, the mirror of D40
+
+The Lambda holds no Google key. google-auth signs a `GetCallerIdentity` request
+with the function's ambient role, Google replays it at AWS STS, then impersonates
+a service account. Three failures on the way in, all of which looked like
+something else:
+
+- **IAM eventual consistency.** `add-iam-policy-binding` failed with "Service
+  account does not exist" immediately after `create` returned success.
+- **A 403 that was a clock.** The first impersonation was denied ~1 minute after
+  the binding was written and correct ~4 minutes later, with nothing changed.
+- **A wrong var name that read as connectivity.** The deploy manifest carried
+  `FOUNDRY_PROJECT_ENDPOINT` where the target expands
+  `AZURE_FOUNDRY_PROJECT_ENDPOINT`; the endpoint collapsed to a relative path
+  and the leg reported a network error — the same shape as the bug 7f0f625
+  fixed. The env list is now derived from `targets.yaml`'s own `${VAR}`s.
+
+**The asymmetry is the finding.** D40's GCP→AWS direction needed one AWS object
+(a role whose trust policy pins the Google subject and audience), because AWS
+trusts `accounts.google.com` natively. This direction needed five Google
+objects — pool, AWS provider, attribute mapping, attribute condition,
+impersonation binding — before Google would trust AWS at all. "Keyless
+federation" costs very different amounts depending on which way you are going,
+and Google's side is where the identity is *shaped* rather than merely accepted.

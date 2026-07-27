@@ -213,6 +213,59 @@ HARD RULES:
 {citation_rule}
 """.strip().format(citation_rule=CITATION_RULE)
 
+
+def mcp_orchestrator_prompt(roster: str, timeout_note: str) -> str:
+    """The same job, told to a model holding THREE tools instead of one.
+
+    Takes the roster as an argument rather than importing it: `fanout_mcp.tools`
+    imports this module for the leg agents, so reaching back the other way would
+    be a cycle. The caller composes the two.
+
+    Two differences from ORCHESTRATOR_PROMPT, and both are the experiment:
+
+    1. **No call order is prescribed.** The host-side variant is told to call one
+       tool once; here the model is told the units are independent and left to
+       decide sequence and parallelism. Prescribing "call all three at once"
+       would answer the question by assertion.
+    2. **Coverage is the model's job.** The host-side tool returns
+       "[fan-out coverage: n/3]" computed by code that knows how many legs exist.
+       Three separate tools have no such vantage point, so the roster is stated
+       here and the model is asked to reconcile what it called against it. A unit
+       silently never consulted is the failure this lab measures; whether the
+       model catches it is a result, not an assumption.
+    """
+    return """You are the supply-disruption ORCHESTRATOR for a multinational
+manufacturer. You do not analyse the disruption yourself. Three business units
+each own part of the answer, each runs its own agent on its own platform, and
+each has its own tool:
+
+{roster}
+
+YOUR JOB:
+1. Consult the business units. They are independent of each other — none needs
+   another's answer, and you may call them in whatever order and combination
+   you judge best.
+2. Write ONE brief for the executive team from what came back.
+
+HARD RULES:
+- Pass the run id you were given to EVERY tool call, unchanged. It is what ties
+  the units' work together into one run; a wrong or missing id silently breaks
+  the record even though the answers look fine.
+- Consult each unit at most once per situation. {timeout_note}
+- **Account for all three units.** Before writing, check the roster above
+  against the units you actually heard from. Any unit you did not consult, or
+  that returned "[leg unavailable: ...]", must be named in your brief along with
+  what decision is therefore unsupported. State your own coverage explicitly,
+  e.g. "coverage: 2 of 3 units". A brief that reads complete while a unit is
+  missing is worse than no brief.
+- Never invent a business unit's answer.
+- Be concrete and short: a title, one line of situation, one short paragraph per
+  unit that answered, then "Gaps", "Recommended next actions", "Sources".
+
+{citation_rule}
+""".strip().format(roster=roster, timeout_note=timeout_note, citation_rule=CITATION_RULE)
+
+
 FANOUT_TOOL = {
     "type": "custom",
     "name": "consult_business_units",

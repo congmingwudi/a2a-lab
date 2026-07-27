@@ -172,3 +172,65 @@ def test_a_failed_leg_is_reported_not_omitted():
     # a reported failure is a successful TOOL call — isError would tell the
     # model the tool is broken rather than that the unit is unreachable
     assert result["isError"] is False
+
+
+# ---- orchestrator variant selection ---------------------------------------
+
+
+def test_mcp_variant_swaps_the_tool_inventory_not_the_agent():
+    """One agent, two inventories (D41). Two agents would drift, and the whole
+    claim of the comparison is that only the topology differs."""
+    from orchestration.cma import CmaOrchestrator
+
+    state = {
+        "agent_id": "agent_1",
+        "environment_id": "env_1",
+        "vault_id": "vlt_1",
+        "mcp_url": "https://example.test",
+        "system": "mcp prompt",
+    }
+    mcp = CmaOrchestrator(client=object(), state=state, variant="mcp")._session_kwargs()
+    tool = CmaOrchestrator(client=object(), state=state, variant="tool")._session_kwargs()
+
+    assert tool["agent"] == "agent_1"
+    assert mcp["agent"]["type"] == "agent_with_overrides"
+    assert mcp["agent"]["id"] == "agent_1"  # same agent, not a second one
+    assert mcp["vault_ids"] == ["vlt_1"]
+    # Overrides REPLACE rather than merge, so the host-side tool must be absent
+    # — its presence would let the model satisfy the task without ever reaching
+    # the MCP server, and the run would look like a success.
+    names = [t.get("type") for t in mcp["agent"]["tools"]]
+    assert names == ["mcp_toolset"]
+    # An unattended run has nobody to confirm a tool prompt; "ask" would idle
+    # forever, which is the laptop dependency this variant exists to remove.
+    policy = mcp["agent"]["tools"][0]["default_config"]["permission_policy"]
+    assert policy == {"type": "always_allow"}
+
+
+def test_unknown_variant_is_rejected_at_construction():
+    from orchestration.cma import CmaOrchestrator
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        CmaOrchestrator(client=object(), state={}, variant="parallel")
+
+
+def test_call_path_distinguishes_parallel_from_serial():
+    """The measurement WS7 item 4 exists to produce: did the model issue the
+    units together, or walk them one at a time?"""
+    from orchestration.cma import CallPath, ToolCall
+
+    together = CallPath(
+        calls=[ToolCall("consult_logistics", 1, 10), ToolCall("consult_commercial", 1, 12)],
+        turns=1,
+    )
+    apart = CallPath(
+        calls=[ToolCall("consult_logistics", 1, 10), ToolCall("consult_commercial", 2, 900)],
+        turns=2,
+    )
+    assert together.parallel
+    assert "parallel" in together.render()
+    assert not apart.parallel
+    assert "serial" in apart.render()
+    assert not CallPath().parallel  # no calls at all is not "parallel"
