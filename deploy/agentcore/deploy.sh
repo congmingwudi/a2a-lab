@@ -7,7 +7,7 @@
 #   deploy/agentcore/deploy.sh claude --skip-build   # redeploy current image
 #
 # Requires: .env populated (AWS_PROFILE/AWS_REGION + the platform's keys),
-# an authenticated AWS session (aws sso login --profile lab-account), and Docker.
+# an authenticated AWS session (aws sso login), and Docker.
 # AgentCore Runtime requires linux/arm64 images.
 #
 # Role: reuses AGENTCORE_ROLE_ARN if set, else copies the execution role off
@@ -22,6 +22,7 @@ PLATFORM="${1:?usage: deploy.sh <claude|openai> [--skip-build]}"
 SKIP_BUILD="${2:-}"
 
 set -a; source .env; set +a
+source deploy/aws_preflight.sh
 REGION="${AWS_REGION:-us-east-1}"
 
 case "$PLATFORM" in

@@ -26,7 +26,7 @@ create, run the orchestrator once, and read the subject out of the leg's
 ``[leg unavailable: ...]`` message (interop/cloud_auth.py prints the claims).
 Then run this script with that value.
 
-Needs AWS credentials with IAM write access (``aws sso login --profile lab-account``,
+Needs AWS credentials with IAM write access (``aws sso login``,
 Zscaler ON).
 """
 

@@ -205,7 +205,7 @@ One-time setup (after §1 and §2 are done):
 
 ## 8. Hosted obs store + analyst (D23 / M11.5)
 
-Provisioned 2026-07-17 in the lab-account account (D21), us-east-1:
+Provisioned 2026-07-17 in the lab's runtime account (D21), us-east-1:
 - **Aurora Postgres Serverless v2** `a2alab-obs` (engine 16.13, min ACU 0 —
   scale-to-zero; Data API enabled; publicly accessible instance
   `a2alab-obs-1`; SG `a2alab-aurora-sg` allowlists the lab host only).
@@ -234,7 +234,8 @@ Provisioned 2026-07-17 in the lab-account account (D21), us-east-1:
   fileb://deploy/obs/dist/<fn>.zip`.
 
 **Finish once (public exposure needs a human):**
-1. `AWS_PROFILE=lab-account AWS_REGION=us-east-1 deploy/obs/expose_mcp.sh`
+1. `deploy/obs/expose_mcp.sh` (profile and region come from `.env`; the
+   script's preflight refuses a session in the wrong account)
    — creates the Function URL, saves it to `.a2alab/obs_mcp.json`.
 2. `uv run python scripts/setup_obs_analyst.py --recreate --run` — vault +
    static_bearer credential, analyst agent (mcp_toolset → obs-store),

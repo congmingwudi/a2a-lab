@@ -10,7 +10,8 @@ Ordering decided 2026-07-19: **WS1 → WS2 (GCP) → WS3 (Azure) → WS4
 (LangGraph) → WS5 (Strands, deferred)**. CrewAI and Pydantic AI are
 flagged as candidates only — user decision pending.
 
-**Revised 2026-07-25 after the architecture review** (`tmp-docs/07.25.2026-*`):
+**Revised 2026-07-25 after the architecture review** (local working notes under
+the gitignored `tmp-docs/`, not in the repo):
 WS1–WS3 and WS6 U1–U2 are done; WS4/WS5 remain deferred. The approved next
 order is **WS8 (fan-out orchestration) → WS9 (build telemetry) → WS7 (hosted
 completion) → WS10 (Agent Fabric comparison)**, with WS9 step 1 pulled forward
@@ -25,7 +26,8 @@ attribution read back through the console, its own Harvest button). The
 the chip/mark tier rule). What is open, in the order it was raised: **WS7**
 (hosted completion — the watcher is the last laptop dependency), **WS11** (A2A
 fire-then-poll, which dissolves the API Gateway ceiling rather than working
-around it), then **WS10**.
+around it), then **WS10**, plus **WS12** (cost sentinel — the first scheduled
+operational agent that passes the tools/schedule/state test).
 
 Rules that apply to every workstream:
 - **Twin rule (D25):** each platform gets its own Agentforce twin agent
@@ -119,7 +121,7 @@ matrix question to Agentforce and burns its 3-turn cap
 annoys: raise CLAUDE_MAX_TURNS in the runtime env, or pin the research
 prompt harder against delegation for factual questions.
 
-**Credentials:** nothing new — lab-account AWS account (SSO), existing
+**Credentials:** nothing new — the lab's AWS account (SSO), existing
 Anthropic/OpenAI/SF keys already in .env.
 
 **Cost note:** AgentCore bills per-invocation compute; two mostly-idle
@@ -176,7 +178,8 @@ both sync directions live in the console; ADK obs source harvesting;
 insights updated (native-A2A reality, A2A auth story, Cloud Trace column).
 
 Status 2026-07-19 (first leg live):
-1. ✅ GCP project `a2a-lab-d441` (billing linked, APIs enabled, ADC);
+1. ✅ GCP project created (billing linked, APIs enabled, ADC); its id lives
+   in `.env` as `GOOGLE_CLOUD_PROJECT`, not in this repo;
    user's duplicate a2a-lab-503000 deleted (recoverable ~30d).
 2. ✅ `src/platforms/adk/` — Gemini agent core + D27-guarded
    ask_agentforce (SF_ADK_AGENT_ID twin, SF_AGENT_ID fallback until the
@@ -472,7 +475,7 @@ Amazon runs in production (Q, Glue, Kiro).
 
 Reuses WS1's entire deploy path (`deploy/agentcore/deploy.sh strands`
 after a third Dockerfile + `src/platforms/strands/`). No new accounts —
-lab-account AWS + an existing model key (Strands is model-agnostic; Bedrock or
+the lab's AWS account + an existing model key (Strands is model-agnostic; Bedrock or
 Anthropic direct). Decision on scheduling after WS4.
 
 ---
@@ -720,7 +723,7 @@ WS7.**
    DNS alone decides which origin serves each hostname, so a bad cutover is a
    one-field rollback.
 
-   **Cost note:** each face is roughly a $10–12/month Fargate task on lab-account
+   **Cost note:** each face is roughly a $10–12/month Fargate task
    with no new ALB charge. Consolidating several faces into one task cuts that
    further and is worth doing if the count grows past three or four.
 3. **Hosted watcher** — item (b) above.
@@ -1203,7 +1206,7 @@ five-platform story that is the section's whole point.
   `PlatformLogSource`, registered in `scripts/obs_harvest.py` **and** in
   `observability/lambda_handlers.py` + `deploy/obs/build_zips.sh` (the Obs rule
   — half-registration is what left ADK and Foundry missing hosted).
-- **No new credentials.** It reads CloudWatch in the lab-account account with the AWS
+- **No new credentials.** It reads CloudWatch in the lab's account with the AWS
   auth D39 made the single root of trust. **The first platform to land under
   D39 needing zero new secrets** — worth saying out loud, since it demonstrates
   the rule is not just overhead.
@@ -1251,7 +1254,7 @@ log, one diagnostic upload, one crash reporter, and it is out. A broadcast
 channel was being used to reach exactly one consumer — the hook script.
 
 **Second, Secrets Manager does not transplant here.** D39's pattern is "fetch
-it with the AWS session you already have", but that session is **lab-account**
+it with the AWS session you already have", but that session is the lab's **runtime account**
 (Salesforce) and `aws-logging-service` runs in the **personal** AWS account. A
 Secrets Manager fetch would need personal-account credentials, which is the
 same problem one layer up. Storing a personal service's key in a corporate
@@ -1274,7 +1277,7 @@ Verified: 200 with the Keychain key, 401 with a bogus one.
 1. **Rotate the key.** It was plaintext on disk and exported into every agent
    subprocess for weeks. Rotation is cheap; assuming it stayed contained is not.
 2. **The real fix is to have no key at all.** Switch the API Gateway `/log`
-   route from API-key auth to IAM, with a resource policy trusting the lab-account
+   route from API-key auth to IAM, with a resource policy trusting the lab's
    principal, and let the hook SigV4-sign with the session already in hand.
    Nothing stored, nothing to rotate, nothing to leak — the true D39 shape.
    Needs a cross-account resource policy, so it is real work; worth it if this
@@ -1317,7 +1320,9 @@ to compare Agent Broker against.
 
 Full research, the four productised-convergence findings, the phase plan, the
 deployment constraints, and the draft comparison matrix are in
-`tmp-docs/07.25.2026-AD3-mulesoft-agent-fabric.md`. Headline for planning
+`tmp-docs/07.25.2026-AD3-mulesoft-agent-fabric.md` — a **local working note,
+not in the repo** (`tmp-docs/` is gitignored), so it is cited here for the
+author's provenance rather than as something a reader can open. Headline for planning
 purposes: **Agent Fabric has independently productised four mechanisms the lab
 built by hand** — the prompt rider (A2A Prompt Decorator), the 0.3↔1.0
 translation layer (A2A Transcoder), per-caller access control (MCP ABAC), and
@@ -1584,6 +1589,102 @@ first-class finding, and so would the opposite.
 the MCP server with the gateway never holding a connection over ~2s; a recorded
 per-platform table of who honours the async lifecycle; the orchestrator's poll
 behaviour observed and written up.
+
+---
+
+## WS12 — Cost sentinel: a scheduled agent over the build-telemetry store (raised 2026-07-27)
+
+**Status: BUILT 2026-07-27, not yet provisioned (D44).** Code, console view and
+tests are in; the agent and its weekly deployment have not been created against
+the Claude platform yet — run `scripts/setup_cost_sentinel.py` (needs
+`.a2alab/managed.json` and `.a2alab/obs_mcp.json`). Exit criteria below are
+therefore **not** met: they require a real firing. All three open questions are
+settled — see the answers inline.
+
+**Goal.** A weekly briefing that answers the question nobody remembers to ask
+until the invoice arrives: *what did this lab cost this week, how does that
+compare to trend, and **why** did it move?*
+
+**Why an agent, and why a scheduled one.** This passes the test the credential
+analyst failed. That analyst was built as a Managed Agent and demoted to a plain
+API call, because it had no tools, no schedule and no state — see the postscript
+in `build-notes/claude/09-secrets-and-environment-identity.md`, and D22 for the
+underlying split. The cost sentinel is the opposite case on all three counts:
+
+- **Tools** — the numbers live in the obs store, which already has a hosted MCP
+  server (D23). "Which repo drove the delta" is a query, not a paragraph that
+  fits in a prompt.
+- **Schedule** — collection is already hosted. `coding_source.py` runs in the
+  6-hourly harvest Lambda against CloudWatch, so unlike credential expiry there
+  is **no dependency on the operator's laptop**. A cron can genuinely run this.
+- **State** — week-over-week comparison needs history, and the store has it.
+
+That combination is the whole argument. If any one of the three were missing,
+this should be a script.
+
+**What it produces.** A short brief per week: total modelled cost, the delta
+against the previous week and the 4-week trend, the split by repo and by model,
+and — the part only a model can write — *the attribution*: "the fan-out
+experiments ran 40 times on Tuesday, which is the delta", or "opus replaced
+haiku on the research agent and cost per turn tripled". Plus an honest floor:
+Codex publishes no cost metric, so any cross-tool total is modelled from tokens
+and a price table and must say so.
+
+**Where it lives in the console.** Under the existing **Coding Agents
+Telemetry** section, presented the way the Credentials Expiry Analysis page is:
+a `tabbar` with **Run** and **Details**, Run showing the measured table beside
+the brief, Details carrying the architecture diagram, the why-an-agent
+reasoning, and links to the agent in the Claude console. That pattern is now
+established — reuse it rather than inventing a third layout.
+
+**Sketch of the build.**
+
+1. `scripts/cost_sentinel.py setup` — create the Managed Agent wired to the obs
+   MCP server with a `query_cost` tool (or extend the existing obs MCP tools;
+   prefer extending, since a second server is a second thing to deploy).
+2. A weekly scheduled deployment, **created paused** like the obs analyst
+   (D23) — real sessions bill per firing.
+3. Briefs land in `lab.obs_briefs` with a `kind` discriminator so the cost
+   briefs and the observability briefs share one table and one reader.
+4. Console: `/api/cost-brief`, operator-gated, and the two-tab view.
+
+**Open questions — all three settled 2026-07-27.**
+
+- **Does the brief go in the same table as the obs analyst's?** ✅ **Yes.**
+  `lab.obs_briefs` gained a `kind text NOT NULL DEFAULT 'observability'` column
+  (an idempotent `ADD COLUMN IF NOT EXISTS` — the table predates it everywhere
+  deployed, and the default correctly backfills the analyst's existing rows).
+  `save_brief` takes an optional `kind`; omitting it still means observability,
+  so the deployed nightly agent, whose prompt never mentions the field, keeps
+  working unchanged.
+- **What is the honest cost number?** ✅ Settled as a constant with two
+  consumers: `BUILD_TELEMETRY_COST_NOTE` in `src/console/app.py` rides on both
+  `/api/build-telemetry` and `/api/cost-brief`, and the sentinel's system prompt
+  makes leading with it rule 2. Related and more damaging, found while doing
+  this: the telemetry was reporting **two** of the four billed token buckets, so
+  `input_tokens` (the *uncached remainder*) was rendering as "input" — a 36x
+  understatement on one real day. Fixed in the same change; see D44 and
+  `build-notes/claude/10-consumption-and-list-price.md`.
+- **How does it avoid crying wolf?** ✅ Rule 5 of the system prompt makes
+  "spend was flat, nothing needs attention" an explicitly correct brief, and
+  rule 1 forbids any figure not traceable to a query it ran. Same discipline as
+  the credential analyst.
+
+**What was built (2026-07-27).** `scripts/setup_cost_sentinel.py` (agent +
+weekly deployment, created **paused**, cron `0 7 * * 1` — Monday morning, when
+the week it reports on is closed), `scripts/cost_sentinel.py`
+(run/status/latest/pause/resume, sibling of `obs_analysis.py`), the `kind`
+column and its plumbing through `pg.py` and the obs MCP `save_brief` tool,
+`/api/cost-brief` + operator-gated `/api/cost-brief/run`, and the Run / Details
+tabbar on the console's Coding Agents Telemetry section — Run carries the brief
+above the measured tables, Details carries the why-an-agent table, the pipeline
+diagram and the provisioning facts. It reuses the obs MCP server rather than
+deploying a second one, and takes its own vault so revocation stays per-agent.
+
+**Exit criteria.** One scheduled firing produces a brief that correctly explains
+a cost movement the operator can independently verify from the by-day table —
+and one week where nothing notable happened produces a brief that says so in two
+lines.
 
 ---
 

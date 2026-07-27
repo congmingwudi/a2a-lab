@@ -298,15 +298,29 @@ Credential is set once (no redeploy per tunnel restart, unlike TryCloudflare),
 and M11.4's Anthropic webhooks require a stable public HTTPS endpoint.
 Runbook §3 rewritten accordingly.
 
-## 2026-07-17 — D21: AWS runtime account = lab-account (REDACTED-AWS-ACCOUNT); a2alab-traces provisioned
+## 2026-07-17 — D21: AWS runtime account is the work SSO account, not a personal one; a2alab-traces provisioned
 Lab AWS runtimes (D13 DynamoDB trace table, later M8 AgentCore) live in the
-**lab-account** SSO account `REDACTED-AWS-ACCOUNT` (role AccountUser via
-REDACTED-SSO-DOMAIN; SSO home region us-west-2), NOT the personal account
-REDACTED-AWS-ACCOUNT that the local `default`/`congmingwudi` profiles point to.
-`.env` sets `AWS_PROFILE=lab-account`, `AWS_REGION=us-east-1`. The `a2alab-traces`
-table (runbook §6 schema: PK trace_id, SK sk, GSI day-index, PAY_PER_REQUEST,
-TTL on expires_at) is created in us-east-1. Gotcha: SSO tokens expire — rerun
-`aws sso login --profile lab-account` when boto3/CLI report an expired token.
+**work SSO account**, NOT the personal account the machine's `default` profile
+points at. `.env` — gitignored — carries which one: `AWS_PROFILE`,
+`AWS_REGION=us-east-1`, and `A2ALAB_AWS_ACCOUNT_ID`. Account ids and the SSO
+profile name are deliberately absent from this repo; the mapping lives in
+`.a2alab/accounts.md` (also gitignored).
+
+The distinction is load-bearing rather than administrative: the two accounts
+have different budgets, different org SCPs (D23's Function-URL denial is one),
+and only one of them is appropriate for lab spend. **A deploy that silently
+lands in the wrong account creates real, billable, wrongly-placed
+infrastructure and stays quiet about it** — so since 2026-07-27 every AWS
+deploy script sources `deploy/aws_preflight.sh`, which resolves the session's
+account with `sts get-caller-identity` and refuses to continue when it does not
+match `A2ALAB_AWS_ACCOUNT_ID`.
+
+The `a2alab-traces` table (runbook §6 schema: PK trace_id, SK sk, GSI
+day-index, PAY_PER_REQUEST, TTL on expires_at) is created in us-east-1.
+Gotcha: SSO tokens expire — rerun `aws sso login` when boto3/CLI report an
+expired token. Second gotcha, which has now cost three components: the SSO
+home region differs from the deploy region, and an ambient
+`AWS_DEFAULT_REGION` beats `AWS_REGION` in boto3 — the preflight pins both.
 
 ## 2026-07-17 — D22: Observability = deterministic ETL below, agent analysis above
 Harvesting platform logs stays pure ETL (scripts/obs_harvest.py, later cron
@@ -330,7 +344,7 @@ cron-fired analyst. Rule extracted: **a scheduled/hosted agent may only use
 tools servable without a client attached** — custom tools are the one tool
 type that blocks on one.
 
-**Store = Aurora PostgreSQL Serverless v2** (scale-to-zero, lab-account account
+**Store = Aurora PostgreSQL Serverless v2** (scale-to-zero, the lab's account
 per D21, us-east-1) — one store for all five consumers: trace hops (new
 `postgres` TraceSink), harvested obs tables (obs_harvest writes here),
 hosted console reads, the analyst's ad-hoc SQL, and M10 reporting.
@@ -380,7 +394,7 @@ container; the brain is the **OpenAI Agents SDK calling the real OpenAI
 API** — not gpt-oss-on-Bedrock — because M9's observability column
 (TracingProcessor tee, response-id capture) only exists on OpenAI's
 platform. SCP preflight passed 2026-07-18: `bedrock-agentcore-control`
-responds in lab-account (tonight's D23 lesson: preflight org SCPs before
+responds in the lab's account (tonight's D23 lesson: preflight org SCPs before
 committing to an AWS service). (2) **Build split, at user request**: the
 lab side (adapter/backend seam, stub backend, protocol servers, ports
 8011/8012/8013, targets.yaml cells, AgentCore Dockerfile, tests) is built
@@ -527,7 +541,7 @@ cannot trace; that visibility gap is the experiment). Mechanics:
 - **Auth without exported keys:** a Salesforce self-signed certificate
   (`A2ALab_GCP_JWT`) signs an OAuth 2.0 JWT-bearer assertion; the cert's
   PUBLIC key is uploaded as a key on the GCP service account
-  `a2alab-sf-caller@a2a-lab-d441` (`roles/aiplatform.user`). External
+  `a2alab-sf-caller@<gcp-project>` (`roles/aiplatform.user`). External
   credential `A2ALab_GCP` exchanges it at Google's token endpoint; named
   credential `A2ALab_AgentEngine` carries the token. No Google private key
   exists outside GCP; no Salesforce key leaves the org. Field learnings:
@@ -1156,3 +1170,106 @@ mark there competes with the Anthropic one two words earlier.
 **Applies to new platforms.** A new platform contributes a tier-1 chip naming
 its operator and tier-2 chips for whatever product and model it runs — not one
 chip carrying both.
+
+---
+
+## 2026-07-27 — D43: Environment identity is configuration, not content — and the API is the boundary
+
+**Context.** D39 made AWS SSO the lab's only human login and put every platform
+credential in Secrets Manager. One file never complied: `.env` — every
+platform's keys, the account ids, the project ids, in plaintext, on one laptop.
+Separately, the repo is public and named the employer-provided AWS account, its
+SSO profile, and the SSO domain, which is the string that actually identifies
+the company.
+
+**Decision.** Four changes, taken together because any one of them alone makes
+the others more dangerous.
+
+1. **`.env` moves into Secrets Manager** (`scripts/env_sync.py pull|push|diff`,
+   secret from `A2ALAB_ENV_SECRET`). Onboarding is clone → `aws sso login` →
+   `pull`. `.env.example` stays the checked-in contract; only values move, and
+   only to identities IAM already admits.
+2. **No environment identifier is hardcoded anywhere in the repo** — account
+   ids, project ids, subscription/resource names, SSO profile names. Explicitly
+   including `${VAR:-default}` fallbacks, which are hardcodes that only reveal
+   themselves on someone else's machine. Shell uses `${VAR:?set VAR in .env}`.
+3. **Every AWS deploy proves its target account** (`deploy/aws_preflight.sh`,
+   sourced by every script that calls the AWS CLI). Removing the account label
+   makes a wrong-account deploy *easier*, so the guard shipped with the scrub.
+4. **The console's public surface publishes no identifiers.**
+   `/api/scenarios` and `/api/targets` are unauthenticated and carried vendor
+   console deep links containing the Salesforce my-domain, the GCP project and
+   an Azure tenant id. Links now resolve for signed-in callers only.
+
+**History was rewritten**, not just HEAD: `git filter-repo` over 10 commits,
+then a force-push. That was affordable **only because the repo had one clone, no
+forks and no CI** — recorded as a fact about this repository, not a
+recommendation. The durable control is the boundary check, which runs over
+`git ls-files` and therefore fails before a push, while removing an identifier
+is still an edit rather than a rewrite.
+
+**What this cost, honestly.** Four judgment calls, all reversible:
+`A2ALab_GCP.externalCredential-meta.xml` is now gitignored (it embeds the
+project id in a service-account email and cannot read `.env`), so that
+deployable metadata is no longer version-controlled; the GCP project id remains
+in git history because only the AWS identifiers were rewritten; component deep
+links are invisible to the public landing page; and `.env` now has two homes
+that must be kept in step, which `diff` exists to make cheap.
+
+**The distinction worth carrying forward:** the same identifier can be
+load-bearing in one place and decoration in another. `?tid=` on a portal URL is
+a sign-in hint the browser does not need — stripped. `AZURE_TENANT_ID` in
+`.env` authenticates the Entra service principal — kept. The test is whether
+anything stops working without it, and answering that is the whole job.
+
+---
+
+## 2026-07-27 — D44: Report consumption in the units the vendor bills, and let the agent explain the movement
+
+**Context.** WS9's telemetry section answered "what did the lab cost to build",
+and answered it wrong in a way nothing could catch. The harvest had stored four
+token buckets since it was written — uncached input, cache read, cache creation,
+output — and `/api/build-telemetry` returned two of them. One harvested day
+rendered as *120K input tokens* on a workload that had processed *4.42M prompt
+tokens*: a 36x understatement, on exactly the workload shape (long agent
+sessions, heavy caching) the section exists to measure. Nothing errored. The
+number was smaller than reality and entirely plausible.
+
+**Decision.** Three parts, one principle — *report in the units the vendor
+bills, and never in units it does not*.
+
+1. **Four buckets, never one.** The API's unit of account is not "tokens"; it is
+   four separately-billed categories. `input_tokens` is the **uncached
+   remainder**, not the prompt — the prompt processed is `input + cache_read +
+   cache_creation`. They bill at roughly 1x, ~0.1x, and 1.25–2x, so a summed
+   "tokens" figure cannot be multiplied by a rate. The console shows four tiles
+   and a composition bar; `token_note` travels in the payload so no consumer can
+   render them without the reason they are separate.
+2. **Cost per unit of work is the engineering number; price per unit is a
+   contract.** The dollar column is a client-side estimate at list price, not an
+   invoice, and on a subscription it is not money that changed hands. That
+   caveat is one constant (`BUILD_TELEMETRY_COST_NOTE`) with two consumers, so
+   there is nothing to drift.
+3. **WS12's cost sentinel is a scheduled Managed Agent** — the first thing in
+   this lab that passes all three of the tests the credential analyst failed
+   (D22 postscript): it needs **tools** (the delta is a SQL question against the
+   obs store, which already has a hosted MCP server), it can genuinely be
+   **scheduled** (collection runs in the harvest Lambda, not on a laptop), and
+   it needs **state** (week-over-week comparison). Its job is to explain the
+   *movement*, not to report the figure — the tables already do that.
+
+**Consequences.** Briefs share `lab.obs_briefs` with the observability analyst,
+separated by a `kind` column rather than a second table — one store, one reader,
+one migration; `save_brief` defaults to `observability` so the deployed nightly
+agent, whose prompt predates the column, keeps working unchanged. The sentinel
+ships **paused**, like every scheduled deployment here, because a firing bills a
+real session. The console's Coding Agents Telemetry section gains the Run /
+Details tabbar that Credentials established, rather than a third layout.
+
+**The transferable part is not the dashboard.** It is that the honest answer to
+"how much will this cost" separates units-per-unit-of-work (measurable,
+improvable, ours) from price-per-unit (contractual, timing-dependent, not ours),
+and that a number is only decision-grade when its label means what a reader
+assumes. `input_tokens` meant something different from "input" and cost this
+project a 36x error that no test, log or alert would ever have raised. Written
+up for presentation in `build-notes/claude/10-consumption-and-list-price.md`.

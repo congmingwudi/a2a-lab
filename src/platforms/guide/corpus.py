@@ -25,6 +25,10 @@ CORE_DOCS = [
 # console's /api/docs endpoint.
 TOOL_DOCS = [
     "plan/00-decisions.md",
+    # The deployment map. On demand rather than stuffed: it is long, and the
+    # "where does X run" question is a minority of what the guide is asked —
+    # but when it IS asked, this is the only doc with the answer.
+    "plan/09-deployment-map.md",
     "plan/03-results.md",
     "plan/04-runbooks.md",
     "plan/05-observability.md",

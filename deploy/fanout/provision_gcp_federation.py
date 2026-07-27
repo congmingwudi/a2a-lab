@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -60,7 +61,27 @@ SA_NAME = "a2alab-fanout-mcp"
 # name out of the assumed-role ARN, so this is the value the principalSet
 # member is keyed on. Session names differ per invocation and must not appear.
 DEFAULT_LAMBDA_ROLE = "a2alab-fanout-lambda"
-AWS_ACCOUNT = "REDACTED-AWS-ACCOUNT"
+
+
+# Resolved from the caller's own AWS session, not a literal: the account id
+# identifies whose cloud this is and is not published from this repo, and a
+# hardcoded value is simply wrong in any other checkout. `--aws-account`
+# overrides it when provisioning federation for an account you are not
+# currently authenticated to.
+def _aws_account() -> str:
+    env = os.environ.get("A2ALAB_AWS_ACCOUNT_ID")
+    if env:
+        return env
+    try:
+        out = subprocess.run(
+            ["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return out.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ""
 
 
 def run(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
@@ -119,11 +140,16 @@ def write_env_var(var: str, value: str) -> None:
 def main() -> None:
     load_dotenv(REPO / ".env")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--project", default="a2a-lab-d441")
+    parser.add_argument(
+        "--project",
+        default=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+        required=not os.environ.get("GOOGLE_CLOUD_PROJECT"),
+        help="GCP project id; defaults to GOOGLE_CLOUD_PROJECT from .env",
+    )
     parser.add_argument("--pool", default=POOL_ID)
     parser.add_argument("--provider", default=PROVIDER_ID)
     parser.add_argument("--lambda-role", default=DEFAULT_LAMBDA_ROLE)
-    parser.add_argument("--aws-account", default=AWS_ACCOUNT)
+    parser.add_argument("--aws-account", default=_aws_account())
     args = parser.parse_args()
 
     number = subprocess.run(

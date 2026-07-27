@@ -82,6 +82,39 @@ def test_save_brief_inserts_and_reports():
     assert insert[1]["queries_run"] == 7
 
 
+def test_save_brief_defaults_to_the_observability_feed():
+    """The obs analyst predates the `kind` column and its prompt never mentions
+    it, so an omitted kind has to keep meaning what it always meant. Rejecting
+    the call instead would have broken a deployed nightly agent."""
+    writer = FakePg()
+    tools = make_tools(writer=writer)
+    out = json.loads(tools.save_brief({"brief_md": "# findings"}))
+    assert out["kind"] == "observability"
+    assert writer.calls[0][1]["kind"] == "observability"
+
+
+def test_save_brief_tags_the_cost_feed(monkeypatch):
+    """WS12: two analysts, one briefs table, separated on read by `kind`. The
+    alternative was a second table — a second migration and a second reader for
+    an identically-shaped row."""
+    writer = FakePg()
+    tools = make_tools(writer=writer)
+    out = json.loads(tools.save_brief({"brief_md": "# week", "queries_run": 4, "kind": "cost"}))
+    assert out["kind"] == "cost"
+    insert_sql, params = writer.calls[0]
+    assert "kind" in insert_sql
+    assert params["kind"] == "cost"
+
+
+def test_save_brief_kind_is_advertised_in_the_schema():
+    """An agent can only set a field the tool schema tells it about."""
+    registry = build_registry(make_tools())
+    save = next(t for t in registry.all() if t.name == "save_brief")
+    kind = save.input_schema["properties"]["kind"]
+    assert set(kind["enum"]) == {"observability", "cost"}
+    assert "kind" not in save.input_schema["required"]  # optional, for the incumbent
+
+
 def test_trace_hop_failure_does_not_break_tool():
     reader = FakePg(rows=[{"n": 1}])
     writer = FakePg(raises=RuntimeError("no grants"))

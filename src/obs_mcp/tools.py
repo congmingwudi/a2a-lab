@@ -35,7 +35,8 @@ QUERY_DESCRIPTION = (
     f"{SCHEMA}.obs_events (platform-interior events: platform, "
     "native_session_id, event_type, processed_at, summary, usage_json jsonb), "
     f"{SCHEMA}.obs_harvest (per-platform harvest status), and "
-    f"{SCHEMA}.obs_briefs (your past findings briefs). "
+    f"{SCHEMA}.obs_briefs (past briefs, yours and other analysts' — filter on "
+    "the `kind` column for your own). "
     "Join wire↔platform views on trace_events.platform_ref = "
     "obs_sessions.native_id. Explore the schema via information_schema. "
     f"Results are capped at {MAX_ROWS} rows — aggregate in SQL rather than "
@@ -44,9 +45,16 @@ QUERY_DESCRIPTION = (
 
 SAVE_BRIEF_DESCRIPTION = (
     "Save the finished findings brief (markdown) to the lab's obs store. "
-    "Call exactly once, at the end, with the complete brief. Optionally "
-    "report how many queries you ran."
+    "Call exactly once, at the end, with the complete brief. Set `kind` to "
+    "the sort of brief you were asked for — 'observability' for a findings "
+    "brief about lab runs, 'cost' for a build-cost brief. Optionally report "
+    "how many queries you ran."
 )
+
+# Agents that share this server share the briefs table; `kind` keeps their
+# feeds apart on the read side (WS12). Unknown values are accepted rather
+# than rejected — a third analyst should not need a server deploy.
+BRIEF_KINDS = ("observability", "cost")
 
 
 class ObsTools:
@@ -113,17 +121,23 @@ class ObsTools:
         if not brief_md:
             return json.dumps({"error": "brief_md is required"})
         queries_run = args.get("queries_run")
+        # Defaulting rather than validating: an agent that omits `kind` is the
+        # observability analyst, which predates the column and whose prompt
+        # never mentions it.
+        kind = str(args.get("kind") or "observability").strip() or "observability"
         self.writer.execute(
-            f"""INSERT INTO {SCHEMA}.obs_briefs (brief_date, session_id, queries_run, brief_md)
-                VALUES (CURRENT_DATE, :session_id, :queries_run, :brief_md)""",
+            f"""INSERT INTO {SCHEMA}.obs_briefs
+                    (brief_date, session_id, queries_run, brief_md, kind)
+                VALUES (CURRENT_DATE, :session_id, :queries_run, :brief_md, :kind)""",
             {
                 "session_id": args.get("session_id"),
                 "queries_run": int(queries_run) if queries_run is not None else None,
                 "brief_md": brief_md,
+                "kind": kind,
             },
         )
-        result = json.dumps({"saved": True, "chars": len(brief_md)})
-        self._record_hop("tools/call save_brief", {"chars": len(brief_md)}, result)
+        result = json.dumps({"saved": True, "chars": len(brief_md), "kind": kind})
+        self._record_hop("tools/call save_brief", {"chars": len(brief_md), "kind": kind}, result)
         return result
 
     def _record_hop(self, detail: str, request: Any, response: Any) -> None:
@@ -181,6 +195,13 @@ def build_registry(tools: ObsTools | None = None) -> ToolRegistry:
                     "queries_run": {
                         "type": "integer",
                         "description": "How many query_obs_store calls you made.",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": list(BRIEF_KINDS),
+                        "description": (
+                            "Which feed this brief belongs to. Defaults to 'observability'."
+                        ),
                     },
                 },
                 "required": ["brief_md"],

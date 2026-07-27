@@ -53,6 +53,8 @@ when overstated into product claims.
 | [06-requirements-corpus-hardening.md](06-requirements-corpus-hardening.md) | A colleague's anti-pattern deck as a requirements corpus: evidence-graded audit against the codebase, then a security-hardening plan applied across the stack |
 | [07-permissions-guardrails.md](07-permissions-guardrails.md) | The permission gradient in practice: auto-mode classifier holds on production-org and hosted-infra writes, narrow allow rules, and the hard guardrails that don't yield to rules |
 | [08-coding-agent-telemetry.md](08-coding-agent-telemetry.md) | Claude Code OTel → CloudWatch, the per-project / per-repo attribution that is *not* built in, two silent-failure modes worth showing a customer — and the Codex path still open as an acceptance item |
+| [09-secrets-and-environment-identity.md](09-secrets-and-environment-identity.md) | Environment identity as configuration: no account or project id anywhere in a public repo, a test that enforces it, `.env` in Secrets Manager, an account guard every deploy sources — and the credential agent we built and then removed |
+| [10-consumption-and-list-price.md](10-consumption-and-list-price.md) | Answering "how much will this cost?" for a metered service: units-per-unit-of-work vs price-per-unit, the four billed token buckets, and the 36x under-report this lab shipped by treating `input_tokens` as the input |
 | [screenshots/](screenshots/README.md) | Terminal screenshots captured at critical decision points — Claude as a thought partner |
 
 ## Recommended presentation arc
@@ -67,8 +69,13 @@ when overstated into product claims.
    agent SDK, and a direct Messages API loop solve different problems.
 5. **Earn autonomy** (05, 07) — hooks make long runs operable; permission
    layers keep unattended work inside an accepted risk envelope.
-6. **Measure and harden the system** (06, 08) — an external requirements corpus
-   and build telemetry expose product debt and process blind spots.
+6. **Measure and harden the system** (06, 08, 09) — an external requirements
+   corpus, build telemetry, and environment-identity hygiene expose product debt
+   and process blind spots.
+7. **Report what it cost, honestly** (10) — separate units-per-unit-of-work from
+   price-per-unit, show the four billed token buckets, and name the softness in
+   your own number before someone else does. The natural closing slide in a
+   presales room.
 
 ## The one-paragraph story
 

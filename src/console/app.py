@@ -19,6 +19,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import subprocess
+import sys
 import re
 import time
 from contextlib import asynccontextmanager
@@ -549,6 +551,25 @@ def _shots(*slugs: str) -> dict:
     }
 
 
+def public_components(comps: list[dict], signed_in: bool) -> list[dict]:
+    """Component rows with the deep links removed for anonymous callers.
+
+    `/api/scenarios` and `/api/targets` are on the PUBLIC surface — the landing
+    exhibit renders from them with no credential. The component *titles* and
+    notes are the exhibit ("this agent lives in Agentforce Studio"); the URLs
+    are operator affordances that an anonymous visitor could not use anyway,
+    since every one of them lands on a vendor login.
+
+    They are also the one part of that payload that names accounts: the
+    Salesforce org's my-domain, the GCP project id, an Azure tenant id. The
+    repo stopped publishing those on 2026-07-27; an unauthenticated API that
+    still hands them out would make that scrub cosmetic.
+    """
+    if signed_in:
+        return comps
+    return [{**c, "url": None, "url_requires_signin": bool(c.get("url"))} for c in comps]
+
+
 def components_for(tags: set[str]) -> list[dict]:
     """Component rows for a scenario's tags (or a target's platform mapped to
     pseudo-tags). Each: {title, kind, note, url|None, shot|None, shot_slug}
@@ -910,7 +931,7 @@ def create_console_app(registry: Registry | None = None):
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     @app.get("/api/targets")
-    async def targets():
+    async def targets(request: Request):
         reg = get_registry()
         out = []
         for t in reg.targets.values():
@@ -927,7 +948,10 @@ def create_console_app(registry: Registry | None = None):
                     "platform": t.platform,
                     "protocol": t.protocol,
                     "status": t.status,
-                    "components": components_for(_PLATFORM_TAGS.get(t.platform, set())),
+                    "components": public_components(
+                        components_for(_PLATFORM_TAGS.get(t.platform, set())),
+                        _signed_in(request),
+                    ),
                     **details,
                 }
             )
@@ -959,14 +983,17 @@ def create_console_app(registry: Registry | None = None):
         return delegation.rider_for(*pair) if pair else None
 
     @app.get("/api/scenarios")
-    async def scenarios():
+    async def scenarios(request: Request):
+        signed_in = _signed_in(request)
         return {
             "groups": load_groups(),
             "scenarios": [
                 {
                     "name": name,
                     **spec,
-                    "components": components_for(set(spec.get("tags") or [])),
+                    "components": public_components(
+                        components_for(set(spec.get("tags") or [])), signed_in
+                    ),
                     **({"rider": r} if (r := _scenario_rider(name)) else {}),
                 }
                 for name, spec in load_scenarios().items()
@@ -976,6 +1003,98 @@ def create_console_app(registry: Registry | None = None):
     # ---- Insights + deployment mode ---------------------------------------
     # The trusted-advisor findings (config/insights.yaml via console.insights)
     # and which runtimes /api/run really hits under the active A2ALAB_MODE.
+
+    @app.get("/api/architecture")
+    async def architecture(request: Request):
+        """The deployment map (plan/09-deployment-map.md), parsed into levels.
+
+        Read from the plan file on every request rather than cached: the doc is
+        the source of truth, and an operator editing it mid-readout should see
+        the change on refresh, not after a restart.
+
+        The doc's `## Presenter notes` section is stripped for everyone except a
+        signed-in reviewer — the lab owner (config/users.yaml, `reviewer: true`).
+        Stripped server-side rather than hidden in CSS: the page is served on a
+        public hostname, and speaker prep that ships to the browser is published
+        whether or not it is displayed.
+        """
+        from console.architecture import load as load_architecture
+
+        doc = load_architecture()
+        if not _is_reviewer(request):
+            doc["presenter"] = ""
+        return doc
+
+    @app.get("/api/expiry")
+    async def expiry(request: Request):
+        """Credential countdown for the operator (scripts/expiry_report.py).
+
+        Operator-only: expiry dates describe the lab's rotation posture, which
+        is not part of the public exhibit. Served from `.a2alab/expiry.json`
+        rather than by shelling out per request — the collectors call four
+        cloud APIs and take seconds, which is a refresh action, not a page load.
+        """
+        import json as _json
+
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="operator-only")
+        path = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "expiry.json"
+        if not path.exists():
+            return {
+                "credentials": [],
+                "error": "no report yet — run: uv run python scripts/expiry_report.py --write",
+            }
+        try:
+            report = _json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            return {"credentials": [], "error": f"unreadable report: {exc}"}
+        return report
+
+    @app.post("/api/credentials/analyze")
+    async def credentials_analyze(request: Request):
+        """Fire the credential analyst (a Claude Managed Agent) and return its
+        briefing.
+
+        Runs the COLLECTOR here rather than in the agent: gathering expiry dates
+        needs the operator's own AWS/az/gcloud sessions, which a hosted agent
+        does not have. The agent is handed measured numbers and asked for
+        judgment — D22's split, applied to credentials.
+        """
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="operator-only")
+
+        def run():
+            proc = subprocess.run(
+                [sys.executable, "scripts/credential_analyst.py", "run"],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                cwd=str(Path.cwd()),
+                env={**os.environ, "PYTHONPATH": "src"},
+            )
+            return proc.returncode, proc.stdout, proc.stderr
+
+        try:
+            code, out, err = await asyncio.get_event_loop().run_in_executor(None, run)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "analyst timed out after 5 minutes"}
+        brief_path = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "credential_brief.json"
+        if code != 0 or not brief_path.exists():
+            return {"ok": False, "error": (err or out or "analyst failed").strip()[-600:]}
+        import json as _json
+
+        return {"ok": True, **_json.loads(brief_path.read_text())}
+
+    @app.get("/api/credentials/brief")
+    async def credentials_brief(request: Request):
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="operator-only")
+        import json as _json
+
+        path = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "credential_brief.json"
+        if not path.exists():
+            return {"brief": None}
+        return _json.loads(path.read_text())
 
     @app.get("/api/insights")
     async def insights(request: Request):
@@ -987,6 +1106,44 @@ def create_console_app(registry: Registry | None = None):
             # POST is the actual guard (same rule as the role model above).
             "can_review": _is_reviewer(request),
         }
+
+    def _signed_in(request: Request) -> bool:
+        """Is this caller a known one — a verified persona or the service token?
+
+        The credential is checked HERE rather than read off `scope["state"]`,
+        because the endpoints this gates (`/api/scenarios`, `/api/targets`) are
+        on the middleware's exempt list: it returns before verifying anything,
+        so `lab_user` is never populated on exactly these paths. Trusting the
+        state here would strip the links for signed-in operators too.
+        """
+        from interop import identity
+
+        claims = request.scope.get("state", {}).get("lab_user")
+        if claims:
+            return True
+        supplied = request.headers.get("x-lab-token")
+        if not supplied:
+            authz = request.headers.get("authorization", "")
+            if authz.startswith("Bearer "):
+                supplied = authz[len("Bearer ") :]
+        if not supplied:
+            return False
+        expected = os.environ.get("A2ALAB_TOKEN")
+        if expected and supplied == expected:
+            return True
+        return identity.verify_token(supplied) is not None
+
+    def _is_operator(request: Request) -> bool:
+        """A verified persona whose role is operator (config/users.yaml).
+        Unlike _signed_in, the shared service token does not qualify: it
+        identifies no one, and this is per-person operational data."""
+        from interop import identity
+
+        claims = request.scope.get("state", {}).get("lab_user") or {}
+        sub = claims.get("sub")
+        if not sub:
+            return False
+        return identity.load_users().get(sub, {}).get("role") == "operator"
 
     def _is_reviewer(request: Request) -> bool:
         """Sign-off is a named person's act: a verified lab user carrying
@@ -1118,6 +1275,12 @@ def create_console_app(registry: Registry | None = None):
             candidate == repo / "README.md"
             or (candidate.parent == repo / "plan" and candidate.suffix == ".md")
             or (candidate.parent == repo / "docs" and candidate.suffix == ".md")
+            # build-notes/<tool>/*.md — the presentation source notes. Insight
+            # refs already pointed at these and rendered as doc chips, so the
+            # chips existed and 404'd; they are public repo content, same class
+            # as plan/. `is_relative_to` rather than a parent check because the
+            # tree is nested one level (build-notes/claude/…).
+            or (candidate.is_relative_to(repo / "build-notes") and candidate.suffix == ".md")
         )
         if not allowed or not candidate.exists():
             raise HTTPException(status_code=404, detail=f"unknown doc: {name}")
@@ -1625,6 +1788,15 @@ def create_console_app(registry: Registry | None = None):
     # out of the Observability coverage panel and rendered in its own section.
     BUILD_TELEMETRY_PLATFORM = "coding"
 
+    # One string, two consumers (the telemetry payload and the cost sentinel's
+    # brief panel). It is the caveat that has to travel with every rendering of
+    # the number, so a second copy is a second thing that can drift out of it.
+    BUILD_TELEMETRY_COST_NOTE = (
+        "Modelled build cost at LIST PRICE — a client-side estimate the "
+        "coding agent computes from token counts, not an invoice. On "
+        "subscription or credit plans it is not money that changed hands."
+    )
+
     # Per-tool metric coverage. The two coding agents do NOT emit the same
     # shapes, and a table that renders $0.00 for a tool with no cost metric is
     # a lie by omission — so the section states the coverage instead of
@@ -1878,7 +2050,14 @@ def create_console_app(registry: Registry | None = None):
         by_repo: dict[str, dict] = {}
         by_model: dict[tuple[str, str], dict] = {}
         days: list[dict] = []
-        totals = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "sessions": 0}
+        totals = {
+            "cost_usd": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "sessions": 0,
+        }
         for row in sessions:
             try:
                 usage = json.loads(row.get("usage_json") or "{}")
@@ -1887,11 +2066,28 @@ def create_console_app(registry: Registry | None = None):
                 usage, raw = {}, {}
             tool = raw.get("tool") or str(row.get("native_id", "")).split(":")[0]
             cost = float(usage.get("cost_usd_estimated") or 0)
+            # Four buckets, not two. `input_tokens` is the UNCACHED remainder —
+            # reporting it as "input" understates a cache-heavy agent session by
+            # an order of magnitude, and the three input buckets bill at
+            # different multiples (~1x uncached, 1.25x/2x on write, ~0.1x on
+            # read), so they can never be summed into one number and priced.
+            # The harvest has stored all four since WS9; this endpoint dropped
+            # two of them on the floor.
             tin = int(usage.get("input_tokens") or 0)
             tout = int(usage.get("output_tokens") or 0)
+            tcr = int(usage.get("cache_read_input_tokens") or 0)
+            tcc = int(usage.get("cache_creation_input_tokens") or 0)
             bucket = by_tool.setdefault(
                 tool,
-                {"tool": tool, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "days": 0},
+                {
+                    "tool": tool,
+                    "cost_usd": 0.0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "cache_creation_tokens": 0,
+                    "days": 0,
+                },
             )
             note = BUILD_TELEMETRY_TOOL_NOTES.get(tool) or {}
             bucket["cost_supported"] = bool(note.get("cost", True))
@@ -1899,10 +2095,14 @@ def create_console_app(registry: Registry | None = None):
             bucket["cost_usd"] += cost
             bucket["input_tokens"] += tin
             bucket["output_tokens"] += tout
+            bucket["cache_read_tokens"] += tcr
+            bucket["cache_creation_tokens"] += tcc
             bucket["days"] += 1
             totals["cost_usd"] += cost
             totals["input_tokens"] += tin
             totals["output_tokens"] += tout
+            totals["cache_read_tokens"] += tcr
+            totals["cache_creation_tokens"] += tcc
             totals["sessions"] += int(raw.get("sessions") or 0)
 
             # Per-repository roll-up. This is the "what did each codebase
@@ -1918,6 +2118,8 @@ def create_console_app(registry: Registry | None = None):
                         "cost_usd": 0.0,
                         "input_tokens": 0,
                         "output_tokens": 0,
+                        "cache_read_tokens": 0,
+                        "cache_creation_tokens": 0,
                         "sessions": 0,
                         "active_time_s": 0.0,
                         "tools": {},
@@ -1930,6 +2132,11 @@ def create_console_app(registry: Registry | None = None):
                 agg["cost_usd"] += rcost
                 agg["input_tokens"] += int(rtok.get("input") or 0)
                 agg["output_tokens"] += int(rtok.get("output") or 0)
+                # `by_repo` keeps the raw OTel `type` label, so these are
+                # cacheRead/cacheCreation here and snake_case on the session
+                # usage above. Same numbers, two spellings, one API shape out.
+                agg["cache_read_tokens"] += int(rtok.get("cacheRead") or 0)
+                agg["cache_creation_tokens"] += int(rtok.get("cacheCreation") or 0)
                 agg["sessions"] += int(rb.get("sessions") or 0)
                 agg["active_time_s"] += float(rb.get("active_time_s") or 0)
                 agg["days"].add(str(row.get("created_at") or "")[:10])
@@ -1968,6 +2175,8 @@ def create_console_app(registry: Registry | None = None):
                     "cost_usd": round(cost, 4),
                     "input_tokens": tin,
                     "output_tokens": tout,
+                    "cache_read_tokens": tcr,
+                    "cache_creation_tokens": tcc,
                     "sessions": raw.get("sessions"),
                     "active_time_s": raw.get("active_time_s"),
                     "by_model": raw.get("by_model") or {},
@@ -1995,7 +2204,9 @@ def create_console_app(registry: Registry | None = None):
             hidden
             and not hidden["cost_usd"]
             and not hidden["input_tokens"]
-            and not (hidden["output_tokens"])
+            and not hidden["output_tokens"]
+            and not hidden["cache_read_tokens"]
+            and not hidden["cache_creation_tokens"]
         ):
             by_repo.pop("unattributed")
         else:
@@ -2034,6 +2245,20 @@ def create_console_app(registry: Registry | None = None):
                 "metrics, so cost per model is exact; Codex publishes no cost "
                 "metric, so its models are counted in sessions and turns only."
             ),
+            # Why the tiles show four numbers where every other cost dashboard
+            # shows two. This is the section's transferable finding, so it is
+            # stated in the UI rather than left in a build note.
+            "token_note": (
+                "Four buckets, not two. `input` is the UNCACHED remainder — the "
+                "prompt actually sent is input + cache read + cache creation, so "
+                "reporting `input` alone understates a long agent session by an "
+                "order of magnitude. They also do not bill alike: a cache read "
+                "costs roughly a tenth of uncached input and a cache write costs "
+                "1.25x (5-minute TTL) or 2x (1-hour), which is why they cannot be "
+                "summed into one 'tokens' figure and multiplied by a rate. Cost "
+                "per unit of work is the engineering number; price per unit is a "
+                "contract."
+            ),
             "by_repo": repos,
             # What the per-repo table is NOT showing, so the omission is stated
             # rather than inferred from a table that looks complete.
@@ -2047,11 +2272,7 @@ def create_console_app(registry: Registry | None = None):
             if hidden
             else None,
             "days": days,
-            "cost_note": (
-                "Modelled build cost at LIST PRICE — a client-side estimate the "
-                "coding agent computes from token counts, not an invoice. On "
-                "subscription or credit plans it is not money that changed hands."
-            ),
+            "cost_note": BUILD_TELEMETRY_COST_NOTE,
             "tool_notes": [{"tool": k, **v} for k, v in BUILD_TELEMETRY_TOOL_NOTES.items()],
             "scope_note": (
                 "The totals above are account-wide: the harvest queries each "
@@ -2198,6 +2419,97 @@ def create_console_app(registry: Registry | None = None):
                     if getattr(dr, "error", None):
                         return {"ok": False, "error": f"{dr.error.type}: {dr.error.message}"}
             return {"ok": True, "session_id": None, "agent_name": agent_name}
+
+        try:
+            return await asyncio.get_event_loop().run_in_executor(None, run)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    # ---- Cost sentinel (WS12): weekly build-cost brief --------------------
+    # Same shape as the obs analyst above — a paused weekly deployment reading
+    # the store through the obs MCP server — and deliberately so. What differs
+    # is the read: briefs share lab.obs_briefs and are separated by `kind`.
+
+    COST_BRIEF_KIND = "cost"
+    COST_SENTINEL_STATE = "cost_sentinel.json"
+
+    def _cost_sentinel_state() -> dict | None:
+        path = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / COST_SENTINEL_STATE
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text())
+        except (ValueError, OSError):
+            return None
+
+    @app.get("/api/cost-brief")
+    async def cost_brief():
+        """The newest weekly cost brief, plus enough state to render the panel
+        before one exists. An un-provisioned sentinel is a normal state, not an
+        error — the answer is the setup command."""
+        state = _cost_sentinel_state()
+        base = {
+            "provisioned": bool(state),
+            "agent_name": (state or {}).get("agent_name"),
+            "agent_id": (state or {}).get("agent_id"),
+            "deployment_id": (state or {}).get("deployment_id"),
+            "model": (state or {}).get("model"),
+            "cron": (state or {}).get("cron"),
+            "timezone": (state or {}).get("timezone"),
+            "setup_hint": "uv run python scripts/setup_cost_sentinel.py",
+            # Travels with every response so no rendering of the brief can drop
+            # it. Same rule as build-telemetry's cost_note.
+            "cost_note": BUILD_TELEMETRY_COST_NOTE,
+        }
+
+        from observability.pg import PgClient, PgObsStore
+
+        if not PgClient.configured():
+            return {**base, "briefs": [], "error": "hosted store not configured (A2ALAB_PG_*)"}
+
+        def run():
+            store = PgObsStore()
+            try:
+                return store.list_briefs(limit=8, kind=COST_BRIEF_KIND)
+            finally:
+                store.close()
+
+        try:
+            briefs = await asyncio.get_event_loop().run_in_executor(None, run)
+            return {**base, "briefs": briefs}
+        except Exception as exc:  # noqa: BLE001 - surface, don't 500 the panel
+            return {**base, "briefs": [], "error": f"{type(exc).__name__}: {exc}"}
+
+    @app.post("/api/cost-brief/run")
+    async def cost_brief_run(request: Request):
+        """Fire one manual deployment run. Operator-only: a firing bills a real
+        session, which is not something a viewer should be able to spend."""
+        import time as _time
+
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="operator-only")
+        state = _cost_sentinel_state()
+        if not state or not state.get("deployment_id"):
+            return {
+                "ok": False,
+                "error": "sentinel not provisioned — scripts/setup_cost_sentinel.py",
+            }
+
+        def run():
+            from anthropic import Anthropic
+
+            client = Anthropic()
+            # Manual runs work while the deployment is paused — which is how it
+            # ships, so this is the normal path rather than an override.
+            client.beta.deployments.run(state["deployment_id"])
+            for _ in range(6):  # short poll; the UI can re-check later
+                _time.sleep(2)
+                for dr in client.beta.deployment_runs.list(deployment_id=state["deployment_id"]):
+                    if dr.session_id:
+                        return {"ok": True, "session_id": dr.session_id}
+                    if getattr(dr, "error", None):
+                        return {"ok": False, "error": f"{dr.error.type}: {dr.error.message}"}
+            return {"ok": True, "session_id": None}
 
         try:
             return await asyncio.get_event_loop().run_in_executor(None, run)

@@ -11,6 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; source .env; set +a
+source deploy/aws_preflight.sh
 REGION="${AWS_REGION:-us-east-1}"
 FN=a2alab-af-shim
 ZIP=deploy/shim/dist/a2alab-af-shim.zip

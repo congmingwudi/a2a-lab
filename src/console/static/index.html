@@ -617,6 +617,102 @@
   .obs-card .v { margin-top: 7px; font-size: 21px; font-weight: 600; line-height: 1.1;
                  font-variant-numeric: tabular-nums; }
 
+  /* ---- Architecture section (plan/09-deployment-map.md) -------------------
+     A diagram here is the exhibit, not decoration: it gets a surface of its
+     own, centred, with room around it, because it is read from across a room
+     during a readout. */
+  /* The "read the source" banner. Tinted rather than loud: it is an invitation
+     that should still be there on the tenth visit without shouting on the first. */
+  .arch-repo { display: flex; gap: 12px; align-items: flex-start; margin: 14px 0 22px;
+               padding: 13px 16px; border-radius: 12px; font-size: 13px; line-height: 1.55;
+               color: var(--fg);
+               border: 1px solid color-mix(in srgb, var(--hero-link) 34%, transparent);
+               background: color-mix(in srgb, var(--hero-link) 9%, transparent); }
+  .arch-repo svg { flex: none; margin-top: 2px; opacity: .85; }
+  .arch-repo a { display: inline-block; margin-top: 4px; font-family: var(--font-mono);
+                 font-size: 12px; color: var(--hero-link); text-decoration: none; }
+  .arch-repo a:hover { text-decoration: underline; }
+
+  .arch-title { display: flex; align-items: center; gap: 12px; }
+  /* Credential countdown. Status colours are the STATUS palette — reserved,
+     never reused for a series — and each row carries a dot plus the number, so
+     urgency is never colour alone. */
+  /* Credentials Expiry Analysis. Two columns: the measured table is narrow and
+     scannable, the agent's reading gets the room — it is prose and needs the
+     width. Collapses to one column when there isn't room for both. */
+  .creds-actions { display: flex; gap: 12px; align-items: center; margin: 0 0 18px; }
+  .creds-actions .hint { flex: 1; }
+  /* The measured column is sized to the longest credential name —
+     'cloudwatch.amazonaws.com key — a2alab-cw-metrics-otlp' — because
+     wrapping an identifier mid-token makes it unscannable. */
+  .creds-split { display: grid; grid-template-columns: minmax(380px, 460px) 1fr; gap: 26px;
+                 align-items: start; }
+  @media (max-width: 1100px) { .creds-split { grid-template-columns: 1fr; } }
+  .creds-split h3 { margin: 0 0 8px; }
+  .creds-table table.obs-table td { white-space: normal; }
+  .creds-table .hint { font-size: 11px; margin-top: 2px; }
+  .cred-brief { font-size: 13.5px; line-height: 1.65; }
+  .cred-brief h4, .cred-brief h5 { margin: 14px 0 4px; }
+  .cred-brief p { margin: 0 0 10px; }
+  /* Urgency on the sidebar count, matching the button treatment. */
+  .count-alert { color: var(--err, #e0574f) !important;
+                 border-color: color-mix(in srgb, var(--err, #e0574f) 45%, transparent) !important; }
+  .obs-plat .expdot.exp-critical, .obs-plat .expdot.exp-expired { background: var(--err, #e0574f); }
+  .obs-plat .expdot.exp-warn { background: #d9973a; }
+  .obs-plat .expdot.exp-ok { background: var(--rest, #4bb37b); }
+  .ghost.exp-critical, .ghost.exp-expired { color: var(--err, #e0574f);
+                 border-color: color-mix(in srgb, var(--err, #e0574f) 45%, transparent); }
+  .ghost.exp-warn { color: #d9973a;
+                 border-color: color-mix(in srgb, #d9973a 45%, transparent); }
+  .expcount { display: inline-block; min-width: 15px; padding: 0 4px; border-radius: 999px;
+              font: 700 9.5px var(--font-mono); background: currentColor; }
+  .expcount::before { content: ""; }
+  .arch-prep.exp-expired, .arch-prep.exp-critical { color: var(--err, #e0574f);
+              border-color: color-mix(in srgb, var(--err, #e0574f) 45%, transparent); }
+  .arch-prep.exp-warn { color: #d9973a;
+              border-color: color-mix(in srgb, #d9973a 45%, transparent); }
+  .expdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+            margin-right: 8px; vertical-align: 1px; background: var(--muted); }
+  tr.exp-expired .expdot, tr.exp-critical .expdot { background: var(--err, #e0574f); }
+  tr.exp-warn .expdot { background: #d9973a; }
+  tr.exp-ok .expdot { background: var(--rest, #4bb37b); }
+  tr.exp-error .expdot { background: var(--mcp, #ff9c3e); }
+  tr.exp-no-expiry .expdot { background: transparent; border: 1px solid var(--muted); }
+  .arch-title h2 { flex: 1; margin: 0; }
+  .arch-prep { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+  /* A repo path that links to its source. Kept as code type — it IS a path —
+     with the link colour and a hover underline doing the affordance. */
+  .repo-link { text-decoration: none; border-bottom: 1px dotted color-mix(in srgb, var(--hero-link) 55%, transparent); }
+  .repo-link code { color: var(--hero-link); }
+  .repo-link:hover { border-bottom-style: solid; }
+  .repo-link:hover code { color: var(--fg-hi); }
+
+  .arch-level { margin: 0 0 30px; }
+  .arch-head { display: flex; align-items: center; gap: 10px; margin: 22px 0 6px; }
+  .arch-head h3 { margin: 0; flex: 1; }
+  .arch-figure { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+                 padding: 18px; margin: 10px 0 14px; overflow-x: auto; text-align: center; }
+  .arch-figure svg { max-width: 100%; height: auto; }
+  .arch-figure pre { text-align: left; margin: 0; overflow-x: auto; font-size: 11.5px; }
+  .arch-prose { font-size: 13.5px; line-height: 1.6; }
+  .arch-prose table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 10px 0 16px; }
+  .arch-prose th { text-align: left; padding: 8px 11px; background: var(--card2);
+                   border-bottom: 1px solid var(--border); font: 600 10px var(--font-mono);
+                   text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+  .arch-prose td { padding: 8px 11px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .arch-prose tr:last-child td { border-bottom: none; }
+  /* Native fullscreen paints the element on a black backdrop by default; give
+     it the page's own surface so a light-theme readout is not a shock. */
+  .arch-figure:fullscreen { background: var(--bg); display: flex; align-items: center;
+                            justify-content: center; padding: 3vh 3vw; border-radius: 0; }
+  .arch-figure:fullscreen svg { max-height: 94vh; max-width: 96vw; }
+  /* Fallback when the Fullscreen API is unavailable or refused (some embedded
+     browsers) — a full-viewport overlay, Esc to leave. */
+  .arch-figure.arch-fsfallback { position: fixed; inset: 0; z-index: 60; margin: 0;
+                                 border-radius: 0; display: flex; align-items: center;
+                                 justify-content: center; background: var(--bg); }
+  .arch-figure.arch-fsfallback svg { max-height: 94vh; max-width: 96vw; }
+
   /* Cost per repository. One hue at one intensity — this is magnitude, not
      identity, so a second colour would imply a category that isn't there.
      Rounded data-end on the FILL (the track stays square-shouldered) so the
@@ -626,6 +722,25 @@
   .repo-bar .fill { height: 100%; border-radius: 0 4px 4px 0;
                     background: var(--bar); transition: width .25s ease; }
   .repo-bar .fill.muted { background: var(--muted); }
+  /* Token composition: input / cache read / cache write as parts of one prompt.
+     ONE hue at three lightness steps, not three hues — the segments are billing
+     TIERS of the same quantity (~1x, ~0.1x, 1.25-2x), so a sequential ramp says
+     "same measure, different rate" where a categorical palette would imply three
+     unrelated things. Lightness carries the encoding, so it survives every kind
+     of colour-vision deficiency without needing a validated hue set. 2px
+     surface gaps between fills so adjacent segments read as separate marks. */
+  .tok-mix { margin: 2px 0 16px; }
+  .tok-bar { display: flex; gap: 2px; height: 10px; border-radius: 3px;
+             overflow: hidden; background: color-mix(in srgb, var(--fg) 8%, transparent); }
+  .tok-bar > div { height: 100%; min-width: 2px; transition: width .25s ease; }
+  .seg-in { background: var(--bar); }
+  .seg-cr { background: color-mix(in srgb, var(--bar) 45%, var(--bg)); }
+  .seg-cw { background: color-mix(in srgb, var(--bar) 78%, var(--bg)); }
+  /* The legend is not colour-alone: every swatch is followed by its own label
+     and percentage, so identity survives even if the swatch does not render. */
+  .tok-key { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px;
+             white-space: nowrap; }
+  .tok-key i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
   .obs-ev { border-left: 2px solid var(--border); padding: 6px 0 6px 12px; margin: 0 0 4px; }
   .obs-ev .et { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
   .obs-ev .es { font-size: 12.5px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
@@ -922,7 +1037,7 @@
       <button class="x" onclick="toggleSide()" title="Close the Control Panel"
         aria-label="Close the Control Panel">❮</button>
     </div>
-    <details class="acc" id="accExperiments" open>
+    <details class="acc" id="accExperiments">
       <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 1.8v4.1L2.9 12a1.6 1.6 0 0 0 1.4 2.4h7.4A1.6 1.6 0 0 0 13.1 12L9.8 5.9V1.8"/><path d="M5.2 1.8h5.6M4.7 9.4h6.6"/></svg>Experiments <span class="count" id="expCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
@@ -934,7 +1049,7 @@
         <div id="scenarios"></div>
       </div>
     </details>
-    <details class="acc" id="accObs" open>
+    <details class="acc" id="accObs">
       <summary onclick="obsSummaryNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.4 8.4h3l1.9-5 2.4 9.2 1.8-4.2h4.1"/></svg>Observability <span class="count" id="obsCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
@@ -965,7 +1080,33 @@
         <div id="buildSide"></div>
       </div>
     </details>
-    <details class="acc" id="accInsights" open>
+    <!-- The deployment map (plan/09-deployment-map.md). Sits next to
+         Observability and Insights because it answers the third question an
+         operator arrives with — not "what did the agents do" or "what did we
+         learn", but "what is deployed, where, and why there". -->
+    <details class="acc" id="accArch">
+      <summary onclick="archNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.6" y="1.6" width="5" height="4" rx="1"/><rect x="9.4" y="10.4" width="5" height="4" rx="1"/><rect x="1.6" y="8.6" width="5" height="4" rx="1"/><path d="M4.1 6.6v2M6.6 12.4h2.8"/></svg>Architecture <span class="count" id="archCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">What is deployed, where, and why there.</span>
+        </div>
+        <div id="archSide"></div>
+      </div>
+    </details>
+    <!-- Sits under Architecture because it answers the operational half of the
+         same question: not just what is deployed, but what is about to stop
+         working. Operator-only — the section is removed entirely for everyone
+         else rather than rendered empty. -->
+    <details class="acc" id="accCreds">
+      <summary onclick="credsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 4.4V8l2.4 1.6"/></svg>Credentials Expiry Analysis <span class="count" id="credsCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools" style="padding-bottom:10px">
+          <span class="hint">When each credential stops working, and what to do first.</span>
+        </div>
+        <div id="credsSide"></div>
+      </div>
+    </details>
+    <details class="acc" id="accInsights">
       <summary onclick="insightsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 12.6h4M6.6 14.4h2.8"/><path d="M8 1.6a4.4 4.4 0 0 0-2.6 7.9c.4.3.6.8.6 1.1h4c0-.3.2-.8.6-1.1A4.4 4.4 0 0 0 8 1.6z"/></svg>Insights <span class="count" id="insightCount"></span></summary>
       <div class="acc-body">
         <div class="traces-tools">
@@ -1186,13 +1327,45 @@ function inlineMd(s) {
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<i>$2</i>");
 }
 
-function mdToHtml(src) {
+// GFM pipe table: a header row, a |---|---| separator, then body rows. Added
+// for the deployment map, whose comparisons ("which host, and why") are tables
+// — without this they render as pipe soup. Cells go through inlineMd, so the
+// escaping done at the top of mdToHtml still holds.
+function tableRows(lines, start) {
+  const isRow = s => /^\s*\|.*\|\s*$/.test(s);
+  const isSep = s => /^\s*\|[\s:|-]+\|\s*$/.test(s) && s.includes("-");
+  if (!isRow(lines[start]) || !isSep(lines[start + 1] || "")) return null;
+  const cells = s => s.trim().replace(/^\||\|$/g, "").split("|").map(c => inlineMd(c.trim()));
+  let i = start + 2;
+  const body = [];
+  while (i < lines.length && isRow(lines[i]) && !isSep(lines[i])) body.push(cells(lines[i++]));
+  const head = cells(lines[start]);
+  return {
+    next: i,
+    html: `<table><thead><tr>${head.map(c => `<th>${c}</th>`).join("")}</tr></thead>`
+      + `<tbody>${body.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`,
+  };
+}
+
+// opts.joinLines: treat a paragraph's source newlines as SOFT wraps and join
+// with a space, which is what markdown means. Default stays <br> because the
+// console's other caller is agent output, where a model's line breaks are
+// usually deliberate. A hard-wrapped DOCUMENT (plan/*.md wraps at ~78 chars)
+// rendered the default way gets a forced break every 78 characters — text that
+// re-wraps into a ragged column and reads like a terminal, not a page.
+function mdToHtml(src, opts) {
+  const joiner = opts && opts.joinLines ? " " : "<br>";
   const lines = esc(src).split(/\r?\n/);
   const out = [];
   let list = null, code = false, para = [];
-  const flushPara = () => { if (para.length) { out.push("<p>" + para.map(inlineMd).join("<br>") + "</p>"); para = []; } };
+  const flushPara = () => { if (para.length) { out.push("<p>" + para.map(inlineMd).join(joiner) + "</p>"); para = []; } };
   const closeList = () => { if (list) { out.push("</" + list + ">"); list = null; } };
-  for (const line of lines) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
+    if (!code) {
+      const tbl = tableRows(lines, idx);
+      if (tbl) { flushPara(); closeList(); out.push(tbl.html); idx = tbl.next - 1; continue; }
+    }
     if (line.trim().startsWith("```")) {
       flushPara(); closeList();
       out.push(code ? "</code></pre>" : "<pre><code>");
@@ -1203,6 +1376,15 @@ function mdToHtml(src) {
     const h = line.match(/^(#{1,4})\s+(.*)/);
     const ul = line.match(/^\s*[-*]\s+(.*)/);
     const ol = line.match(/^\s*\d+[.)]\s+(.*)/);
+    // A wrapped list item's continuation line belongs to the item above it, not
+    // to a new paragraph. Without this, every hard-wrapped bullet in a plan doc
+    // emits a stray <p> between </li> and the next <li>.
+    if (joiner === " " && list && !ul && !ol && !h && /^\s+\S/.test(line)
+        && !para.length && out.length && out[out.length - 1].endsWith("</li>")) {
+      out[out.length - 1] = out[out.length - 1].slice(0, -"</li>".length)
+        + " " + inlineMd(line.trim()) + "</li>";
+      continue;
+    }
     if (h) { flushPara(); closeList(); const lvl = Math.min(h[1].length + 3, 6);
       out.push(`<h${lvl}>` + inlineMd(h[2]) + `</h${lvl}>`); }
     else if (ul) { flushPara(); if (list !== "ul") { closeList(); out.push("<ul>"); list = "ul"; }
@@ -1238,12 +1420,44 @@ const D_REF_RE = /\b(D\d{1,2})\b/;
 // Doc refs (plan/*.md, README.md) get the same treatment as D-refs: a chip
 // whose popover renders the file via /api/docs — so the Lab Guide's cited
 // sources are one click from their text.
-const DOC_REF_RE = /\b(plan\/[\w.-]+\.md|README\.md)\b/;
-const REF_SPLIT_RE = /(\bD\d{1,2}\b|\bplan\/[\w.-]+\.md\b|\bREADME\.md\b)/;
+// Every markdown file the console can serve (/api/docs whitelist): the plan
+// docs, the build notes, docs/, and the README. Keep the two patterns in step —
+// DOC_REF_RE tests, REF_SPLIT_RE splits, and a path matching one but not the
+// other either renders as a dead chip or stays plain text.
+const DOC_PATH_SRC = "(?:plan|docs)\\/[\\w.-]+\\.md|build-notes\\/[\\w.-]+\\/[\\w.-]+\\.md|README\\.md";
+// The lookbehind is load-bearing: `\b` matches between `-` and `d`, so
+// `tmp-docs/07.25.2026-AD3-….md` (a real reference in plan/07) matched as
+// `docs/…` and produced a chip pointing at a file /api/docs will not serve.
+// A chip that 404s is worse than plain text — it invites a click and fails.
+const DOC_START = "(?<![\\w/-])";
+const DOC_REF_RE = new RegExp(DOC_START + "(" + DOC_PATH_SRC + ")\\b");
+const REF_SPLIT_RE = new RegExp("(\\bD\\d{1,2}\\b|" + DOC_START + "(?:" + DOC_PATH_SRC + ")\\b)");
+
+// Prose writes a file reference as `plan/03-results.md` — inline code — and the
+// text walker below deliberately refuses to touch anything inside <code>, so
+// the most common way a doc cites another doc was the one way that never became
+// a chip. Handled separately and narrowly: a <code> whose ENTIRE text is a
+// known doc path becomes the chip; code containing anything else is left alone.
+function linkifyCodeDocRefs(root) {
+  if (!root.querySelectorAll) return;
+  for (const el of root.querySelectorAll("code")) {
+    if (el.closest("pre, .dchip, .dpopover")) continue;
+    const text = el.textContent.trim();
+    if (!new RegExp("^(?:" + DOC_PATH_SRC + ")$").test(text)) continue;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "dchip docchip";
+    b.textContent = text;
+    b.dataset.doc = text;
+    b.title = "Open " + text;
+    el.replaceWith(b);
+  }
+}
 
 function linkifyDecisions(root) {
   if (!root || !Object.keys(decisionLog).length) return;
   if (root.nodeType !== 1 && root.nodeType !== 11) return;
+  linkifyCodeDocRefs(root);
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (!D_REF_RE.test(node.nodeValue) && !DOC_REF_RE.test(node.nodeValue))
@@ -2628,12 +2842,23 @@ function renderModeBadge() {
 // it beside Agentforce would quietly claim they are the same kind of thing.
 let buildData = null;
 let buildHarvesting = false;
+let costBrief = null;   // WS12: the sentinel's latest weekly brief + its state
+let buildTab = "run";
+
+async function loadCostBrief() {
+  try {
+    const r = await fetch(apiUrl("/api/cost-brief"));
+    if (r.status === 404 || r.status === 403) return; // older server, or viewer
+    costBrief = await r.json();
+  } catch (_e) { /* the panel renders its un-provisioned state */ }
+}
 
 async function loadBuildTelemetry() {
   try {
     const r = await fetch(apiUrl("/api/build-telemetry"));
     if (r.status === 404) return; // console server predates this API
     buildData = await r.json();
+    await loadCostBrief();
     const count = document.getElementById("buildCount");
     // Deliberately not the dollar total. Money belongs on the dashboard,
     // where the "modelled at list price, not an invoice" caveat sits next to
@@ -2702,9 +2927,30 @@ window.harvestBuild = async ev => {
   }
 };
 
+// Run / Details, the same tabbar the experiment views and the Credentials page
+// use. Run is what was measured; Details is how the sentinel that interprets it
+// is built. Established pattern — not a third layout.
+function buildTabbar() {
+  const stamp = costBrief && costBrief.briefs && costBrief.briefs.length
+    ? `last brief ${fmtWhen(costBrief.briefs[0].created_at)}`
+    : (buildData && buildData.harvest && buildData.harvest.detail ? "" : "");
+  return `
+    <div class="tabbar">
+      <h2>Coding Agents Telemetry</h2>
+      ${stamp ? `<span class="obs-updated">${esc(stamp)}</span>` : ""}
+      <div class="tabs">
+        <button class="tab ${buildTab === "run" ? "on" : ""}" onclick="setBuildTab('run')">Run</button>
+        <button class="tab ${buildTab === "details" ? "on" : ""}" onclick="setBuildTab('details')">Details</button>
+      </div>
+    </div>`;
+}
+
+window.setBuildTab = id => { buildTab = id; renderMain(true); };
+
 function buildHtml() {
   if (!buildData) return `<div class="empty">Loading…</div>`;
   const note = `<div class="hint" style="margin:10px 0 18px">⚠️ ${esc(buildData.cost_note)}</div>`;
+  if (buildTab === "details") return buildTabbar() + buildDetailsHtml();
 
   if (!buildData.enabled) {
     // The honest first-run state. Telemetry is not retroactive, so the useful
@@ -2715,7 +2961,7 @@ function buildHtml() {
         <div style="padding:8px 12px" class="hint">${esc(s.detail)}</div>
       </div>`).join("");
     return `
-      <h2>Coding Agents Telemetry</h2>
+      ${buildTabbar()}
       <p class="hint">Claude Code and the Codex CLI both export OpenTelemetry, and
       CloudWatch accepts OTLP on a managed endpoint — no collector. Point both at it
       and this section shows what the lab cost to build, per tool, per day.</p>
@@ -2726,13 +2972,58 @@ function buildHtml() {
   }
 
   const t = buildData.totals;
+  // The four billed buckets, each its own tile. Deliberately NOT one "tokens"
+  // number: `input` is only the uncached remainder, and the three input buckets
+  // bill at ~1x / 1.25x-2x / ~0.1x, so a single total cannot be priced. Compact
+  // enough to read at a glance, which is the point of showing them together.
+  const kfmt = n => {
+    n = n || 0;
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+    return String(n);
+  };
+  const promptTotal = (t.input_tokens || 0) + (t.cache_read_tokens || 0)
+    + (t.cache_creation_tokens || 0);
   const tiles = `
     <div class="obs-cards">
       <div class="obs-card"><div class="k">modelled cost</div><div class="v">$${(t.cost_usd || 0).toFixed(2)}</div></div>
-      <div class="obs-card"><div class="k">input tokens</div><div class="v">${(t.input_tokens || 0).toLocaleString()}</div></div>
-      <div class="obs-card"><div class="k">output tokens</div><div class="v">${(t.output_tokens || 0).toLocaleString()}</div></div>
       <div class="obs-card"><div class="k">sessions</div><div class="v">${t.sessions || 0}</div></div>
+      <div class="obs-card"><div class="k">input <span class="hint">uncached</span></div>
+        <div class="v" title="${(t.input_tokens || 0).toLocaleString()}">${kfmt(t.input_tokens)}</div></div>
+      <div class="obs-card"><div class="k">cache read <span class="hint">~0.1x</span></div>
+        <div class="v" title="${(t.cache_read_tokens || 0).toLocaleString()}">${kfmt(t.cache_read_tokens)}</div></div>
+      <div class="obs-card"><div class="k">cache write <span class="hint">1.25–2x</span></div>
+        <div class="v" title="${(t.cache_creation_tokens || 0).toLocaleString()}">${kfmt(t.cache_creation_tokens)}</div></div>
+      <div class="obs-card"><div class="k">output</div>
+        <div class="v" title="${(t.output_tokens || 0).toLocaleString()}">${kfmt(t.output_tokens)}</div></div>
     </div>`;
+
+  // Composition of the prompt actually sent, as one stacked bar. The shape IS
+  // the finding: on an agent workload cache reads dominate, so a dashboard that
+  // charts "input tokens" is charting the thin slice.
+  const segs = [
+    ["input", t.input_tokens || 0, "seg-in"],
+    ["cache read", t.cache_read_tokens || 0, "seg-cr"],
+    ["cache write", t.cache_creation_tokens || 0, "seg-cw"],
+  ];
+  const mix = promptTotal ? `
+    <div class="tok-mix">
+      <div class="tok-bar">${segs.map(([label, v, cls]) => v
+        ? `<div class="${cls}" style="width:${(v / promptTotal * 100).toFixed(2)}%"
+             title="${label}: ${v.toLocaleString()} (${(v / promptTotal * 100).toFixed(1)}%)"></div>`
+        : "").join("")}</div>
+      <div class="hint" style="margin-top:6px">
+        ${segs.map(([label, v, cls]) =>
+          `<span class="tok-key"><i class="${cls}"></i>${label} ${(v / promptTotal * 100).toFixed(1)}%</span>`
+        ).join(" ")}
+        · ${promptTotal.toLocaleString()} prompt tokens processed
+        (<b>${(t.input_tokens || 0).toLocaleString()}</b> of them uncached)
+      </div>
+    </div>` : "";
+
+  const tokenNote = buildData.token_note
+    ? `<div class="hint" style="margin:10px 0 18px">${esc(buildData.token_note)}</div>` : "";
 
   // A tool with no cost metric must render "n/a", never "$0.00" — a zero here
   // reads as "this tool was free", which is the opposite of "we cannot see it".
@@ -2742,6 +3033,8 @@ function buildHtml() {
   const byTool = buildData.by_tool.map(b => `
     <tr><td>${esc(b.tool)}</td><td class="num">${money(b.cost_usd, b.cost_supported)}</td>
         <td class="num">${num(b.input_tokens, b.tokens_supported)}</td>
+        <td class="num">${num(b.cache_read_tokens, b.tokens_supported)}</td>
+        <td class="num">${num(b.cache_creation_tokens, b.tokens_supported)}</td>
         <td class="num">${num(b.output_tokens, b.tokens_supported)}</td>
         <td class="num">${b.days}</td></tr>`).join("");
 
@@ -2749,6 +3042,8 @@ function buildHtml() {
     <tr><td>${esc(d.date)}</td><td class="tool">${esc(d.tool)}</td>
         <td class="num">${money(d.cost_usd, d.cost_supported)}</td>
         <td class="num">${num(d.input_tokens, d.tokens_supported)}</td>
+        <td class="num">${num(d.cache_read_tokens, d.tokens_supported)}</td>
+        <td class="num">${num(d.cache_creation_tokens, d.tokens_supported)}</td>
         <td class="num">${num(d.output_tokens, d.tokens_supported)}</td>
         <td class="num">${d.sessions ?? "—"}</td>
         <td class="num">${d.active_time_s ? (d.active_time_s / 3600).toFixed(1) + "h" : "—"}</td></tr>`).join("");
@@ -2837,8 +3132,10 @@ function buildHtml() {
           </div>
           <div class="hint">
             project <b>${esc(r.project || "—")}</b> ·
-            ${(r.input_tokens || 0).toLocaleString()} in ·
-            ${(r.output_tokens || 0).toLocaleString()} out ·
+            ${kfmt(r.input_tokens)} in ·
+            ${kfmt(r.cache_read_tokens)} cache read ·
+            ${kfmt(r.cache_creation_tokens)} cache write ·
+            ${kfmt(r.output_tokens)} out ·
             ${r.sessions || 0} sessions ·
             ${r.days || 0} day${r.days === 1 ? "" : "s"}
             ${tools ? " · " + tools : ""}
@@ -2868,15 +3165,18 @@ function buildHtml() {
     exports nothing at all, so it cannot appear here even after a harvest.</p>`;
 
   return `
-    <h2>Coding Agents Telemetry</h2>
+    ${buildTabbar()}
     <p class="hint">The lab measuring its own construction — two coding tools, one
     OTLP endpoint, harvested through the same seam as every agent platform.</p>
-    ${tiles}${note}${scope}
+    ${tiles}${mix}${tokenNote}${note}${scope}
+    ${costBriefHtml()}
     ${repoHtml}
     <h3>By tool</h3>
     <div class="tbl-card"><div class="tbl-scroll">
     <table class="obs-table"><thead><tr><th>tool</th><th class="num">cost</th>
-      <th class="num">input</th><th class="num">output</th><th class="num">days</th></tr></thead>
+      <th class="num">input</th><th class="num">cache read</th>
+      <th class="num">cache write</th><th class="num">output</th>
+      <th class="num">days</th></tr></thead>
     <tbody>${byTool}</tbody></table></div></div>
     ${modelHtml}
     <h3>Per-tool coverage</h3>
@@ -2887,9 +3187,206 @@ function buildHtml() {
     <h3>By day</h3>
     <div class="tbl-card"><div class="tbl-scroll">
     <table class="obs-table"><thead><tr><th>date</th><th>tool</th><th class="num">cost</th>
-      <th class="num">input</th><th class="num">output</th><th class="num">sessions</th>
-      <th class="num">active</th></tr></thead>
+      <th class="num">input</th><th class="num">cache read</th>
+      <th class="num">cache write</th><th class="num">output</th>
+      <th class="num">sessions</th><th class="num">active</th></tr></thead>
     <tbody>${days}</tbody></table></div></div>`;
+}
+
+// The sentinel's pipeline, D22 split made visible: everything below the store
+// is deterministic and hosted, the agent sits above it and only interprets.
+const COST_SENTINEL_DIAGRAM = `flowchart TB
+  subgraph LOCAL["Coding agents — any checkout, any machine"]
+    CC["Claude Code<br/>OTLP exporter"]
+    CX["Codex CLI<br/>OTLP exporter"]
+  end
+  CW["CloudWatch<br/>managed OTLP endpoint"]
+  HARV["Harvest Lambda<br/>coding_source.py — every 6h, PromQL"]
+  PG[("Aurora, lab schema<br/>obs_sessions + obs_briefs")]
+  CC --> CW
+  CX --> CW
+  CW --> HARV
+  HARV --> PG
+
+  subgraph ANT["Anthropic — Managed Agents"]
+    MCP["obs MCP server<br/>query_obs_store + save_brief"]
+    AG["Cost Sentinel<br/>weekly deployment, created PAUSED"]
+    AG -->|read-only SQL| MCP
+    AG -->|save_brief kind=cost| MCP
+  end
+  PG <--> MCP
+  PG --> UI["Console — Coding Agents Telemetry"]`;
+
+async function renderCostDiagram() {
+  const fig = document.getElementById("costfig");
+  if (!fig) return;
+  try {
+    const mermaid = await ensureMermaid();
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    mermaid.initialize({
+      startOnLoad: false, theme: dark ? "dark" : "default",
+      securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
+    });
+    const { svg } = await mermaid.render("costfig-svg", COST_SENTINEL_DIAGRAM);
+    fig.innerHTML = svg;
+  } catch (e) {
+    // Same honesty rule as every other diagram: say what broke, hand over the
+    // source anyway — it is the thing you can paste elsewhere.
+    fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
+      + `<pre>${esc(COST_SENTINEL_DIAGRAM)}</pre>`;
+  }
+}
+
+// ---- WS12: the cost sentinel's brief, inline above the measured tables -----
+// The tables answer "what did it cost"; the brief answers "why did that move",
+// which is the only part a model is needed for. Deliberately ABOVE the numbers:
+// a reader who stops after the first screen should get the interpretation, not
+// a total they then have to interpret themselves.
+function costBriefHtml() {
+  if (!costBrief) return "";
+  if (!costBrief.provisioned) {
+    return `
+      <h3>Cost sentinel</h3>
+      <p class="hint">Not provisioned yet. A weekly scheduled agent (WS12) that reads this
+      store through the obs MCP server and explains the week's movement —
+      <code>${esc(costBrief.setup_hint || "scripts/setup_cost_sentinel.py")}</code>.
+      It is created <b>paused</b>: a scheduled firing bills a real session.
+      See the <b>Details</b> tab for why this one is an agent when the credential
+      analyst was demoted to a plain API call.</p>`;
+  }
+  const briefs = costBrief.briefs || [];
+  const err = costBrief.error
+    ? `<div class="hint" style="margin-bottom:8px">Store unavailable: ${esc(costBrief.error)}</div>`
+    : "";
+  const meta = [
+    costBrief.model,
+    costBrief.cron ? `cron '${costBrief.cron}' ${costBrief.timezone || ""}`.trim() : null,
+  ].filter(Boolean).join(" · ");
+  const body = briefs.length
+    ? `<div class="cred-brief">${mdToHtml(briefs[0].brief_md, { joinLines: true })}</div>
+       <div class="hint" style="margin-top:8px">
+         ${esc(briefs[0].brief_date)} · ${briefs[0].queries_run ?? "?"} queries ·
+         session <code>${esc(briefs[0].session_id || "—")}</code>
+         ${briefs.length > 1 ? ` · ${briefs.length - 1} earlier brief${briefs.length > 2 ? "s" : ""} in the store` : ""}
+       </div>`
+    : `<div class="hint">No brief yet. <b>Brief now</b> fires one manual run — it works while
+       the weekly schedule is paused, which is how it ships.</div>`;
+  return `
+    <h3>Cost sentinel
+      <span class="obs-updated" style="float:right">${esc(meta)}</span></h3>
+    <div id="costBriefBox">${err}${body}</div>
+    <div style="margin-top:10px">
+      <button class="btn" id="costRunBtn" onclick="runCostSentinel()">Brief now</button>
+      <span class="hint" style="margin-left:8px">Operator only — a firing bills a session.</span>
+    </div>`;
+}
+
+window.runCostSentinel = async () => {
+  const btn = document.getElementById("costRunBtn");
+  const box = document.getElementById("costBriefBox");
+  if (btn) { btn.disabled = true; btn.textContent = "Briefing…"; }
+  if (box) box.innerHTML = `<div class="hint">Fired. The agent queries the store and writes the
+    brief server-side — nothing is streamed here, so this panel refreshes when the session
+    finishes (usually a minute or two). Watch it live in the Claude console.</div>`;
+  try {
+    const r = await fetch(apiUrl("/api/cost-brief/run"), { method: "POST" });
+    const d = await r.json();
+    if (!d.ok) {
+      if (box) box.innerHTML = `<div class="hint">Run failed: ${esc(d.error || r.status)}</div>`;
+      return;
+    }
+    // The deployment run is asynchronous: the session id comes back quickly,
+    // the brief does not. Poll the store a few times rather than leaving the
+    // panel claiming success with nothing in it.
+    const link = d.session_id
+      ? `<div class="hint" style="margin-top:6px">session <code>${esc(d.session_id)}</code></div>` : "";
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r2 => setTimeout(r2, 6000));
+      const before = (costBrief.briefs || [])[0];
+      await loadCostBrief();
+      const after = (costBrief.briefs || [])[0];
+      if (after && (!before || after.id !== before.id)) { renderMain(true); return; }
+      if (box) box.innerHTML = `<div class="hint">Still working (${(i + 1) * 6}s)…</div>${link}`;
+    }
+    if (box) box.innerHTML = `<div class="hint">Still running. Reload the section shortly, or
+      check <code>uv run python scripts/cost_sentinel.py status</code>.</div>${link}`;
+  } catch (e) {
+    if (box) box.innerHTML = `<div class="hint">Run failed: ${esc(String(e))}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Brief now"; }
+  }
+};
+
+function buildDetailsHtml() {
+  const s = costBrief || {};
+  const agentLink = s.agent_id
+    ? `<a href="https://platform.claude.com/workspaces/default/agents/${encodeURIComponent(s.agent_id)}"
+         target="_blank" rel="noopener">${esc(s.agent_id)}</a>`
+    : `<span class="hint">not provisioned</span>`;
+  return `
+    <div class="hint" style="margin:10px 0 16px">How the weekly cost brief is produced, and why
+    this one is a scheduled Managed Agent when the credential analyst (D22) was deliberately
+    demoted to a single API call. The workstream is WS12 in plan/07-workstreams.md; where it
+    sits in the estate is plan/09-deployment-map.md.</div>
+
+    <h3>Why an agent here, and not there</h3>
+    <p class="hint">Three tests. The credential analyst failed all three, so it became one
+    <code>messages.create</code> call. The cost sentinel passes all three, which is the entire
+    argument for the heavier shape — not that agents are better, but that this workload needs
+    what an agent provides.</p>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table">
+      <thead><tr><th>test</th><th>credential analyst</th><th>cost sentinel</th></tr></thead>
+      <tbody>
+        <tr><td><b>Tools</b></td>
+            <td>none — the whole report fits in one prompt</td>
+            <td>yes — "which repo drove the delta" is SQL against the obs store,
+                which already has a hosted MCP server (D23)</td></tr>
+        <tr><td><b>Schedule</b></td>
+            <td>impossible — collection reads the operator's own SSO session,
+                <code>az</code> login and gcloud ADC, so it only runs on one laptop</td>
+            <td>yes — collection is already hosted: <code>coding_source.py</code> runs in the
+                6-hourly harvest Lambda against CloudWatch. No laptop in the path</td></tr>
+        <tr><td><b>State</b></td>
+            <td>none — a point-in-time reading</td>
+            <td>yes — week-over-week needs history, and the store has it</td></tr>
+      </tbody></table></div></div>
+
+    <h3>The pipeline</h3>
+    <p class="hint">Deterministic collection below, model interpretation above — the lab's D22
+    split, applied to cost. The sentinel never computes a number; the pipeline never writes a
+    sentence.</p>
+    <div class="arch-figure" id="costfig"><span class="hint">Rendering…</span></div>
+
+    <h3>Where the brief lands</h3>
+    <p class="hint">The same <code>lab.obs_briefs</code> table as the observability analyst's
+    nightly brief, separated by a <code>kind</code> column — one store, one reader, one
+    migration. That was the open question in WS12 and this is the answer: two tables would have
+    been two migrations and two console readers for the same shape of row.</p>
+
+    <h3>What it must never claim</h3>
+    <ul class="hint">
+      <li><b>The dollar figure is not an invoice.</b> ${esc(s.cost_note || "")}</li>
+      <li><b>No cross-tool total.</b> Codex publishes no cost metric at all, and its token
+        metric is a histogram this pipeline does not consume — so a combined dollar figure would
+        be Claude Code's cost wearing both tools' name.</li>
+      <li><b>Tokens are four buckets, not one.</b> Uncached input, cache read, cache creation,
+        output — billed at roughly 1x, 0.1x, 1.25–2x and the output rate. They cannot be summed
+        and multiplied by a rate, which is why the Run tab shows four tiles.</li>
+      <li><b>Silence is a valid brief.</b> A weekly agent that always finds something trains its
+        reader to stop reading — the same rule the credential analyst carries.</li>
+    </ul>
+
+    <h3>Provisioned as</h3>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><tbody>
+      <tr><td>agent</td><td>${esc(s.agent_name || "A2ALab Cost Sentinel")} · ${agentLink}</td></tr>
+      <tr><td>model</td><td>${esc(s.model || "—")}</td></tr>
+      <tr><td>schedule</td><td>${s.cron ? `<code>${esc(s.cron)}</code> ${esc(s.timezone || "")} — created paused` : "—"}</td></tr>
+      <tr><td>deployment</td><td><code>${esc(s.deployment_id || "—")}</code></td></tr>
+      <tr><td>setup</td><td><code>uv run python scripts/setup_cost_sentinel.py</code></td></tr>
+      <tr><td>drive</td><td><code>uv run python scripts/cost_sentinel.py run|status|latest|pause|resume</code></td></tr>
+    </tbody></table></div></div>`;
 }
 
 window.buildNav = ev => {
@@ -2897,6 +3394,589 @@ window.buildNav = ev => {
   if (!sectionHeaderClick(ev, "accBuild", here) || here) return;
   pushNav();
   view = { type: "build" };
+  renderSidebar(); renderMain(true);
+};
+
+// ---- Architecture (plan/09-deployment-map.md) ------------------------------
+// Progressive levels, L0 (the whole estate) down to L6 (repo file -> deployed
+// artifact). The markdown file is the source; this renders it. Diagrams go
+// through the same lazy mermaid bundle the insight chips use — a console that
+// never opens a diagram never pays the 3.4MB.
+let archData = null;
+let expiryData = null;   // credential countdown (operator-only)
+let credBrief = null;    // the analyst's latest briefing
+let credsTab = "run";
+
+async function loadArchitecture() {
+  try {
+    const r = await fetch(apiUrl("/api/architecture"));
+    if (r.status === 404) {
+      // The page is served from disk on every request but the ROUTES are not:
+      // a running console that predates this endpoint serves the new HTML and
+      // 404s the new API, which looks exactly like an empty document. Say
+      // which of the two it is — same rule as the Harvest buttons.
+      archData = { levels: [], sections: [],
+        error: "This console process predates the Architecture API — restart the stack "
+             + "(scripts/run_local.sh) to pick it up. The document itself is fine: "
+             + "plan/09-deployment-map.md" };
+      renderArchSide();
+      if (view && view.type === "arch") renderMain(true);
+      return;
+    }
+    archData = await r.json();
+    // Operator-only; a 403 for everyone else is the expected path, not an error.
+    try {
+      const e = await fetch(apiUrl("/api/expiry"));
+      expiryData = e.ok ? await e.json() : null;
+      if (expiryData) {
+        const b = await fetch(apiUrl("/api/credentials/brief"));
+        // One read only — a Response body cannot be consumed twice.
+        const payload = b.ok ? await b.json() : null;
+        credBrief = payload && payload.brief ? payload : null;
+      }
+    } catch (_) { expiryData = null; }
+    const count = document.getElementById("archCount");
+    if (count) count.textContent = (archData.levels || []).length || "";
+    renderArchSide();
+    renderCredsSide();
+    if (view && (view.type === "arch" || view.type === "creds")) renderMain(true);
+  } catch (_e) { /* section stays empty */ }
+}
+
+function renderArchSide() {
+  const el = document.getElementById("archSide");
+  if (!el || !archData) return;
+  const levels = archData.levels || [];
+  if (!levels.length) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">${
+      esc(archData.error || "No deployment map found.")}</div>`;
+    return;
+  }
+  // "All levels" first: the readout usually scrolls top to bottom, and jumping
+  // to one level is the exception rather than the default.
+  el.innerHTML = `
+    <div class="obs-plat${view && view.type === "arch" && !view.level ? " on" : ""}"
+         onclick="archNav(event)">
+      <span>All levels</span><span class="count">${levels.length}</span>
+    </div>` + levels.map(l => `
+    <div class="obs-plat${view && view.type === "arch" && view.level === l.id ? " on" : ""}"
+         onclick="archNav(event, '${esc(l.id)}')">
+      <span><b>${esc(l.id)}</b> ${esc(l.title)}</span>
+    </div>`).join("");
+}
+
+function archHtml() {
+  if (!archData) return `<div class="empty">Loading…</div>`;
+  const levels = archData.levels || [];
+  if (!levels.length) return `
+    <h2>Architecture</h2>
+    <div class="hint" style="margin:12px 0">${esc(archData.error
+      || "No levels parsed from the deployment map — headings must read '## L<n> — Title'.")}</div>`;
+
+  const shown = view && view.level ? levels.filter(l => l.id === view.level) : levels;
+  // Every box in these diagrams is code someone can read. The repo link is the
+  // top of this page rather than a footnote because "show me" is the first
+  // thing an engineer asks once a diagram has convinced them.
+  const repoCallout = `
+    <div class="arch-repo">
+      <svg viewBox="0 0 16 16" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M8 .2a8 8 0 0 0-2.5 15.6c.4.1.5-.2.5-.4v-1.4c-2.2.5-2.7-1-2.7-1-.4-1-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.4.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-3.9 0-.9.3-1.6.8-2.1-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.6 7.6 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.5 1.1.2 1.9.1 2.1.5.5.8 1.2.8 2.1 0 3-1.8 3.7-3.6 3.9.3.3.6.8.6 1.5v2.2c0 .2.1.5.6.4A8 8 0 0 0 8 .2z"/></svg>
+      <div>
+        <b>This lab is open source.</b> Every component below is in the public
+        repo — the deploy scripts that create it, the code that runs in it, and
+        this document.
+        <a href="https://github.com/congmingwudi/a2a-lab" target="_blank"
+           rel="noopener noreferrer">github.com/congmingwudi/a2a-lab ↗</a>
+      </div>
+    </div>`;
+
+  // The presenter button appears only when the server sent presenter notes,
+  // which it does only for a signed-in reviewer. No notes, no button — and
+  // nothing to hide, because the text never reached this browser.
+  const prepBtn = archData.presenter
+    ? `<button class="ghost arch-prep" onclick="archPresenterNotes()"
+         title="Presenter notes — prep for walking someone through this page">
+         <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+           <circle cx="8" cy="8" r="6.4"/><path d="M6.2 6.1a1.9 1.9 0 0 1 3.7.6c0 1.3-1.9 1.6-1.9 2.7"/>
+           <circle cx="8" cy="12" r=".6" fill="currentColor" stroke="none"/></svg>
+         Presenter notes</button>`
+    : "";
+
+  const head = `
+    <div class="arch-title">
+      <h2>Architecture — where everything runs, and why</h2>
+      ${prepBtn}
+    </div>
+    ${repoCallout}
+    ${view && view.level
+      ? `<p class="hint"><a href="#" onclick="archNav(event);return false">← all levels</a></p>`
+      : `<div class="arch-prose" style="margin:8px 0 20px">${mdToHtml(archData.intro || "", { joinLines: true })}</div>`}`;
+
+  const body = shown.map(l => `
+    <section class="arch-level" id="arch-${esc(l.id)}">
+      <div class="arch-head">
+        <h3>${esc(l.id)} — ${esc(l.title)}</h3>
+        ${l.mermaid ? `
+          <button class="ghost" onclick="archFullscreen('${esc(l.id)}')"
+            title="Full screen (Esc to exit)">Full screen</button>
+          <button class="ghost" onclick="archToggleSource('${esc(l.id)}')"
+            id="archsrc-${esc(l.id)}">mermaid source</button>` : ""}
+      </div>
+      ${l.mermaid ? `<div class="arch-figure" id="archfig-${esc(l.id)}"
+        data-level="${esc(l.id)}"><span class="hint">Rendering…</span></div>` : ""}
+      <div class="arch-prose">${mdToHtml(l.prose || "", { joinLines: true })}</div>
+    </section>`).join("");
+
+  // The appendices ("Checking reality", "Why not") only make sense with the
+  // whole document, so they ride the all-levels view.
+  const tail = (view && view.level) ? "" : (archData.sections || []).map(s => `
+    <section class="arch-level">
+      <h3>${esc(s.title)}</h3>
+      <div class="arch-prose">${mdToHtml(s.body || "", { joinLines: true })}</div>
+    </section>`).join("");
+
+  return head + body + tail +
+    `<p class="hint" style="margin-top:20px">Source: <code>${esc(archData.path || "plan/09-deployment-map.md")}</code>
+     — edit the markdown and refresh; this view is parsed from it, not a copy.</p>`;
+}
+
+// The mermaid source is looked up from archData by level id — NEVER round-tripped
+// through a DOM attribute. esc() does not escape double quotes (it handles & < >
+// only, which is right for text nodes), so `data-mermaid="...subgraph SF["..."`
+// terminated the attribute at the diagram's first quoted label and handed the
+// renderer a truncated `flowchart TB\n subgraph SF[`. Every label in these
+// diagrams is quoted, so this broke all seven identically.
+const archMermaid = id => ((archData?.levels || []).find(l => l.id === id) || {}).mermaid || "";
+
+// Every repo path the document names becomes a link to the source on GitHub,
+// opening in a new tab. The list comes from the server, which checked each path
+// EXISTS — so a renamed script stops advertising itself rather than shipping a
+// 404 into a readout. Markdown files are skipped on purpose: those are already
+// doc chips that render in-app, which beats leaving the page.
+function linkifyRepoFiles(root) {
+  const files = (archData && archData.files) || [];
+  if (!root || !files.length) return;
+  const byPath = new Map(files.filter(f => !f.path.endsWith(".md")).map(f => [f.path, f]));
+  for (const el of root.querySelectorAll("code")) {
+    if (el.closest("pre, a, .dchip")) continue;
+    const f = byPath.get(el.textContent.trim().replace(/\/$/, ""));
+    if (!f) continue;
+    const a = document.createElement("a");
+    a.className = "repo-link";
+    a.href = f.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.title = `Open ${f.path} on GitHub`;
+    a.appendChild(el.cloneNode(true));
+    el.replaceWith(a);
+  }
+}
+
+async function renderArchDiagrams() {
+  const figs = Array.from(document.querySelectorAll(".arch-figure[data-level]"));
+  if (!figs.length) return;
+  let mermaid;
+  try {
+    mermaid = await ensureMermaid();
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    mermaid.initialize({
+      startOnLoad: false, theme: dark ? "dark" : "default",
+      securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
+    });
+  } catch (e) {
+    figs.forEach(f => f.innerHTML = `<span class="hint">Could not load mermaid (${esc(String(e.message || e))}).</span>`);
+    return;
+  }
+  for (const fig of figs) {
+    if (fig.dataset.showingSource === "1") continue;
+    const src = archMermaid(fig.dataset.level);
+    try {
+      const { svg } = await mermaid.render("am-" + fig.id.replace(/[^a-z0-9]/gi, ""), src);
+      fig.innerHTML = svg;
+      fig.dataset.svg = "1";
+    } catch (e) {
+      // Same honesty rule as the insight diagrams: say what broke and still
+      // hand over the source, which is the thing you can paste elsewhere.
+      fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
+        + `<pre>${esc(src)}</pre>`;
+    }
+  }
+}
+
+// Presenter notes: the same modal furniture the diagrams use, so Esc closes it
+// and the backdrop dismisses it. Content is markdown from the doc's own
+// `## Presenter notes` section — one source file, two audiences.
+// Credential countdown. The value is not "is it valid" — identity_preflight
+// answers that — but "how long have I got", because a credential that expires
+// on a Tuesday fails as something else entirely on the Wednesday.
+const EXP_RANK = ["expired", "critical", "warn", "error", "ok", "no-expiry", "unknown"];
+
+function expiryLeft(d) {
+  if (d === null || d === undefined) return "—";
+  // Under a day, "0.0d" reads as already expired; hours are the useful unit.
+  return Math.abs(d) < 1 ? `${(d * 24).toFixed(1)}h` : `${Math.round(d)}d`;
+}
+
+
+function credBriefHtml() {
+  if (!credBrief || !credBrief.brief) {
+    return `<h3>Analysis</h3><div class="hint">No analysis yet. <b>Analyze</b> collects the
+      table on the left and asks Claude to interpret it.</div>`;
+  }
+  const t = credBrief.tokens || {};
+  const meta = [credBrief.model, t.in && t.out ? `${t.in}+${t.out} tokens` : null]
+    .filter(Boolean).join(" · ");
+  return `<h3>Analysis
+      <span class="obs-updated" style="float:right">${esc(meta)}</span></h3>
+    <div class="cred-brief">${mdToHtml(credBrief.brief, { joinLines: true })}</div>`;
+}
+
+window.runCredentialAnalyst = async () => {
+  const btn = document.getElementById("credRunBtn");
+  const box = document.getElementById("credBriefBox");
+  if (btn) { btn.disabled = true; btn.textContent = "Analyzing…"; }
+  if (box) box.innerHTML = `<div class="hint">Collecting from AWS, Entra and GCP, then asking the
+    agent — this takes around a minute.</div>`;
+  try {
+    const r = await fetch(apiUrl("/api/credentials/analyze"), { method: "POST" });
+    const d = await r.json();
+    if (!d.ok) {
+      if (box) box.innerHTML = `<div class="hint">Analyst failed: ${esc(d.error || r.status)}</div>`;
+      return;
+    }
+    credBrief = d;
+    if (box) box.innerHTML = credBriefHtml();
+    renderCredsSide();
+  } catch (e) {
+    if (box) box.innerHTML = `<div class="hint">Analyst failed: ${esc(String(e))}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Analyze"; }
+  }
+};
+
+function credsWorst() {
+  const c = (expiryData && expiryData.credentials) || [];
+  for (const s of EXP_RANK) if (c.some(x => x.status === s)) return s;
+  return "";
+}
+
+function credsUrgent() {
+  const c = (expiryData && expiryData.credentials) || [];
+  return c.filter(x => ["expired", "critical", "warn"].includes(x.status)).length;
+}
+
+function renderCredsSide() {
+  const acc = document.getElementById("accCreds");
+  const count = document.getElementById("credsCount");
+  const el = document.getElementById("credsSide");
+  if (!acc) return;
+  // Operator-only: /api/expiry 403s for everyone else, so the whole section
+  // disappears rather than teasing an empty panel.
+  if (!expiryData) { acc.style.display = "none"; return; }
+  acc.style.display = "";
+  const urgent = credsUrgent();
+  if (count) {
+    count.textContent = urgent || "";
+    count.className = "count" + (urgent ? " count-alert" : "");
+  }
+  // No list here on purpose — this is a standalone destination, and a
+  // duplicate of the table would just be a second thing to keep in sync.
+  if (el) el.innerHTML = "";
+}
+
+const CRED_AGENT_DIAGRAM = `flowchart LR
+  subgraph LOCAL["This machine — the only place collection can happen"]
+    SESS["operator sessions<br/>AWS SSO · az · gcloud ADC"]
+    COL["expiry_report.py<br/>deterministic collector"]
+    SESS --> COL
+  end
+
+  subgraph PROV["Asked for dates they already know"]
+    P1["AWS IAM<br/>service credential"]
+    P2["AWS ACM<br/>TLS certificates"]
+    P3["Microsoft Entra<br/>app secret"]
+    P4["Google Cloud IAM<br/>service-account keys"]
+    P5["config/credentials.yaml<br/>DECLARED, not measured"]
+  end
+  COL --> P1
+  COL --> P2
+  COL --> P3
+  COL --> P4
+  COL --> P5
+
+  REP[("expiry.json<br/>measured dates")]
+  P1 --> REP
+  P2 --> REP
+  P3 --> REP
+  P4 --> REP
+  P5 --> REP
+
+  API["Claude API<br/>one messages.create<br/>no tools, no session, no state"]
+  REP -->|"the numbers, in the prompt"| API
+  API --> BR["briefing<br/>verdict · act now · watch · blind spots"]`;
+
+const CRED_SCHEDULED_DIAGRAM = `flowchart LR
+  subgraph AWSC["AWS — collection moves off the laptop"]
+    LAM["a2alab-cred-collector<br/>Lambda, EventBridge daily"]
+    ROLE["task role<br/>IAM + ACM read"]
+    FED["federation<br/>to Entra and GCP"]
+    LAM --> ROLE
+    LAM --> FED
+  end
+  ST[("expiry history<br/>Aurora, alongside obs")]
+  LAM --> ST
+
+  subgraph ANT["Anthropic — Managed Agents"]
+    MCP["obs MCP server<br/>+ read_expiry tool"]
+    AG["Credential Analyst<br/>scheduled deployment"]
+    AG --> MCP
+  end
+  ST --> MCP
+  AG --> BRF["brief -> lab.obs_briefs<br/>same store as the obs analyst"]`;
+
+
+async function renderCredDiagram() {
+  const figs = [["credfig", CRED_AGENT_DIAGRAM], ["credfig2", CRED_SCHEDULED_DIAGRAM]];
+  let mermaid;
+  try {
+    mermaid = await ensureMermaid();
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    mermaid.initialize({
+      startOnLoad: false, theme: dark ? "dark" : "default",
+      securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
+    });
+  } catch (e) {
+    figs.forEach(([id]) => {
+      const f = document.getElementById(id);
+      if (f) f.innerHTML = `<span class="hint">Could not load mermaid.</span>`;
+    });
+    return;
+  }
+  for (const [id, src] of figs) {
+    const fig = document.getElementById(id);
+    if (!fig) continue;
+    try {
+      const { svg } = await mermaid.render(id + "-svg", src);
+      fig.innerHTML = svg;
+    } catch (e) {
+      // Same honesty rule as every other diagram: say what broke, hand over the
+      // source anyway — it is the thing you can paste elsewhere.
+      fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
+        + `<pre>${esc(src)}</pre>`;
+    }
+  }
+}
+
+window.setCredsTab = id => {
+  credsTab = id;
+  renderMain(true);
+};
+
+function credsDetailsHtml() {
+  return `
+    <div class="hint" style="margin:10px 0 16px">How the analysis is produced, end to end. The
+    split is the lab's own rule from D22 — <b>deterministic collection below, model interpretation
+    above</b> — applied to credentials instead of execution logs. Where this sits in the estate is
+    plan/09-deployment-map.md.</div>
+
+    <div class="arch-figure" id="credfig"><span class="hint">Rendering…</span></div>
+
+    <div class="arch-prose">
+      <h4>Why the collector runs here and not in the cloud</h4>
+      <p>Reading these dates needs this machine's own sessions — the AWS SSO token, the
+      <code>az</code> login, <code>gcloud</code> ADC. That single dependency decides everything
+      else on this page: it is why the analysis is <b>ad-hoc</b>, why there is no schedule, and
+      why nothing happens unless you press Analyze.</p>
+
+      <h4>Why one API call, and not a Managed Agent</h4>
+      <p>This was built both ways. The first version was a Claude Managed Agent and it worked —
+      then the shape was checked against what that abstraction is <i>for</i>: hosted tool
+      execution, scheduled deployments, multi-turn session state, a managed sandbox. This analyst
+      uses <b>none</b> of them. It has no tools, runs once, and is handed its data in the prompt.
+      What the heavier path cost was real — an agent object to create and version, a setup step, a
+      state file, an event stream with idle detection, and a bug that existed only because of the
+      extra surface. A single <code>messages.create</code> is the same model, the same prompt and
+      the same data in one round trip.</p>
+      <p>The reversal is the useful artifact, not the choice: <b>reach for the agent abstraction
+      when you need what it does — tools, scheduling, or durable multi-turn state — and not
+      because the work involves a model.</b></p>
+
+      <h4>Why it cannot invent a date</h4>
+      <p>Its instructions forbid citing any number not present in the report it was given, and it
+      must distinguish <b>measured</b> (a provider said so) from <b>declared</b> (a human wrote it
+      down). Its value is ranking by <i>consequence</i> — what breaks, who notices, and whether
+      the failure looks like an auth error or like a broken feature.</p>
+
+      <h4>Read-only, deliberately</h4>
+      <p>It reports; it never rotates. An agent that could rotate credentials across four clouds
+      could lock the lab out of itself. Rotation procedures live in plan/04-runbooks.md, and the
+      identity model this sits inside is D39 and D43.</p>
+    </div>
+
+    <h3 style="margin-top:24px">Potential: the scheduled agent variant</h3>
+    <div class="hint" style="margin:6px 0 14px">Not built — the sketch of what would justify a
+    Managed Agent here, kept because the condition is plausible rather than hypothetical.</div>
+
+    <div class="arch-figure" id="credfig2"><span class="hint">Rendering…</span></div>
+
+    <div class="arch-prose">
+      <p><b>The one change that unlocks it</b> is moving collection off this laptop. A Lambda with
+      a task role could read IAM and ACM directly, and reach Entra and GCP through the federation
+      the lab already runs (D40/D41). Once the dates land in a store on a schedule, the analyst no
+      longer needs a person: it becomes a paused scheduled deployment reading through the obs MCP
+      server — exactly the shape of the observability analyst (D23), writing into the same
+      <code>lab.obs_briefs</code> table.</p>
+      <p><b>What that would buy:</b> a briefing that arrives before you think to ask, history to
+      compare against, and the ability to <i>correlate</i> — "telemetry stopped three days ago and
+      the metrics key expired three days ago" is a join a prompt cannot do but a tool over the obs
+      store can.</p>
+      <p><b>What it would cost, and why it has not been done:</b> a new Lambda, a new role, two
+      federation bindings and an MCP tool — real infrastructure for a lab whose credential set
+      changes a few times a year. There is also a boundary to be careful about: the obs MCP server
+      is internet-reachable, so exposing expiry data through it means publishing <i>which secrets
+      expire when</i> to anything holding that bearer token. That is a deliberate decision, not a
+      detail, and it is the reason the current version hands the numbers over in a prompt instead.</p>
+      <p><b>The trigger to revisit:</b> the first time someone wishes this had run overnight, or
+      the first time the question is "did the credential expire before or after the telemetry
+      stopped?"</p>
+    </div>`;
+}
+
+function credsReportHtml() {
+  const creds = (expiryData && expiryData.credentials) || [];
+  const rows = creds.map(c => `
+    <tr class="exp-${esc(c.status)}">
+      <td><span class="expdot"></span>${esc(c.name)}
+        <div class="hint">${esc(c.expires_at ? c.expires_at.slice(0, 10) : "no expiry")} ·
+          ${esc(c.source)}${c.error ? " · " + esc(c.error) : ""}</div></td>
+      <td class="num">${esc(expiryLeft(c.days_left))}</td>
+    </tr>`).join("");
+
+  return `
+    <div class="hint" style="margin:0 0 14px">The <b>A2ALab Credential Analyst</b> is a Claude
+    Managed Agent — the lab's first agent doing operations rather than experiments. The table is
+    collected deterministically; the agent is handed exactly those numbers and asked what a
+    threshold cannot answer. See the Details tab for how it works, or plan/09-deployment-map.md
+    for where it sits in the estate.</div>
+
+    <div class="creds-actions">
+      <button class="ghost ${credsUrgent() ? "exp-" + credsWorst() : ""}"
+        id="credRunBtn" onclick="runCredentialAnalyst()">Analyze</button>
+      <span class="hint">Collects from four providers, then asks the agent — about a minute.</span>
+    </div>
+
+    <div class="creds-split">
+      <div class="creds-table">
+        <h3>Measured</h3>
+        <div class="tbl-card"><div class="tbl-scroll">
+          <table class="obs-table"><thead><tr><th>credential</th><th class="num">left</th></tr></thead>
+          <tbody>${rows}</tbody></table>
+        </div></div>
+        ${expiryData.error ? `<p class="hint">${esc(expiryData.error)}</p>` : `
+        <p class="hint"><b>measured</b> came from the provider; <b>declared</b> is a date recorded
+        by hand in <code>config/credentials.yaml</code>. Refresh outside the console with
+        <code>scripts/expiry_report.py</code>.</p>`}
+      </div>
+      <div class="creds-brief" id="credBriefBox">${credBriefHtml()}</div>
+    </div>`;
+}
+
+function credsHtml() {
+  if (!expiryData) return `<div class="empty">Sign in as an operator to see credential expiry.</div>`;
+  const stamp = credBrief
+    ? `last analysed ${fmtWhen(credBrief.generated_at)}`
+    : "never analysed — run one";
+  // Same tabbar the experiment views use: title left, tabs top-right, Run
+  // first. This is an operational surface, so it should navigate like one.
+  return `
+    <div class="tabbar">
+      <h2>Credentials Expiry Analysis</h2>
+      <span class="obs-updated">${esc(stamp)}</span>
+      <div class="tabs">
+        <button class="tab ${credsTab === "run" ? "on" : ""}" onclick="setCredsTab('run')">Run</button>
+        <button class="tab ${credsTab === "details" ? "on" : ""}" onclick="setCredsTab('details')">Details</button>
+      </div>
+    </div>
+    ${credsTab === "details" ? credsDetailsHtml() : credsReportHtml()}`;
+}
+
+window.credsNav = ev => {
+  const here = !!(view && view.type === "creds");
+  if (!sectionHeaderClick(ev, "accCreds", here)) return;
+  if (here) return;
+  pushNav();
+  view = { type: "creds" };
+  renderSidebar(); renderMain(true);
+};
+
+window.archPresenterNotes = () => {
+  if (!archData || !archData.presenter) return;
+  closeDiagram();
+  const mask = document.createElement("div");
+  mask.className = "dgmask";
+  mask.innerHTML = `
+    <div class="dgmodal" role="dialog" aria-modal="true" aria-label="Presenter notes">
+      <header>
+        <h3>Presenter notes</h3>
+        <button type="button" class="dgclose" title="Close (Esc)" aria-label="Close">×</button>
+      </header>
+      <div class="dgbody arch-prose">${mdToHtml(archData.presenter, { joinLines: true })}</div>
+    </div>`;
+  mask.addEventListener("click", ev => { if (ev.target === mask) closeDiagram(); });
+  mask.querySelector(".dgclose").addEventListener("click", closeDiagram);
+  document.body.appendChild(mask);
+  linkifyRepoFiles(mask);
+};
+
+window.archToggleSource = id => {
+  const fig = document.getElementById("archfig-" + id);
+  const btn = document.getElementById("archsrc-" + id);
+  if (!fig) return;
+  const showing = fig.dataset.showingSource === "1";
+  fig.dataset.showingSource = showing ? "0" : "1";
+  if (btn) btn.textContent = showing ? "mermaid source" : "diagram";
+  if (showing) { renderArchDiagrams(); return; }
+  fig.innerHTML = `<pre>${esc(archMermaid(id))}</pre>`;
+};
+
+// Full screen for a readout: the native Fullscreen API on the figure itself,
+// so the diagram gets the whole display and Esc returns. Falls back to a
+// full-viewport overlay where the API is unavailable or refused.
+window.archFullscreen = id => {
+  const fig = document.getElementById("archfig-" + id);
+  if (!fig) return;
+  fig.classList.add("arch-fs");
+  const done = () => fig.classList.remove("arch-fs");
+  if (fig.requestFullscreen) {
+    fig.requestFullscreen().then(() => {
+      document.addEventListener("fullscreenchange", function off() {
+        if (!document.fullscreenElement) { done(); document.removeEventListener("fullscreenchange", off); }
+      });
+    }).catch(() => { fig.classList.add("arch-fsfallback"); });
+  } else {
+    fig.classList.add("arch-fsfallback");
+  }
+};
+
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "Escape") return;
+  document.querySelectorAll(".arch-fsfallback").forEach(f => {
+    f.classList.remove("arch-fsfallback", "arch-fs");
+  });
+});
+
+window.archNav = (ev, level) => {
+  // `here` must mean "already on the EXACT view being asked for", not "already
+  // somewhere in Architecture". Getting that wrong made the "← all levels" link
+  // dead: called from level L3 with no level argument, the old test read as
+  // "already there", so sectionHeaderClick treated the click as a collapse and
+  // returned false before any navigation happened.
+  const target = level || null;
+  const here = !!(view && view.type === "arch" && (view.level || null) === target);
+  if (!sectionHeaderClick(ev, "accArch", here)) return;
+  if (here) return;
+  pushNav();
+  view = { type: "arch", level: target };
   renderSidebar(); renderMain(true);
 };
 
@@ -3213,7 +4293,7 @@ const COLD_START_MS = 20000;
 // Map a recorded failure note to the fix. Ordered: first match wins.
 const WARM_FIXES = [
   [/TokenRetrievalError|Token has expired|sso|ExpiredToken|UnrecognizedClient|InvalidGrant/i,
-   "AWS SSO expired — run <code>aws sso login --profile lab-account</code> (Zscaler ON), then warm again."],
+   "AWS SSO expired — run <code>aws sso login</code> (Zscaler ON), then warm again."],
   [/404.*api\.salesforce\.com|api\.salesforce\.com.*404/i,
    "Agentforce refused this caller: the connected app authenticates but is not linked to the twin. "
    + "Setup → the agent → Connections → add the app, or point the seam back at the shared app."],
@@ -3912,7 +4992,13 @@ function componentsHtml(components) {
       <span class="atarget"></span>
       ${c.url
         ? `<a class="ghost" href="${esc(c.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Open ↗</a>`
-        : `<span class="badge soon">not yet available</span>`}
+        : c.url_requires_signin
+          // The link exists; this caller is anonymous. Deep links name org
+          // domains, project ids and tenant ids, so the public payload carries
+          // none — and "not yet available" would be a lie about the lab rather
+          // than a statement about the viewer.
+          ? `<span class="badge soon" title="Console deep links are shown to signed-in operators">sign in to open</span>`
+          : `<span class="badge soon">not yet available</span>`}
       ${c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
     </div>
     ${open ? `<div class="compshot">
@@ -4033,8 +5119,27 @@ function renderMain(force) {
   }
 
   if (view.type === "build") {
-    mainKey = "build";
+    mainKey = `build:${buildTab}`;
     el.innerHTML = buildHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs via the observer
+    if (buildTab === "details") renderCostDiagram();
+    return;
+  }
+
+  if (view.type === "creds") {
+    mainKey = `creds:${credsTab}`;
+    el.innerHTML = credsHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub. D-refs and plan/*.md chips
+                            // arrive via the MutationObserver, like every other view.
+    if (credsTab === "details") renderCredDiagram();
+    return;
+  }
+
+  if (view.type === "arch") {
+    mainKey = `arch:${view.level || "*"}`;
+    el.innerHTML = archHtml();
+    linkifyRepoFiles(el);   // repo paths -> source on GitHub, new tab
+    renderArchDiagrams();   // async: mermaid is lazy-loaded on first use
     return;
   }
 
@@ -4228,6 +5333,25 @@ async function connectStream() {
     }
     try {
       const r = await fetch(apiUrl("/api/stream"));
+      // 401 is NOT a transient failure, and retrying it every 2.5s forever is
+      // how a tab left open overnight fills the server log with
+      // `GET /api/stream 401` while the UI cheerfully reports "reconnecting…".
+      // The persona token has an 8h TTL (D36), so this is the ordinary morning
+      // state of yesterday's tab. Say what actually happened and stop hammering:
+      // the signed-out branch above polls slowly and picks the stream back up
+      // by itself once a sign-in lands.
+      if (r.status === 401 || r.status === 403) {
+        // Drop the dead credential so the sign-in button comes back, but do
+        // NOT reload the page out from under whatever is on screen.
+        localStorage.removeItem("a2a-user-jwt");
+        localStorage.removeItem("a2a-user");
+        labUser = null;
+        renderUserBtn();
+        live.textContent = "session expired — sign in";
+        live.classList.remove("on");
+        await new Promise(res => setTimeout(res, 3000));
+        continue;
+      }
       if (!r.ok) throw new Error(String(r.status));
       const reader = r.body.getReader();
       const decoder = new TextDecoder();
@@ -4527,6 +5651,7 @@ loadLaunchers().then(renderMain);
 loadObs();
 loadInsights();
 loadBuildTelemetry();
+loadArchitecture();
 loadConfig();
 loadWarmup();
 loadDecisions();

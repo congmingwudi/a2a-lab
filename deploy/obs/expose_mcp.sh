@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Expose the obs MCP Lambda publicly (ADR D23) — via API Gateway.
 #
-# Why not a Lambda Function URL: the lab-account account's org SCP explicitly
+# Why not a Lambda Function URL: the runtime account's org SCP explicitly
 # denies lambda:AddPermission, so a public (auth NONE) Function URL can
 # never be granted invoke access — it 403s at the AWS layer ("MCP server
 # initialize failed: access forbidden" on the Anthropic side). Instead an
@@ -10,15 +10,20 @@
 # The endpoint stays bearer-token-authed at the app layer
 # (A2ALAB_OBS_MCP_TOKEN); unauthenticated requests get 401.
 #
-#   AWS_PROFILE=lab-account AWS_REGION=us-east-1 deploy/obs/expose_mcp.sh
+#   deploy/obs/expose_mcp.sh          # profile/region come from .env
 #
 # Idempotent: reuses the existing API if present. Writes the URL into
 # .a2alab/obs_mcp.json, then run:
 #   uv run python scripts/setup_obs_analyst.py --recreate --run
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+set -a; source .env; set +a
+source deploy/aws_preflight.sh
 
-FN_ARN="arn:aws:lambda:$AWS_REGION:REDACTED-AWS-ACCOUNT:function:a2alab-obs-mcp"
+# Account comes from the verified session (deploy/aws_preflight.sh), never a
+# literal: a hardcoded account id is both wrong in someone else's checkout
+# and an identifier this repo does not publish.
+FN_ARN="arn:aws:lambda:$AWS_REGION:$AWS_ACCOUNT:function:a2alab-obs-mcp"
 
 API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='a2alab-obs-mcp'].ApiId | [0]" --output text)
 if [ "$API_ID" = "None" ] || [ -z "$API_ID" ]; then

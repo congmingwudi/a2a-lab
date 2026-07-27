@@ -102,7 +102,21 @@ DDL: list[str] = [
         brief_md     text NOT NULL,
         created_at   timestamptz NOT NULL DEFAULT now()
     )""",
+    # WS12 settled the open question in plan/07: one briefs table, one reader,
+    # a `kind` discriminator — not a second table and a second migration. The
+    # ALTER is separate from the CREATE because the table predates the column
+    # in every deployed environment; `IF NOT EXISTS` makes it a no-op on both
+    # paths. The default backfills the observability analyst's existing rows,
+    # which is correct — they were all its briefs before the sentinel existed.
+    f"""ALTER TABLE {SCHEMA}.obs_briefs
+        ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'observability'""",
 ]
+
+# The brief kinds that share lab.obs_briefs. Unknown values are accepted on
+# write (a future analyst should not need a schema change) but the console
+# asks for one of these.
+BRIEF_OBSERVABILITY = "observability"
+BRIEF_COST = "cost"
 
 
 class PgClient:
@@ -376,19 +390,36 @@ class PgObsStore:
 
     # ---- brief feed (console + save_brief tool) ---------------------------
 
-    def insert_brief(self, brief_md: str, *, session_id: str | None, queries_run: int) -> None:
+    def insert_brief(
+        self,
+        brief_md: str,
+        *,
+        session_id: str | None,
+        queries_run: int,
+        kind: str = BRIEF_OBSERVABILITY,
+    ) -> None:
         self.client.execute(
-            f"""INSERT INTO {SCHEMA}.obs_briefs (brief_date, session_id, queries_run, brief_md)
-                VALUES (CURRENT_DATE, :session_id, :queries_run, :brief_md)""",
-            {"session_id": session_id, "queries_run": queries_run, "brief_md": brief_md},
+            f"""INSERT INTO {SCHEMA}.obs_briefs
+                    (brief_date, session_id, queries_run, brief_md, kind)
+                VALUES (CURRENT_DATE, :session_id, :queries_run, :brief_md, :kind)""",
+            {
+                "session_id": session_id,
+                "queries_run": queries_run,
+                "brief_md": brief_md,
+                "kind": kind,
+            },
         )
 
-    def list_briefs(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_briefs(self, limit: int = 20, kind: str | None = None) -> list[dict[str, Any]]:
+        """Newest first. `kind=None` returns every kind — which is what the
+        analyst's own feed wants when it asks "what have I written before"."""
+        where = "WHERE kind = :kind" if kind else ""
         return self.client.execute(
             f"""SELECT id, CAST(brief_date AS text) AS brief_date, session_id,
-                       queries_run, brief_md, CAST(created_at AS text) AS created_at
-                FROM {SCHEMA}.obs_briefs ORDER BY id DESC LIMIT :limit""",
-            {"limit": limit},
+                       queries_run, brief_md, kind,
+                       CAST(created_at AS text) AS created_at
+                FROM {SCHEMA}.obs_briefs {where} ORDER BY id DESC LIMIT :limit""",
+            {"limit": limit, **({"kind": kind} if kind else {})},
         )
 
     def close(self) -> None:

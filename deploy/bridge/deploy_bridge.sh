@@ -15,7 +15,7 @@
 # (10-19s measured); same cloud, different ceiling, different answer.
 #
 # Requires: .env populated, an authenticated AWS session (aws sso login
-# --profile lab-account, Zscaler ON), and Docker signed in to the salesforce org.
+# Zscaler ON), and Docker signed in to the container registry.
 #
 # TLS/DNS is deliberately NOT automated here — see the note this prints at the
 # end. The ALB comes up on HTTP so the whole path can be verified before any
@@ -23,6 +23,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; source .env; set +a
+source deploy/aws_preflight.sh
 
 REGION="${AWS_REGION:-us-east-1}"
 NAME=a2alab-bridge

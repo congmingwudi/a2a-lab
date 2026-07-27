@@ -1,5 +1,6 @@
 import importlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -189,9 +190,13 @@ def test_every_component_has_a_console_url(tmp_path, monkeypatch):
     a working default; only the Salesforce ones legitimately depend on env
     (the org domain is not ours to hardcode)."""
     monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
-    data = client.get("/api/scenarios").json()
+    # Signed in on purpose: the anonymous payload has the URLs stripped by
+    # design (see test_public_endpoints_do_not_publish_console_deep_links), and
+    # what this test is about is whether the CONFIG resolves a link at all.
+    data = client.get("/api/scenarios", headers={"X-Lab-Token": "sekrit"}).json()
     missing = [
         (s["name"], c["title"])
         for s in data["scenarios"]
@@ -539,6 +544,16 @@ def test_targets_carry_cell_details(tmp_path, monkeypatch):
 # ---- viewer role enforcement (WS6 U3 console half, role model per D36) -----
 
 
+def _operator_headers(monkeypatch, tmp_path):
+    """Ryan's persona: role operator in config/users.yaml."""
+    from interop import identity
+
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    users = {"ryan": {"name": "Ryan Cox", "role": "operator", "reviewer": True}}
+    token = identity.issue_token("ryan", users=users)
+    return {"authorization": f"Bearer {token}"}
+
+
 def _viewer_headers(monkeypatch, tmp_path):
     from interop import identity
 
@@ -737,8 +752,38 @@ def _seed_coding(trace_dir):
         "claude-code:2026-07-25",
         title="claude-code · 2026-07-25",
         created_at="2026-07-25T00:00:00+00:00",
-        usage={"input_tokens": 120_000, "output_tokens": 8_000, "cost_usd_estimated": 4.2},
-        raw={"tool": "claude-code", "sessions": 6, "active_time_s": 5400, "by_model": {}},
+        usage={
+            "input_tokens": 120_000,
+            "output_tokens": 8_000,
+            # The realistic shape of an agent workload: cache reads dwarf
+            # uncached input. A fixture with only two buckets would let the
+            # under-reporting bug this guards against pass unnoticed.
+            "cache_read_input_tokens": 4_000_000,
+            "cache_creation_input_tokens": 300_000,
+            "cost_usd_estimated": 4.2,
+        },
+        raw={
+            "tool": "claude-code",
+            "sessions": 6,
+            "active_time_s": 5400,
+            "by_model": {},
+            "by_repo": {
+                "someone/rc-a2a": {
+                    "repo": "someone/rc-a2a",
+                    "project": "rc-a2a",
+                    "cost_usd": 4.2,
+                    # by_repo keeps the raw OTel `type` spelling
+                    "tokens": {
+                        "input": 120_000,
+                        "output": 8_000,
+                        "cacheRead": 4_000_000,
+                        "cacheCreation": 300_000,
+                    },
+                    "sessions": 6,
+                    "active_time_s": 5400,
+                }
+            },
+        },
     )
     store.set_harvest_status("coding", "ok", "1 tool-day(s)")
     store.close()
@@ -759,6 +804,36 @@ def test_build_telemetry_rolls_up_cost_by_tool(tmp_path, monkeypatch):
     # the caveat is part of the payload, so no consumer can render the number
     # without it
     assert "not an invoice" in data["cost_note"]
+
+
+def test_build_telemetry_reports_all_four_billed_token_buckets(tmp_path, monkeypatch):
+    """`input_tokens` is the UNCACHED remainder, not the prompt.
+
+    The harvest has stored four buckets since WS9 and this endpoint reported
+    two, so the dashboard showed 120K "input" for a day that actually processed
+    4.42M prompt tokens — a 36x understatement on exactly the workload shape
+    (long agent sessions, heavy caching) the section exists to measure. The
+    three input buckets also bill at different multiples, which is why they are
+    kept separate here rather than summed.
+    """
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+    _seed_coding(trace_dir)
+    data = (
+        TestClient(make_app(trace_dir, monkeypatch, FakeRegistry()))
+        .get("/api/build-telemetry")
+        .json()
+    )
+
+    for scope in (data["totals"], data["by_tool"][0], data["days"][0], data["by_repo"][0]):
+        assert scope["input_tokens"] == 120_000
+        assert scope["cache_read_tokens"] == 4_000_000
+        assert scope["cache_creation_tokens"] == 300_000
+        assert scope["output_tokens"] == 8_000
+
+    # The reason they cannot be one number has to travel with them.
+    assert "cache read" in data["token_note"]
+    assert "contract" in data["token_note"]
 
 
 def test_build_telemetry_never_appears_as_a_platform_column(tmp_path, monkeypatch):
@@ -843,3 +918,192 @@ def test_build_telemetry_explains_setup_when_nothing_collected(tmp_path, monkeyp
     assert "/v1/metrics" in steps  # the PATH is required
     assert "http/protobuf" in steps  # not http/json
     assert "cannot call the logs" in steps  # a metrics token is metrics-only
+
+
+def test_cost_brief_reports_unprovisioned_as_a_state_not_an_error(tmp_path, monkeypatch):
+    """WS12. A sentinel that has never been created is the normal first state,
+    and the useful answer is the setup command — not a 500 and not an empty
+    panel. The list-price caveat ships with the payload for the same reason it
+    ships with the telemetry totals: no consumer can render the money without
+    it."""
+    monkeypatch.setenv("A2ALAB_STATE_DIR", str(tmp_path / "state"))
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    data = TestClient(app).get("/api/cost-brief").json()
+
+    assert data["provisioned"] is False
+    assert data["briefs"] == []
+    assert "setup_cost_sentinel.py" in data["setup_hint"]
+    assert "not an invoice" in data["cost_note"]
+
+
+def test_cost_brief_run_is_operator_only(tmp_path, monkeypatch):
+    """A firing bills a real Claude session. That is spend, so it sits behind
+    the same gate as the credential analyst rather than behind mere sign-in."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_STATE_DIR", str(tmp_path / "state"))
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    assert TestClient(app).post("/api/cost-brief/run").status_code in (401, 403)
+
+
+def test_architecture_endpoint_serves_the_deployment_map(tmp_path, monkeypatch):
+    """The console's Architecture section parses plan/09-deployment-map.md on
+    every request — the doc is the source, the UI is the view."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    data = TestClient(app).get("/api/architecture").json()
+
+    assert [x["id"] for x in data["levels"]][:2] == ["L0", "L1"]
+    assert all(x["mermaid"] for x in data["levels"])
+    assert data["path"].endswith("09-deployment-map.md")
+
+
+def test_docs_endpoint_serves_every_doc_tree_the_ui_chips(tmp_path, monkeypatch):
+    """A doc chip that 404s is worse than plain text — it invites a click and
+    fails. The UI linkifies plan/, docs/, build-notes/ and the README, so all
+    four must be servable (build-notes was referenced by insights and 404'd)."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    for path in (
+        "README.md",
+        "plan/09-deployment-map.md",
+        "docs/lab-guide-mcp.md",
+        "build-notes/claude/04-claude-code-environment.md",
+    ):
+        assert client.get(f"/api/docs/{path}").status_code == 200, path
+
+    # Still a whitelist, not a file server: source and config stay closed.
+    for path in ("src/console/app.py", "config/targets.yaml", ".env"):
+        assert client.get(f"/api/docs/{path}").status_code == 404, path
+
+
+def test_tmp_docs_is_never_surfaced(tmp_path, monkeypatch):
+    """`tmp-docs/` is gitignored scratch space — the author's thinking before it
+    becomes a workstream. It is cited by name in plan/07 for provenance, which
+    is exactly the kind of mention that invites someone to "helpfully" add it to
+    a whitelist. Two doors, both held shut here."""
+    from platforms.guide import corpus
+
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    for path in (
+        "tmp-docs/07.25.2026-AD3-mulesoft-agent-fabric.md",
+        "tmp-docs/anything.md",
+        # ..-escapes resolve before the whitelist check; prove it.
+        "plan/../tmp-docs/07.25.2026-arch-thoughts.md",
+    ):
+        assert client.get(f"/api/docs/{path}").status_code == 404, path
+
+    readable = corpus.CORE_DOCS + corpus.TOOL_DOCS
+    assert not [d for d in readable if "tmp-docs" in d], readable
+
+
+def test_presenter_notes_reach_only_a_reviewer(tmp_path, monkeypatch):
+    """Speaker prep lives in the same doc as the map, and the console is served
+    on a public hostname — so it is stripped server-side, not hidden in CSS.
+    Anything that ships to the browser is published whether or not it renders."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+
+    # The document itself has the section...
+    from console.architecture import load as load_architecture
+
+    assert "Before presenting" in load_architecture()["presenter"]
+
+    # ...a viewer never receives it...
+    viewer = client.get("/api/architecture", headers=_viewer_headers(monkeypatch, tmp_path))
+    assert viewer.status_code == 200
+    assert viewer.json()["presenter"] == ""
+    assert "Before presenting" not in viewer.text
+    assert viewer.json()["levels"], "the map itself is still public"
+
+    # ...and neither does the shared service token, which identifies no one.
+    svc = client.get("/api/architecture", headers={"X-Lab-Token": "sekrit"})
+    assert svc.json()["presenter"] == ""
+
+
+def test_architecture_links_only_repo_files_that_exist(tmp_path, monkeypatch):
+    """A link that 404s on GitHub in front of an audience is worse than plain
+    text — so the paths are existence-checked, not pattern-matched."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    data = TestClient(app).get("/api/architecture").json()
+
+    files = {f["path"]: f for f in data["files"]}
+    assert "scripts/identity_preflight.py" in files
+    assert files["scripts/identity_preflight.py"]["url"].endswith(
+        "/blob/main/scripts/identity_preflight.py"
+    )
+    assert files["src/bridge"]["kind"] == "dir"
+    assert "/tree/main/src/bridge" in files["src/bridge"]["url"]
+    for path in files:
+        assert Path(path).exists(), f"linked a path that is not in the repo: {path}"
+
+
+def test_public_endpoints_do_not_publish_console_deep_links(tmp_path, monkeypatch):
+    """/api/scenarios and /api/targets are the unauthenticated landing exhibit.
+    Component deep links name the Salesforce org's my-domain, the GCP project
+    and (once set) an Azure tenant id — the identifiers the repo stopped
+    publishing. An anonymous caller gets the titles, not the URLs."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+
+    def component_urls(headers):
+        found = set()
+        for path, key in (("/api/scenarios", "scenarios"), ("/api/targets", "targets")):
+            for row in client.get(path, headers=headers).json()[key]:
+                for comp in row.get("components") or []:
+                    if comp.get("url"):
+                        found.add(comp["url"])
+        return found
+
+    anon = component_urls({})
+    assert anon == set(), f"public endpoint leaked console links: {anon}"
+
+    # ...but the exhibit itself still renders: titles survive, and the UI is
+    # told the link exists rather than claiming the component does not.
+    scen = client.get("/api/scenarios").json()["scenarios"]
+    comps = [c for s in scen for c in (s.get("components") or [])]
+    assert comps, "components disappeared entirely"
+    assert any(c.get("url_requires_signin") for c in comps)
+
+    # A known caller gets them. NOTE: these paths are exempt from the token
+    # middleware, so the handler verifies the credential itself — this asserts
+    # that path works, not just that the middleware would have.
+    assert component_urls({"X-Lab-Token": "sekrit"}), "signed-in caller lost the links"
+
+
+def test_expiry_is_operator_only(tmp_path, monkeypatch):
+    """Credential expiry describes the lab's rotation posture — operational
+    data, not part of the public exhibit. The shared service token does not
+    qualify either: it identifies no one."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_STATE_DIR", str(tmp_path / "state"))
+    (tmp_path / "state").mkdir(parents=True)
+    (tmp_path / "state" / "expiry.json").write_text(
+        json.dumps({"credentials": [{"name": "k", "status": "ok", "days_left": 9}]})
+    )
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+
+    assert client.get("/api/expiry", headers={"X-Lab-Token": "sekrit"}).status_code == 403
+    viewer = client.get("/api/expiry", headers=_viewer_headers(monkeypatch, tmp_path))
+    assert viewer.status_code == 403
+
+    operator = _operator_headers(monkeypatch, tmp_path)
+    ok = client.get("/api/expiry", headers=operator)
+    assert ok.status_code == 200
+    assert ok.json()["credentials"][0]["name"] == "k"
+
+
+def test_expiry_says_so_when_no_report_has_been_collected(tmp_path, monkeypatch):
+    """An absent report must name the command that produces it — a silent empty
+    table reads as 'no credentials expire', which is the opposite of true."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_STATE_DIR", str(tmp_path / "empty"))
+    app = make_app(tmp_path, monkeypatch)
+    data = (
+        TestClient(app).get("/api/expiry", headers=_operator_headers(monkeypatch, tmp_path)).json()
+    )
+    assert data["credentials"] == []
+    assert "expiry_report.py" in data["error"]

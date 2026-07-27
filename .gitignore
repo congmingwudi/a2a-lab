@@ -23,6 +23,10 @@ deploy/shim/dist/
 # never commit. Ignored rather than trusted to discipline: a `git add -A`
 # swept these into a public repo on 2026-07-25 despite the standing rule.
 salesforce/force-app/main/default/extlClntAppGlobalOauthSets/
+# Carries the GCP service-account email, which embeds the project id.
+# Same rule as above: deployable metadata that names an account does not
+# live in a public repo. Backed up by ~/projects/local-project-files/sync.sh.
+salesforce/force-app/main/default/externalCredentials/A2ALab_GCP.externalCredential-meta.xml
 
 # Personal Claude Code settings: absolute paths, telemetry endpoints, and the
 # permission allowlist for one developer — never shared repo config. This was

@@ -52,7 +52,7 @@ print(auth.removeprefix("Bearer "))
 ' "$headers" 2>/dev/null)
 
 if [ -z "${token:-}" ]; then
-  echo "codex_otel: no CloudWatch token (is the AWS session live? aws sso login --profile lab-account)" >&2
+  echo "codex_otel: no CloudWatch token (is the AWS session live? aws sso login)" >&2
   echo "codex_otel: starting codex WITHOUT telemetry" >&2
   exec codex "$@"
 fi

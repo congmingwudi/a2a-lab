@@ -441,6 +441,26 @@ left on the docs placeholder silently becomes a second codebase, which
 `normalize_repos()` folds back. CloudWatch cannot delete datapoints, so every
 such fix lives on the read side.
 
+**Tokens are reported in four buckets, never one** (D44). The API bills uncached
+input, cache reads, cache writes and output separately, at roughly 1x, 0.1x,
+1.25–2x and the output rate — so they cannot be summed and multiplied by a rate.
+`input_tokens` is the *uncached remainder*, not the prompt, and treating it as
+"input" had this dashboard reporting 120K tokens for a day that processed 4.42M:
+a 36x understatement that raised no error and looked entirely plausible. The
+section now shows four tiles and a composition bar, and the reason they are
+separate travels in the API payload.
+
+Above the tables sits the **cost sentinel** (WS12) — a weekly scheduled Managed
+Agent that reads this store through the obs MCP server and explains what
+*moved*, since the tables already report what it *was*. It is the counter-example
+to the credential analyst, which was deliberately demoted to a plain API call:
+the sentinel passes all three tests that one failed (it needs tools — the delta
+is a SQL question; it can genuinely be scheduled — collection runs in the harvest
+Lambda, not on a laptop; and it needs state — week-over-week needs history).
+Created **paused**, because a firing bills a real session. The framing behind all
+of this, written for a presales conversation, is
+`build-notes/claude/10-consumption-and-list-price.md`.
+
 ## The A2A implementation
 
 The lab speaks the formal [A2A protocol](https://github.com/a2aproject/A2A)
@@ -591,6 +611,52 @@ scope-configuration costume.
 The Named Credential points at the stable named tunnel
 `bridge-lab.agenticthings.com` (D20 — single-level hostname on the free
 Cloudflare plan), so tunnel restarts need no redeploy.
+
+### `.env` is a secret too — and the repo names no accounts
+
+Every row above says "`.env`", which for a long time meant *a plaintext file on
+one laptop*. D39 requires each credential to be a service identity fetched with
+the single human AWS login; `.env` was the one file still breaking that rule.
+Losing it would not lose the code — it would lose the ability to run or deploy
+it, which across five clouds is most of the value.
+
+**`.env` now lives in AWS Secrets Manager** and moves with
+`uv run python scripts/env_sync.py pull | push | diff`. Onboarding is **clone →
+`aws sso login` → `env_sync.py pull`**. `.env.example` stays the checked-in
+contract naming every key and what it is for; only the *values* live in the
+secret, released to identities its IAM policy already admits. That is the
+difference between sharing secrets with a team and pasting them into a message.
+
+The sync refuses in the ways that matter: `pull` will not overwrite a diverged
+`.env` without `--force` and always keeps a timestamped backup; `push` will not
+drop keys the secret already has; `diff` reports key **names** and which side is
+ahead, never values.
+
+Two rules keep the repo itself safe to publish:
+
+- **No environment identifier is hardcoded anywhere** — no cloud account ids,
+  project ids, subscription names, or SSO profile names, and no
+  `${VAR:-default}` fallbacks, which are hardcodes that only surface on someone
+  else's machine. Docs name **regions**, because a region is what a reader needs
+  to reason about latency and residency, while an account identifies whose cloud
+  it is and who pays for it. A test fails the build if an AWS account id or
+  profile name reappears in a tracked file.
+- **Every AWS deploy proves its target account before creating anything.**
+  `deploy/aws_preflight.sh` resolves the live session with
+  `sts get-caller-identity` and refuses unless it matches
+  `A2ALAB_AWS_ACCOUNT_ID`. Taking the account name out of the repo makes a
+  wrong-account deploy *easier* to attempt, so the guard shipped with the scrub
+  rather than after it — and it is enforced by a test that requires any deploy
+  script calling the AWS CLI to source it.
+- **The console's public surface names no accounts.** `/api/scenarios` and
+  `/api/targets` are unauthenticated — the landing exhibit renders from them —
+  and they carried the vendor console deep links, which is exactly where an org
+  my-domain, a GCP project id or an Azure tenant id lives. Anonymous callers get
+  the component titles, notes and screenshots; the links resolve only when
+  signed in. The general lesson is worth more than the fix: **a repo scrub is
+  not a boundary.** These identifiers were assembled at runtime from `.env`, so
+  removing them from source left them being served anyway — anything derived
+  from configuration has to be checked at the edge it is served from (D43).
 
 1. **Agentforce → Apex** — stays inside the org. The custom action runs as the
    org's integration user; access to the callout credential is granted via

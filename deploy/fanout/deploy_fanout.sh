@@ -23,6 +23,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; source .env; set +a
+source deploy/aws_preflight.sh
 REGION="${AWS_REGION:-us-east-1}"
 FN=a2alab-fanout-mcp
 ROLE_NAME=a2alab-fanout-lambda   # must match deploy/fanout/provision_gcp_federation.py

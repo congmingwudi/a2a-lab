@@ -15,6 +15,8 @@
 # drift D37 warns about: config that no script owns is config nobody updates.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+set -a; source .env; set +a
+source deploy/aws_preflight.sh
 
 MODE="${1:-all}"
 REGION="${AWS_REGION:-us-east-1}"

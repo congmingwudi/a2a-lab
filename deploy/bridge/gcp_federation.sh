@@ -21,7 +21,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; source .env; set +a
 
-PROJECT="${GOOGLE_CLOUD_PROJECT:-a2a-lab-d441}"
+# No default: the project id identifies whose cloud this is and is not
+# committed. It comes from .env, which is sourced above.
+PROJECT="${GOOGLE_CLOUD_PROJECT:?set GOOGLE_CLOUD_PROJECT in .env}"
 POOL=a2alab-aws                 # created by deploy/fanout/provision_gcp_federation.py
 PROVIDER=a2alab-lambda
 SA_NAME=a2alab-fanout-mcp       # same service account: same permission, same scope
