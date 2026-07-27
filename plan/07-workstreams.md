@@ -668,15 +668,51 @@ WS7.**
 
 ### Work items
 
-1. **Hosted Lab Guide** (3 targets). Best candidate for the `obs_mcp` Lambda
-   Function URL pattern — the guide's read tools are already stateless HTTP
-   against Aurora. Its REST and A2A faces need a runtime; AgentCore is the
-   obvious one since the deploy path exists (`deploy/agentcore/deploy.sh`).
-2. **Hosted Claude/OpenAI MCP + A2A faces** (4 targets). The AgentCore runtimes
-   currently serve only `agentcore-http`. Options: additional runtimes per
-   protocol (D26's original three-deployment sketch), or one runtime
-   multiplexing protocols. **Decide deliberately — this is the item that
-   determines whether `A2ALAB_MODE=hosted` can ever mean "all of it".**
+1. **Hosted Lab Guide** (3 targets) and
+2. **Hosted Claude/OpenAI MCP + A2A faces** (4 targets)
+
+   **These two collapsed into one mechanism once item 7 landed (2026-07-26), and
+   the original framing of item 2 was asking the wrong question.** It posed the
+   choice as "additional AgentCore runtimes per protocol, or one runtime
+   multiplexing protocols." The answer is neither, for the same reason the
+   bridge is not on API Gateway:
+
+   - An **A2A face delegates onward**. That is agent work on an open-ended
+     budget, the shape that does not fit a request/response product — measured
+     the day of cutover, when a cold Agent Engine leg took 39.8s against a 30s
+     gateway ceiling.
+   - **WS11's fire-then-poll needs a server that can hold a task across
+     requests.** Both AgentCore's invoke model and an API Gateway integration
+     fight that; a long-lived container does not.
+   - **WS10 needs external callers to reach these faces.** AgentCore's data
+     plane is SigV4-only, which MuleSoft's Omni Gateway cannot easily present.
+
+   **So: the same ALB, host-based listener rules, one ECS service per face.**
+   The marginal cost of each additional face is a target group, a listener rule
+   and a Fargate task — **not another load balancer**, which is what made this
+   look expensive before item 7 existed.
+
+   Three things already done make this mostly repetition rather than design:
+
+   - **The Origin certificate is a wildcard** (`*.agenticthings.com`), so every
+     one of these hostnames is already covered. No new certificates, no new ACM
+     imports, no validation records.
+   - **The hostnames already exist and already point at the tunnel** —
+     `claude-rest-lab`, `claude-mcp-lab`, `claude-a2a-lab`, `console-lab`. Each
+     cutover is the identical DNS edit performed for `bridge-lab`, one at a
+     time, each independently reversible.
+   - **The servers already take `--protocol` and `--port`**, and
+     `deploy/agentcore/Dockerfile` already builds them. Either one task per
+     face, or one task running several containers to save cost.
+
+   Suggested order, cheapest risk first: Lab Guide (nothing depends on it) →
+   Claude MCP → Claude A2A → OpenAI pair. Keep `cloudflared` running throughout;
+   DNS alone decides which origin serves each hostname, so a bad cutover is a
+   one-field rollback.
+
+   **Cost note:** each face is roughly a $10–12/month Fargate task on lab-account
+   with no new ALB charge. Consolidating several faces into one task cuts that
+   further and is worth doing if the count grows past three or four.
 3. **Hosted watcher** — item (b) above.
 4. ✅ **Remote MCP fan-out server** — item (c) above, **done 2026-07-26 (D41)**.
    `src/fanout_mcp/` exposes one tool per business unit on a Lambda behind API

@@ -805,3 +805,35 @@ Path A over needs a certificate the ALB can serve and a DNS change in
 Cloudflare. Everything above was verified on the ALB's own hostname over HTTP
 first, so the cutover is a DNS change against a known-good target rather than a
 deploy and a hope.
+
+### Cutover: Path A off the laptop, and the 45s budget earning its keep on day one
+
+DNS moved `bridge-lab.agenticthings.com` from the Cloudflare tunnel to the ALB,
+staying proxied, with the zone on Full (strict). Verified rather than assumed:
+
+- **Traffic really reaches Fargate.** A probe marker sent to the public hostname
+  appeared in the ECS task's CloudWatch stream. Both bridges were running, so
+  "it answered" would have proved nothing on its own.
+- **Full (strict) did not break the tunnel hostnames.** `claude-rest-lab`,
+  `claude-mcp-lab`, `claude-a2a-lab` and `console-lab` returned 401/401/401/200
+  before and after — matching Cloudflare's documentation that `cloudflared`
+  manages origin TLS itself (`originServerName`, `noTLSVerify`, `caPool`), so
+  the zone encryption mode does not govern that hop.
+- **Six of six pathways** over public TLS on the production hostname.
+- **Path A end-to-end: 27.5s** (trace `dfb600f6`), the answer carrying both its
+  CRM section and the delegated "External market research (from the Claude
+  research agent)" section — so Apex → bridge → Claude works with no laptop in
+  the path.
+
+**The architecture decision paid off within minutes, and by accident.** On the
+first production sweep `google-adk-a2a` took **39.8s** — an Agent Engine
+scale-to-zero cold start. That call is 10s past API Gateway's 30s ceiling and
+would have been killed had the bridge been hosted the way every other lab
+component is. The 45s budget was defended on paper as "the measured number";
+this is the first recorded instance of it actually being needed, and it arrived
+unprompted on day one.
+
+Worth keeping in proportion: the other five calls that sweep ran between 4.1s
+and 10.3s, all of which a gateway would have served fine. The ceiling does not
+bite often. It bites when a platform is cold, which is exactly when a demo is
+most likely to hit it.
