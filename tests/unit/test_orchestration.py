@@ -176,7 +176,7 @@ async def test_legs_refuse_to_go_deeper_than_the_guard_allows(monkeypatch):
 
 
 async def test_slow_leg_times_out_instead_of_hanging_the_turn(monkeypatch):
-    monkeypatch.setattr("orchestration.runner.LEG_TIMEOUT_S", 0.05)
+    monkeypatch.setenv("A2ALAB_LEG_TIMEOUT_S", "0.05")
     sink = []
     clients = _all_ok(sink)
     slow = LEGS[2]
@@ -245,3 +245,16 @@ async def test_dispatch_can_subset_roles_without_changing_behaviour():
     )
     assert [r.leg.role for r in result.results] == ["commercial"]
     assert len(sink) == 1
+
+
+async def test_leg_timeout_is_read_at_call_time_not_import_time(monkeypatch):
+    """The remote MCP server runs legs inside an API Gateway request and must
+    cut them shorter than the host-side path does. Reading the override at
+    import would repeat the bug legs.py documents: scripts import this module
+    before load_dotenv() runs, so every .env value reads as absent and the run
+    silently uses the default while looking perfect."""
+    from orchestration.runner import LEG_TIMEOUT_DEFAULT_S, leg_timeout_s
+
+    assert leg_timeout_s() == LEG_TIMEOUT_DEFAULT_S
+    monkeypatch.setenv("A2ALAB_LEG_TIMEOUT_S", "25")
+    assert leg_timeout_s() == 25.0

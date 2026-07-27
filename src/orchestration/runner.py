@@ -22,6 +22,7 @@ many legs join back to it from the platforms' own logs.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -35,7 +36,33 @@ from orchestration.legs import Leg, legs_for
 # wedged platform must not hold the turn open indefinitely — it becomes an
 # unavailable leg instead. Generous by default because these are async
 # missions, not sync conversation turns.
-LEG_TIMEOUT_S = 120.0
+#
+# Overridable because the two orchestrator topologies do not get the same
+# budget, and pretending otherwise would hide the cost of moving the tool.
+# Host-side, a leg is bounded only by our own patience. Through the remote MCP
+# server the leg is inside an HTTP request/response, so it inherits API
+# Gateway's integration timeout — 29s in this account, and NOT raisable for
+# HTTP APIs (AWS's >29s support covers Regional and private REST APIs only).
+# The Lambda therefore sets ~25s, leaving margin for the JSON-RPC round trip.
+#
+# The consequence is worth stating plainly rather than tuning away: a warm leg
+# measures ~17s and fits, while a cold platform (AgentCore 31-56s, Agent Engine
+# ~34s p95) does not and is reported as unavailable. Moving a tool from the
+# host to the orchestration layer imposes a request budget on work that
+# previously had none.
+LEG_TIMEOUT_DEFAULT_S = 120.0
+
+
+def leg_timeout_s() -> float:
+    """Read at CALL time, never at import.
+
+    `legs.py` documents why in detail: scripts import this module at the top of
+    the file and call load_dotenv() inside main(), so an import-time read sees
+    every .env override as absent and the run quietly uses the default. That
+    bug cost a whole fan-out run that looked perfect and used the wrong
+    targets. Anything env-dependent here has to be resolved when it is USED.
+    """
+    return float(os.environ.get("A2ALAB_LEG_TIMEOUT_S") or LEG_TIMEOUT_DEFAULT_S)
 
 
 @dataclass
@@ -101,6 +128,7 @@ async def _run_leg(
 ) -> LegResult:
     start = time.perf_counter()
     client = None
+    timeout_s = leg_timeout_s()
     try:
         client = registry.client_for(leg.target)
         message, meta = delegation.delegate(
@@ -119,7 +147,7 @@ async def _run_leg(
             transport_detail=f"fan-out leg: {leg.role}",
             request_payload={"role": leg.role, "message": message},
         ) as hop:
-            resp = await asyncio.wait_for(client.ask(req), timeout=LEG_TIMEOUT_S)
+            resp = await asyncio.wait_for(client.ask(req), timeout=timeout_s)
             text = (resp.text or "").strip()
             hop.response_payload = {"role": leg.role, "text": text}
         latency = int((time.perf_counter() - start) * 1000)
@@ -132,7 +160,7 @@ async def _run_leg(
         return LegResult(
             leg,
             False,
-            error=f"timed out after {LEG_TIMEOUT_S:.0f}s",
+            error=f"timed out after {timeout_s:.0f}s",
             latency_ms=int((time.perf_counter() - start) * 1000),
         )
     except Exception as exc:

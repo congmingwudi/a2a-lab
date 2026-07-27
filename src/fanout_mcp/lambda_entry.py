@@ -30,9 +30,18 @@ the model is told nothing useful.
 
 from __future__ import annotations
 
-from fanout_mcp import SERVER_INFO
-from fanout_mcp.tools import auth_token, build_registry
-from mcp_http.http import make_lambda_handler
+from interop.secret_env import load_secret_env_and_log
+
+# BEFORE anything reads os.environ. The Entra service principal and this
+# server's own bearer token live in Secrets Manager (D39/F1), not in the
+# function configuration, and `auth_token()` below reads one of them — so a
+# later import order would silently produce an unauthenticated server with
+# every business-unit agent behind it.
+load_secret_env_and_log("fanout-mcp")
+
+from fanout_mcp import SERVER_INFO  # noqa: E402
+from fanout_mcp.tools import auth_token, build_registry  # noqa: E402
+from mcp_http.http import make_lambda_handler  # noqa: E402
 
 # Built at cold start, deliberately: the registry construction reads
 # config/targets.yaml and the leg agent definitions, and doing that per request

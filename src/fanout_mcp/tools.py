@@ -33,7 +33,7 @@ from typing import Any
 
 from mcp_http.core import ToolDef, ToolRegistry
 from orchestration.agents import LEG_AGENTS, LegAgent, platform_label
-from orchestration.runner import LEG_TIMEOUT_S, run_one
+from orchestration.runner import leg_timeout_s, run_one
 
 # The caller identity stamped on every delegation these tools make. It is the
 # ORCHESTRATOR's name, not this server's: the business-unit agents are being
@@ -164,7 +164,7 @@ def roster() -> str:
 
 def timeout_note() -> str:
     return (
-        f"Each unit answers within about {int(LEG_TIMEOUT_S)}s, or the tool "
+        f"Each unit answers within about {int(leg_timeout_s())}s, or the tool "
         "returns a '[leg unavailable: ...]' marker instead of an answer."
     )
 
