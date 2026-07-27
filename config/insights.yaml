@@ -863,6 +863,58 @@ insights:
       - plan/03-results.md
       - plan/07-workstreams.md
 
+  - id: where-the-tool-runs-decides-who-orchestrates
+    category: Orchestration topology
+    review: required
+    status: measured
+    headline: >-
+      "Agentic" is a property of the tool inventory, not the prompt — and moving
+      a tool off the host buys autonomy at the price of a request budget
+    evidence: >-
+      MEASURED 2026-07-26, same agent, same prompt, same three business-unit
+      agents on three clouds, two tool topologies. With ONE host-side tool that
+      fans out, the model's only decision is when to call it: the order and the
+      parallelism are an asyncio.gather in our code, and the session cannot
+      progress unless a laptop stays attached to service the call. With one
+      REMOTE MCP tool per business unit — executing on the vendor's
+      orchestration layer instead — the model issued all three units in a
+      SINGLE turn on both runs (3/3 in 50.5s and 42.6s, different disruptions),
+      with nothing attached. Nothing in the prompt asks for that; it says only
+      that the units are independent, because instructing "call all three at
+      once" would answer the question by assertion. The measurement is per-TURN,
+      taken off the model-request boundary in the event stream: a flat list of
+      tool calls cannot distinguish three at once from three in a row, which is
+      the entire question. Two costs came with it. First, coverage: the
+      host-side tool appends "[coverage: n/3]" computed by code that knows how
+      many units exist, and three independent tools have no such vantage point —
+      nothing but the model knows whether it called all three. Stating the
+      roster in the prompt and asking it to reconcile was enough, both runs
+      reported "Coverage: 3 of 3 units" unprompted, and one volunteered that a
+      unit's contract terms were assumptions rather than verified. Second, and
+      not optional: the units now run inside an HTTP request/response, so they
+      inherit the gateway's 29s integration timeout — 25s per unit against 120s
+      host-side. Warm units measure 1-13s and fit; a cold platform (31-56s cold
+      start) does not, and reports unavailable.
+    advisory: >-
+      When a team says their system is agentic, ask what the model actually
+      decides. If the tool inventory contains one "do_the_thing" tool, the
+      answer is "when", and the sequencing lives in your code — that is a
+      program with a language model in it, which is often the right design but
+      should not be sold as autonomy. Decomposing into one tool per capability
+      moves the scheduling decision to the model, and on this evidence the model
+      takes it. Two things to check before you do. Whatever your aggregate tool
+      computed for free — coverage counts, totals, cross-branch consistency —
+      now has no owner, so state the expected set explicitly and verify the
+      model reconciles against it in code, not in prose. And find out what
+      execution budget the hosting layer imposes: a tool that ran on your own
+      host had only your patience as a limit, while the same work behind a
+      managed gateway inherits an HTTP timeout that no protocol document
+      mentions and that cold starts will find first.
+    refs:
+      - D41
+      - plan/03-results.md
+      - plan/07-workstreams.md
+
   - id: errors-must-not-be-relayed-by-a-model
     category: Observability
     review: required
