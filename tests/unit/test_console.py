@@ -1,5 +1,6 @@
 import importlib
 import json
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -180,6 +181,35 @@ def test_scenarios_include_adk_pair(tmp_path, monkeypatch):
     assert names["agentforce-to-adk"]["group"] == "adk-agentforce"
     assert names["agentforce-to-adk"]["target"] == "agentforce-google-adk-rest"
     assert "adk" in [c["kind"] for c in names["adk-to-agentforce"]["components"]]
+
+
+def test_every_component_has_a_console_url(tmp_path, monkeypatch):
+    """A component with no url renders as 'not yet available' — which reads as
+    a missing capability, not a missing env var. Every row must therefore have
+    a working default; only the Salesforce ones legitimately depend on env
+    (the org domain is not ours to hardcode)."""
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    data = client.get("/api/scenarios").json()
+    missing = [
+        (s["name"], c["title"])
+        for s in data["scenarios"]
+        for c in s.get("components") or []
+        if not c.get("url")
+    ]
+    assert missing == [], f"components with no console link: {missing}"
+
+
+def test_foundry_scenario_has_a_platform_component(tmp_path, monkeypatch):
+    """WS3 shipped the Foundry agent but no component row, so its Details tab
+    listed nothing at all — the one platform whose agent lives entirely in a
+    vendor console."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    names = {s["name"]: s for s in client.get("/api/scenarios").json()["scenarios"]}
+    kinds = [c["kind"] for c in names["foundry-to-agentforce"]["components"]]
+    assert "foundry" in kinds
 
 
 def test_run_scenario_resolves_target_and_suffix(tmp_path, monkeypatch):
@@ -748,6 +778,52 @@ def test_build_telemetry_never_appears_as_a_platform_column(tmp_path, monkeypatc
     assert "coding" not in summary["platforms"]
     # but it is still reachable in its own section
     assert client.get("/api/build-telemetry").json()["enabled"] is True
+
+
+def test_coding_harvest_is_reachable_by_name_but_not_in_the_sweep(tmp_path, monkeypatch):
+    """The section's own Harvest button posts ?platform=coding.
+
+    It must route to CodingSource (before this, the console's harvest map had
+    four platform sources and no coding entry, so the button could only ever
+    answer "unknown platform"). The unqualified sweep behind Observability's
+    Harvest must NOT pick it up — that button reports "harvested from all
+    platforms", and coding is not one of them.
+    """
+    called = []
+
+    def fake_source(name):
+        class FakeSource:
+            def harvest(self, store):
+                called.append(name)
+                return SimpleNamespace(platform=name, status="ok", detail="fake")
+
+        return FakeSource
+
+    import observability.adk_source as adk_source
+    import observability.anthropic_source as anthropic_source
+    import observability.coding_source as coding_source
+    import observability.openai_source as openai_source
+    import observability.salesforce_source as salesforce_source
+
+    monkeypatch.setattr(coding_source, "CodingSource", fake_source("coding"))
+    monkeypatch.setattr(anthropic_source, "AnthropicSource", fake_source("claude"))
+    monkeypatch.setattr(salesforce_source, "SalesforceSource", fake_source("salesforce"))
+    monkeypatch.setattr(openai_source, "OpenAISource", fake_source("openai"))
+    monkeypatch.setattr(adk_source, "AdkSource", fake_source("adk"))
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+    client = TestClient(make_app(trace_dir, monkeypatch, FakeRegistry()))
+
+    r = client.post("/api/obs/harvest?platform=coding").json()
+    assert r["ok"] is True
+    assert called == ["coding"]
+    assert r["results"][0]["platform"] == "coding"
+
+    called.clear()
+    sweep = client.post("/api/obs/harvest").json()
+    assert sweep["ok"] is True
+    assert "coding" not in called
+    assert set(called) == {"claude", "salesforce", "openai", "adk"}
 
 
 def test_build_telemetry_explains_setup_when_nothing_collected(tmp_path, monkeypatch):

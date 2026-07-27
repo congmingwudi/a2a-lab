@@ -33,6 +33,11 @@
     --chip-lab: #969696; --chip-aws: #232f3e; --chip-foundry: #0078d4;
     /* labs.agentforce.com hero tokens */
     --hero-sub: #8fc0e8; --hero-body: rgba(244, 249, 255, .9); --hero-link: #57a9f5;
+    /* Magnitude fill (the per-repo cost bars). ONE hue at one intensity: those
+       bars encode how much, not which — a second colour would invent a
+       category. Its own token because it needs a different step per theme,
+       where --hero-link (tuned for text on the dark hero) washes out on white. */
+    --bar: #57a9f5;
     --wordmark-grad: linear-gradient(100deg, #09decb 0%, #3fc7d8 22%, #7db9e8 48%, #a8a2ec 74%, #c99df0 100%);
     --font-ui: "SF Pro Text", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", "Roboto", sans-serif;
     --font-head: "ITC Avant Garde Std", "Avant Garde", "Century Gothic", "Futura", "URW Gothic", var(--font-ui);
@@ -53,6 +58,7 @@
        inverts to near-black-on-light-gray (white-ish stays a dark-mode
        look); aws keeps its solid squid-ink fill on both themes */
     --chip-claude: #bd5a30;   /* same warming, darkened for contrast on the light ground */ --chip-openai: #2f2f2f; --chip-google: #1e8e3e; --chip-lab: #6f6f6f;
+    --bar: #2b7cd3;           /* the magnitude fill, stepped down for a white ground */
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-ui); }
@@ -127,6 +133,11 @@
   .nav-group .gtitle { flex: 1; }
   .nav-group .gcount { font: 600 10px var(--font-mono); background: var(--card2);
                        border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
+  /* Group headings carry the same vendor marks the experiment cards do, one
+     notch smaller: the heading text is 11px, and a 14px mark beside it reads
+     as an icon button rather than as part of the label. */
+  .nav-group .plogo { width: 12px; height: 12px; vertical-align: -2px; margin-right: 4px; }
+  .nav-group .plogo.awslogo { width: 20px; }
   .nav-group.upcoming { cursor: default; }
   .nav-group-empty { margin: 4px 14px 8px 35px; padding: 6px 10px; font-size: 11.5px;
                      color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
@@ -134,6 +145,10 @@
   /* Vendor marks — small, aligned to the text they precede, and never a
      click target of their own (the row around them already is). */
   .plogo { width: 14px; height: 14px; flex: none; vertical-align: -2.5px; margin-right: 5px; }
+  /* The AWS lockup is wider than it is tall (wordmark over smile); letting it
+     keep 14px of HEIGHT inside a 14px box would shrink it to illegibility, so
+     it gets the extra width instead. */
+  .plogo.awslogo { width: 23px; }
   .pmark { white-space: nowrap; }          /* a mark never wraps off its name */
   .pmark + .pmark { margin-left: 2px; }
   .warm-row > .plogo { margin-right: 0; }  /* the flex row supplies the gap */
@@ -144,11 +159,19 @@
            stroke-linecap: round; stroke-linejoin: round; opacity: .75; }
   .acc[open] > summary .sicon, summary:hover .sicon { opacity: 1; }
 
-  /* pill badges, labs-style: tinted fill + rim in the accent color */
-  .badge { display: inline-block; padding: 1.5px 10px; border-radius: 999px; font: 600 11px var(--font-mono);
+  /* pill badges, labs-style: tinted fill + rim in the accent color.
+     Sized to sit UNDER the text they annotate: a chip is metadata, and at the
+     old 11px/10px-padding it competed with the scenario title above it. The
+     rim is softened to match — the tint alone carries the platform hue. */
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font: 600 9.5px var(--font-mono);
+           letter-spacing: .02em;
            color: var(--tag, var(--chip-lab));
            background: color-mix(in srgb, var(--tag, var(--chip-lab)) 10%, transparent);
-           border: 1px solid color-mix(in srgb, var(--tag, var(--chip-lab)) 38%, transparent); }
+           border: 1px solid color-mix(in srgb, var(--tag, var(--chip-lab)) 30%, transparent); }
+  /* Group-header chips (Experiments subsections) sit beside a heading, not
+     under a card title — one notch smaller again, and rimless so a row of
+     them reads as one label rather than a row of buttons. */
+  .nav-group .badge { font-size: 9px; padding: 0 5px; border-color: transparent; }
   .badge.rest { --tag: var(--rest); } .badge.mcp { --tag: var(--mcp); }
   .badge.a2a { --tag: var(--a2a); } .badge.agentforce-api { --tag: var(--agentforce-api); }
   .badge.managed-agents-api { --tag: var(--managed-agents-api); }
@@ -552,6 +575,57 @@
   table.obs-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
   table.obs-tbl tr.rowlink { cursor: pointer; }
   table.obs-tbl tr.rowlink:hover td { background: var(--card2); }
+
+  /* ---- Coding Agents Telemetry: stat tiles and tables --------------------
+     These carried class names with NO rules behind them, so the section's
+     tables rendered as browser defaults — serif-ish, unaligned, no card. The
+     design here is deliberately quiet: one bordered card per table, a single
+     tinted header band, hairline row rules, and nothing else. A full grid of
+     borders competes with the numbers it is supposed to frame. */
+  .tbl-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card);
+              margin: 10px 0 20px; overflow: hidden; }
+  /* Wide tables scroll INSIDE their card — the page body never scrolls
+     sideways, and the card edge stays put while the columns move. */
+  .tbl-card .tbl-scroll { overflow-x: auto; }
+  table.obs-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.obs-table th { text-align: left; white-space: nowrap; padding: 9px 13px;
+                       font: 600 10px var(--font-mono); text-transform: uppercase; letter-spacing: .6px;
+                       color: var(--muted); background: var(--card2);
+                       border-bottom: 1px solid var(--border); }
+  table.obs-table td { padding: 9px 13px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.obs-table tbody tr:last-child td { border-bottom: none; }
+  table.obs-table tbody tr:hover td { background: var(--card2); }
+  table.obs-table td:first-child { font-weight: 600; color: var(--fg); }
+  /* Measures: right-aligned mono with TABULAR figures, so digits stack in
+     columns and two rows can be compared by eye without reading them. */
+  table.obs-table th.num, table.obs-table td.num { text-align: right; }
+  table.obs-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+                           color: var(--fg); }
+  table.obs-table td.num.zero { color: var(--muted); }
+  /* The tool a row belongs to, as a quiet mono tag rather than a chip: a
+     column of chips would out-shout the numbers beside them. */
+  table.obs-table td.tool { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted);
+                            font-weight: 400; }
+
+  /* Headline figures. Hero numbers, so the label is small and recessive and
+     the value carries the weight — the reverse of the table header. */
+  .obs-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+               gap: 10px; margin: 16px 0 4px; }
+  .obs-cards .obs-card { padding: 12px 14px; }
+  .obs-card .k { font: 600 10px var(--font-mono); text-transform: uppercase; letter-spacing: .6px;
+                 color: var(--muted); }
+  .obs-card .v { margin-top: 7px; font-size: 21px; font-weight: 600; line-height: 1.1;
+                 font-variant-numeric: tabular-nums; }
+
+  /* Cost per repository. One hue at one intensity — this is magnitude, not
+     identity, so a second colour would imply a category that isn't there.
+     Rounded data-end on the FILL (the track stays square-shouldered) so the
+     bar reads as a measured length rather than a progress widget. */
+  .repo-bar { height: 9px; border-radius: 3px; overflow: hidden; margin-bottom: 9px;
+              background: color-mix(in srgb, var(--fg) 8%, transparent); }
+  .repo-bar .fill { height: 100%; border-radius: 0 4px 4px 0;
+                    background: var(--bar); transition: width .25s ease; }
+  .repo-bar .fill.muted { background: var(--muted); }
   .obs-ev { border-left: 2px solid var(--border); padding: 6px 0 6px 12px; margin: 0 0 4px; }
   .obs-ev .et { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
   .obs-ev .es { font-size: 12.5px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
@@ -884,7 +958,10 @@
       <div class="acc-body">
         <div class="traces-tools">
           <span class="hint">What this lab cost to build — Claude Code and Codex.</span>
+          <button class="ghost" id="buildHarvestBtn" onclick="harvestBuild(event)"
+            title="Pull fresh coding-agent metrics from CloudWatch into the local store (scripts/obs_harvest.py coding) — telemetry appears here only after a harvest">Harvest</button>
         </div>
+        <div class="hint" id="buildMsg" style="display:none; padding: 0 12px 8px"></div>
         <div id="buildSide"></div>
       </div>
     </details>
@@ -1087,7 +1164,7 @@ function applyAuthGating() {
     // Viewer (D36 role model): everything read-only; execution surfaces
     // are hidden here and 403'd server-side.
     document.getElementById("gearBtn").style.display = "none";
-    for (const id of ["harvestBtn", "analyzeBtn"]) {
+    for (const id of ["harvestBtn", "analyzeBtn", "buildHarvestBtn"]) {
       const el = document.getElementById(id);
       if (el) el.style.display = "none";
     }
@@ -1617,8 +1694,18 @@ function scenarioCardHtml(s) {
 // "aws" chip next to it would render as a same-styled near-duplicate).
 // Display labels for platform chips — raw ids stay as CSS classes and in
 // config; the label says which vendor's platform is meant.
-const CHIP_LABELS = { adk: "google-adk", "agent-engine": "google-agent-engine",
-  foundry: "ms-foundry", gemini: "google-gemini" };
+// Two tiers, one rule: tier 1 names WHO OPERATES THE CLOUD (aws, microsoft,
+// google, openai, anthropic), tier 2 names WHICH PRODUCT OR MODEL runs on it
+// (managed-agents, agent-sdk, agent-engine, gpt-5-mini, gemini). So the vendor
+// chip reads `anthropic`, not `claude` — Claude is the model, and it lives on
+// the product tier where the lab already distinguishes Managed Agents from the
+// self-hosted SDK. Choosing `claude` for tier 1 would mean Google's chip should
+// read `gemini`, which is obviously wrong; the same argument settles this one.
+// Only the LABEL changes — `claude` stays the tag id, the CSS class, and the
+// hue, so config and styling are untouched.
+const CHIP_LABELS = { claude: "anthropic", adk: "google-adk",
+  "agent-engine": "google-agent-engine", foundry: "ms-foundry",
+  gemini: "google-gemini" };
 const chipLabel = t => CHIP_LABELS[t] || t;
 
 // ---------------------------------------------------------------------------
@@ -1635,12 +1722,23 @@ const PLATFORM_LOGOS = {
   salesforce: `<svg class="plogo" viewBox="0 0 24 16" aria-hidden="true"><path fill="#00a1e0" d="M9.9 3.6a3.6 3.6 0 0 1 6-.9 4.4 4.4 0 0 1 6.5 3.9 4.3 4.3 0 0 1-4.4 4.3H7.2A3.8 3.8 0 0 1 3.4 7a3.7 3.7 0 0 1 2-3.3 4 4 0 0 1 4.5-.1z"/></svg>`,
   // OpenAI's knot, reduced to its hexagonal rosette.
   openai: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M8 2.2 12.6 4.9v5.4L8 13l-4.6-2.7V4.9z"/><path fill="none" stroke="currentColor" stroke-width="1.4" d="M8 5.6v4.8M5.7 6.9l4.6 2.3M10.3 6.9 5.7 9.2"/></svg>`,
-  // Google's spark (Gemini / ADK).
+  // Google's spark — the MODEL mark (Gemini), not the platform's.
   google: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="#4285f4" d="M8 1.2c.5 2.6 1.7 4.6 3.5 5.5 1 .5 1.9.8 3.3 1.3-2.6.5-4.6 1.7-5.5 3.5-.5 1-.8 1.9-1.3 3.3-.5-2.6-1.7-4.6-3.5-5.5-1-.5-1.9-.8-3.3-1.3 2.6-.5 4.6-1.7 5.5-3.5.5-1 .8-1.9 1.3-3.3z"/></svg>`,
+  // Google Cloud's cloud, outlined in the four brand colours. This is the
+  // PLATFORM mark: ADK and Agent Engine are Google Cloud, and the spark above
+  // says Gemini — a model. Wearing the spark where AWS/Microsoft wear their
+  // company marks put a model on the vendor tier.
+  gcloud: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><g fill="none" stroke-width="1.7" stroke-linecap="round"><path stroke="#ea4335" d="M4.9 6.4A3.7 3.7 0 0 1 11.2 5"/><path stroke="#fbbc04" d="M4.9 6.4a2.9 2.9 0 0 0-1.4 5.1"/><path stroke="#34a853" d="M3.9 11.8h8.2"/><path stroke="#4285f4" d="M11.2 5a3.4 3.4 0 0 1 1.3 6.6"/></g></svg>`,
   // Microsoft's four squares.
   microsoft: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.4" y="1.4" width="6" height="6" fill="#f25022"/><rect x="8.6" y="1.4" width="6" height="6" fill="#7fba00"/><rect x="1.4" y="8.6" width="6" height="6" fill="#00a4ef"/><rect x="8.6" y="8.6" width="6" height="6" fill="#ffb900"/></svg>`,
-  // AWS's smile.
-  aws: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M3 5.4c1.4 1 3.1 1.5 5 1.5s3.6-.5 5-1.5"/><path fill="none" stroke="#ff9900" stroke-width="1.6" stroke-linecap="round" d="M1.9 9.6c1.9 1.6 3.9 2.4 6.1 2.4s4.2-.8 6.1-2.4"/><path fill="#ff9900" d="M13.1 8.6 15 9.9l-2.2.8z"/></svg>`,
+  // AWS's full lockup: the lowercase `aws` wordmark over the orange smile that
+  // curves up into an arrowhead on the right. The bare smile alone (what this
+  // was) is the half of the mark nobody recognises out of context. Drawn, not
+  // downloaded — the wordmark is <text> in the page's own font stack so it
+  // stays crisp at 14px and needs no asset request. The smile keeps AWS
+  // orange; the wordmark takes currentColor so it survives both themes, where
+  // the brand's Squid Ink would disappear on the dark one.
+  aws: `<svg class="plogo awslogo" viewBox="0 0 26 16" aria-hidden="true"><text x="13" y="9.2" text-anchor="middle" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="10.5" font-weight="700" letter-spacing="-.3" fill="currentColor">aws</text><path fill="none" stroke="#ff9900" stroke-width="1.7" stroke-linecap="round" d="M3.4 12.4c3 2.1 6.2 3.1 9.6 3.1s6.6-1 9.6-3.1"/><path fill="#ff9900" d="M20.4 11.2 24.4 11.5 22.6 14.7z"/></svg>`,
 };
 const logoSvg = key => PLATFORM_LOGOS[key] || "";
 
@@ -1648,11 +1746,23 @@ const logoSvg = key => PLATFORM_LOGOS[key] || "";
 // Agentforce" and "Microsoft Foundry" take a single mark. Running the
 // patterns in sequence instead would re-match the short name inside the
 // span the long one just wrote, and double-mark it.
-const LOGO_RE = /Salesforce Agentforce|Microsoft Foundry|Google ADK|Agentforce|Claude|OpenAI|Gemini|Foundry/g;
+// Platform names take the vendor's CLOUD mark (Google Cloud's cloud); a model
+// name takes the model's (the Gemini spark). Same tier-1/tier-2 rule the chip
+// labels follow.
+// The bare vendor names come LAST so a compound always wins the alternation:
+// "Google ADK" must take the cloud mark, not leave "Google" to match first and
+// strand "ADK". Same reason "Microsoft Foundry" precedes "Microsoft".
+// `AWS` matches only in `AWS Strands` — never bare. Scenario titles read
+// "Claude (AWS) → Agentforce", where the parenthetical says WHERE the Claude
+// end is hosted; a mark there competes with the Anthropic one two words
+// earlier and adds nothing the word doesn't already say.
+const LOGO_RE = /Salesforce Agentforce|Microsoft Foundry|Google Cloud|Google ADK|Vertex AI|Agent Engine|AWS Strands|Agentforce|Claude|OpenAI|Gemini|Foundry|Microsoft|Google/g;
 const LOGO_KEY = {
   "Salesforce Agentforce": "salesforce", "Microsoft Foundry": "microsoft",
-  "Google ADK": "google", "Agentforce": "salesforce", "Claude": "anthropic",
-  "OpenAI": "openai", "Gemini": "google", "Foundry": "microsoft",
+  "Google Cloud": "gcloud", "Google ADK": "gcloud", "Vertex AI": "gcloud",
+  "Agent Engine": "gcloud", "AWS Strands": "aws", "Agentforce": "salesforce",
+  "Claude": "anthropic", "OpenAI": "openai", "Gemini": "google",
+  "Foundry": "microsoft", "Microsoft": "microsoft", "Google": "gcloud",
 };
 
 // esc() the text FIRST, then splice in trusted SVG — never the other way
@@ -1699,14 +1809,14 @@ function renderScenarios() {
     el.innerHTML = groups.map(g => {
       if (g.upcoming) return `
       <div class="nav-group upcoming" title="Roadmap workstream ${esc(g.upcoming)} — plan/07-workstreams.md">
-        <span class="caret"></span><span class="gtitle">${esc(g.title)}</span>
+        <span class="caret"></span><span class="gtitle">${withLogos(g.title)}</span>
       </div>
       <div class="nav-group-empty">coming soon · ${esc(g.upcoming)}</div>`;
       const open = openGroups.has(g.id);
       return `
       <div class="nav-group ${open ? "open" : ""}" onclick="toggleGroup('${esc(g.id)}')">
         <span class="caret">${open ? "▾" : "▸"}</span>
-        <span class="gtitle">${esc(g.title)}</span>
+        <span class="gtitle">${withLogos(g.title)}</span>
         <span class="gcount">${g.scenarios.length}</span>
       </div>
       ${open ? g.scenarios.map(scenarioCardHtml).join("") : ""}`;
@@ -2121,14 +2231,29 @@ function obsHasData() {
     || (obs.briefs || []).length > 0;
 }
 
+// Header click for the sections that ALSO navigate (Observability, Insights,
+// Coding Agents Telemetry). These summaries used to cancel the native toggle
+// outright, which navigated but left them permanently expanded — a disclosure
+// triangle that never disclosed. Three-way instead, and it runs BEFORE the
+// browser's default toggle, so `open` here is the state we are leaving:
+//   collapsed            -> let it open, and navigate
+//   open, other view     -> navigate, keep it open (cancel the toggle)
+//   open, already here   -> let it collapse; the canvas stays put
+// Returns true when the caller should navigate.
+// Called with no event when something else navigates here (the Harvest button,
+// openInsights) — there is no default toggle to allow in that case, so the
+// section is opened explicitly, exactly as before.
+function sectionHeaderClick(ev, accId, isCurrentView) {
+  const acc = document.getElementById(accId);
+  if (!ev) { acc.open = true; return true; }
+  if (!acc.open) return true;              // opening — navigate too
+  if (!isCurrentView) { ev.preventDefault(); return true; }
+  return false;                            // collapse
+}
+
 window.obsSummaryNav = ev => {
-  // The Observability section stays expanded (D18 — it's a top-level lab
-  // surface now): the header click navigates the canvas to the overview
-  // (dashboard if harvested data exists, explainer otherwise) instead of
-  // collapsing the accordion.
-  if (ev) ev.preventDefault();
-  document.getElementById("accObs").open = true;
-  if (view && view.type === "obs" && !view.platform && !view.session) return;
+  const here = !!(view && view.type === "obs" && !view.platform && !view.session);
+  if (!sectionHeaderClick(ev, "accObs", here) || here) return;
   pushNav();
   view = { type: "obs", platform: null, session: null };
   obs.events = null;
@@ -2502,6 +2627,7 @@ function renderModeBadge() {
 // logs the lab harvests. Claude Code is the tool that BUILT the lab — listing
 // it beside Agentforce would quietly claim they are the same kind of thing.
 let buildData = null;
+let buildHarvesting = false;
 
 async function loadBuildTelemetry() {
   try {
@@ -2509,25 +2635,72 @@ async function loadBuildTelemetry() {
     if (r.status === 404) return; // console server predates this API
     buildData = await r.json();
     const count = document.getElementById("buildCount");
-    if (count) count.textContent = buildData.enabled ? `$${(buildData.totals.cost_usd || 0).toFixed(2)}` : "";
+    // Deliberately not the dollar total. Money belongs on the dashboard,
+    // where the "modelled at list price, not an invoice" caveat sits next to
+    // it; a bare $ figure in the sidebar travels without its caveat.
+    if (count) count.textContent = buildData.enabled ? buildData.by_tool.length : "";
     renderBuildSide();
     if (view && view.type === "build") renderMain(true);
   } catch (_e) { /* section stays empty */ }
+}
+
+function buildMsg(text, isErr) {
+  const el = document.getElementById("buildMsg");
+  if (!el) return;
+  el.style.display = text ? "block" : "none";
+  el.textContent = text || "";
+  el.style.color = isErr ? "var(--bad, #c33)" : "";
 }
 
 function renderBuildSide() {
   const el = document.getElementById("buildSide");
   if (!el || !buildData) return;
   if (!buildData.enabled) {
-    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">Not collecting yet — open for setup.</div>`;
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">${buildHarvesting
+      ? "Harvesting…" : "Nothing harvested yet — hit Harvest, or open for setup."}</div>`;
     return;
   }
   el.innerHTML = buildData.by_tool.map(t => `
     <div class="obs-plat" onclick="buildNav(event)">
       <span>${esc(t.tool)}</span>
-      <span class="count">${t.cost_supported === false ? "no cost metric" : "$" + (t.cost_usd || 0).toFixed(2)}</span>
+      <span class="count">${t.days} day${t.days === 1 ? "" : "s"}</span>
     </div>`).join("");
 }
+
+// Same seam as the Observability Harvest button, scoped to the coding source
+// (`scripts/obs_harvest.py coding`). Its own button rather than a ride-along on
+// the Observability one: this section's data is a different subject, and the
+// per-repo view is empty until a harvest runs after an attributed session.
+window.harvestBuild = async ev => {
+  if (ev) ev.stopPropagation();
+  if (buildHarvesting) return;
+  buildHarvesting = true;
+  const btn = document.getElementById("buildHarvestBtn");
+  if (btn) { btn.textContent = "Harvesting…"; btn.disabled = true; }
+  buildMsg("Querying CloudWatch for claude_code.* and codex.* metrics…");
+  try {
+    const r = await fetch(apiUrl("/api/obs/harvest?platform=coding"), { method: "POST" });
+    if (r.status === 404) {
+      buildMsg("Console server predates the coding harvest — restart scripts/run_local.sh.", true);
+      return;
+    }
+    const data = await r.json();
+    if (!data.ok) { buildMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
+    const res = (data.results || [])[0] || {};
+    buildMsg(res.status === "ok"
+      ? "Done — " + (res.detail || `${res.sessions || 0} tool-day(s) harvested.`)
+      : `${res.status}: ${res.detail || "no coding metrics returned"}`,
+      res.status !== "ok");
+    await loadBuildTelemetry();
+    buildNav();  // land on the refreshed dashboard so the result is visible
+  } catch (e) {
+    buildMsg("Harvest failed: " + e, true);
+  } finally {
+    buildHarvesting = false;
+    if (btn) { btn.textContent = "Harvest"; btn.disabled = false; }
+    renderBuildSide();
+  }
+};
 
 function buildHtml() {
   if (!buildData) return `<div class="empty">Loading…</div>`;
@@ -2567,16 +2740,49 @@ function buildHtml() {
   const num = (v, ok) => ok === false ? `<span class="hint">n/a</span>` : (v || 0).toLocaleString();
 
   const byTool = buildData.by_tool.map(b => `
-    <tr><td>${esc(b.tool)}</td><td>${money(b.cost_usd, b.cost_supported)}</td>
-        <td>${num(b.input_tokens, b.tokens_supported)}</td>
-        <td>${num(b.output_tokens, b.tokens_supported)}</td><td>${b.days}</td></tr>`).join("");
+    <tr><td>${esc(b.tool)}</td><td class="num">${money(b.cost_usd, b.cost_supported)}</td>
+        <td class="num">${num(b.input_tokens, b.tokens_supported)}</td>
+        <td class="num">${num(b.output_tokens, b.tokens_supported)}</td>
+        <td class="num">${b.days}</td></tr>`).join("");
 
   const days = buildData.days.map(d => `
-    <tr><td>${esc(d.date)}</td><td>${esc(d.tool)}</td><td>${money(d.cost_usd, d.cost_supported)}</td>
-        <td>${num(d.input_tokens, d.tokens_supported)}</td>
-        <td>${num(d.output_tokens, d.tokens_supported)}</td>
-        <td>${d.sessions ?? "—"}</td>
-        <td>${d.active_time_s ? (d.active_time_s / 3600).toFixed(1) + "h" : "—"}</td></tr>`).join("");
+    <tr><td>${esc(d.date)}</td><td class="tool">${esc(d.tool)}</td>
+        <td class="num">${money(d.cost_usd, d.cost_supported)}</td>
+        <td class="num">${num(d.input_tokens, d.tokens_supported)}</td>
+        <td class="num">${num(d.output_tokens, d.tokens_supported)}</td>
+        <td class="num">${d.sessions ?? "—"}</td>
+        <td class="num">${d.active_time_s ? (d.active_time_s / 3600).toFixed(1) + "h" : "—"}</td></tr>`).join("");
+
+  // Which model did the work. Both tools label every datapoint with `model`
+  // and neither needed configuring for it — the opposite of project/repo — so
+  // this table is the one cross-tool cut that comes free. The units still
+  // differ: dollars for Claude Code, sessions for Codex (no cost metric), and
+  // a dash beats a zero for the column a tool cannot answer.
+  const models = buildData.by_model || [];
+  // Grouped by tool rather than one flat list: the question is "which models
+  // did each coding tool use", and the units are per-tool anyway (dollars for
+  // Claude Code, sessions for Codex). A single sorted table would interleave
+  // them and invite a comparison the metrics do not support.
+  const modelsByTool = {};
+  for (const m of models) (modelsByTool[m.tool] = modelsByTool[m.tool] || []).push(m);
+
+  const modelHtml = models.length ? `
+    <h3>Models used</h3>
+    <p class="hint">${esc(buildData.model_note || "")}</p>
+    ${Object.entries(modelsByTool).map(([tool, rows]) => `
+      <h4 style="margin:14px 0 0">${esc(tool)}</h4>
+      <div class="tbl-card"><div class="tbl-scroll">
+      <table class="obs-table"><thead><tr><th>model</th><th class="num">cost</th>
+        <th class="num">tokens</th><th class="num">sessions</th><th class="num">days</th></tr></thead>
+      <tbody>${rows.map(m => `
+        <tr><td>${esc(m.model)}</td>
+            <td class="num${m.cost_usd ? "" : " zero"}">${m.cost_usd
+              ? "$" + m.cost_usd.toFixed(2) : `<span class="hint">n/a</span>`}</td>
+            <td class="num${m.tokens ? "" : " zero"}">${m.tokens
+              ? m.tokens.toLocaleString() : `<span class="hint">n/a</span>`}</td>
+            <td class="num${m.sessions ? "" : " zero"}">${m.sessions || "—"}</td>
+            <td class="num">${m.days}</td></tr>`).join("")}
+      </tbody></table></div></div>`).join("")}` : "";
 
   // Per-tool coverage. The headline finding of this section is that the two
   // agents do NOT emit comparable metrics, so the differences get stated
@@ -2626,8 +2832,8 @@ function buildHtml() {
           <span class="count">$${(r.cost_usd || 0).toFixed(2)} · ${share}%</span>
         </div>
         <div style="padding:8px 12px">
-          <div style="background:var(--line,#2a2a2a);border-radius:3px;height:8px;overflow:hidden;margin-bottom:8px">
-            <div style="width:${pct}%;height:100%;background:${unattributed ? "#8a8a8a" : "var(--accent,#4c8bf5)"}"></div>
+          <div class="repo-bar" title="${share}% of the measured total">
+            <div class="fill${unattributed ? " muted" : ""}" style="width:${pct}%"></div>
           </div>
           <div class="hint">
             project <b>${esc(r.project || "—")}</b> ·
@@ -2645,16 +2851,21 @@ function buildHtml() {
       </div>`;
   }).join("");
 
+  const repoNote = buildData.repo_note
+    ? `<p class="hint" style="margin-top:10px">${esc(buildData.repo_note)}</p>` : "";
+
   const repoHtml = repos.length ? `
     <h3>By repository</h3>
     <p class="hint">Cost per codebase, from the <code>@resource.repo</code> label
     the exporters attach to every datapoint. Neither coding agent emits this on
     its own — it is configuration, which is the whole point of the section.</p>
-    ${repoRows}` : `
+    ${repoRows}${repoNote}` : `
     <h3>By repository</h3>
-    <p class="hint">No per-repository data yet. Re-run
-    <code>scripts/obs_harvest.py coding</code> after an attributed session —
-    rows harvested before this view existed carry no repo breakdown.</p>`;
+    <p class="hint">No per-repository data yet. Hit <b>Harvest</b> in this section's
+    sidebar panel (same as <code>scripts/obs_harvest.py coding</code>) after an
+    attributed session — rows harvested before this view existed carry no repo
+    breakdown. A repo whose checkout never set <code>OTEL_RESOURCE_ATTRIBUTES</code>
+    exports nothing at all, so it cannot appear here even after a harvest.</p>`;
 
   return `
     <h2>Coding Agents Telemetry</h2>
@@ -2663,33 +2874,35 @@ function buildHtml() {
     ${tiles}${note}${scope}
     ${repoHtml}
     <h3>By tool</h3>
-    <table class="obs-table"><thead><tr><th>tool</th><th>cost</th><th>input</th><th>output</th><th>days</th></tr></thead>
-    <tbody>${byTool}</tbody></table>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><thead><tr><th>tool</th><th class="num">cost</th>
+      <th class="num">input</th><th class="num">output</th><th class="num">days</th></tr></thead>
+    <tbody>${byTool}</tbody></table></div></div>
+    ${modelHtml}
     <h3>Per-tool coverage</h3>
     <p class="hint">The two agents do not emit the same metrics. Where a column
     reads <i>n/a</i> above, the tool does not publish that measure at all —
     it is not a zero.</p>
     ${notes}
     <h3>By day</h3>
-    <table class="obs-table"><thead><tr><th>date</th><th>tool</th><th>cost</th><th>input</th><th>output</th><th>sessions</th><th>active</th></tr></thead>
-    <tbody>${days}</tbody></table>`;
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><thead><tr><th>date</th><th>tool</th><th class="num">cost</th>
+      <th class="num">input</th><th class="num">output</th><th class="num">sessions</th>
+      <th class="num">active</th></tr></thead>
+    <tbody>${days}</tbody></table></div></div>`;
 }
 
 window.buildNav = ev => {
-  if (ev) ev.preventDefault();
-  document.getElementById("accBuild").open = true;
-  if (view && view.type === "build") return;
+  const here = !!(view && view.type === "build");
+  if (!sectionHeaderClick(ev, "accBuild", here) || here) return;
   pushNav();
   view = { type: "build" };
   renderSidebar(); renderMain(true);
 };
 
 window.insightsNav = ev => {
-  // Same pattern as Observability: the header click navigates the canvas
-  // instead of collapsing the accordion.
-  if (ev) ev.preventDefault();
-  document.getElementById("accInsights").open = true;
-  if (view && view.type === "insights") return;
+  const here = !!(view && view.type === "insights");
+  if (!sectionHeaderClick(ev, "accInsights", here) || here) return;
   pushNav();
   view = { type: "insights" };
   renderSidebar(); renderMain(true);
@@ -3045,7 +3258,9 @@ function warmRowHtml(t, anyBusy) {
   const chipText = isShim ? "aws-shim" : chipLabel(t.platform);
   // Chip = which agent platform is being warmed; mark = whose cloud it is.
   // The shim row is an AWS Lambda, so it wears the AWS mark, not Salesforce's.
-  const WARM_LOGO = { claude: "anthropic", openai: "openai", adk: "google",
+  // adk warms an Agent Engine runtime — a Google CLOUD asset, so the cloud
+  // mark; the spark stays for the model itself.
+  const WARM_LOGO = { claude: "anthropic", openai: "openai", adk: "gcloud",
     gemini: "google", foundry: "microsoft", agentforce: "salesforce" };
   const mark = logoSvg(isShim ? "aws" : WARM_LOGO[t.platform]);
   // A failure that only lives in a tooltip is a failure nobody sees. Show the

@@ -146,6 +146,20 @@ platform APIs ──pull──►  harvester (src/observability/)  ──upsert�
   platform, what was harvested, what is API-inaccessible (UI-only), last
   harvest time. Feeds plan/02-matrix.md findings.
 
+### What this section is NOT: coding-agent telemetry (WS9)
+
+Claude Code and Codex telemetry shares this subsystem's plumbing — the same
+`PlatformLogSource` seam, the same `ObsStore`, the same harvest Lambda — and it
+is deliberately **not** a sixth column in the coverage panel. That panel's
+honesty rests on every column being an agent platform whose interior the lab
+harvests; the tools that BUILT the lab are a different subject, and listing them
+beside Agentforce would quietly claim otherwise. So `coding` is popped from
+`/api/obs/summary`, gets its own **Coding Agents Telemetry** console section
+with its own Harvest button, and is reachable from `/api/obs/harvest` only by
+name — the unqualified sweep behind the Observability Harvest button stays the
+five agent platforms, because that button reports "harvested from all
+platforms". Details and measurements live in WS9 (plan/07-workstreams.md).
+
 ## Work items
 
 - **M11.1 — ids + store** ✅ (2026-07-17): `platform_ref` on `TraceEvent`; persist CMA and
