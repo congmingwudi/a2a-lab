@@ -1131,7 +1131,7 @@ Report the *measured* phase (WS8 onward) rather than guessing at the past.
 Reconstructing history from local session data is a bonus, clearly labelled,
 only if the data turns out to be there.
 
-### Follow-up: a static credential in `~/.codex/config.toml` (raised 2026-07-26)
+### Follow-up: a static credential in the agents' shell env (raised + largely resolved 2026-07-26)
 
 Found while fixing the Codex OTel exporter. `~/.codex/config.toml` carries a
 plaintext `LOGGING_API_KEY` (plus `LOGGING_API_URL`) in
@@ -1146,14 +1146,54 @@ developer's AWS session. The Codex OTel token was just moved to exactly that
 model (fetched by `scripts/codex_otel.sh`, injected with `codex -c`, never
 written to a file), which makes this one the odd remaining case.
 
-Options, cheapest first: (a) rotate it and accept a file-scoped secret, mode
-0600, documented as a known exception; (b) have the hook script fetch it from
-Secrets Manager the way `otel_headers.sh` does, so nothing durable is on the
-laptop; (c) drop the shared key for a per-developer identity. (b) matches D39
-and reuses code that already exists.
+**Resolved 2026-07-26 — but not the way this entry first proposed.** The
+original recommendation here was "have the hook fetch it from Secrets Manager
+the way `otel_headers.sh` does". That was written before checking which account
+hosts the service, and it is wrong twice over.
 
-**Effort:** ~1 hour for (b). Not scheduled — logged so the exception is
-deliberate rather than forgotten.
+**First, the exposure is worse than "plaintext on disk".**
+`shell_environment_policy.set` injects its values into the environment of every
+shell command Codex runs, and Claude Code's settings `env` block does the same
+— confirmed by finding `LOGGING_API_KEY` in a Bash tool's own environment
+mid-session. (The `OTEL_*` vars do *not* propagate; Claude Code consumes those
+internally. This is specific to using the generic env channel.) So the key was
+being handed to every subprocess an agent chose to spawn: one stray `env` in a
+log, one diagnostic upload, one crash reporter, and it is out. A broadcast
+channel was being used to reach exactly one consumer — the hook script.
+
+**Second, Secrets Manager does not transplant here.** D39's pattern is "fetch
+it with the AWS session you already have", but that session is **lab-account**
+(Salesforce) and `aws-logging-service` runs in the **personal** AWS account. A
+Secrets Manager fetch would need personal-account credentials, which is the
+same problem one layer up. Storing a personal service's key in a corporate
+account's secret store would satisfy the letter of D39 and be wrong on
+governance.
+
+**What was done instead:** both hook scripts
+(`~/.claude/hooks/claude-notify.sh`, `~/.codex/hooks/codex-notify.sh`) now read
+the key from the **macOS Keychain** (service `a2alab-logging`), and
+`LOGGING_API_KEY` is removed from both config files. Encrypted at rest, no
+network dependency, no cross-account entanglement, and the key exists only
+inside the hook process for the life of one `curl` — never in an agent
+subprocess again. `LOGGING_API_URL` and `LOGGING_CHANNEL` stay in config; they
+are not secrets. The env var remains a documented fallback so a machine without
+the Keychain item keeps working, with a stderr warning when that path is taken.
+Verified: 200 with the Keychain key, 401 with a bogus one.
+
+**Still open, and the reason this is not fully closed:**
+
+1. **Rotate the key.** It was plaintext on disk and exported into every agent
+   subprocess for weeks. Rotation is cheap; assuming it stayed contained is not.
+2. **The real fix is to have no key at all.** Switch the API Gateway `/log`
+   route from API-key auth to IAM, with a resource policy trusting the lab-account
+   principal, and let the hook SigV4-sign with the session already in hand.
+   Nothing stored, nothing to rotate, nothing to leak — the true D39 shape.
+   Needs a cross-account resource policy, so it is real work; worth it if this
+   ever moves beyond one laptop.
+3. Scope the usage plan to `/log` and rate-limit it, so any leak is bounded.
+
+**Effort:** Keychain migration was ~20 minutes and is done. Item 2 is ~half a
+day.
 
 ### Related finding worth chasing separately
 
