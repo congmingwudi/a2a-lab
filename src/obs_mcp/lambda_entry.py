@@ -1,4 +1,4 @@
-"""AWS Lambda entrypoint for the obs MCP server (Function URL, D23).
+"""AWS Lambda entrypoint for the obs MCP server (D23).
 
 Handler: obs_mcp/lambda_entry.handler — stdlib + boto3 only (the Data API
 backend), so the deployment zip is just this repo's source. Env:
@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import os
 
-from obs_mcp.http import make_lambda_handler
+from mcp_http.http import make_lambda_handler
+from obs_mcp import SERVER_INFO
 from obs_mcp.tools import build_registry
 
-handler = make_lambda_handler(build_registry(), os.environ.get("A2ALAB_OBS_MCP_TOKEN"))
+handler = make_lambda_handler(build_registry(), os.environ.get("A2ALAB_OBS_MCP_TOKEN"), SERVER_INFO)

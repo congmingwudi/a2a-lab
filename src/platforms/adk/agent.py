@@ -190,3 +190,262 @@ def build_a2a_agent():
         ],
     )
     return A2aAgent(agent_card=card, agent_executor_builder=AdkResearchExecutor)
+
+
+# ---- WS8 fan-out leg agent -------------------------------------------------
+# A dedicated business-unit agent for the supplier-disruption fan-out, deployed
+# as its OWN Agent Engine so Cloud Logging attributes this experiment
+# separately from the WS2 researcher — that attribution is what the fan-out's
+# join-rate measurement reads.
+
+
+class AdkLegExecutor(AdkResearchExecutor):
+    """Same A2A lifecycle as the researcher, different interior.
+
+    A fan-out leg answers a scoped business question and STOPS: no
+    ask_agentforce, no ask_foundry, no search. Giving a leg tools would let it
+    wander off the scenario, and the determinism shaping is what makes runs
+    comparable at all.
+    """
+
+    def _build_agent(self, *_args, **_kwargs):
+        from google.adk.agents import LlmAgent
+
+        from orchestration.agents import LOGISTICS
+
+        return LlmAgent(
+            model=adk_model(),
+            name="adk_logistics",
+            description=(
+                "Logistics operations agent (A2A interop lab fan-out leg). "
+                "Assesses shipment and route exposure in a supply disruption."
+            ),
+            instruction=LOGISTICS.instructions,
+            tools=[],
+        )
+
+    async def _run_adk(
+        self,
+        text: str,
+        session_id: str,
+        inbound_depth: int,
+        trace_id: str | None,
+        user_context: dict | None = None,
+        user_token: str | None = None,
+    ) -> str:
+        from google.adk.runners import Runner
+        from google.genai import types as genai_types
+
+        runner = Runner(
+            agent=self._build_agent(),
+            app_name=APP_NAME,
+            session_service=self._sessions,
+        )
+        final = ""
+        message = genai_types.Content(role="user", parts=[genai_types.Part(text=text)])
+        async for event in runner.run_async(
+            user_id=USER_ID, session_id=session_id, new_message=message
+        ):
+            if event.is_final_response() and event.content and event.content.parts:
+                final = "".join(p.text or "" for p in event.content.parts)
+        return final.strip()
+
+
+def build_leg_a2a_agent():
+    """The deployable Agent Engine object for the fan-out's logistics leg."""
+    from a2a.types import AgentSkill
+    from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
+
+    card = create_agent_card(
+        agent_name="A2A lab logistics agent",
+        description=(
+            "Logistics operations agent for the A2A lab's supplier-disruption "
+            "fan-out, on Vertex AI Agent Engine — platform-native A2A."
+        ),
+        skills=[
+            AgentSkill(
+                id="assess-exposure",
+                name="Assess disruption exposure",
+                description=(
+                    "Which shipments, orders, routes and plants a supply "
+                    "disruption exposes, how badly, and over what horizon."
+                ),
+                tags=["logistics", "supply-chain", "a2a-interop-lab"],
+            )
+        ],
+    )
+    return A2aAgent(agent_card=card, agent_executor_builder=AdkLegExecutor)
+
+
+# ---- WS8 fan-out orchestrator ----------------------------------------------
+# The ADK counterpart to the Managed Agents orchestrator. Same scenario, same
+# legs, same partial-failure contract — different place for the concurrency.
+#
+# On Managed Agents the fan-out is a CUSTOM tool the host executes, so the host
+# owns parallelism (orchestration/cma.py). ADK ships workflow primitives, so
+# the fan-out can instead be DECLARED in the agent graph: a ParallelAgent whose
+# sub-agents are the three business units, wrapped by a SequentialAgent that
+# synthesises afterwards. Nothing calls back to the lab host at all.
+#
+# The legs still have to reach other clouds, so each sub-agent gets a function
+# tool that performs its own A2A call. What ParallelAgent buys is the
+# scheduling: the three sub-agents run concurrently because the graph says so,
+# not because a host wrote asyncio.gather.
+
+
+def _leg_tool(leg):
+    """A function tool that calls one business unit's agent over A2A."""
+
+    async def consult(situation: str) -> str:
+        import asyncio
+        import time
+
+        from interop import delegation
+        from interop.models import AgentRequest
+        from interop.registry import Registry
+        from orchestration.agents import source_header
+
+        client = None
+        started = time.perf_counter()
+
+        def labelled(body: str) -> str:
+            # Same header the host-side fan-out emits, so both orchestrators
+            # synthesise from identically-shaped evidence and any difference
+            # in their briefs is the orchestrator, not the input.
+            head = source_header(
+                leg.role,
+                target=leg.target,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+            )
+            return f"{head}\n{body}"
+
+        try:
+            # Construction is INSIDE the try on purpose: building a client can
+            # itself fail — openai-agentcore needs AWS credentials, which a GCP
+            # container does not have — and an exception escaping here kills the
+            # whole ParallelAgent branch instead of degrading to one dead leg.
+            registry = Registry.load()
+            client = registry.client_for(leg.target)
+            message, meta = delegation.delegate(
+                leg.prompt(situation),
+                caller="a2alab-supply-orchestrator-adk",
+                platform="adk",
+                inbound_depth=0,
+            )
+            resp = await asyncio.wait_for(
+                client.ask(AgentRequest(message=message, metadata=meta)), timeout=120
+            )
+            text = (resp.text or "").strip()
+            return labelled(text or f"[leg unavailable: {leg.platform} — empty answer]")
+        except Exception as exc:  # a dead leg is data, not a crash
+            marker = f"[leg unavailable: {leg.platform} — {type(exc).__name__}: {exc}]"
+            # Also to stdout, which is Cloud Logging here. The marker's only
+            # other route out is through the synthesiser, and an LLM asked to
+            # relay an error PARAPHRASES it — the first cross-cloud failure
+            # reached us as "an InvalidConfigError related to its CA bundle",
+            # which is true but not the message you can act on. Debugging a
+            # container you cannot attach to needs the literal text.
+            print(f"[fanout] {leg.role} FAILED: {marker}", flush=True)
+            return labelled(marker)
+        finally:
+            if client is not None:
+                await client.aclose()
+
+    consult.__name__ = f"consult_{leg.role}"
+    consult.__doc__ = (
+        f"Ask the {leg.business_unit} business unit about the situation. "
+        "Pass the situation verbatim."
+    )
+    return consult
+
+
+def build_fanout_orchestrator():
+    """SequentialAgent[ ParallelAgent[3 units] -> synthesiser ]."""
+    from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
+
+    from orchestration.legs import legs_for
+
+    unit_agents = []
+    for leg in legs_for():
+        unit_agents.append(
+            LlmAgent(
+                model=adk_model(),
+                name=f"unit_{leg.role}",
+                description=f"{leg.business_unit} business unit agent.",
+                instruction=(
+                    f"You represent {leg.business_unit}. Call your "
+                    f"consult_{leg.role} tool ONCE with the situation exactly as "
+                    "given, then return its result verbatim. Add nothing. If it "
+                    "returns a '[leg unavailable: ...]' marker, return that marker "
+                    "unchanged — never replace it with your own guess."
+                ),
+                tools=[_leg_tool(leg)],
+                output_key=f"unit_{leg.role}",
+            )
+        )
+
+    fan_out = ParallelAgent(
+        name="consult_business_units",
+        sub_agents=unit_agents,
+        description="Consults all three business units concurrently.",
+    )
+
+    from orchestration.agents import CITATION_RULE
+
+    synthesiser = LlmAgent(
+        model=adk_model(),
+        name="synthesise_brief",
+        description="Writes the executive brief from the units' answers.",
+        instruction=(
+            "Write ONE executive brief from the three business-unit answers in "
+            "state: {unit_exposure}, {unit_commercial}, {unit_customer_comms}.\n\n"
+            "HARD RULES: never invent a unit's answer. Any section containing a "
+            "'[leg unavailable: ...]' marker MUST be reported as a gap — name the "
+            "unit and say what decision is therefore unsupported. State how many "
+            "of the three units answered. A brief that reads complete while a "
+            "unit is missing is worse than no brief.\n\n"
+            "Structure: title, one line of situation, one short paragraph per "
+            "unit that answered, then 'Gaps', 'Recommended next actions', "
+            "'Sources'.\n\n" + CITATION_RULE
+        ),
+    )
+
+    return SequentialAgent(
+        name="supply_disruption_orchestrator",
+        sub_agents=[fan_out, synthesiser],
+        description=(
+            "Supply-disruption orchestrator: consults three business-unit agents "
+            "in parallel, then writes one brief."
+        ),
+    )
+
+
+def build_orchestrator_a2a_agent():
+    """The deployable Agent Engine object for the ADK orchestrator variant."""
+    from a2a.types import AgentSkill
+    from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
+
+    card = create_agent_card(
+        agent_name="A2A lab supply orchestrator (ADK)",
+        description=(
+            "Supply-disruption fan-out orchestrator on Vertex AI Agent Engine — "
+            "concurrency declared with ADK's ParallelAgent."
+        ),
+        skills=[
+            AgentSkill(
+                id="orchestrate-disruption",
+                name="Orchestrate a supply disruption response",
+                description=(
+                    "Consults Logistics, Commercial/Legal and Customer Operations "
+                    "concurrently, then writes one executive brief."
+                ),
+                tags=["orchestration", "fan-out", "a2a-interop-lab"],
+            )
+        ],
+    )
+
+    class _OrchestratorExecutor(AdkLegExecutor):
+        def _build_agent(self, *_a, **_k):
+            return build_fanout_orchestrator()
+
+    return A2aAgent(agent_card=card, agent_executor_builder=_OrchestratorExecutor)

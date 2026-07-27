@@ -30,6 +30,10 @@ groups:
     title: "Microsoft Foundry - Agentforce"
   - id: cross-cloud
     title: "Cross-hyperscaler (Google × Microsoft)"
+  # The first 1:many group. Every group above is a PAIR — which is the shape
+  # the lab explored first and, until WS8, the only shape it had.
+  - id: fan-out
+    title: "Fan-out orchestration (1:many)"
   - id: langgraph-agentforce
     title: "LangGraph - Agentforce"
     upcoming: WS4
@@ -877,3 +881,204 @@ scenarios:
       detail: "The Foundry prompt agent answers from model knowledge (the rider
         guard skips its tools) — platform-interior, token usage visible in the
         harvested spans."
+
+  # ---- WS8: fan-out orchestration (the lab's first 1:many topology) --------
+  supplier-disruption-cma:
+    group: fan-out
+    title: "Supplier Disruption — orchestrated by Claude (Managed Agents)"
+    summary: >
+      An Anthropic Managed Agent orchestrates three business-unit agents on
+      three platforms — Google ADK, Microsoft Foundry and OpenAI — then writes
+      the brief. Run it two ways: ONE host-side custom tool, where the host owns
+      concurrency, or one REMOTE MCP tool per unit, where the model does. Same
+      agent, same prompt; the topology is the variable (D41).
+    target: claude-rest
+    mode: fanout
+    orchestrator: cma
+    # The two tool inventories are swapped per run via agent_with_overrides —
+    # a prompt cannot add a tool, so this has to be a run-time control rather
+    # than a second scenario that would drift from this one.
+    fanout_variant_toggle: true
+    via_bridge: false
+    status: live
+    requires_mode: hosted
+    tags: [fan-out, orchestration, claude, managed-agents, adk, foundry, openai, async]
+    # The kick-off prompt IS the disruption. Every other scenario asks a
+    # question; this one reports a situation, because that is what an
+    # orchestrator is for — nobody types "please fan out to three business
+    # units", they say what happened and expect the routing to be the agent's
+    # problem. Console prefills this; run_fanout.py's --task default matches.
+    question: >-
+      A port strike has halted all container traffic through Rotterdam as of
+      06:00 today. Assess the impact for our EU manufacturing customers.
+    description: >
+      THE SITUATION. A port strike halts container traffic through a major hub.
+      A multinational manufacturer needs to know, within the hour: which orders
+      are exposed, what the contracts say about delay penalties and force
+      majeure, and what to tell affected customers — then act on all three.
+
+
+      WHY IT NEEDS MULTIPLE AGENTS. These three questions are owned by three
+      different functions, grounded in three different systems, and — in a
+      company of any size — served by three different AI platforms chosen by
+      three different business units at three different times. Logistics runs
+      on Google Cloud. Commercial and legal run on Microsoft. Customer
+      operations standardised on OpenAI. Nobody is going to re-platform because
+      a strike started at 6am.
+
+
+      WHY ORCHESTRATION RATHER THAN A CHAIN. The three questions are genuinely
+      independent — exposure does not depend on the contract position, and
+      neither depends on the customer message. Run sequentially they cost the
+      sum of three latencies; run in parallel they cost the slowest. In a
+      disruption that difference is the whole value.
+
+
+      WHY ASYNC. Nobody sits watching a spinner during a port strike. The work
+      is dispatched, runs for minutes, and lands in the systems people already
+      use — which is what the lab's async pattern (D16) already proved by
+      delivering briefs into CRM records rather than into an HTTP response.
+
+
+      WHAT IT MEASURES. Three things nothing else in the lab touches: the D27
+      delegation guard under PARALLEL dispatch rather than chaining; whether a
+      single run can be correlated across four platforms' own execution logs
+      (expect 3 of 4 — Foundry logs no utterance text, so it joins by
+      platform_ref instead of by the D34 rider); and partial failure, which at
+      fan-out is the normal case rather than the edge case.
+
+
+      THE CLAIM IT SUPPORTS. An enterprise does not need one agent platform. It
+      needs one protocol and an honest account of what crossing platform
+      boundaries costs — in latency, in identity plumbing, and in the
+      observability you lose at each seam.
+    note: >
+      Partial-failure policy is deliberate and visible: a leg that fails is
+      REPORTED, never omitted. Each failed leg renders "[leg unavailable:
+      <platform> — <reason>]" and every run carries a coverage line, so a
+      degraded run cannot read like a complete one. That is a direct response
+      to the 2026-07-25 measurement of Agentforce abandoning a slow action —
+      HTTP 200, section heading present, delegated content silently gone, full
+      cost paid. Built twice (Anthropic Managed Agents and Google ADK
+      orchestrators) because cron-scheduled and duration-based async are two
+      different patterns sharing one word. Sibling business cases in other
+      domains — vendor diligence, incident triage, M&A — are documented in
+      plan/07-workstreams.md WS8.
+    flow:
+      - source: operator
+        target: a2alab-supply-orchestrator
+        protocol: managed-agents-api
+        detail: "The disruption task opens an Anthropic Managed Agents session.
+          The agent is a DECLARATIVE control-plane object — name, model, system
+          prompt, tool schemas — and its one tool is `custom`, which on this
+          platform means the HOST executes it. The model decides only WHEN to
+          fan out; the host owns concurrency, per-leg timeouts and the
+          partial-failure contract."
+      - source: a2alab-supply-orchestrator
+        target: adk-logistics-a2a
+        protocol: a2a
+        detail: "LEG 1 — Logistics BU. Exposure assessment from the Gemini
+          agent on Agent Engine. Dispatched concurrently with legs 2 and 3;
+          D27 rider at depth 1, lab-trace line stamped."
+      - source: a2alab-supply-orchestrator
+        target: foundry-commercial-a2a
+        protocol: a2a
+        detail: "LEG 2 — Commercial/Legal BU. Contract and penalty position
+          from gpt-5-mini on Microsoft Foundry, over its native inbound A2A."
+      - source: a2alab-supply-orchestrator
+        target: openai-agentcore
+        protocol: agentcore-http
+        detail: "LEG 3 — Customer operations BU. Customer comms points from
+          the OpenAI agent on Bedrock AgentCore (SigV4)."
+      - source: a2alab-supply-orchestrator
+        target: operator
+        protocol: internal
+        detail: "Synthesis. The orchestrator receives all three sections plus
+          a coverage line and writes one brief. Delivery into Salesforce reuses
+          the D16/D17 brief path."
+
+  supplier-disruption-adk:
+    group: fan-out
+    title: "Supplier Disruption — orchestrated by Google ADK (ParallelAgent)"
+    summary: >
+      The SAME scenario and the same three business-unit agents, orchestrated by
+      Google ADK on Vertex AI Agent Engine. Here the fan-out is DECLARED in the
+      agent graph — SequentialAgent[ParallelAgent[3 units] → synthesiser] — so
+      the framework schedules the concurrency and no lab host is attached.
+    target: adk-orchestrator-a2a
+    via_bridge: false
+    status: live
+    tags: [fan-out, orchestration, adk, agent-engine, gemini, foundry, openai, parallel-agent]
+    # Deliberately the SAME words as the CMA variant: the comparison is only
+    # honest if both orchestrators are handed an identical situation.
+    question: >-
+      A port strike has halted all container traffic through Rotterdam as of
+      06:00 today. Assess the impact for our EU manufacturing customers.
+    description: >
+      SAME SCENARIO, DIFFERENT ORCHESTRATOR. The situation, the three business
+      units and their agents are identical to the Claude-orchestrated run — what
+      changes is WHERE THE FAN-OUT LIVES, and that is the whole point of building
+      it twice.
+
+
+      ON ANTHROPIC MANAGED AGENTS the orchestrator is a declarative
+      control-plane object (name, model, system prompt, tool schemas) and its
+      fan-out tool is a `custom` tool, which on that platform means the HOST
+      executes it. The model decides only WHEN to fan out; the lab's code owns
+      concurrency, per-leg timeouts and the partial-failure contract. A rule
+      enforced in code cannot be talked out of by a model — but the orchestrator
+      cannot run unattended, because something must service the tool.
+
+
+      ON GOOGLE ADK the orchestrator is code in a container and the fan-out is
+      DECLARED: a ParallelAgent whose sub-agents are the three business units,
+      wrapped in a SequentialAgent that synthesises afterwards. The framework
+      schedules the concurrency, ordering is structural rather than prompted,
+      and each unit writes to a named state key the synthesiser interpolates.
+      Nothing calls back to a lab host, so it runs by itself.
+
+
+      THE TRADE, STATED PLAINLY: one buys you control at the seam, the other
+      structure in the graph, and neither gives you both. The declared graph
+      guarantees the units run before the synthesiser — but the
+      "[leg unavailable: ...]" markers survive only if three separate models
+      relay them faithfully, where the host-side variant produces those markers
+      in code. Declared structure buys ordering guarantees; it does not buy
+      fidelity of content.
+    note: >
+      Deployed as its own Agent Engine (deploy/adk/deploy_adk.py --role
+      orchestrator). status: coming-soon until a clean live run is recorded —
+      the customer-comms leg calls Bedrock AgentCore, which needs AWS
+      credentials inside a GCP container, and that cross-cloud identity edge
+      (AWS←GCP) is the one direction the lab has not yet wired. Expect that leg
+      to render as "[leg unavailable: openai — ...]" until it is, which is the
+      partial-failure contract doing its job rather than a broken scenario.
+    flow:
+      - source: remote-caller
+        target: adk-orchestrator-a2a
+        protocol: a2a
+        detail: "The disruption task arrives at Agent Engine's platform-native
+          A2A endpoint. Inside, a SequentialAgent runs a ParallelAgent of three
+          business-unit sub-agents, then a synthesiser."
+      - source: adk-orchestrator
+        target: adk-logistics-a2a
+        protocol: a2a
+        detail: "LEG 1 — Logistics BU, scheduled concurrently by ParallelAgent.
+          Each unit is an LlmAgent with one A2A tool and an output_key."
+      - source: adk-orchestrator
+        target: foundry-commercial-a2a
+        protocol: a2a
+        detail: "LEG 2 — Commercial/Legal BU on Azure. Cross-cloud from the GCP
+          container, using the Entra service principal (the sanctioned
+          service-identity pattern, same as the WS3 capstone)."
+      - source: adk-orchestrator
+        target: openai-agentcore
+        protocol: agentcore-http
+        detail: "LEG 3 — Customer operations on AWS. Needs SigV4 from inside a
+          GCP container; until that identity is wired the leg reports as
+          unavailable rather than silently vanishing."
+      - source: adk-orchestrator
+        target: remote-caller
+        protocol: a2a
+        detail: "The synthesiser reads the three state keys and writes one
+          brief, reporting any unit that did not answer as an explicit gap."

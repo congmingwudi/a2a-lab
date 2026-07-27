@@ -170,3 +170,39 @@ diagrams:
 
           MS -- "0.3 JSON-RPC message/send<br/>a 1.x-only server answers -32601" --> COMPAT
           SRV -- "pinned a2a-version: 1.0<br/>omit it and you get VERSION_NOT_SUPPORTED" --> GOOG
+  - id: fan-out-orchestration
+    title: "Fan-out: two orchestrators"
+    caption: >
+      The same task, three business units, three clouds — orchestrated two ways. On Managed Agents the fan-out is a custom tool the HOST executes; on ADK it is declared in the agent graph. One buys control at the seam, the other structure in the graph.
+    insights: [orchestration-topology]
+    readme: true
+    mermaid: |
+      flowchart TB
+          T["Supplier disruption task"] --> C
+          T --> A
+
+          subgraph cma["Variant 1 - Anthropic Managed Agents"]
+              C["Orchestrator agent<br/>declarative: prompt + tool schema"]
+              C -- "custom tool" --> H["HOST executes<br/>asyncio.gather"]
+          end
+
+          subgraph adk["Variant 2 - Google ADK on Agent Engine"]
+              A["SequentialAgent"] --> P["ParallelAgent<br/>framework schedules"]
+              P --> S["synthesiser<br/>reads state keys"]
+          end
+
+          H --> L1
+          H --> L2
+          H --> L3
+          P --> L1
+          P --> L2
+          P --> L3
+
+          L1["Logistics<br/>ADK · GCP"]
+          L2["Commercial<br/>Foundry · Azure"]
+          L3["Customer comms<br/>OpenAI · AWS"]
+
+          L1 -.-> OBS[("join rate 1 of 4:<br/>only CMA is joinable<br/>from its own logs")]
+          L2 -.-> OBS
+          L3 -.-> OBS
+          C -.-> OBS

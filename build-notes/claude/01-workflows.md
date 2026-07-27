@@ -3,6 +3,12 @@
 **Feature area:** Claude Code `Workflow` tool, saved workflow scripts in
 `.claude/workflows/`, multi-agent orchestration with structured output.
 
+## Engineering takeaway
+
+Use deterministic code for orchestration and models for bounded judgment. That
+turns a difficult review prompt into a repeatable quality gate whose inputs,
+outputs, and escalation path are all inspectable.
+
 ## What exists in this repo
 
 Two saved workflows, registered so they can be invoked by name (also surfaced as
@@ -65,6 +71,29 @@ deck.
   (`scripts/matrix.py`) is a plain script that measures and appends results.
   Workflows are used where *judgment at scale* is needed — auditing prose
   claims against evidence — not to replace scripted smoke tests.
+
+## Evidence and limits
+
+- **Repository-backed:** both workflow scripts and their schemas are checked in
+  (`.claude/workflows/`); commit `aa471c7` records the resulting 3 matrix fixes,
+  10 insight fixes, and 2 missing records.
+- The workflow raises review coverage and consistency; it does not prove any
+  individual model verdict is correct. The adversarial pass raises precision,
+  and the final report cites `file:line` evidence so a human can check it.
+
+## Put this in the presentation
+
+**Slide headline:** Treat model-based review like a build pipeline, not a giant
+prompt.
+
+- Deterministic script: discover claims, fan out, collect typed results.
+- Model judgment: one isolated evidence review per claim.
+- Quality control: a fresh adversarial pass must uphold each discrepancy.
+
+**Visual:** a three-stage Discover → Audit → Verify flow — one input claim
+splitting into parallel audit nodes, with only upheld findings reaching the
+report. The honesty-sweep progress tree is the ideal screenshot for this once
+captured.
 
 <!-- TODO(ryan): drop in the screenshot of the honesty-sweep progress tree
      (the fan-out view) — it's the single best visual for this section. -->

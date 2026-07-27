@@ -266,3 +266,574 @@ foundry-rest       foundry     foundry-api     native       PASS     24311  2431
 foundry-a2a        foundry     a2a             native       PASS      9737   9737  MCP is a lightweight, message-envelope protocol focused on reliably exchanging and sequencing conversational content acr
 google-adk-a2a     adk         a2a             native       PASS     38293  38293  The MCP (Messaging and Conversation Protocol) is a general-purpose communication standard for agent interoperability, wh
 ```
+
+## Fan-out orchestration — first live dispatch (WS8) — measured 2026-07-25
+
+`scripts/run_fanout.py`, dispatching one supplier-disruption task to the
+scenario's legs concurrently. The orchestrator model is not in the loop here —
+this drives `orchestration.dispatch` directly so the FAN-OUT is what gets
+measured. Both orchestrator variants call the same code, so these numbers
+describe either.
+
+**The customer-comms leg (`openai-agentcore`) could not run: the AWS SSO token
+had expired.** That turned out to be the most useful part of the run — it gave
+a real failure to test the partial-failure contract against, rather than an
+injected one.
+
+| Run | Legs | Slowest leg | Wall | Serial equivalent | Coverage |
+|---|---|---|---|---|---|
+| 1 | adk + foundry | 36.7s (adk) | **36.7s** | ~50.7s | 2/2 |
+| 2 | adk + foundry + openai | 11.9s (foundry) | **12.8s** | ~14.6s | 2/3 |
+
+**Parallelism does what it claims.** Wall time tracks the slowest leg, not the
+sum: run 1 finished in 36.7s against a 50.7s serial equivalent — 28% saved on
+two legs. The saving grows with leg count and with variance between legs, which
+is exactly the disruption-response case (one slow research leg, two fast
+lookups).
+
+**The partial-failure contract held against a real failure.** The dead leg
+rendered inline —
+
+```
+Customer operations (openai):
+[leg unavailable: openai — TokenRetrievalError: Error when retrieving token
+ from sso: Token has expired and refresh failed]
+
+[fan-out coverage: 2/3 legs answered]
+```
+
+— and `run_fanout.py` exited **1**, not 0. Both halves matter: a scheduled
+fan-out that returns a short brief with a success code is the multi-agent form
+of the Agentforce failure measured earlier the same day. Note also that the
+failing leg failed *fast* (245ms) and cost the turn nothing; a leg that fails
+by hanging is the expensive case, which is what `LEG_TIMEOUT_S` bounds.
+
+**Six hops recorded per three-leg run**, all under one trace id — the
+orchestrator's outbound hop plus each client's own inner hop, with the two
+`openai-agentcore` hops correctly marked `error`. Every leg carried the D27
+rider at `delegation-depth: 1` and the D34 `lab-trace:` line, confirming the
+guard and the text-level trace convention both survive parallel dispatch as
+they do a chain.
+
+**An unplanned finding — instruction adherence is not stable across platforms
+or across runs.** Every leg is sent the same shaping instruction ("at most 3
+short bullets, 60 words, do not ask clarifying questions — state your
+assumptions instead"). Foundry's gpt-5-mini honored it on both runs, explicitly
+writing its assumptions inline ("assume DAP/DDP via Rotterdam"). The ADK/Gemini
+leg honored it on run 1 and **ignored it on run 2**, replying "I need more
+information to assess the impact… Please provide details on which specific
+shipments…" — a clarifying question, which is the one thing the prompt
+forbade, and useless to an orchestrator that cannot answer it.
+
+That matters more than it looks. Determinism shaping is what makes these runs
+comparable, and it is enforced only by asking politely. A leg that returns a
+question instead of an answer is not a failure any status code can catch: it
+was HTTP 200, non-empty, fast, and structurally fine. **The lab now has two
+independent instances of the same pattern — Agentforce's empty section and
+Gemini's clarifying question — where the transport says success and the content
+is unusable.** Detecting that needs a content check, and no protocol in the
+matrix offers one.
+
+## Fan-out join rate — measured 2026-07-26 (WS8's deliverable number)
+
+The question WS8 exists to answer: when one task fans out across four
+platforms, how many of them can be joined back to that run **from their own
+execution logs** — not from the lab's wire trace, which of course has all four.
+
+Run: `scripts/run_fanout.py --orchestrator cma`, trace
+`9024af03e4f34b7498fd39d6222d4d9a`, 3/3 legs answered, 37.4s wall, against the
+three DEDICATED per-leg agents (see below). Measured with
+`scripts/fanout_join_rate.py` after harvesting all four platforms.
+
+### **Join rate: 1 of 4.**
+
+| Platform | Joined? | Why |
+|---|---|---|
+| Anthropic CMA (orchestrator) | ✅ | `platform_ref` = the managed session id, stamped on the hop at emit time. Its sessions also carry the D34 rider text |
+| Google ADK / Agent Engine | ❌ **structurally** | The platform exposes Cloud Logging entries and Monitoring rollups, not per-turn sessions. The harvest holds **one** obs session per deployed engine — 482 log entries, one row. There is no per-run object to join *to*, and no amount of lab instrumentation creates one |
+| Microsoft Foundry | ❌ **fixable** | Foundry DOES emit per-turn sessions (20 harvested, keyed by `resp_…`). The lab simply never captures that response id as `platform_ref` on the A2A hop, so the key exists on both sides and is not written down |
+| OpenAI on AgentCore | ❌ **fixable-ish** | Also per-turn (`resp_…`), but the hop's `platform_ref` is the **AgentCore** session id (`a2alab-adhoc-…`), not the OpenAI response id. Two different identifiers for the same turn, and the lab records the outer one |
+
+**The 1-of-4 is not one problem, it is three different ones**, and separating
+them is the actual result:
+
+1. **One platform is structurally unjoinable.** ADK's preview A2A surface has
+   no session/turn API, so its telemetry is request-shaped rather than
+   conversation-shaped. This is not a gap in the lab's instrumentation and
+   cannot be closed by better bookkeeping.
+2. **Two are bookkeeping failures, not platform failures.** Foundry and OpenAI
+   both hand back a per-turn id that the lab does not persist on the hop. The
+   join key exists on both sides; nobody wrote it down. Those are fixable, and
+   fixing them would take the rate to 3/4.
+3. **The D34 text rider does not help here at all.** It joins 12 Claude and 31
+   Salesforce sessions elsewhere in the lab, because those platforms log the
+   utterance. None of the three fan-out legs' platforms log prompt text, so the
+   convention that works across Path A contributes nothing to a fan-out.
+
+**Why this matters more than the number.** Every platform in this run returned
+HTTP 200 and a good answer. The orchestrator produced a complete, correct
+brief. Nothing anywhere reported a problem — and afterwards, three of the four
+platforms could not tell you they had participated. Cross-platform
+observability degrades silently and it degrades *as the topology widens*: a 1:1
+cell hides this because two platforms are easy to correlate by hand.
+
+### Dedicated per-leg agents — and one that earns nothing
+
+Deployed for this run, each its own agent on its own platform so the platform's
+logs attribute this experiment rather than the lab's general researchers:
+
+| Leg | Agent | Platform | Effect |
+|---|---|---|---|
+| Logistics | `a2alab-logistics-agent` | ADK / Agent Engine (own deployment) | **2.5s vs 39.8s** for the researcher on the same question |
+| Commercial | `a2alab-commercial-agent` | Foundry (own agent, inbound A2A) | answered in role, stated assumptions rather than asking |
+| Customer comms | — | shared `openai-agentcore` | **not deployed, deliberately** |
+
+The customer-comms leg has no dedicated agent because it would buy nothing
+measurable: OpenAI's traces are write-only by design, so a dedicated agent
+there improves attribution the lab cannot read back. That is worth stating as a
+finding rather than hiding as an omission — *"give every leg its own agent" is
+good advice exactly as far as the platform's telemetry can repay it.*
+
+The logistics number is the strongest argument for dedicated agents: same
+question, same prompt shaping, **16× faster** because the agent has no research
+toolset to reach for. The general researcher spent its time deciding whether to
+go looking for data it did not have.
+
+### A silent bug worth recording
+
+The first join-rate measurement returned 1/4 **against the wrong agents**.
+`orchestration/legs.py` resolved its per-leg target overrides into a
+module-level tuple at import time, while `scripts/run_fanout.py` imports the
+module at the top and calls `load_dotenv()` inside `main()` — so every override
+in `.env` was read as absent and each run quietly used the default targets. The
+run looked perfect: 3/3 legs, a good brief, a clean exit. It surfaced only by
+reading the recorded hops and noticing the target names were wrong. Fixed
+(targets resolve in `legs_for()` now) with a regression test. **Config that is
+read at import time is config that silently ignores your configuration.**
+
+## Two orchestrators, one scenario — ADK's ParallelAgent (WS8) — 2026-07-26
+
+The CMA variant runs clean (3/3 legs, 37.4s, brief reports its own coverage).
+The ADK variant — the same scenario with concurrency **declared** as
+`SequentialAgent[ParallelAgent[3 units], synthesiser]` — produced two findings
+before it produced a brief.
+
+### ADK's own telemetry is not concurrency-safe (google-adk 1.x)
+
+Every invocation failed in ~3s with the agent never reaching its legs:
+
+```
+ValueError: <Token var=<ContextVar name='current_context' ...>>
+            was created in a different Context
+  google/adk/telemetry/_instrumentation.py  record_agent_invocation
+  google/adk/agents/base_agent.py:296       run_async
+```
+
+`ParallelAgent` runs its sub-agents in separate asyncio tasks; ADK's
+OpenTelemetry instrumentation creates a context token in one and detaches it in
+another, which OTel refuses. **Setting `OTEL_SDK_DISABLED=true` removes the
+error**, confirming the diagnosis — the framework's flagship concurrency
+primitive and its own tracing cannot both be on.
+
+That is worth stating plainly because of the direction it cuts: the strongest
+argument for declared parallelism is that the framework handles the hard parts.
+Here the framework's *observability* is what the concurrency broke, and the only
+lever the runtime exposes is to turn tracing off — trading the visibility the
+lab exists to measure for the topology it exists to demonstrate.
+
+### And one of the failures was ours
+
+With telemetry off, the container reached the model four times (three units plus
+the synthesiser) and still failed the A2A task. Cause: in the per-leg tool,
+`Registry.load()` and `client_for()` sat **outside** the `try`, so a client that
+cannot even be constructed — `openai-agentcore` needs AWS credentials, which a
+GCP container does not have — raised past the handler and killed the whole
+ParallelAgent branch instead of degrading to one dead leg.
+
+The partial-failure contract was written for calls that fail. This failed
+*before* the call, which the contract did not cover. **A leg can fail at
+construction, not just in flight**, and a fan-out that only guards the request
+has a gap exactly where the cross-cloud identity problems live.
+
+### The identity edge this exposed
+
+The ADK orchestrator's customer-comms leg needs **SigV4 from inside a GCP
+container** — the AWS←GCP direction the lab has never wired. The WS3 capstone
+established GCP→Azure works (the container holds an Entra SP) and Azure→GCP is
+blocked; this is the third edge of that triangle and it is unwired rather than
+impossible. Until it is, that leg reports as unavailable, which is the contract
+working rather than a broken scenario — and the ADK variant stays
+`status: coming-soon` in the console for exactly that reason.
+
+### It runs now — and every leg fails from inside the container
+
+With both fixes in, the ADK orchestrator completes: **5.0s wall**, the graph
+executes, the synthesiser writes a brief. And **0 of 3 legs answered**:
+
+| Leg | Failure from inside the GCP container |
+|---|---|
+| commercial (Foundry, Azure) | agent-card fetch error |
+| exposure (ADK, same cloud) | network communication error |
+| customer_comms (OpenAI, AWS) | runtime configuration error — no AWS credentials, as predicted |
+
+**The important part is what the orchestrator did with that.** It named all
+three units, marked each as a gap, said explicitly what decision each gap left
+unsupported, and invented nothing:
+
+> The `exposure` unit's response is unavailable, meaning the operational and
+> financial exposure to our EU manufacturing customers is unassessed.
+
+So the partial-failure contract holds in the declared-graph variant too, at the
+hardest possible coverage — 0/3 — where the temptation to confabulate is
+greatest. That is a stronger result than the 3/3 CMA run, because a brief that
+degrades honestly under total failure is the one property you cannot test with a
+happy path.
+
+**Why the legs fail is the lab's own central finding, arriving again.** The
+CMA orchestrator reaches all three from the laptop, which holds every
+credential. The ADK orchestrator reaches none from a GCP container, which holds
+one. Same code, same targets, same prompts — different identity context. Nothing
+about the protocol changed.
+
+Left at `status: coming-soon`. Closing it means wiring outbound identity from
+the Agent Engine container to two other clouds, which is WS8.1's cross-cloud
+identity triangle rather than an orchestration problem.
+
+### Wiring outbound identity: 0/3 → 2/3, and three different reasons
+
+2026-07-26. The three failures above looked like one problem ("the container
+has no credentials"). They were three, and only one of them was about identity
+at all — which is the finding, because "cross-cloud auth is hard" is the lazy
+version of it.
+
+| Leg | Real cause | Fix |
+|---|---|---|
+| commercial (Foundry, Azure) | `AZURE_FOUNDRY_PROJECT_ENDPOINT` was never shipped to the container. `targets.yaml` expands `${VAR}`, unset expands to `""`, so the endpoint became a bare path — reported as an agent-card fetch error | ship the var; also swapped `DefaultAzureCredential` → explicit SP (D39) |
+| exposure (ADK, same cloud) | endpoint var missing too — but once fixed, **403 Forbidden**. The Agent Engine service agent holds `reasoningEngineServiceAgent`, which cannot query a *sibling* reasoning engine | ship the var; grant `roles/aiplatform.user` to `service-<projnum>@gcp-sa-aiplatform-re` |
+| customer_comms (OpenAI, AWS) | two stacked causes — see below | in progress |
+
+**Three lessons worth separating.**
+
+1. **Config absence and network failure are indistinguishable downstream.** An
+   unset `${VAR}` expanding to `""` produced "network communication error" and
+   "card fetch error" — messages that send you to look at connectivity when the
+   problem is a deploy manifest. Shipping a target's NAME without the vars its
+   endpoint expands from is a deploy bug the registry cannot catch.
+2. **Same-cloud is not same-permission.** The most surprising failure was the
+   GCP→GCP leg. A container running as a Google-managed service agent had no
+   rights over another agent in the same project. "It's all Google" bought
+   nothing.
+3. **The base image can break one SDK and no other.** Agent Engine sets
+   `REQUESTS_CA_BUNDLE=${AGENT_GATEWAY_ROOT_CERTIFICATES:+/etc/ssl/certs/ca-certificates.crt}`,
+   which is the **empty string** when that variable is unset. botocore reads
+   `REQUESTS_CA_BUNDLE` directly; httpx and azure-identity ignore it. So AWS
+   calls failed on an empty CA path while the Azure leg in the same process
+   succeeded — and the error named a CA bundle, not a credential.
+
+**Measured after the fixes:** 2/3 legs, **49.0s wall** (trace
+`cb0db142a3204dd0833e022fb44bafbd`), brief named the missing unit and the
+decision it left unsupported. Earlier run in the same session: 1/3 at 19.1s.
+
+### GCP→AWS without a key
+
+The remaining leg is the one that is genuinely about identity. Bedrock
+AgentCore's data plane is SigV4-only — there is **no HTTP front door** to call
+instead — so a GCP container must hold an AWS identity, and the obvious move
+(paste an access key into the runtime's env) is the long-lived-secret-in-a-
+container pattern D39 exists to remove.
+
+Instead: AWS trusts `accounts.google.com` as a web identity provider natively,
+so the container mints a Google-signed OIDC token for its own service account
+and trades it at STS for one-hour credentials (`interop/cloud_auth.py`). No IAM
+OIDC provider to register, no key to rotate.
+
+The obstacle was pinning the trust policy: `accounts.google.com:sub` is the
+service account's numeric id, and Agent Engine runs as a **Google-managed**
+service agent in a project you do not own, so you cannot look it up. The
+resolution was to make the first federated call fail usefully — it reports the
+caller's own claims — so the error teaches you what to pin:
+
+```
+[leg unavailable: openai — RuntimeError: AssumeRoleWithWebIdentity ... (AccessDenied)
+ ... Caller identity was {'sub': '1147141287970546…', 'aud': 'a2a-interop-lab',
+ 'email': 'service-536083661167@gcp-sa-aiplatform-re.iam.gserviceaccount.com',
+ 'iss': 'https://accounts.google.com'}]
+```
+
+Worth noting separately: that message only became readable because the leg
+markers are now printed to container stdout. Routed through the synthesiser
+instead, the same failure arrived as *"an InvalidConfigError related to its CA
+bundle configuration"* — true, and useless. **An LLM asked to relay an error
+paraphrases it.** Anything you intend to debug from needs a path out that does
+not pass through a model.
+
+The trust policy still denied it, and the last obstacle is the one worth
+publishing. Google service-account tokens carry an `azp` claim, and AWS's
+condition-keys reference says that when `azp` is set,
+`accounts.google.com:aud` matches **azp** while the audience you requested
+lands on `accounts.google.com:oaud`. So the intuitive policy — pin `:aud` to
+your audience — fails with a bare `AccessDenied` naming no key, which reads
+exactly like a wrong `sub` or an IAM propagation delay. Both wrong guesses cost
+a retry cycle each. Pin `:oaud` + `:sub`.
+
+**Result: 3/3 legs, 16.8s wall** (trace `802a9a3b73f845798b89085abf2ba4e3`;
+`802a…`, `47c7…` and `1f65…` are consecutive runs across the fix). Zero leg
+failures in the container log. The ADK orchestrator now reaches Google, Azure
+and AWS from one GCP container with **no long-lived credential anywhere in it** —
+one Entra service principal fetched from config, and an AWS role assumed with a
+token the container mints for itself.
+
+For comparison, the CMA orchestrator's 3/3 was 37.4s. Not a like-for-like
+latency claim — different orchestrator models, and the CMA number included a
+cold managed session — but the declared-graph variant is not paying a penalty
+for having no host.
+
+`supplier-disruption-adk` is `status: live`.
+
+### Attribution in the brief: what a citation contract surfaced
+
+2026-07-26. Both orchestrators were producing briefs that read as one voice,
+which hid the only interesting thing about them — four agents on four platforms
+wrote that text — and, worse, made them unverifiable: a reader could not tell a
+claim the Commercial agent made from one the orchestrator inferred.
+
+Two changes, applied identically to both variants so the comparison stays fair:
+each unit's section now opens with a machine-generated source header (business
+unit, platform, agent name, target, latency), and both orchestrator prompts
+carry the same `CITATION_RULE` — tag every statement with its unit, tag your own
+additions `[Orchestrator]`, end with a Sources block.
+
+**Measured, CMA (3/3, 62.6s, trace `43836c5a…`)** — and it did something the
+contract did not ask for:
+
+> **[Orchestrator] Synthesis:** All three units agree the exposure is real and
+> time-sensitive — Logistics' 7-day minimum estimate, Commercial/Legal's FM
+> notice requirement, and Customer Ops' 7–14 day delay messaging are broadly
+> consistent but not identical (7 vs. 7–14 days), so external communications
+> should use the wider, more conservative range.
+
+**That is the finding.** Forcing per-claim attribution made a cross-unit
+*inconsistency* visible. Un-attributed, the model had been free to pick one
+number and write a clean sentence; required to say who said what, it could not
+merge them and had to reconcile them explicitly instead. A citation contract is
+usually justified as an audit feature — here it improved the analysis.
+
+**Measured, ADK (3/3, 23.8s, trace `75ac1fa8…`)** — tagged every sentence
+correctly and produced a clean Sources block, but no reconciliation paragraph:
+it reported all three units' durations side by side without noticing that 7 and
+7–14 disagree. Same evidence, same instruction, different orchestrator model.
+
+Worth keeping separate from the platform comparison: this is a *model* result
+(Claude vs Gemini as synthesiser), not an architecture one. The
+declared-graph-vs-host-side axis is unchanged by it.
+
+---
+
+## 2026-07-26 — The fan-out legs as remote MCP tools: the model schedules them (D41, WS7 item 4)
+
+The CMA orchestrator's three business units moved from one host-side custom
+tool to three tools on a hosted MCP server (`src/fanout_mcp/`, a Lambda behind
+API Gateway). Two things were being tested, and both now have numbers.
+
+### Does the model actually fan out?
+
+**Yes, on the first attempt, and reproducibly.** Two runs, two different
+disruptions, identical shape:
+
+| Run | Trace | Call path | Units | Wall |
+|---|---|---|---|---|
+| Rotterdam port strike | `ede9e3bc…` | **parallel — turn 1: logistics + commercial + customer_operations** | 3/3 | 50.5s |
+| Kaohsiung typhoon | `161d7a46…` | **parallel — turn 1: logistics + commercial + customer_operations** | 3/3 | 42.6s |
+
+Both issued all three units in a **single model turn**, then wrote the brief on
+the second. The prompt does not tell it to — prescribing "call all three at
+once" would have answered the question by assertion. It says only that the units
+are independent and the model may call them in any order and combination.
+
+Parallelism is measured off `span.model_request_start`, the one turn boundary
+the event stream offers: tool calls between two model requests were issued
+together. A flat list of calls cannot distinguish "three at once" from "three in
+a row", which is why the measurement is per-turn rather than per-call.
+
+### Does coverage survive being moved from code into the model?
+
+**Yes, with the roster stated — and this was the real open question.** The
+host-side tool ends its result with `[fan-out coverage: n/3 legs answered]`,
+computed by code that knows how many legs exist. Three independent tools have no
+such vantage point: nothing but the model knows whether it called all three.
+
+Both runs reported **"Coverage: 3 of 3 units"** unprompted, attributed every
+claim to the unit that made it, and produced a complete Sources block naming
+each unit's platform and agent. The Rotterdam run went further and flagged in
+its own Gaps section that Commercial's contract terms were stated as
+assumptions rather than verified — an accuracy caveat no instruction asked for.
+
+This is a measurement, not a property. `run_fanout.py --orchestrator cma-mcp`
+exits non-zero unless three distinct units were consulted, because a brief that
+reads complete while a unit was never called is precisely the failure this lab
+measures, and prose is not a check.
+
+### What it costs: a request budget where there was none
+
+Legs now run inside an HTTP request/response and inherit **API Gateway's 29s
+integration timeout** — 25s per leg through this path against 120s host-side.
+Not raisable for HTTP APIs: AWS's >29s support covers Regional and private REST
+APIs only (quota request `7e7325274c…` filed anyway, and it would additionally
+require migrating the endpoint from `apigatewayv2` to `apigatewayv1`).
+
+Warm legs measured from inside the Lambda: **Logistics 3.9s (GCP), Commercial
+12.8s (Azure), Customer operations 10.9s (AWS)** — all comfortably inside the
+budget. A cold platform is not: AgentCore cold-starts at 31–56s and Agent Engine
+at ~34s p95, and the first Agent Engine call through the Lambda did time out at
+25s before the warm path settled at ~1s. Those legs report as unavailable
+through the existing partial-failure contract rather than hanging.
+
+**Moving a tool from the host to the orchestration layer imposes a request
+budget on work that previously had none.** Nothing in the MCP protocol says so;
+it falls out of where the tool is executed.
+
+### AWS → GCP federation, the mirror of D40
+
+The Lambda holds no Google key. google-auth signs a `GetCallerIdentity` request
+with the function's ambient role, Google replays it at AWS STS, then impersonates
+a service account. Three failures on the way in, all of which looked like
+something else:
+
+- **IAM eventual consistency.** `add-iam-policy-binding` failed with "Service
+  account does not exist" immediately after `create` returned success.
+- **A 403 that was a clock.** The first impersonation was denied ~1 minute after
+  the binding was written and correct ~4 minutes later, with nothing changed.
+- **A wrong var name that read as connectivity.** The deploy manifest carried
+  `FOUNDRY_PROJECT_ENDPOINT` where the target expands
+  `AZURE_FOUNDRY_PROJECT_ENDPOINT`; the endpoint collapsed to a relative path
+  and the leg reported a network error — the same shape as the bug 7f0f625
+  fixed. The env list is now derived from `targets.yaml`'s own `${VAR}`s.
+
+**The asymmetry is the finding.** D40's GCP→AWS direction needed one AWS object
+(a role whose trust policy pins the Google subject and audience), because AWS
+trusts `accounts.google.com` natively. This direction needed five Google
+objects — pool, AWS provider, attribute mapping, attribute condition,
+impersonation binding — before Google would trust AWS at all. "Keyless
+federation" costs very different amounts depending on which way you are going,
+and Google's side is where the identity is *shaped* rather than merely accepted.
+
+---
+
+## 2026-07-26 — The bridge moves to Fargate, and Path A keeps its 45s budget (WS7 item 7)
+
+The Path A bridge was the last lab component running on a laptop: Apex resolved
+`A2ALab_Bridge` to the D20 Cloudflare tunnel, which terminated at
+`uv run python -m bridge` on `:8100`. It now runs as an ECS Fargate service
+behind an ALB.
+
+**Deliberately not the D23/D28 pattern.** Every other hosted lab component is a
+Lambda behind an API Gateway HTTP API. That fits the shim, whose work measures
+10–19s, and does not fit the bridge, whose client timeout is 45s against an HTTP
+API's hard 30s ceiling. The ALB's `idle_timeout.timeout_seconds` is set to 120s,
+so the measured budget survived the move. Same cloud, same team, two components,
+opposite hosting decisions — driven entirely by what each one's work costs.
+
+**Six of six pathways verified through the hosted bridge**, second run, all warm:
+
+| Target | Latency | Path from AWS |
+|---|---|---|
+| `claude-rest` | 4.6s | AgentCore runtime, SigV4 via the task role |
+| `openai-rest` | 10.4s | AgentCore runtime, SigV4 via the task role |
+| `google-adk-a2a` | 1.2s | Agent Engine A2A, AWS→GCP federated |
+| `foundry-commercial-a2a` | 12.6s | Foundry A2A, Entra service principal |
+| `agentforce-rest` | 7.6s | Agentforce Agent API |
+| `agentforce-a2a-shim` | 10.2s | bridge → hosted shim → Agentforce (two hosted hops) |
+
+Every one is inside the 30s an API Gateway would have allowed, which is worth
+saying plainly: the ALB was not needed for *these* calls. It is needed for the
+45s budget Path A is engineered around, and for the delegating turns that budget
+exists to cover. Hosting to the measured ceiling rather than the observed
+average is the point.
+
+### Three failures on the way, and only one was about the bridge
+
+**1. Under-specified deploy manifest, again — but a new variant.** The fan-out
+server's fix was to derive env vars from `targets.yaml`'s own `${VAR}`s instead
+of a hand-written list. That was necessary and *still insufficient* here:
+`SF_AGENT_ID` is read straight from `os.environ` by the Agentforce client, so it
+appears nowhere in `targets.yaml`. The route 500'd with "Agentforce is not
+configured" while every endpoint in the manifest was correct. The deploy now
+derives from two sources — the config file's `${VAR}`s **and** a scan of
+`os.environ` reads across `src/` — because the config file only describes what
+the *registry* expands, not what the *code* reads.
+
+**2. The ambient variable that has now misdirected three components.** Adding
+that source scan immediately shipped `AWS_DEFAULT_REGION=us-west-2` into the
+task — a value that is not in `.env` at all, but exported ambiently by the
+operator's shell. boto3 prefers it over `AWS_REGION`, so the container looked
+for its secret in the wrong region and died at startup with **AccessDenied**,
+which reads unambiguously as a broken IAM policy. It was not: `aws iam
+simulate-principal-policy` returned `allowed` against the exact resource ARN.
+`observability/promql.py` already documents this same variable misdirecting the
+Secrets Manager client (2026-07-25) and the PromQL client (2026-07-26); this is
+the third. The deploy now excludes the ambient AWS identity/region vars
+explicitly and sets `AWS_REGION` from the deploy region.
+
+**The general rule this earns:** a deploy manifest derived from the operator's
+environment inherits everything the operator's environment happens to contain.
+Deriving is still right — a hand-maintained list drifts — but the derivation
+needs a deny-list for the host's own identity, or you ship the laptop into the
+cloud.
+
+**3. Keyless federation is not portable across AWS compute types.** The
+AWS→GCP federation built for the fan-out Lambda (D41) failed on Fargate with a
+`TransportError` reaching `169.254.169.254`. google-auth's built-in AWS supplier
+looks in exactly two places — the `AWS_ACCESS_KEY_ID` env vars, then the EC2
+metadata service. Lambda sets those env vars; **Fargate sets neither**, because
+an ECS task's credentials come from the container credentials endpoint at
+`$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`. The same code, the same role, the
+same pool, a different compute shape, and it stops working.
+
+Fixed by supplying google-auth a custom `AwsSecurityCredentialsSupplier` that
+delegates to **botocore**, which already resolves env vars, the container
+endpoint, IMDS, profiles and assumed roles. The federation now works on any AWS
+compute rather than on the two shapes that happened to get tested. Worth
+generalising: "workload identity federation works on AWS" is not one fact —
+each compute service presents credentials differently, and a library's default
+supplier encodes assumptions about which ones you are on.
+
+### Still manual, deliberately
+
+TLS and DNS are not scripted. `A2ALab_Bridge` points at
+`https://bridge-lab.agenticthings.com`, a Salesforce-visible hostname; cutting
+Path A over needs a certificate the ALB can serve and a DNS change in
+Cloudflare. Everything above was verified on the ALB's own hostname over HTTP
+first, so the cutover is a DNS change against a known-good target rather than a
+deploy and a hope.
+
+### Cutover: Path A off the laptop, and the 45s budget earning its keep on day one
+
+DNS moved `bridge-lab.agenticthings.com` from the Cloudflare tunnel to the ALB,
+staying proxied, with the zone on Full (strict). Verified rather than assumed:
+
+- **Traffic really reaches Fargate.** A probe marker sent to the public hostname
+  appeared in the ECS task's CloudWatch stream. Both bridges were running, so
+  "it answered" would have proved nothing on its own.
+- **Full (strict) did not break the tunnel hostnames.** `claude-rest-lab`,
+  `claude-mcp-lab`, `claude-a2a-lab` and `console-lab` returned 401/401/401/200
+  before and after — matching Cloudflare's documentation that `cloudflared`
+  manages origin TLS itself (`originServerName`, `noTLSVerify`, `caPool`), so
+  the zone encryption mode does not govern that hop.
+- **Six of six pathways** over public TLS on the production hostname.
+- **Path A end-to-end: 27.5s** (trace `dfb600f6`), the answer carrying both its
+  CRM section and the delegated "External market research (from the Claude
+  research agent)" section — so Apex → bridge → Claude works with no laptop in
+  the path.
+
+**The architecture decision paid off within minutes, and by accident.** On the
+first production sweep `google-adk-a2a` took **39.8s** — an Agent Engine
+scale-to-zero cold start. That call is 10s past API Gateway's 30s ceiling and
+would have been killed had the bridge been hosted the way every other lab
+component is. The 45s budget was defended on paper as "the measured number";
+this is the first recorded instance of it actually being needed, and it arrived
+unprompted on day one.
+
+Worth keeping in proportion: the other five calls that sweep ran between 4.1s
+and 10.3s, all of which a gateway would have served fine. The ceiling does not
+bite often. It bites when a platform is cold, which is exactly when a demo is
+most likely to hit it.

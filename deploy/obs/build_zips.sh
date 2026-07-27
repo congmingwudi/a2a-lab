@@ -18,6 +18,10 @@ rm -rf "$DIST" && mkdir -p "$DIST/mcp" "$DIST/harvest"
 
 # ---- MCP server zip ---------------------------------------------------------
 cp -R src/obs_mcp "$DIST/mcp/obs_mcp"
+# The transport lives in its own package since the fan-out server (WS7 item 4)
+# became the second user of it. Omitting it here breaks the function at import,
+# not at request time — a cold start that fails before any log line.
+cp -R src/mcp_http "$DIST/mcp/mcp_http"
 mkdir -p "$DIST/mcp/observability" "$DIST/mcp/interop"
 cp src/observability/pg.py src/observability/store.py "$DIST/mcp/observability/"
 cp src/interop/trace.py "$DIST/mcp/interop/"

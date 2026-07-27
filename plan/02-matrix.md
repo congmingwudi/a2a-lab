@@ -42,6 +42,51 @@ Same table shape as Paths A/B with `openai-*` targets; OpenAI has no A2A —
 our wrapper serves it (still recorded `native` for the *serving* since we
 host the agent, with a note that the platform itself lacks A2A).
 
+## Cross-cloud — Google ADK ↔ Microsoft Foundry (WS3 capstone)
+
+The lab's only cell with **no Agentforce in it**, and its only native×native
+cross-hyperscaler pair: GCP-hosted Gemini (Vertex AI Agent Engine) calling
+Azure-hosted gpt-5-mini (Foundry Agent Service) over both platforms' own A2A
+endpoints — no bridge, no shim, no lab component in the cross-cloud leg.
+
+| Cell | Status | How |
+|---|---|---|
+| ADK → Foundry (A2A) | **native × native** | Agent Engine A2A in; the GCP container's `ask_foundry_agent` tool calls Foundry's incoming A2A. Measured 16.9s end to end (2026-07-23, plan/03-results.md) |
+| Foundry → ADK (A2A) | **blocked-auth** | Foundry connections cannot mint Google IAM tokens. Not a protocol failure — an identity one, and recorded as such |
+
+Scenario: `google-adk-to-foundry` (`config/scenarios.yaml`, group `cross-cloud`).
+
+**Why this section had to be added separately (2026-07-25):** Paths A, B and C
+are each shaped as "X ↔ Agentforce", so a cell involving neither end had no
+place in the matrix and was absent from it for two days while being live in the
+console, recorded in results, and drawn in the README diagram. The matrix's
+structure had quietly encoded the assumption that Agentforce is always one end
+of the call — worth noting before adding more cross-platform cells, since the
+same gap will reappear for any many-to-many topology.
+
+## Considered and declined (cells we chose not to run, and why)
+
+A lab that records which experiments it declined is more honest than one that
+runs everything — and the reasoning is itself a finding about how to test
+interop.
+
+- **Claude (AgentCore) ↔ OpenAI (AgentCore), both directions — declined
+  2026-07-25.** Same SDK-shaped adapter, same AWS account, same runtime
+  (Bedrock AgentCore), same inbound auth (SigV4), same transport
+  (`agentcore-http`). The only variable left is the model vendor, which is not
+  a protocol-interop variable at all. The loopback suite already proves the
+  three client×server pairings deterministically, and the cross-vendor
+  comparison worth having was already measured without an A2A cell between
+  them: identical runtimes, ~31s vs ~56s cold start, warm p50 ~10.3s vs ~8.4s
+  (the `sdk-footprint` insight). **The general rule:** a same-runtime,
+  same-cloud, same-auth pair tests the runtime, not the interop. Cells earn
+  their place by isolating a variable no existing cell isolates.
+- **Claude (AgentCore) ↔ Google ADK — NOT declined, scheduled (WS8).** Kept
+  precisely because it fails the test above in the right direction: it crosses
+  a cloud and identity boundary (AWS ↔ GCP) that no current cell crosses, and
+  turns the one-directional GCP→Azure capstone result into a three-cloud
+  pattern.
+
 ## Findings ledger (grow as measured)
 
 - MCP has no protocol-level session semantics — session_id rides as a tool

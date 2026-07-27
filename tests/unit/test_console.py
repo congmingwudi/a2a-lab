@@ -158,10 +158,11 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "adk-agentforce",
         "foundry-agentforce",
         "cross-cloud",
+        "fan-out",
         "langgraph-agentforce",
         "strands-agentforce",
     ]
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 5 + [True] * 2
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 6 + [True] * 2
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
@@ -214,9 +215,20 @@ def test_config_reports_delegation(tmp_path, monkeypatch):
     assert data["mode"] == "local"
     d = data["delegation"]
     assert "A2A-LAB DELEGATION" in d["rider"]
-    assert d["max_depth"] >= 1 and len(d["seams"]) == 5  # 4 tool paths + bridge
+    assert d["max_depth"] >= 1
+    # Assert on CONTENT, not a count. The old `len(seams) == 5` passed happily
+    # while the exhibit listed only the Agentforce-consulting seams, so the
+    # fan-out scenarios — which delegate three times per run and never touch
+    # Salesforce — showed a seam list describing something they don't do.
+    assert any("bridge" == s for s in d["seams"])
+    assert any("ask_agentforce" in s for s in d["seams"])
+    assert any("consult_business_units" in s for s in d["seams"]), (
+        "the host-side fan-out is a delegation seam and must appear in the exhibit"
+    )
+    assert any("consult_<unit>" in s for s in d["seams"])
     # Placeholders are display-only; the API names the real seam identities.
     assert any("adk-gemini-agent" in c for c in d["callers"])
+    assert any("supply-orchestrator" in c for c in d["callers"])
     # D28: the channel-routing sibling exhibit
     assert "A2A-LAB ROUTING" in data["af_channel"]["routing_block"]
     assert data["af_channel"]["tools"]["a2a-shim"] == "ask_agentforce_a2a"
@@ -680,3 +692,78 @@ def test_insight_signoff_rejects_bad_input(tmp_path, monkeypatch):
         "/api/insights/no-such-insight/review", headers=headers, json={"decision": "approved"}
     )
     assert missing.status_code == 404
+
+
+# ---- WS9: Build Telemetry (coding-agent cost) ------------------------------
+
+
+def _seed_coding(trace_dir):
+    """A day of Claude Code usage in the obs store the console reads."""
+    from observability.store import ObsStore
+
+    store = ObsStore(db_path=trace_dir / "lab.db")
+    store.upsert_session(
+        "coding",
+        "claude-code:2026-07-25",
+        title="claude-code · 2026-07-25",
+        created_at="2026-07-25T00:00:00+00:00",
+        usage={"input_tokens": 120_000, "output_tokens": 8_000, "cost_usd_estimated": 4.2},
+        raw={"tool": "claude-code", "sessions": 6, "active_time_s": 5400, "by_model": {}},
+    )
+    store.set_harvest_status("coding", "ok", "1 tool-day(s)")
+    store.close()
+
+
+def test_build_telemetry_rolls_up_cost_by_tool(tmp_path, monkeypatch):
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+    _seed_coding(trace_dir)
+    app = make_app(trace_dir, monkeypatch, FakeRegistry())
+    data = TestClient(app).get("/api/build-telemetry").json()
+
+    assert data["enabled"] is True
+    assert data["totals"]["cost_usd"] == 4.2
+    assert data["totals"]["input_tokens"] == 120_000
+    assert data["by_tool"][0]["tool"] == "claude-code"
+    assert data["days"][0]["date"] == "2026-07-25"
+    # the caveat is part of the payload, so no consumer can render the number
+    # without it
+    assert "not an invoice" in data["cost_note"]
+
+
+def test_build_telemetry_never_appears_as_a_platform_column(tmp_path, monkeypatch):
+    """The whole reason this is a separate section.
+
+    The Observability coverage panel's honesty rests on its columns all being
+    agent platforms whose interiors the lab harvests. The tool that BUILT the
+    lab is not one of those, and must not be listed beside Agentforce.
+    """
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+    _seed_coding(trace_dir)
+    app = make_app(trace_dir, monkeypatch, FakeRegistry())
+    client = TestClient(app)
+
+    summary = client.get("/api/obs/summary").json()
+    assert "coding" not in summary["platforms"]
+    # but it is still reachable in its own section
+    assert client.get("/api/build-telemetry").json()["enabled"] is True
+
+
+def test_build_telemetry_explains_setup_when_nothing_collected(tmp_path, monkeypatch):
+    """Until the exporters are on there is nothing to show, and the useful
+    answer is how to start — telemetry is not retroactive."""
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+    app = make_app(trace_dir, monkeypatch, FakeRegistry())
+    data = TestClient(app).get("/api/build-telemetry").json()
+
+    assert data["enabled"] is False
+    assert data["days"] == []
+    steps = " ".join(s["step"] + s["detail"] for s in data["setup"])
+    assert "CloudWatchAPIKeyAccess" in steps
+    assert "tool=codex" in steps
+    # the three things the AWS docs corrected in the first draft, kept honest
+    assert "/v1/metrics" in steps  # the PATH is required
+    assert "http/protobuf" in steps  # not http/json
+    assert "cannot call the logs" in steps  # a metrics token is metrics-only

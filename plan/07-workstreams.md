@@ -10,6 +10,13 @@ Ordering decided 2026-07-19: **WS1 → WS2 (GCP) → WS3 (Azure) → WS4
 (LangGraph) → WS5 (Strands, deferred)**. CrewAI and Pydantic AI are
 flagged as candidates only — user decision pending.
 
+**Revised 2026-07-25 after the architecture review** (`tmp-docs/07.25.2026-*`):
+WS1–WS3 and WS6 U1–U2 are done; WS4/WS5 remain deferred. The approved next
+order is **WS8 (fan-out orchestration) → WS9 (build telemetry) → WS7 (hosted
+completion) → WS10 (Agent Fabric comparison)**, with WS9 step 1 pulled forward
+immediately because coding-agent telemetry cannot be backfilled. WS8 and WS9
+were verified not to depend on WS7 — see the analysis inside WS7.
+
 Rules that apply to every workstream:
 - **Twin rule (D25):** each platform gets its own Agentforce twin agent
   (Agent Script bundle cloned from the Claude pair, action pinned to that
@@ -584,6 +591,655 @@ first: it has both the baseline harm and the richest attribution logs).
 
 ---
 
+## Sequencing decided 2026-07-25 (post-architecture review)
+
+Approved order: **WS8 (fan-out orchestration) → WS9 (build telemetry) → WS7
+(hosted completion) → WS10 (Agent Fabric comparison)**, with WS9's step 1
+pulled forward to *today* because coding-agent telemetry cannot be backfilled.
+
+**WS8 and WS9 do not depend on WS7** — see "Can AD1/AD2 run before the hosted
+workstream?" inside WS7. That was the deciding question and the answer is yes,
+with one narrow caveat (the CMA orchestrator's tool execution) that has a
+one-day workaround rather than needing the whole workstream.
+
+---
+
+## WS7 — Hosted completion: retire the laptop from the runtime path
+
+**Goal.** Every component the lab demonstrates runs in a cloud someone else
+operates. Today "hosted mode" is far narrower than it sounds and the gap is
+worth stating precisely:
+
+- **21 targets total; 11 point at `localhost`.**
+- **`A2ALAB_MODE=hosted` remaps exactly 2 of those 11** (`claude-rest`,
+  `openai-rest` → the AgentCore runtimes).
+
+So nine local targets have no hosted counterpart at all: the Lab Guide's three
+(`guide-rest/mcp/a2a`), the Claude and OpenAI MCP and A2A servers (four), and
+the two Agentforce shim ports whose hosted twin exists only for A2A (D28). They
+run on a laptop and reach the world through the cloudflared tunnel.
+
+**Why it has to happen regardless** (both reasons are yours, and both hold):
+1. It is the target end state for the deployed solution.
+2. **WS10 needs it.** MuleSoft Omni Gateway has to reach the lab's A2A agents;
+   today that means a tunnel to a laptop, which is fine for an experiment and
+   wrong for a customer-facing comparison.
+
+A third reason worth adding: the honest matrix currently cannot say the lab is
+hosted. The one-liner it *can* say today is *"hosted mode covers the two
+runtimes that have hosted counterparts; the rest is local-only, published
+through a tunnel."*
+
+### Can AD1/AD2 run before this workstream? — yes, with one caveat
+
+| Work | Hosted-independent? | Why |
+|---|---|---|
+| WS9 — build telemetry | ✅ **Fully** | Claude Code/Codex → CloudWatch managed OTLP; `coding_source.py` runs in the harvest Lambda. No lab server involved |
+| WS8 — Claude (AWS) ↔ ADK | ✅ **Fully** | Both ends already hosted (AgentCore, Agent Engine) |
+| WS8 — **ADK orchestrator** | ✅ **Fully** | Runs inside the Agent Engine container calling hosted endpoints |
+| WS8 — **CMA orchestrator** | ⚠️ **One caveat** | See below |
+
+**The caveat, precisely.** Managed Agents custom tools execute **host-side**:
+`managed_backend.py` receives `agent.custom_tool_use` and answers with
+`user.custom_tool_result`, and for the async pattern `briefs --watch` is the
+process that services those calls while the session idles. That watcher runs on
+the laptop today (started by `run_local.sh`). A CMA orchestrator whose three
+fan-out legs are custom tools therefore has a laptop in its path.
+
+Three ways out, in increasing cost:
+
+- **(a) Accept the watcher for the build phase.** Exactly how the existing D16
+  async brief already works, and it proves the experiment. **Recommended for
+  building WS8.**
+- **(b) Host the watcher** — an EventBridge-scheduled Lambda polling for
+  pending deployment runs and servicing tool calls. ~1 day, and it
+  independently un-tethers the *existing* async brief, which is a demo risk
+  today. **Recommended before any public demo.**
+- **(c) Remote MCP fan-out server** — expose the three legs as MCP tools on a
+  Lambda Function URL, reusing `src/obs_mcp/` (a hand-rolled MCP Streamable
+  HTTP transport already running as a Lambda Function URL for the obs analyst,
+  D23). Then the CMA agent needs no host process at all — this is exactly the
+  "hosted, the deployment's firings need no watcher" note in
+  plan/05-observability.md. ~1–2 days. **This is the right end state and it is
+  a WS7 item, not a WS8 blocker.**
+
+**So: build WS8 and WS9 now under (a); do (b) before the demo; fold (c) into
+WS7.**
+
+### Work items
+
+1. **Hosted Lab Guide** (3 targets) and
+2. **Hosted Claude/OpenAI MCP + A2A faces** (4 targets)
+
+   **These two collapsed into one mechanism once item 7 landed (2026-07-26), and
+   the original framing of item 2 was asking the wrong question.** It posed the
+   choice as "additional AgentCore runtimes per protocol, or one runtime
+   multiplexing protocols." The answer is neither, for the same reason the
+   bridge is not on API Gateway:
+
+   - An **A2A face delegates onward**. That is agent work on an open-ended
+     budget, the shape that does not fit a request/response product — measured
+     the day of cutover, when a cold Agent Engine leg took 39.8s against a 30s
+     gateway ceiling.
+   - **WS11's fire-then-poll needs a server that can hold a task across
+     requests.** Both AgentCore's invoke model and an API Gateway integration
+     fight that; a long-lived container does not.
+   - **WS10 needs external callers to reach these faces.** AgentCore's data
+     plane is SigV4-only, which MuleSoft's Omni Gateway cannot easily present.
+
+   **So: the same ALB, host-based listener rules, one ECS service per face.**
+   The marginal cost of each additional face is a target group, a listener rule
+   and a Fargate task — **not another load balancer**, which is what made this
+   look expensive before item 7 existed.
+
+   Three things already done make this mostly repetition rather than design:
+
+   - **The Origin certificate is a wildcard** (`*.agenticthings.com`), so every
+     one of these hostnames is already covered. No new certificates, no new ACM
+     imports, no validation records.
+   - **The hostnames already exist and already point at the tunnel** —
+     `claude-rest-lab`, `claude-mcp-lab`, `claude-a2a-lab`, `console-lab`. Each
+     cutover is the identical DNS edit performed for `bridge-lab`, one at a
+     time, each independently reversible.
+   - **The servers already take `--protocol` and `--port`**, and
+     `deploy/agentcore/Dockerfile` already builds them. Either one task per
+     face, or one task running several containers to save cost.
+
+   Suggested order, cheapest risk first: Lab Guide (nothing depends on it) →
+   Claude MCP → Claude A2A → OpenAI pair. Keep `cloudflared` running throughout;
+   DNS alone decides which origin serves each hostname, so a bad cutover is a
+   one-field rollback.
+
+   **Cost note:** each face is roughly a $10–12/month Fargate task on lab-account
+   with no new ALB charge. Consolidating several faces into one task cuts that
+   further and is worth doing if the count grows past three or four.
+3. **Hosted watcher** — item (b) above.
+4. ✅ **Remote MCP fan-out server** — item (c) above, **done 2026-07-26 (D41)**.
+   `src/fanout_mcp/` exposes one tool per business unit on a Lambda behind API
+   Gateway; the transport moved to `src/mcp_http/` now that two servers share
+   it. The CMA orchestrator selects the topology per run through
+   `agent_with_overrides` — same agent, two tool inventories — so the host-side
+   variant survives as a control rather than being replaced.
+
+   **Measured:** the model issued all three units in a single turn on both runs
+   (traces `ede9e3bc…` 3/3 50.5s, `161d7a46…` 3/3 42.6s) and reported its own
+   coverage correctly without code computing it. The cost is a request budget
+   the host-side path does not have — API Gateway's 29s integration timeout,
+   not raisable for HTTP APIs. Full numbers in plan/03-results.md.
+
+   Also lands the AWS→GCP half of cross-cloud identity (`interop/cloud_auth.py`):
+   the Lambda federates its IAM role into a Google service account and holds no
+   Google key. **This does not close item (b)** — the hosted watcher is still
+   needed for the D16 async brief, which remains laptop-bound.
+5. **Widen the `modes:` map** in `config/targets.yaml` as each hosted
+   counterpart lands, so one flip really does move the whole stack.
+6. **Retire or re-scope the tunnel.** Once 1–2 land, cloudflared should be a
+   convenience for local development, not the lab's public front door.
+7. **Host the bridge — on Fargate behind an ALB, NOT behind API Gateway.**
+   See the section below; this item was missing from the plan until the
+   45s/30s conflict was noticed on 2026-07-26.
+
+### Item 7: hosting the bridge, and why it does not get the shim's treatment
+
+**The bridge is the actual laptop dependency in Path A.** The Apex callout
+resolves `A2ALab_Bridge` to `https://bridge-lab.agenticthings.com`, the D20
+named Cloudflare tunnel, which terminates at `uv run python -m bridge` on
+`:8100`. Nothing in that path is AWS today.
+
+**The conflict, stated precisely.** The obvious move is to copy the shim: a
+Lambda behind an API Gateway HTTP API (D28). That works for the shim because
+its work fits — 10.1s measured on a simple question, 18–19s when the Agentforce
+twin delegates onward, comfortably inside the gateway's ceiling with the
+`targets.yaml` warm-up ping. **The bridge does not fit.** Its client timeout is
+45s (plan/01-architecture.md, Path A budget chain: action ~85–90s → Apex 110s →
+bridge 45s), and an HTTP API's integration timeout maxes at **30s, hard and not
+adjustable** — the adjustable 29s account quota governs REST APIs only. Hosting
+the bridge that way silently cuts Path A's sync research depth by 15s.
+
+Two components, one ceiling, opposite verdicts. That is the whole decision.
+
+**Options considered:**
+
+| Option | Ceiling | Verdict |
+|---|---|---|
+| **Fargate behind an ALB** | ALB `idle_timeout.timeout_seconds` defaults to 60s and is a configurable load-balancer attribute | **Chosen.** The bridge is already a FastAPI app; it runs unchanged. Costs a standing ALB charge. |
+| Lambda + REST API (v1) | The filed 29s quota, if granted | Migrating gateway *products* for one component, on a pending request that may cost account throttle headroom |
+| Lambda Function URL | 15 min, no gateway | **Two unverified blockers**: whether the org SCP permits it (the D23 finding was specifically about *auth-NONE* needing `AddPermission`; IAM-auth same-account may differ) and whether Salesforce can SigV4-sign a callout — the docs could not confirm it. A question, not a plan. |
+| Don't route through the bridge | n/a | Partly available already: **D30** proved Apex can call Agent Engine's A2A endpoint directly via a JWT-bearer cert chain. Narrows the bridge's job but does not remove it — the bridge exists for protocol fan-out Apex cannot speak. |
+
+**The reasoning worth keeping.** The lab has just published a finding (D41) that
+moving agent work behind a managed request/response gateway imposes a budget it
+did not have. Hosting the bridge on a request/response product would be adopting
+that constraint deliberately, one workstream after documenting it. Fargate is
+the option where the bridge keeps its measured budget without a rewrite, a
+pending quota, or an unverified vendor capability.
+
+**Applies to item 2 as well.** The hosted Claude/OpenAI **A2A** faces have the
+same shape as the bridge, not the shim: an A2A call that delegates onward is
+agent work on an open-ended budget. Decide their ingress with this ceiling in
+hand rather than defaulting to the D23/D28 pattern because it is familiar.
+
+**Exit criteria:** `A2ALAB_MODE=hosted` with the laptop powered off, a matrix
+run green, and the console reachable — that is the actual test, and it is worth
+recording as a measured result the first time it passes. For item 7
+specifically: Path A green end-to-end with the tunnel down and `bridge-lab`
+resolving to the ALB, and a recorded latency showing the 45s budget intact.
+
+**Effort:** ~1 week, dominated by item 2; item 7 is ~1 day.
+
+---
+
+## WS8 — Fan-out orchestration: the lab's missing shape (AD1, approved 2026-07-25)
+
+**Status 2026-07-26 (overnight build).** Dispatch layer built, tested, and
+**proven live**: two legs in parallel across GCP and Azure, 36.7s wall against a
+50.7s serial equivalent, and the partial-failure contract verified against a
+real dead leg rather than an injected one (plan/03-results.md).
+
+| Item | State |
+|---|---|
+| `src/orchestration/` — legs, parallel dispatch, partial-failure contract | ✅ built, 10 unit tests |
+| `scripts/run_fanout.py` — CLI runner, exits non-zero on a partial run | ✅ built, run live |
+| Scenario + business case + mermaid diagram + `fan-out` nav group | ✅ |
+| Insight `orchestration-topology` | ✅ `observed`, `review: required` |
+| **Five dedicated per-leg agents** | ⬜ **not deployed** — see below |
+| Claude (AWS) ↔ ADK pair | ⬜ blocked on AWS auth |
+| Four-platform join-rate measurement | ⬜ needs all legs + a harvest |
+
+**Read this before continuing: the live run used the lab's EXISTING
+general-purpose research agents, not the dedicated per-leg agents this
+workstream specifies.** That was deliberate — it proved the dispatch layer
+without waiting on provisioning — but it means the measured numbers describe
+the plumbing, not the scenario. The answers came from research agents being
+asked a logistics question, and it showed: see the instruction-adherence
+finding in plan/03-results.md.
+
+Swapping to dedicated agents is a **config change, not a code change** —
+`orchestration/legs.py` reads `A2ALAB_LEG_EXPOSURE_TARGET`,
+`A2ALAB_LEG_COMMERCIAL_TARGET` and `A2ALAB_LEG_COMMS_TARGET`, so each leg
+repoints via `.env` once its agent exists.
+
+**Goal.** One long-running orchestrator farms a single business task out to
+three agents on three different platforms *in parallel*, then synthesises one
+answer — built twice, once with an Anthropic Managed Agent and once with Google
+ADK on Agent Engine, so the two async models can be compared directly.
+
+**Why.** Every one of the lab's 12 scenarios is 1:1. Fan-out is a different
+shape with different failure modes, and it is the shape real enterprises
+actually have. It stresses three things nothing in the lab currently touches:
+
+1. **The delegation guard under fan-out.** D27's depth limit was designed for
+   chains. A supervisor calling three platforms is depth-1 three times — does
+   the rider survive fan-out, and do the delegates correctly refuse to call each
+   other sideways?
+2. **Observability across a genuinely distributed task.** Today a lab trace
+   spans at most two platforms' logs; this spans four, each with different
+   retention, lag, and join key. Only platforms that log the utterance text can
+   be joined by the D34 rider convention — Foundry cannot, and joins by
+   `platform_ref` instead. **How many of four legs can be joined back to the run
+   is the deliverable number.**
+3. **Partial failure.** At fan-out, partial failure is the normal case, not the
+   edge case. This is the multi-agent form of the finding measured on
+   2026-07-25: Agentforce returning 200 with its section heading present and the
+   delegated content silently absent.
+
+### Scenario A — Supplier disruption response (the business case)
+
+**Document this in the scenario's own `description` in `config/scenarios.yaml`,
+not only here** — the console renders it, and the business case is the point.
+
+> **The situation.** A port strike halts container traffic through a major
+> hub. A multinational manufacturer needs to know, within the hour: which
+> orders are exposed, what the contracts say about delay penalties and force
+> majeure, and what to tell affected customers — then act on all three.
+>
+> **Why it needs multiple agents.** These three questions are owned by three
+> different functions, grounded in three different systems, and — in a company
+> of any size — served by three different AI platforms chosen by three
+> different business units at three different times. Logistics runs on Google
+> Cloud. Commercial/legal runs on Microsoft. Customer operations standardised
+> on OpenAI. Nobody is going to re-platform because a strike started at 6am.
+>
+> **Why it needs orchestration rather than a chain.** The three questions are
+> genuinely independent — exposure does not depend on the contract position,
+> and neither depends on the customer message. Run sequentially they take the
+> sum of three latencies; run in parallel they take the slowest. In a
+> disruption that difference is the whole value.
+>
+> **Why async.** Nobody sits watching a spinner during a port strike. The work
+> is dispatched, runs for minutes, and lands in the systems people already
+> use — which is what the lab's D16 async pattern already proved by delivering
+> briefs into CRM records rather than into an HTTP response.
+>
+> **The measured claim this scenario supports:** an enterprise does not need
+> one agent platform. It needs one *protocol* and an honest account of what
+> crossing platform boundaries costs — in latency, in identity plumbing, and in
+> the observability you lose at each seam.
+
+**Platform assignment — the business-unit story:**
+
+| Role | Business unit | Platform | New agent needed |
+|---|---|---|---|
+| Orchestrator (variant 1) | Corporate operations | Anthropic Managed Agent | ✅ `a2alab-supply-orchestrator` |
+| Orchestrator (variant 2) | Corporate operations | Google ADK / Agent Engine | ✅ `a2alab-supply-orchestrator-adk` |
+| Exposure assessment | Logistics | Google ADK / Gemini | ✅ `a2alab-logistics-agent` |
+| Contract & penalty position | Commercial / Legal | Microsoft Foundry (gpt-5-mini) | ✅ `a2alab-commercial-agent` |
+| Customer communications | Customer operations | OpenAI on AgentCore | ✅ `a2alab-customer-comms-agent` |
+| Delivery / system of record | Sales & service | Agentforce | ♻️ reuse the D16/D17 brief delivery path |
+
+**Dedicated scenario agents, per your instruction — and it follows D25's twin
+rule.** Each leg gets its own agent on its own platform, scoped to this
+scenario only, rather than reusing the general-purpose research agents. Two
+reasons beyond tidiness: the general agents carry research prompts that would
+drift the answers, and separate agents mean the observability harvest can
+attribute a session to *this experiment* rather than to "the ADK agent." Note
+that ADK hosts **two** agents in variant 2 — orchestrator and logistics leg are
+different agents on the same platform, which keeps the comparison clean and
+incidentally tests intra-platform vs cross-platform delegation in one run.
+
+**Determinism shaping** (same technique as the existing `[A2A-LAB DELEGATION]`
+and `[A2A-LAB ROUTING]` blocks, so call paths are comparable run to run):
+- Each leg receives a rider pinning it to **one turn, no external tool calls**,
+  and a fixed output shape (3 bullets, ≤60 words).
+- The orchestrator gets a **fixed leg list** — no dynamic routing — so the call
+  path is identical every run.
+- Delegation depth stays 1; the legs must refuse onward delegation.
+
+**Architecture diagram — required deliverable.** Add a mermaid diagram to
+`config/diagrams.yaml` naming this scenario's id, showing: the orchestrator, the
+three parallel legs with their platform and cloud, the delivery leg, and where
+each platform's execution logs are harvested from. Set `readme: true` so it is
+embedded in README.md as well (`tests/unit/test_diagrams.py` asserts the two
+copies stay identical). The chip on the insight tile is the readout affordance.
+
+### The CMA vs ADK comparison (why build it twice)
+
+These are not two implementations of one pattern — they are two different
+patterns sharing the word "async," and that is the insight:
+
+| | Anthropic CMA | Vertex AI Agent Engine |
+|---|---|---|
+| Async model | Cron-scheduled; each firing is a **new session** | **Duration-based**; one agent runs up to 7 days holding state |
+| State between runs | Memory / explicit persistence | Session state + Snapshot API |
+| Natural fit | Recurring work ("brief me every morning") | A single mission ("watch this until it resolves") |
+| Lab status | Proven (D16/D17: 69–127s briefs delivering into CRM) | Not yet exercised async |
+
+**Expected finding:** picking the wrong one is an architecture mistake that no
+amount of protocol compatibility fixes. A disruption response is a *mission*
+(duration-shaped); a daily account brief is *recurring* (cron-shaped). Same
+fan-out, opposite hosting choice.
+
+**Foundry and OpenAI have no comparable long-running/scheduled hosting** —
+record that honestly rather than working around it, same as OpenAI's write-only
+traces.
+
+### Other scenarios — documenting *why* this shape recurs
+
+Not to be built; documented so the pattern reads as general rather than as one
+contrived demo. Each is a real domain where the same three properties hold —
+independent sub-questions, different owning functions, different platforms.
+
+**B — Third-party / vendor risk due diligence.** Clear a new vendor: parse
+security evidence (SOC 2 / ISO 27001 / PCI DSS), check commercial standing,
+screen sanctions and adverse media, produce a go/no-go. Security, Finance and
+Research own the three questions and none depends on the others. Reported
+outcomes in this space run 40–70% labour reduction and 30–50% faster cycles, so
+the ROI framing is easy. *Why it recurs:* every regulated enterprise runs this
+process continuously and hates it.
+
+**C — Security incident triage.** An alert fires; specialised agents reason
+concurrently over endpoint, identity, and network evidence rather than one
+agent working sequentially. *Why it recurs:* time-to-triage is the metric, and
+sequential analysis is the bottleneck. **This is also where partial failure
+matters most** — a triage that silently drops a leg is worse than one that
+fails loudly, which is exactly the failure mode measured on 2026-07-25.
+
+**D — M&A / deal-team diligence.** Financial model, legal exposure, and market
+position assessed in parallel against a target company, synthesised into an
+investment memo. *Why it recurs:* deal timelines are fixed and the three
+workstreams are owned by different advisors — often literally different firms
+on different tech stacks, which is the cross-organisation version of the
+cross-business-unit story.
+
+**The common shape, stated once:** *when sub-questions are independent, owned
+by different functions, and answered by different platforms, orchestration is
+not an optimisation — it is the only structure that matches the org chart.*
+
+### Build items
+
+1. Five new platform agents (table above) + their deploy/provision scripts,
+   following each platform's existing pattern.
+2. Orchestrator delegation tools through **`interop/delegation.py`** — D27 is
+   non-negotiable for new delegation paths, and this experiment exists partly to
+   stress it.
+3. Fan-out with `asyncio.gather`; each leg its own `Hop` under one `trace_id`.
+4. **Console call-path renderer** — verify it can draw parallel legs rather than
+   assuming a chain. Likely the one real UI change.
+5. **Partial-failure policy, decided before the first run:** deliver with an
+   explicit `[leg unavailable: <platform>]` marker. Never a silently short
+   brief.
+6. Scenario entries + business-case description + `config/diagrams.yaml` entry.
+7. Post-run harvest across all five platforms; record how many legs join back.
+8. New insight category **Orchestration topology**; mark `review: required`.
+
+**Exit criteria:** both orchestrator variants green; the join-rate number
+measured and recorded; partial failure demonstrated deliberately; insight
+published for sign-off.
+
+**Effort:** ~3–4 days for variant 1, ~1 day for variant 2, plus the
+Claude(AWS)↔ADK pair (~0.5 day) which lands first as a warm-up.
+
+---
+
+## WS9 — Build telemetry: what this lab cost to make (AD2, approved 2026-07-25)
+
+**Status 2026-07-26 (overnight build).** Everything that does not need AWS is
+done; the one step that does is the one that matters most.
+
+| Item | State |
+|---|---|
+| `src/observability/coding_source.py` + 6 tests | ✅ built; namespaces discovered, not hardcoded |
+| Registered in local harvest, Lambda map, and bundle (the Obs rule) | ✅ |
+| `/api/build-telemetry` + Build Telemetry console section | ✅ built, 3 tests |
+| Coding telemetry excluded from the Observability coverage panel | ✅ test-locked |
+| **Exporters switched on** | ✅ 2026-07-26 — key issued, helper wired, ingestion verified |
+| `observability/promql.py` | ✅ **the harvest was reading the wrong API** — see below |
+| First real coding metrics | ✅ 2026-07-26 — `1 tool-day, $2.82 modelled`, after a second query fix |
+
+### The correction that mattered
+
+**OTLP metrics ingested through CloudWatch's native endpoint do not appear in
+`ListMetrics` or `GetMetricStatistics` at all.** They land in a
+Prometheus-compatible store queried over SigV4 at
+`monitoring.<region>.amazonaws.com/api/v1/*`.
+
+The first `coding_source` used ListMetrics. Ingestion returned HTTP 200 and
+discovery returned nothing, so **both halves looked healthy** and the harvest
+would have reported "no coding metrics yet, switch the exporters on" forever
+while the exporters worked perfectly. It was only found by sending a real
+metric and failing to read it back — a reminder that a source which degrades
+politely to "nothing here yet" can hide a total failure indefinitely.
+
+Verified rather than assumed, and worth keeping: a PromQL selector must name a
+metric; `/api/v1/label/__name__/values` is unsupported, so **there is no metric
+enumeration** and the name list must be fixed and extendable.
+
+### The second correction — same failure mode, one layer down
+
+Reading the right API was not enough. With the exporters confirmed working, the
+harvest still reported "no coding metrics — switch the exporters on" while this
+very session's `session.id` was queryable in CloudWatch. Two independent bugs,
+both measured on identical live data 2026-07-26:
+
+- **Step alignment.** CloudWatch aligns a range query's evaluation points to
+  epoch multiples of the step. Stepping daily put the last evaluation point at
+  last midnight, so everything recorded since was invisible — 0 series at step
+  86400 / 3600 / 900 / 600, and 4 series at step 300. A build-cost view that is
+  permanently a day behind is indistinguishable from an exporter that is off.
+  The step is now 300s; the daily rollup was always in Python
+  (`summarize_series`) and stays there.
+- **Wrong aggregation.** These are delta-temporality Sums, so each datapoint is
+  already a delta and rate-style functions are actively harmful on them.
+  `increase(...[5m])` read 2,531,607 tokens and silently dropped 4 of 8 series
+  (it needs two samples); a bare selector read 3,160,892 by repeating the last
+  sample through its 5-minute lookback; `sum_over_time` read 2,870,521 —
+  **identically at step 60 and step 300**, and that resolution-independence is
+  what identifies it as the correct one.
+
+**The pattern worth naming, because it has now cost three separate debugging
+sessions on this one source:** the harvest's failure message is a helpful
+instruction ("switch the exporters on"), and a helpful instruction is a claim
+about the cause. Each time, the cause was on the reading side and the message
+sent the reader to the writing side. The `except: continue` around each metric
+query made it worse by discarding the evidence. Query failures now appear in
+the harvest detail, so "nothing was recorded" and "nothing could be asked for"
+no longer read the same.
+
+### Credential handling followed D39, not the vendor quickstart
+
+The AWS guide has you paste the bearer token into a shell profile. Instead: an
+IAM user with `CloudWatchAPIKeyAccess`, a 90-day service-specific credential
+(expires 2026-10-24), the key written **straight into Secrets Manager without
+passing through a terminal**, and `scripts/otel_headers.sh` fetching it at
+runtime via `otelHeadersHelper`. A token pasted into a config file is exactly
+the long-lived laptop credential D39 exists to remove.
+
+**Also corrected against the AWS docs, three counts the first draft got wrong:**
+the `/v1/metrics` PATH is required; the protocol is `http/protobuf`, not
+`http/json`; and a metrics bearer token **cannot carry logs or traces**, so
+`OTEL_LOGS_EXPORTER` against the same endpoint silently yields nothing.
+
+**Goal.** Capture Claude Code and Codex OpenTelemetry into CloudWatch, then
+surface it in the console as its own section — the lab measuring its own
+construction, across two coding tools, as if two team members used different
+ones.
+
+### ⚠️ Step 1 is time-critical
+
+**Telemetry is not retroactive.** The ~16 days already spent building the lab
+are gone. Turn the exporters on before the WS8 work starts, so the fan-out
+build is measured. Everything else here can wait; this cannot.
+
+```bash
+CLAUDE_CODE_ENABLE_TELEMETRY=1
+OTEL_METRICS_EXPORTER=otlp
+OTEL_LOGS_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+OTEL_EXPORTER_OTLP_ENDPOINT=https://monitoring.us-east-1.amazonaws.com
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer ${CW_BEARER_TOKEN}"
+OTEL_RESOURCE_ATTRIBUTES="project=a2a-lab,tool=claude-code,developer=ryan"
+```
+
+CloudWatch exposes a **managed OTLP endpoint** — no collector, no sidecar; auth
+is a CloudWatch API bearer token on an IAM user with `CloudWatchAPIKeyAccess`.
+Codex CLI ships its own OTel exporter; point it at the same endpoint with
+`tool=codex`. **CloudWatch Coding Agent Insights** then renders both (it
+supports Claude Code, Codex and Copilot) with no further setup.
+
+### Console placement — a separate section, not a sixth platform column
+
+**Recommendation: its own console section, sharing the harvest plumbing.**
+
+I originally sketched this as a sixth column in Observability and I now think
+that is wrong. The Observability coverage panel answers *"what did the agents
+do, per platform"* and its honesty depends on all five columns being the same
+kind of thing. Claude Code is not a partner agent platform — it is the tool
+that built the lab. Putting it in that panel would quietly corrupt the
+five-platform story that is the section's whole point.
+
+- **New section: `Build Telemetry`** — setup documentation + a dashboard
+  (cost and tokens by tool and model, sessions, active time, lines of code,
+  commits/PRs, tool-decision accept/reject).
+- **Shared plumbing:** `src/observability/coding_source.py` implementing
+  `PlatformLogSource`, registered in `scripts/obs_harvest.py` **and** in
+  `observability/lambda_handlers.py` + `deploy/obs/build_zips.sh` (the Obs rule
+  — half-registration is what left ADK and Foundry missing hosted).
+- **No new credentials.** It reads CloudWatch in the lab-account account with the AWS
+  auth D39 made the single root of trust. **The first platform to land under
+  D39 needing zero new secrets** — worth saying out loud, since it demonstrates
+  the rule is not just overhead.
+
+### ⚠️ Honesty constraint for any published number
+
+`claude_code.cost.usage` is a **client-side USD estimate computed from token
+counts at list prices** — not an invoice, and for subscription/credit plans not
+money that changed hands. Any published claim must say **"modelled build cost
+at list price."** Mark the resulting insight `review: required`; this is exactly
+what D38 exists to catch.
+
+Report the *measured* phase (WS8 onward) rather than guessing at the past.
+Reconstructing history from local session data is a bonus, clearly labelled,
+only if the data turns out to be there.
+
+### Follow-up: a static credential in the agents' shell env (raised + largely resolved 2026-07-26)
+
+Found while fixing the Codex OTel exporter. `~/.codex/config.toml` carries a
+plaintext `LOGGING_API_KEY` (plus `LOGGING_API_URL`) in
+`shell_environment_policy.set`, so the hooks→Slack bridge key sits on disk as a
+long-lived literal.
+
+It does not contradict `build-notes/claude/05` — that note says these live in
+user-level settings outside the repo, and they do — but it *is* the one
+credential in the build-tooling path that D39 hasn't reached: every other
+secret is now a service identity fetched from Secrets Manager with the
+developer's AWS session. The Codex OTel token was just moved to exactly that
+model (fetched by `scripts/codex_otel.sh`, injected with `codex -c`, never
+written to a file), which makes this one the odd remaining case.
+
+**Resolved 2026-07-26 — but not the way this entry first proposed.** The
+original recommendation here was "have the hook fetch it from Secrets Manager
+the way `otel_headers.sh` does". That was written before checking which account
+hosts the service, and it is wrong twice over.
+
+**First, the exposure is worse than "plaintext on disk".**
+`shell_environment_policy.set` injects its values into the environment of every
+shell command Codex runs, and Claude Code's settings `env` block does the same
+— confirmed by finding `LOGGING_API_KEY` in a Bash tool's own environment
+mid-session. (The `OTEL_*` vars do *not* propagate; Claude Code consumes those
+internally. This is specific to using the generic env channel.) So the key was
+being handed to every subprocess an agent chose to spawn: one stray `env` in a
+log, one diagnostic upload, one crash reporter, and it is out. A broadcast
+channel was being used to reach exactly one consumer — the hook script.
+
+**Second, Secrets Manager does not transplant here.** D39's pattern is "fetch
+it with the AWS session you already have", but that session is **lab-account**
+(Salesforce) and `aws-logging-service` runs in the **personal** AWS account. A
+Secrets Manager fetch would need personal-account credentials, which is the
+same problem one layer up. Storing a personal service's key in a corporate
+account's secret store would satisfy the letter of D39 and be wrong on
+governance.
+
+**What was done instead:** both hook scripts
+(`~/.claude/hooks/claude-notify.sh`, `~/.codex/hooks/codex-notify.sh`) now read
+the key from the **macOS Keychain** (service `a2alab-logging`), and
+`LOGGING_API_KEY` is removed from both config files. Encrypted at rest, no
+network dependency, no cross-account entanglement, and the key exists only
+inside the hook process for the life of one `curl` — never in an agent
+subprocess again. `LOGGING_API_URL` and `LOGGING_CHANNEL` stay in config; they
+are not secrets. The env var remains a documented fallback so a machine without
+the Keychain item keeps working, with a stderr warning when that path is taken.
+Verified: 200 with the Keychain key, 401 with a bogus one.
+
+**Still open, and the reason this is not fully closed:**
+
+1. **Rotate the key.** It was plaintext on disk and exported into every agent
+   subprocess for weeks. Rotation is cheap; assuming it stayed contained is not.
+2. **The real fix is to have no key at all.** Switch the API Gateway `/log`
+   route from API-key auth to IAM, with a resource policy trusting the lab-account
+   principal, and let the hook SigV4-sign with the session already in hand.
+   Nothing stored, nothing to rotate, nothing to leak — the true D39 shape.
+   Needs a cross-account resource policy, so it is real work; worth it if this
+   ever moves beyond one laptop.
+3. Scope the usage plan to `/log` and rate-limit it, so any leak is bounded.
+
+**Effort:** Keychain migration was ~20 minutes and is done. Item 2 is ~half a
+day.
+
+### Related finding worth chasing separately
+
+Four of five agent platforms emit OTel in some form: Foundry natively
+(`gen_ai` spans, already harvested), Salesforce via the **Session Trace OTel
+API** (beta — full session as OTLP spans, one session per call, no bulk),
+ADK/Agent Engine via Cloud Trace, OpenAI via a `TracingProcessor` tee.
+Anthropic CMA is the exception. That opens a possible **M11.6: map the lab's
+obs model onto the GenAI semantic conventions**, turning five bespoke adapters
+into one standard schema plus an honest account of where each platform falls
+short of it. Bigger than WS9 and likely a better insight — logged here, not
+scheduled.
+
+**Effort:** step 1 ~1 hour; `coding_source.py` + section ~1–2 days.
+
+---
+
+## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
+
+**Goal.** Stand up Agent Fabric against the lab's own agents and produce a
+customer-facing **build-vs-buy comparison matrix**.
+
+**Scheduled last, and gated on access.** Phase 0 is an entitlement check
+(Agent Fabric + CloudHub 2.0 in a US/EU host) that must pass before any build.
+**Do the access check early even though the build is last** — it may need
+someone else to act.
+
+**Why after WS8:** Agent Fabric's pitch is orchestration and governance across
+many agents. Comparing it against a lab whose every experiment is 1:1 is an
+unfair fight in both directions; with the fan-out built there is something real
+to compare Agent Broker against.
+
+Full research, the four productised-convergence findings, the phase plan, the
+deployment constraints, and the draft comparison matrix are in
+`tmp-docs/07.25.2026-AD3-mulesoft-agent-fabric.md`. Headline for planning
+purposes: **Agent Fabric has independently productised four mechanisms the lab
+built by hand** — the prompt rider (A2A Prompt Decorator), the 0.3↔1.0
+translation layer (A2A Transcoder), per-caller access control (MCP ABAC), and
+deterministic call ordering (Agent Script node graphs). That convergence, plus
+the lab's measured version-wall evidence, is the comparison's most valuable
+output.
+
+**Effort:** ~1 week after Phase 0 clears.
+
+---
+
 ## Flagged candidates (user decision pending — do not build)
 
 - **CrewAI (AMP)** — most-adopted OSS multi-agent framework + its new
@@ -751,3 +1407,120 @@ the mermaid text stays the single source of truth with no regeneration step
 to forget. Diagrams that README.md also embeds carry `readme: true`, and
 `tests/unit/test_diagrams.py` asserts the two copies stay identical, so
 editing one and not the other fails the suite instead of the demo.
+
+---
+
+## WS11 — A2A fire-then-poll: the protocol's own answer to the gateway ceiling (raised 2026-07-26)
+
+**Why this exists.** D41 measured the cost of putting agent work behind a
+managed gateway: the fan-out MCP server's legs inherit API Gateway's 30s
+ceiling, against 120s host-side. The workaround so far is to keep legs fast and
+report the ones that do not fit as unavailable. **A2A already specifies the
+right fix**, and the lab has been using only half the protocol.
+
+### What the spec provides (verified against a2a-protocol.org)
+
+A2A is asynchronous at heart. `SendMessage` **"MUST return immediately with
+either task information or response message"**, and **"task processing MAY
+continue asynchronously after the response."** The client then polls `GetTask`
+(JSON-RPC `tasks/get`) with the task id, or subscribes with `SubscribeToTask`,
+or registers a webhook via the push-notification config.
+
+The seven task states are the state machine to drive off:
+
+| State | Meaning |
+|---|---|
+| `TASK_STATE_SUBMITTED` | acknowledged, not started |
+| `TASK_STATE_WORKING` | actively processing |
+| `TASK_STATE_INPUT_REQUIRED` | interrupted, needs input |
+| `TASK_STATE_AUTH_REQUIRED` | interrupted, needs auth |
+| `TASK_STATE_COMPLETED` / `FAILED` / `CANCELED` | terminal |
+
+**This dissolves the ceiling rather than working around it.** The MCP tool call
+becomes: submit the task, return the task id — a sub-second call, nowhere near
+30s. The model then calls a second tool to poll. The gateway never holds a
+connection open across the agent's actual work.
+
+It also makes the orchestrator *more* agentic, not less: the model manages
+in-flight work and decides when to check back, which is a strictly larger
+decision surface than "call three tools and wait".
+
+### What the lab has today, and the one line that blocks it
+
+`interop/servers/a2a.py` is already most of the way there. It runs
+`InMemoryTaskStore`, so `tasks/get` is served by the framework, and
+`AdapterExecutor` already walks SUBMITTED → `start_work()` → `add_artifact()` →
+`complete()`. **The blocker is that `execute()` awaits `self.adapter.handle(req)`
+inline**, so the HTTP request for `message/send` does not return until the work
+is done. The lab implements the async lifecycle and then drives it
+synchronously — exactly the "async-capable protocol everyone drives
+synchronously" insight already published, now with a concrete cost attached.
+
+### Build sketch
+
+1. **Server:** `AdapterExecutor` dispatches the adapter call as a background
+   task and returns once WORKING is enqueued. Needs care with the a2a-sdk's
+   request/event-queue lifetime — verify the queue and task store survive the
+   originating request, and that a completion arriving after the response is
+   still recorded.
+2. **Client:** `A2AClient` grows `submit()` (returns task id, does not wait) and
+   `poll(task_id)` on top of `tasks/get`, alongside today's blocking `ask()`.
+3. **Fan-out MCP server:** each unit gets a submit tool and a check tool, or one
+   tool with a `mode` argument. The run id already threads the units together;
+   the task id threads a single unit across calls.
+4. **Orchestrator prompt:** submit all three, then poll — the model chooses the
+   cadence. Measure whether it polls sensibly or busy-waits; that is a finding
+   either way.
+5. **Partial failure contract is unchanged in spirit** but gains a state: a leg
+   can now be *still working* rather than only answered/unavailable, and a brief
+   must say so rather than treating pending as absent.
+
+### The honest limitation, and the measurement worth taking
+
+**Not every leg is A2A.** `openai-agentcore` is a SigV4 AgentCore call and
+Agentforce is the Agent API — neither has A2A's task lifecycle, so those would
+need the lab's own submit/poll store rather than the protocol's. Fire-then-poll
+via A2A covers the ADK and Foundry legs natively and nothing else.
+
+**And vendor support for the async half is unverified.** The spec says an
+implementation MAY continue processing after responding; it does not say every
+implementation does. Whether Agent Engine's and Foundry's A2A endpoints
+actually hold a task and serve `tasks/get` — rather than blocking like ours —
+is a per-platform question. **That measurement is itself the most valuable
+output here:** the matrix currently records who speaks A2A, not who implements
+the asynchronous half of it. "Everyone ships the sync subset" would be a
+first-class finding, and so would the opposite.
+
+**Exit criteria:** one fan-out leg submitted and polled to completion through
+the MCP server with the gateway never holding a connection over ~2s; a recorded
+per-platform table of who honours the async lifecycle; the orchestrator's poll
+behaviour observed and written up.
+
+---
+
+## Console and exhibit backlog (raised 2026-07-26, after the hosted bridge)
+
+Not a workstream — UI and presentation debt to clear before the demo.
+
+1. **"Not yet available" components.** Diagnosed: `components_for()` renders a
+   component as unavailable when its console URL env var is unset, and four are
+   missing from `.env` — `OPENAI_CONSOLE_URL` (this is the M9 one),
+   `SF_LIGHTNING_DOMAIN`, `ADK_CONSOLE_URL`, `FOUNDRY_CONSOLE_URL`. Setting
+   them is the whole fix; no code change.
+2. **Chips are too prominent.** Shrink the platform/product/feature chips
+   relative to surrounding text.
+3. **Chips at group level.** Platform chips currently sit on individual
+   experiments; add them to the Control Panel → Experiments *subsection*
+   headers too (Claude – Agentforce, OpenAI – Agentforce, …).
+4. **Chip iconography cleanup**, with one decision to make deliberately:
+   - **Vendor chips should name the vendor, not the model.** Every other chip
+     is a company — AWS, Microsoft, Google, OpenAI — so **Anthropic** is the
+     consistent choice for that tier, and Claude belongs on the product/model
+     tier where the lab already distinguishes Managed Agents from the
+     self-hosted SDK. The rule to apply everywhere: tier 1 names who operates
+     the cloud, tier 2 names which product or model runs on it. Picking Claude
+     for tier 1 means Google's chip should say Gemini, which nobody wants.
+   - Use the **Google Cloud** logo (not the Gemini spark) for Google ADK and
+     everywhere else Google appears as the platform.
+   - Warm-up panel: the `aws-shim` product chip should carry an **AWS** logo
+     rather than a generic one.

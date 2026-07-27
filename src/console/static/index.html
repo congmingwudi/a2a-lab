@@ -875,6 +875,19 @@
         <div id="obsSide"></div>
       </div>
     </details>
+    <!-- Sits immediately after Observability, and is its own section rather
+         than a child of it: same question ("what does the platform's own
+         record say?") but a different subject — the tools that BUILT the lab,
+         not the agents it runs. Adjacent, not nested. -->
+    <details class="acc" id="accBuild">
+      <summary onclick="buildNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13.4h12"/><path d="M3.6 13.4V7.2M7.2 13.4V3.6M10.8 13.4V9M14 13.4v-3"/></svg>Coding Agents Telemetry <span class="count" id="buildCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">What this lab cost to build — Claude Code and Codex.</span>
+        </div>
+        <div id="buildSide"></div>
+      </div>
+    </details>
     <details class="acc" id="accInsights" open>
       <summary onclick="insightsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 12.6h4M6.6 14.4h2.8"/><path d="M8 1.6a4.4 4.4 0 0 0-2.6 7.9c.4.3.6.8.6 1.1h4c0-.3.2-.8.6-1.1A4.4 4.4 0 0 0 8 1.6z"/></svg>Insights <span class="count" id="insightCount"></span></summary>
       <div class="acc-body">
@@ -932,6 +945,7 @@ let drafts = {};          // key -> composer draft (survives re-renders)
 let afChannels = {};      // key -> "agent-api" | "a2a-shim" (D28 channel radio)
 let afRoutes = {};        // key -> "bridge" | "direct" (Agentforce outbound route radio)
 let viaBridges = {};      // key -> bool (protocol cells: route via the lab bridge)
+let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
 // turn's call path.
@@ -2322,6 +2336,30 @@ function afChannelRowHtml(key) {
   </div>`;
 }
 
+// Fan-out topology: where the business-unit tools execute (D41).
+window.setFanoutVariant = v => {
+  if (!view || view.type !== "experiment") return;
+  fanoutVariants[expKey(view.kind, view.name)] = v;
+  renderMain(true);
+};
+
+function fanoutVariantRowHtml(key) {
+  const v = fanoutVariants[key] || "tool";
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Fan-out topology</span>
+    <label><input type="radio" name="fanoutVariant" value="tool" ${v === "tool" ? "checked" : ""}
+      onchange="setFanoutVariant('tool')"> host-side tool</label>
+    <label><input type="radio" name="fanoutVariant" value="mcp" ${v === "mcp" ? "checked" : ""}
+      onchange="setFanoutVariant('mcp')"> remote MCP tools</label>
+    <span class="chan-hint">Same agent, same prompt, two tool inventories (swapped per run via
+      agent_with_overrides). <b>host-side tool</b>: one custom tool, the fan-out runs on this laptop
+      and the host picks the order. <b>remote MCP tools</b>: one tool per business unit on a hosted
+      MCP server, so nothing is attached to the session and the <i>model</i> chooses what to call and
+      whether to call them together — the run reports which it did.</span>
+  </div>`;
+}
+
 // Protocol cells: per-cell "via bridge" toggle (lives in the Run tab).
 window.setViaBridge = on => {
   if (!view || view.type !== "experiment") return;
@@ -2456,6 +2494,195 @@ function renderModeBadge() {
       (maps.length ? `\nRemapped targets:\n${maps.join("\n")}` : "\nNo targets remapped.")
     : "Deployment mode: local — runs hit the lab's local servers (A2ALAB_MODE flips this)";
 }
+
+// ---- Coding Agents Telemetry (WS9) -------------------------------------------------
+// The lab measuring its own construction. Deliberately NOT a sixth column in
+// Observability: that section's coverage panel answers "what did the agents do,
+// per platform", and every column in it is an agent platform whose interior
+// logs the lab harvests. Claude Code is the tool that BUILT the lab — listing
+// it beside Agentforce would quietly claim they are the same kind of thing.
+let buildData = null;
+
+async function loadBuildTelemetry() {
+  try {
+    const r = await fetch(apiUrl("/api/build-telemetry"));
+    if (r.status === 404) return; // console server predates this API
+    buildData = await r.json();
+    const count = document.getElementById("buildCount");
+    if (count) count.textContent = buildData.enabled ? `$${(buildData.totals.cost_usd || 0).toFixed(2)}` : "";
+    renderBuildSide();
+    if (view && view.type === "build") renderMain(true);
+  } catch (_e) { /* section stays empty */ }
+}
+
+function renderBuildSide() {
+  const el = document.getElementById("buildSide");
+  if (!el || !buildData) return;
+  if (!buildData.enabled) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">Not collecting yet — open for setup.</div>`;
+    return;
+  }
+  el.innerHTML = buildData.by_tool.map(t => `
+    <div class="obs-plat" onclick="buildNav(event)">
+      <span>${esc(t.tool)}</span>
+      <span class="count">${t.cost_supported === false ? "no cost metric" : "$" + (t.cost_usd || 0).toFixed(2)}</span>
+    </div>`).join("");
+}
+
+function buildHtml() {
+  if (!buildData) return `<div class="empty">Loading…</div>`;
+  const note = `<div class="hint" style="margin:10px 0 18px">⚠️ ${esc(buildData.cost_note)}</div>`;
+
+  if (!buildData.enabled) {
+    // The honest first-run state. Telemetry is not retroactive, so the useful
+    // answer is how to start — not an empty chart.
+    const steps = buildData.setup.map((s, i) => `
+      <div class="hop" style="margin-bottom:8px">
+        <div class="hop-head"><b>${i + 1}. ${esc(s.step)}</b></div>
+        <div style="padding:8px 12px" class="hint">${esc(s.detail)}</div>
+      </div>`).join("");
+    return `
+      <h2>Coding Agents Telemetry</h2>
+      <p class="hint">Claude Code and the Codex CLI both export OpenTelemetry, and
+      CloudWatch accepts OTLP on a managed endpoint — no collector. Point both at it
+      and this section shows what the lab cost to build, per tool, per day.</p>
+      <div class="hint" style="margin:10px 0 18px"><b>Telemetry is not retroactive.</b>
+      Whatever was built before the exporters were switched on cannot be measured
+      after the fact — only what happens from now on.</div>
+      ${steps}${note}`;
+  }
+
+  const t = buildData.totals;
+  const tiles = `
+    <div class="obs-cards">
+      <div class="obs-card"><div class="k">modelled cost</div><div class="v">$${(t.cost_usd || 0).toFixed(2)}</div></div>
+      <div class="obs-card"><div class="k">input tokens</div><div class="v">${(t.input_tokens || 0).toLocaleString()}</div></div>
+      <div class="obs-card"><div class="k">output tokens</div><div class="v">${(t.output_tokens || 0).toLocaleString()}</div></div>
+      <div class="obs-card"><div class="k">sessions</div><div class="v">${t.sessions || 0}</div></div>
+    </div>`;
+
+  // A tool with no cost metric must render "n/a", never "$0.00" — a zero here
+  // reads as "this tool was free", which is the opposite of "we cannot see it".
+  const money = (v, ok) => ok === false ? `<span class="hint">n/a</span>` : `$${(v || 0).toFixed(2)}`;
+  const num = (v, ok) => ok === false ? `<span class="hint">n/a</span>` : (v || 0).toLocaleString();
+
+  const byTool = buildData.by_tool.map(b => `
+    <tr><td>${esc(b.tool)}</td><td>${money(b.cost_usd, b.cost_supported)}</td>
+        <td>${num(b.input_tokens, b.tokens_supported)}</td>
+        <td>${num(b.output_tokens, b.tokens_supported)}</td><td>${b.days}</td></tr>`).join("");
+
+  const days = buildData.days.map(d => `
+    <tr><td>${esc(d.date)}</td><td>${esc(d.tool)}</td><td>${money(d.cost_usd, d.cost_supported)}</td>
+        <td>${num(d.input_tokens, d.tokens_supported)}</td>
+        <td>${num(d.output_tokens, d.tokens_supported)}</td>
+        <td>${d.sessions ?? "—"}</td>
+        <td>${d.active_time_s ? (d.active_time_s / 3600).toFixed(1) + "h" : "—"}</td></tr>`).join("");
+
+  // Per-tool coverage. The headline finding of this section is that the two
+  // agents do NOT emit comparable metrics, so the differences get stated
+  // rather than silently averaged into one number.
+  const seen = new Set(buildData.by_tool.map(b => b.tool));
+  const notes = (buildData.tool_notes || []).map(n => {
+    const live = seen.has(n.tool);
+    const caps = [
+      `sessions <b>yes</b>`,
+      `tokens <b>${n.tokens ? "yes" : "no"}</b>`,
+      `cost <b>${n.cost ? "yes" : "no"}</b>`,
+    ].join(" · ");
+    return `
+      <div class="hop" style="margin-bottom:8px">
+        <div class="hop-head">
+          <b>${esc(n.label || n.tool)}</b>
+          <span class="count">${live ? "collecting" : "no data yet"}</span>
+        </div>
+        <div style="padding:8px 12px">
+          <div class="hint" style="margin-bottom:6px">${caps}</div>
+          <div class="hint">${esc(n.detail)}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  const scope = buildData.scope_note
+    ? `<div class="hint" style="margin:10px 0 18px">⚠️ <b>Scope:</b> ${esc(buildData.scope_note)}</div>`
+    : "";
+
+  // ---- By repository -------------------------------------------------------
+  // The point of setting project/repo on every datapoint: cost per codebase,
+  // so this project can be read on its own and beside the repos that support
+  // it. A bar per repo rather than a chart library — one dependency-free
+  // element that reads correctly at any width.
+  const repos = buildData.by_repo || [];
+  const maxRepoCost = Math.max(...repos.map(r => r.cost_usd || 0), 0);
+  const repoRows = repos.map(r => {
+    const pct = maxRepoCost > 0 ? Math.round((r.cost_usd / maxRepoCost) * 100) : 0;
+    const share = ((r.cost_share || 0) * 100).toFixed(1);
+    const unattributed = r.repo === "unattributed";
+    const tools = (r.tools || []).map(t =>
+      `${esc(t.tool)}${t.cost_usd ? " $" + t.cost_usd.toFixed(2) : ""}`).join(" · ");
+    return `
+      <div class="hop" style="margin-bottom:8px">
+        <div class="hop-head">
+          <b>${esc(r.repo)}</b>
+          <span class="count">$${(r.cost_usd || 0).toFixed(2)} · ${share}%</span>
+        </div>
+        <div style="padding:8px 12px">
+          <div style="background:var(--line,#2a2a2a);border-radius:3px;height:8px;overflow:hidden;margin-bottom:8px">
+            <div style="width:${pct}%;height:100%;background:${unattributed ? "#8a8a8a" : "var(--accent,#4c8bf5)"}"></div>
+          </div>
+          <div class="hint">
+            project <b>${esc(r.project || "—")}</b> ·
+            ${(r.input_tokens || 0).toLocaleString()} in ·
+            ${(r.output_tokens || 0).toLocaleString()} out ·
+            ${r.sessions || 0} sessions ·
+            ${r.days || 0} day${r.days === 1 ? "" : "s"}
+            ${tools ? " · " + tools : ""}
+            ${r.active_time_s ? " · " + (r.active_time_s / 3600).toFixed(1) + "h active" : ""}
+          </div>
+          ${unattributed ? `<div class="hint" style="margin-top:6px">No resource attributes on these
+          datapoints — an exporter ran without OTEL_RESOURCE_ATTRIBUTES. Counted here so the
+          per-repo view still sums to the total.</div>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+
+  const repoHtml = repos.length ? `
+    <h3>By repository</h3>
+    <p class="hint">Cost per codebase, from the <code>@resource.repo</code> label
+    the exporters attach to every datapoint. Neither coding agent emits this on
+    its own — it is configuration, which is the whole point of the section.</p>
+    ${repoRows}` : `
+    <h3>By repository</h3>
+    <p class="hint">No per-repository data yet. Re-run
+    <code>scripts/obs_harvest.py coding</code> after an attributed session —
+    rows harvested before this view existed carry no repo breakdown.</p>`;
+
+  return `
+    <h2>Coding Agents Telemetry</h2>
+    <p class="hint">The lab measuring its own construction — two coding tools, one
+    OTLP endpoint, harvested through the same seam as every agent platform.</p>
+    ${tiles}${note}${scope}
+    ${repoHtml}
+    <h3>By tool</h3>
+    <table class="obs-table"><thead><tr><th>tool</th><th>cost</th><th>input</th><th>output</th><th>days</th></tr></thead>
+    <tbody>${byTool}</tbody></table>
+    <h3>Per-tool coverage</h3>
+    <p class="hint">The two agents do not emit the same metrics. Where a column
+    reads <i>n/a</i> above, the tool does not publish that measure at all —
+    it is not a zero.</p>
+    ${notes}
+    <h3>By day</h3>
+    <table class="obs-table"><thead><tr><th>date</th><th>tool</th><th>cost</th><th>input</th><th>output</th><th>sessions</th><th>active</th></tr></thead>
+    <tbody>${days}</tbody></table>`;
+}
+
+window.buildNav = ev => {
+  if (ev) ev.preventDefault();
+  document.getElementById("accBuild").open = true;
+  if (view && view.type === "build") return;
+  pushNav();
+  view = { type: "build" };
+  renderSidebar(); renderMain(true);
+};
 
 window.insightsNav = ev => {
   // Same pattern as Observability: the header click navigates the canvas
@@ -2977,8 +3204,10 @@ function archSvg() {
     ${box(22, "Salesforce Agentforce", "service agent · Agent API", "Apex → bridge / direct A2A")}
     ${box(528, "Research agents", "Claude · OpenAI · Gemini", "gpt-5-mini (Azure Foundry)")}
     ${wires}
-    <text x="380" y="172" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
+    <text x="380" y="166" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
       five platforms, three clouds — same scenario over each protocol, every raw wire payload recorded</text>
+    <text x="380" y="182" text-anchor="middle" fill="#8fc0e8" font-size="10">
+      …and one 1:many cell: a single task fanned out to three business units on three clouds at once</text>
   </svg>`;
 }
 
@@ -3075,6 +3304,44 @@ function landingHtml() {
           <span class="mono">:8003</span>, or the Agentforce shims on <span class="mono">:8021/:8023</span> —
           with live A2A agent cards on the A2A calls.</p>
         <button class="ghost" onclick="browseCells()">Browse protocol calls</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Fan-out orchestration — one task, three platforms</h2>
+      <p class="lede">Every experiment above is <b>1:1</b> — one caller, one remote agent. Real
+        enterprises aren't shaped like that. A disruption splits into independent questions owned by
+        different functions, and those functions already run different agent platforms.</p>
+
+      <div class="intro-grid">
+        <div class="intro-card" style="--d1:#09decb;--d2:#7db9e8">
+          <h3><span class="dot"></span>The scenario</h3>
+          <p>A port strike halts container traffic through Rotterdam. Within the hour: which orders are
+             exposed, what the contracts say, what to tell customers. Three questions,
+             <b>three business units</b>, three clouds — Logistics on Google ADK, Commercial on
+             Microsoft Foundry, Customer Ops on OpenAI. Each is its own dedicated agent.</p>
+        </div>
+        <div class="intro-card" style="--d1:#a8a2ec;--d2:#c99df0">
+          <h3><span class="dot"></span>Two anchor orchestrators</h3>
+          <p>The same scenario, run by <b>two platforms</b>. On Anthropic Managed Agents the fan-out is
+             a custom tool the <b>host</b> executes — you own concurrency. On Google ADK it's
+             <b>declared</b> in the agent graph with <code>ParallelAgent</code> — the framework
+             schedules it. Control at the seam, or structure in the graph.</p>
+        </div>
+        <div class="intro-card" style="--d1:#f0a8a2;--d2:#c99df0">
+          <h3><span class="dot"></span>Partial failure is normal</h3>
+          <p>A missing leg is <b>reported, never omitted</b>: every branch gets a section and every run
+             carries a coverage line. A fan-out that quietly returns a short brief with a success code
+             is the multi-agent form of a timeout that returns HTTP 200 with nothing in it.</p>
+        </div>
+      </div>
+
+      <div class="cells-strip" style="margin-top:18px">
+        <p><b>The number this produced: 1 of 4.</b> After a clean 3/3 run — every platform returning
+          200, the brief complete, nothing reporting a problem — only <b>one</b> of the four platforms
+          could be joined back to that run from its own execution logs. One is structurally unjoinable
+          (no per-turn session exists), two hand back an id the lab never recorded. Cross-platform
+          observability degrades silently, and it degrades as the topology widens.</p>
       </div>
     </section>
 
@@ -3245,6 +3512,7 @@ async function sendTurn(kind, name, message) {
     const spec = scenarios.find(s => s.name === name);
     if (spec && spec.af_channel_toggle) body.af_channel = afChannels[key] || "agent-api";
     if (spec && spec.af_route_toggle) body.af_route = afRoutes[key] || "bridge";
+    if (spec && spec.fanout_variant_toggle) body.variant = fanoutVariants[key] || "tool";
   } else {
     body.target = name;
     body.via_bridge = !!viaBridges[key];
@@ -3549,6 +3817,12 @@ function renderMain(force) {
     return;
   }
 
+  if (view.type === "build") {
+    mainKey = "build";
+    el.innerHTML = buildHtml();
+    return;
+  }
+
   if (view.type === "obs") {
     mainKey = `obs:${view.platform || "*"}:${view.session || ""}:${obs.tab || "dashboard"}`;
     if (view.session) {
@@ -3605,6 +3879,8 @@ function renderMain(force) {
           </div>
           ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_route_toggle ? afRouteRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.fanout_variant_toggle
+            ? fanoutVariantRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
@@ -4035,6 +4311,7 @@ load().then(connectStream);
 loadLaunchers().then(renderMain);
 loadObs();
 loadInsights();
+loadBuildTelemetry();
 loadConfig();
 loadWarmup();
 loadDecisions();

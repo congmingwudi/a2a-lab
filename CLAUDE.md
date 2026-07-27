@@ -32,6 +32,9 @@ deploy/agentcore/deploy.sh <claude|openai>         # build/push/create-or-update
 deploy/adk/deploy_adk.py                           # deploy/update the ADK agent on Vertex AI Agent Engine (WS2)
 uv run python deploy/foundry/provision_foundry.py  # provision/update the Foundry agent + connection + inbound A2A (WS3)
 deploy/shim/build_zip.sh && deploy/shim/deploy_shim.sh  # hosted Agentforce A2A shim on Lambda (D28)
+uv run python deploy/fanout/provision_gcp_federation.py # once: AWS->GCP workload identity (D41)
+deploy/fanout/build_zip.sh && deploy/fanout/deploy_fanout.sh  # the remote MCP fan-out server (D41)
+uv run python scripts/run_fanout.py --orchestrator cma-mcp    # model-scheduled fan-out (D41)
 uv run python scripts/export_insights.py           # config/insights.yaml + diagrams.yaml → plan/08-insights.md
 ```
 

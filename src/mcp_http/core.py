@@ -11,7 +11,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-SERVER_INFO = {"name": "a2alab-obs-mcp", "version": "0.1.0"}
+# Default identity, overridable per server: `initialize` is where a client
+# learns which server it reached, and two servers answering "a2alab-obs-mcp"
+# would make a misrouted URL indistinguishable from a working one.
+SERVER_INFO = {"name": "a2alab-mcp", "version": "0.1.0"}
 KNOWN_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 LATEST_PROTOCOL_VERSION = "2025-06-18"
 
@@ -58,7 +61,9 @@ def _error(req_id: object, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
 
 
-def handle_message(body: dict, registry: ToolRegistry) -> dict | None:
+def handle_message(
+    body: dict, registry: ToolRegistry, server_info: dict | None = None
+) -> dict | None:
     """Dispatch one JSON-RPC message. Returns the reply dict, or None for
     notifications (the HTTP adapters turn None into a 202 with empty body)."""
     method = body.get("method")
@@ -75,7 +80,7 @@ def handle_message(body: dict, registry: ToolRegistry) -> dict | None:
             {
                 "protocolVersion": negotiated,
                 "capabilities": {"tools": {}},
-                "serverInfo": dict(SERVER_INFO),
+                "serverInfo": dict(server_info or SERVER_INFO),
             },
         )
 

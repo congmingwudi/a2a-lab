@@ -929,6 +929,11 @@ def create_console_app(registry: Registry | None = None):
             "chatgpt-to-agentforce": ("openai-agents-sdk-agent", "openai"),
             "adk-to-agentforce": ("adk-gemini-agent", "adk"),
             "foundry-to-agentforce": ("foundry-agent", "foundry"),
+            # The fan-out scenarios delegate too — three times per run, to
+            # three platforms. Showing no rider there implied the guard was
+            # an Agentforce-only concern.
+            "supplier-disruption-cma": ("a2alab-supply-orchestrator", "claude"),
+            "supplier-disruption-adk": ("a2alab-supply-orchestrator-adk", "adk"),
         }
         pair = by_name.get(name)
         return delegation.rider_for(*pair) if pair else None
@@ -1117,12 +1122,19 @@ def create_console_app(registry: Registry | None = None):
             "delegation": {
                 "max_depth": delegation.max_depth(),
                 "rider": delegation.example_rider(),
+                # Every seam that stamps the rider, not just the Agentforce
+                # ones. The fan-out entries were missing, which made the
+                # exhibit read as "this is about consulting Agentforce" on a
+                # scenario that never touches Salesforce — the guard is
+                # general, and the list has to show that.
                 "seams": [
                     "ask_agentforce (sdk)",
                     "ask_agentforce (managed)",
                     "ask_agentforce (openai)",
                     "ask_agentforce (adk)",
                     "bridge",
+                    "consult_business_units (fan-out, host-side)",
+                    "consult_<unit> (fan-out, ADK ParallelAgent)",
                 ],
                 # The <placeholders> in the rider are display-only; real
                 # injected blocks carry the delegating seam's identity:
@@ -1132,6 +1144,8 @@ def create_console_app(registry: Registry | None = None):
                     "openai-agents-sdk-agent (openai)",
                     "adk-gemini-agent (adk)",
                     "agentforce-twin-via-bridge (agentforce)",
+                    "a2alab-supply-orchestrator (claude)",
+                    "a2alab-supply-orchestrator-adk (adk)",
                 ],
             },
             # D28 sibling exhibit: the per-run channel routing block the
@@ -1316,6 +1330,50 @@ def create_console_app(registry: Registry | None = None):
                         "the stack"
                     ),
                 )
+            if spec.get("mode") == "fanout":
+                # The orchestrator is not a target you can POST to. Its
+                # `consult_business_units` tool is a CUSTOM tool, which on
+                # Managed Agents means the HOST executes it — so running this
+                # scenario means driving a managed session from here and
+                # servicing the fan-out, exactly as scripts/run_fanout.py does.
+                # Routing it through spec["target"] instead would send the
+                # situation to the plain research agent, which has no such tool
+                # and would answer the disruption itself: a brief that looks
+                # right and consulted nobody.
+                from orchestration.cma import CmaOrchestrator
+
+                # Which topology to run. "tool" keeps the host-side fan-out
+                # (the control); "mcp" gives the model three remote MCP tools
+                # and lets it schedule them (D41). The operator picks per run,
+                # because the interesting comparison is same-agent-same-prompt.
+                variant = "mcp" if body.get("variant") == "mcp" else "tool"
+                trace_id = body.get("trace_id") or new_trace_id()
+                result = await CmaOrchestrator(variant=variant).run(message, trace_id=trace_id)
+                fan = result.get("fanout")
+                if variant == "mcp":
+                    # No host-side FanOutResult — the legs ran in the Lambda.
+                    # What the MODEL did is the observable here, so report the
+                    # call path instead of a coverage count we did not compute.
+                    path = result["call_path"]
+                    units = len({c.name for c in path.calls})
+                    coverage = (
+                        f"{units}/3 business units consulted · {path.render()}"
+                        if path.calls
+                        else "the orchestrator never consulted a business unit"
+                    )
+                elif fan is None:
+                    # A real outcome, not an error: the model can decline to
+                    # fan out, and hiding that would flatter the platform.
+                    coverage = "the orchestrator never called consult_business_units"
+                else:
+                    coverage = f"{fan.ok_count}/{len(fan.results)} business units answered"
+                return {
+                    "ok": True,
+                    "trace_id": result.get("trace_id", trace_id),
+                    "text": f"{result.get('brief') or '(empty brief)'}\n\n---\n_{coverage}_",
+                    "latency_ms": result.get("wall_ms"),
+                    "variant": variant,
+                }
             if spec.get("mode") == "async":
                 # Fire-and-return: the research session runs for minutes in
                 # the background; its hops stream into this turn's trace via
@@ -1543,6 +1601,157 @@ def create_console_app(registry: Registry | None = None):
 
     # The honest capability matrix (plan/05-observability.md) — rendered
     # live in the coverage panel next to what was actually harvested.
+    # WS9. The obs store's platform key for coding-agent telemetry — filtered
+    # out of the Observability coverage panel and rendered in its own section.
+    BUILD_TELEMETRY_PLATFORM = "coding"
+
+    # Per-tool metric coverage. The two coding agents do NOT emit the same
+    # shapes, and a table that renders $0.00 for a tool with no cost metric is
+    # a lie by omission — so the section states the coverage instead of
+    # implying a zero. Observed live 2026-07-26 against CloudWatch.
+    BUILD_TELEMETRY_TOOL_NOTES = {
+        "claude-code": {
+            "label": "Claude Code",
+            "cost": True,
+            "tokens": True,
+            "detail": (
+                "Eight documented metrics, all delta Sums: cost.usage in USD, "
+                "token.usage by type, session.count, active_time.total, "
+                "lines_of_code/commit/pull_request counts and "
+                "code_edit_tool.decision. Attribution rides "
+                "OTEL_RESOURCE_ATTRIBUTES from .claude/settings.local.json, so "
+                "project and repo are set per checkout."
+            ),
+        },
+        "codex": {
+            "label": "Codex CLI",
+            "cost": False,
+            "tokens": False,
+            "detail": (
+                "Live since 2026-07-26 and correctly attributed "
+                "(tool=codex, project, repo), but it does NOT mirror Claude "
+                "Code's schema and the gaps are structural, not cosmetic. "
+                "There is NO cost metric at all — cross-tool cost has to be "
+                "modelled from tokens and a price table. And "
+                "codex.turn.token_usage is a delta HISTOGRAM dimensioned by "
+                "token_type, where Claude Code's token.usage is a delta SUM "
+                "dimensioned by type; sum_over_time returns the series but no "
+                "scalar for a histogram on this surface, so tokens are not "
+                "wired up yet. What IS read today are the Sums: "
+                "codex.thread.started (sessions) and "
+                "codex.conversation.turn.count (turns). Attribution comes from "
+                "scripts/codex_otel.sh at launch, because Codex ignores otel "
+                "in project-local .codex/config.toml."
+            ),
+        },
+    }
+
+    # Shown in the Coding Agents Telemetry section when nothing has been collected yet,
+    # which is the honest default: telemetry is NOT retroactive, so whatever
+    # was built before the exporters were switched on is unmeasurable.
+    BUILD_TELEMETRY_SETUP = [
+        {
+            "step": "Create the ingest identity and API key",
+            "detail": (
+                "An IAM user with the CloudWatchAPIKeyAccess managed policy, then "
+                "`aws iam create-service-specific-credential --service-name "
+                "cloudwatch.amazonaws.com --credential-age-days 90`. Done for this "
+                "lab as a2alab-cw-metrics-otlp; the key lives in the Secrets Manager "
+                "secret a2alab/telemetry/cw-metrics-api-key and expires 2026-10-24."
+            ),
+        },
+        {
+            "step": "Fetch the token at runtime, never store it",
+            "detail": (
+                "scripts/otel_headers.sh reads the secret with the developer's "
+                "existing AWS session and prints the Authorization header; Claude "
+                "Code calls it via otelHeadersHelper and refreshes every ~29 min. "
+                "D39 applied to the laptop — a bearer token pasted into a config "
+                "file is the long-lived credential that rule exists to remove."
+            ),
+        },
+        {
+            "step": "Pin the AWS profile in the helper — this one bit us",
+            "detail": (
+                "The helper runs in Claude Code's environment, not your shell, so "
+                "AWS_PROFILE is usually unset and the CLI falls back to the DEFAULT "
+                "profile — a different account, which cannot read the secret. The "
+                "helper then returns {} because a missing token is designed to "
+                "degrade to 'no telemetry' rather than break your session. Result: "
+                "days of zero metrics with every config file correct and nothing "
+                "logged. It now reads AWS_PROFILE from the repo .env and reports "
+                "the resolved account on stderr when the fetch fails."
+            ),
+        },
+        {
+            "step": "Point Claude Code at the metrics endpoint",
+            "detail": (
+                "CLAUDE_CODE_ENABLE_TELEMETRY=1, OTEL_METRICS_EXPORTER=otlp, "
+                "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf, and "
+                "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="
+                "https://monitoring.<region>.amazonaws.com/v1/metrics — note the "
+                "/v1/metrics PATH and the protobuf protocol, both required. Add "
+                "OTEL_RESOURCE_ATTRIBUTES with user.id/user.email/team.id, which is "
+                "the shape Coding Agent Insights groups by."
+            ),
+        },
+        {
+            "step": "Metrics only — the token cannot carry logs or traces",
+            "detail": (
+                "A CloudWatch metrics bearer token works ONLY against the OTLP "
+                "metrics endpoint. It cannot call the logs or traces endpoints, nor "
+                "any query API. So OTEL_LOGS_EXPORTER=otlp against the same endpoint "
+                "silently gets you nothing; per-event logs need the Logs endpoint "
+                "and its own separate key."
+            ),
+        },
+        {
+            "step": "Attribute the work: project and repo are NOT built in",
+            "detail": (
+                "Neither tool emits any attribute naming the project, working "
+                "directory or git repository — Claude Code's metrics carry session, "
+                "app, user, terminal and per-metric labels and nothing about WHERE "
+                "the work happened. OTEL_RESOURCE_ATTRIBUTES is the only hook, and "
+                "it flattens to @resource.<key> as a queryable label. Because "
+                ".claude/settings.local.json is per-repo, setting "
+                "project=…,repo=owner/name there gives per-project cost for free; "
+                "scripts/codex_otel.sh derives the same pair from git. Values "
+                "cannot contain spaces."
+            ),
+        },
+        {
+            "step": "Point Codex at the same endpoint — NOT YET VERIFIED",
+            "detail": (
+                "The Codex CLI ships its own OpenTelemetry exporter, configured in "
+                "~/.codex/config.toml (project-local .codex/config.toml explicitly "
+                "IGNORES otel, so this cannot be made per-repo the way Claude Code "
+                "can). Codex has THREE separate exporters, not one: otel.exporter "
+                "is logs/events (default none), otel.trace_exporter is traces "
+                "(default none), and otel.metrics_exporter is metrics — and it "
+                "defaults to statsig, not OTLP. The wrapper still sets tool=codex "
+                "in the resource attributes — that one label is the whole 'two "
+                "team members, two coding tools' comparison, once anything "
+                "arrives. Measured 2026-07-26: a real Codex "
+                "session run through scripts/codex_otel.sh produced ZERO codex.* "
+                "datapoints, because this lab's [otel] block set `exporter` (logs) "
+                "to the CloudWatch METRICS endpoint with a metrics-only bearer "
+                "token and never set metrics_exporter at all. Signal, endpoint and "
+                "credential must agree; see the Codex config reference for the "
+                "exact metrics_exporter syntax before retrying. Second asymmetry: "
+                "Codex has no headers-helper hook, so its token is ${VAR} "
+                "interpolation resolved ONCE at launch (hence the wrapper) while "
+                "Claude Code re-fetches every ~29 min."
+            ),
+        },
+        {
+            "step": "Harvest",
+            "detail": (
+                "uv run python scripts/obs_harvest.py coding — or wait for the "
+                "6-hourly harvest Lambda. Namespaces are discovered, not hardcoded."
+            ),
+        },
+    ]
+
     OBS_CAPABILITIES = {
         "claude": {
             "label": "Claude Managed Agents",
@@ -1620,8 +1829,165 @@ def create_console_app(registry: Registry | None = None):
             data = store.summary()
         finally:
             store.close()
+        # WS9: coding-agent telemetry shares the store but is NOT a platform
+        # column. The coverage panel's honesty depends on its five columns
+        # being the same kind of thing — each an agent platform whose interior
+        # logs the lab harvests. Claude Code is the tool that BUILT the lab;
+        # listing it beside Agentforce would quietly imply otherwise.
+        data["platforms"].pop(BUILD_TELEMETRY_PLATFORM, None)
         data["capabilities"] = OBS_CAPABILITIES
         return data
+
+    @app.get("/api/build-telemetry")
+    async def build_telemetry():
+        """What the lab cost to build, per coding tool per day (WS9).
+
+        Its own section rather than a sixth Observability column — see the
+        note in obs_summary. Returns the setup steps too, because until the
+        exporters are switched on there is nothing to show and the useful
+        answer is "here is how to start collecting".
+        """
+        store = _obs_store()
+        try:
+            sessions = store.list_sessions(BUILD_TELEMETRY_PLATFORM)
+            summary = store.summary()
+        finally:
+            store.close()
+
+        by_tool: dict[str, dict] = {}
+        by_repo: dict[str, dict] = {}
+        days: list[dict] = []
+        totals = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "sessions": 0}
+        for row in sessions:
+            try:
+                usage = json.loads(row.get("usage_json") or "{}")
+                raw = json.loads(row.get("raw_json") or "{}")
+            except (ValueError, TypeError):
+                usage, raw = {}, {}
+            tool = raw.get("tool") or str(row.get("native_id", "")).split(":")[0]
+            cost = float(usage.get("cost_usd_estimated") or 0)
+            tin = int(usage.get("input_tokens") or 0)
+            tout = int(usage.get("output_tokens") or 0)
+            bucket = by_tool.setdefault(
+                tool,
+                {"tool": tool, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "days": 0},
+            )
+            note = BUILD_TELEMETRY_TOOL_NOTES.get(tool) or {}
+            bucket["cost_supported"] = bool(note.get("cost", True))
+            bucket["tokens_supported"] = bool(note.get("tokens", True))
+            bucket["cost_usd"] += cost
+            bucket["input_tokens"] += tin
+            bucket["output_tokens"] += tout
+            bucket["days"] += 1
+            totals["cost_usd"] += cost
+            totals["input_tokens"] += tin
+            totals["output_tokens"] += tout
+            totals["sessions"] += int(raw.get("sessions") or 0)
+
+            # Per-repository roll-up. This is the "what did each codebase
+            # cost" view: the resource attributes were always on the wire, and
+            # the harvest now keeps them instead of stripping them.
+            for repo_name, rb in (raw.get("by_repo") or {}).items():
+                rtok = rb.get("tokens") or {}
+                agg = by_repo.setdefault(
+                    repo_name,
+                    {
+                        "repo": repo_name,
+                        "project": rb.get("project") or repo_name,
+                        "cost_usd": 0.0,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "sessions": 0,
+                        "active_time_s": 0.0,
+                        "tools": {},
+                        "days": set(),
+                    },
+                )
+                if agg["project"] in (None, "", "unattributed"):
+                    agg["project"] = rb.get("project") or repo_name
+                rcost = float(rb.get("cost_usd") or 0)
+                agg["cost_usd"] += rcost
+                agg["input_tokens"] += int(rtok.get("input") or 0)
+                agg["output_tokens"] += int(rtok.get("output") or 0)
+                agg["sessions"] += int(rb.get("sessions") or 0)
+                agg["active_time_s"] += float(rb.get("active_time_s") or 0)
+                agg["days"].add(str(row.get("created_at") or "")[:10])
+                tb = agg["tools"].setdefault(
+                    tool, {"tool": tool, "cost_usd": 0.0, "sessions": 0}
+                )
+                tb["cost_usd"] += rcost
+                tb["sessions"] += int(rb.get("sessions") or 0)
+
+            days.append(
+                {
+                    "id": row.get("native_id"),
+                    "tool": tool,
+                    "date": str(row.get("created_at") or "")[:10],
+                    "cost_usd": round(cost, 4),
+                    "input_tokens": tin,
+                    "output_tokens": tout,
+                    "sessions": raw.get("sessions"),
+                    "active_time_s": raw.get("active_time_s"),
+                    "by_model": raw.get("by_model") or {},
+                    "cost_supported": bool(
+                        (BUILD_TELEMETRY_TOOL_NOTES.get(tool) or {}).get("cost", True)
+                    ),
+                    "tokens_supported": bool(
+                        (BUILD_TELEMETRY_TOOL_NOTES.get(tool) or {}).get("tokens", True)
+                    ),
+                }
+            )
+        days.sort(key=lambda d: (d["date"], d["tool"]), reverse=True)
+        totals["cost_usd"] = round(totals["cost_usd"], 4)
+        for bucket in by_tool.values():
+            bucket["cost_usd"] = round(bucket["cost_usd"], 4)
+
+        repos = []
+        for agg in by_repo.values():
+            agg["cost_usd"] = round(agg["cost_usd"], 4)
+            agg["days"] = len(agg["days"])
+            agg["tools"] = sorted(
+                (
+                    {**t, "cost_usd": round(t["cost_usd"], 4)}
+                    for t in agg["tools"].values()
+                ),
+                key=lambda t: -t["cost_usd"],
+            )
+            # Share of the measured total, so "this project vs the ones
+            # supporting it" is readable without doing the arithmetic.
+            agg["cost_share"] = (
+                round(agg["cost_usd"] / totals["cost_usd"], 4) if totals["cost_usd"] else 0.0
+            )
+            repos.append(agg)
+        repos.sort(key=lambda r: (-r["cost_usd"], r["repo"]))
+
+        harvest = (summary.get("platforms", {}).get(BUILD_TELEMETRY_PLATFORM) or {}).get("harvest")
+        return {
+            "enabled": bool(days),
+            "harvest": harvest,
+            "totals": totals,
+            "by_tool": sorted(by_tool.values(), key=lambda b: -b["cost_usd"]),
+            "by_repo": repos,
+            "days": days,
+            "cost_note": (
+                "Modelled build cost at LIST PRICE — a client-side estimate the "
+                "coding agent computes from token counts, not an invoice. On "
+                "subscription or credit plans it is not money that changed hands."
+            ),
+            "tool_notes": [
+                {"tool": k, **v} for k, v in BUILD_TELEMETRY_TOOL_NOTES.items()
+            ],
+            "scope_note": (
+                "The totals above are account-wide: the harvest queries each "
+                "metric name with no label selector, so every repository "
+                "exporting to this CloudWatch endpoint is included. Use the "
+                "By repository table to see one codebase on its own, or this "
+                "project beside the repos that support it. Work whose "
+                "exporter ran without resource attributes appears as "
+                "'unattributed' rather than being dropped."
+            ),
+            "setup": BUILD_TELEMETRY_SETUP,
+        }
 
     @app.get("/api/obs/sessions")
     async def obs_sessions(platform: str | None = None):

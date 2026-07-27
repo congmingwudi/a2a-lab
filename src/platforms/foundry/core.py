@@ -65,10 +65,18 @@ def project_endpoint() -> str:
 
 
 def make_project_client():
-    """One AIProjectClient on Entra ADC — shared by the outbound client and
-    the provisioning script. Lazy imports keep the module importable
-    without the azure extra."""
-    from azure.ai.projects import AIProjectClient
-    from azure.identity import DefaultAzureCredential
+    """One AIProjectClient on the lab's Entra service principal — shared by the
+    outbound client and the provisioning scripts. Lazy imports keep the module
+    importable without the azure extra.
 
-    return AIProjectClient(endpoint=project_endpoint(), credential=DefaultAzureCredential())
+    Explicitly NOT DefaultAzureCredential (D39). That chain ends in developer
+    logins, and on 2026-07-25 it made the Foundry observability harvest pass on
+    a laptop and fail in Lambda for a week — the local run was proving that a
+    human had access. The harvest was fixed then; this data-plane client was
+    left behind and is corrected here, so every Foundry call in the lab
+    authenticates as the same service identity in every environment."""
+    from azure.ai.projects import AIProjectClient
+
+    from observability.credentials import azure_credential
+
+    return AIProjectClient(endpoint=project_endpoint(), credential=azure_credential())

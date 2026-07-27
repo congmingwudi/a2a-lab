@@ -111,24 +111,20 @@ def azure_missing() -> list[str]:
 def azure_credential():
     """The lab's Entra service principal — explicitly, or not at all.
 
-    Deliberately NOT DefaultAzureCredential: that walks a chain ending in
-    developer logins, so it answers "can *someone here* read this?" when the
-    only useful question is "can the service principal read this?".
+    The constructor lives in ``interop.cloud_auth`` so the agents that ship
+    without ``src/observability`` (the ADK container's Foundry leg) get the
+    same rule from the same code rather than a copy that can drift. This
+    wrapper only adds the harvest-specific hint about where the secret lives.
     """
-    missing = azure_missing()
-    if missing:
+    from interop.cloud_auth import azure_credential as _explicit
+
+    if azure_missing():
         raise RuntimeError(
-            f"Azure service principal not configured — missing {', '.join(missing)}. "
+            f"Azure service principal not configured — missing {', '.join(azure_missing())}. "
             f"They belong in the {SECRET_ARN_VAR} secret; the lab does not fall "
             "back to an interactive az login."
         )
-    from azure.identity import ClientSecretCredential
-
-    return ClientSecretCredential(
-        tenant_id=os.environ["AZURE_TENANT_ID"],
-        client_id=os.environ["AZURE_CLIENT_ID"],
-        client_secret=os.environ["AZURE_CLIENT_SECRET"],
-    )
+    return _explicit()
 
 
 def prepare() -> list[str]:

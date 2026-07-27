@@ -567,6 +567,22 @@ flowchart LR
 
 **Advisor take:** Distributed tracing for agent estates won't come from the protocols soon — none of REST, MCP, or A2A propagates a correlation id end-to-end today, and platforms drop what they don't understand. Put the correlation id in the message text as a convention and harvest it back out of each platform's logs. It's inelegant and it works — and it's the only mechanism the lab found that survives every seam, including ones you don't operate. Then check, per platform, whether the logs you get back actually contain text: where a platform emits span metadata only, plan a second join key (a response or operation id) before you promise a single pane of glass.
 
+### An LLM asked to relay an error paraphrases it — give failures a path out that does not pass through a model
+
+*Status: measured · refs: D27, D40, plan/03-results.md*
+
+**What the lab showed:** MEASURED 2026-07-26. The ADK orchestrator's partial-failure contract works exactly as designed: each business-unit agent is instructed to pass a "[leg unavailable: ...]" marker through verbatim, and the synthesiser reports it as a gap rather than inventing an answer. It faithfully did so — and rendered "InvalidConfigError ... CA bundle" as "a technical error accessing its tools". Both statements are true; only one is actionable, and it was not the one that reached a human. Three debugging cycles were spent on paraphrases before the leg markers were also printed to container stdout, at which point the raw AccessDenied named the caller's own OIDC claims and the fix was one line. Contrast the host-side variant, where the marker is produced by CODE and cannot be reworded.
+
+**Advisor take:** Any error you intend to debug from needs a route to your logs that skips the model. Structured relay through an agent is fine for the USER-facing summary and useless as telemetry — the paraphrase is lossy in exactly the direction that matters, dropping identifiers and keeping sentiment. This is also the sharpest argument for host-side tool execution: a contract enforced in code cannot be talked out of, whereas a declared graph buys ordering guarantees but still relies on three models relaying text faithfully.
+
+### A telemetry config that parses is not evidence of telemetry — only a query at the destination is
+
+*Status: measured · refs: D39, build-notes/claude/08-coding-agent-telemetry.md, src/observability/coding_source.py, scripts/codex_otel.sh*
+
+**What the lab showed:** Two coding agents, one CloudWatch OTLP endpoint, one credential, the same afternoon. MEASURED 2026-07-26 over a 2-day window: Claude Code landed 28 series / 119,754,973 tokens / 3 sessions, each carrying queryable @resource.tool, @resource.project, @resource.repo and @resource.team.id — per-repo cost attribution working end to end. Codex, launched through scripts/codex_otel.sh for a real working session in the same window, landed exactly zero datapoints under codex.cost.usage, codex.token.usage and codex.session.count. The cause was three silent mismatches in one config line: Codex has THREE exporters (otel.exporter = logs/events, default none; otel.trace_exporter = traces, default none; otel.metrics_exporter = metrics, default statsig — NOT OTLP), and the lab had set `exporter` (logs) to the CloudWatch metrics endpoint, with a metrics-only bearer token, and never set metrics_exporter at all. This is the third silent-zero in the same subsystem: an otelHeadersHelper running without AWS_PROFILE fell back to a different account and returned {} for days, and OTEL_LOGS_EXPORTER=otlp against the metrics endpoint returned nothing. Every one of them looked like correct configuration from the client side and logged nothing anywhere.
+
+**Advisor take:** Treat signal, endpoint, and credential as one unit, and never mark a telemetry path done on the strength of a config file or a helper that exits 0 — those prove the client tried, not that anything arrived. The acceptance test is a query at the destination that returns your own labels. Budget for the fact that per-tool telemetry is NOT symmetric: neither Claude Code nor Codex emits any built-in attribute naming the project, working directory or repository, so codebase attribution is always something you add — and the mechanism differs per tool (Claude Code takes it from a per-project settings file, while Codex ignores `otel` in project-local config entirely and needs a launch wrapper). Assume nothing carries over from one agent's setup to another's.
+
 ## Method
 
 ### Interop claims deserve wire-level evidence — insist that demos enter through the real platform agent
@@ -584,4 +600,66 @@ flowchart LR
 **What the lab showed:** Scoring 34 single-vendor anti-pattern claims against the lab's five-platform evidence (D37): most hold, and several are confirmed by the lab's own measurements — runaway delegation loops, sync patterns applied to long-running work, reactive token refresh inside a timeout chain. But the claims that fail, fail in one consistent direction: they assume structured, governed, negotiated surfaces exist end to end. Measured counterexamples: "use the hosted MCP server" (five platforms in, exactly two platform-native protocol endpoints exist — both A2A, neither MCP; Salesforce's MCP inbound is gated beta, and every other MCP endpoint in the matrix is one the lab hosts itself — the shim in front of Agentforce, or the lab's own inbound seam in front of an agent the lab runs); "never regex-scrape text" (every structured channel failed somewhere: A2A metadata was dropped outright by one client, and neither headers nor tool arguments reach any platform's execution logs — while a text rider survived every hop); "version your contracts" (both hyperscalers version their A2A dialects and neither negotiates — interop still required a translation layer the lab had to own).
 
 **Advisor take:** Read single-vendor best-practice decks as a target state, not a current-state playbook. For every "use the platform's governed surface" rule, ask: does that surface exist, in GA, on every platform in my estate, in the direction I need? Where it doesn't, the disciplined move is the labeled workaround — honest status, armed migration trigger — not abstinence.
+
+## Orchestration topology
+
+### Fan-out is where cross-platform observability stops being a slogan
+
+*Status: observed · refs: D16, D27, D34, plan/07-workstreams.md, plan/03-results.md*
+
+**What the lab showed:** MEASURED 2026-07-25, first live dispatch: two legs in parallel (Gemini on Agent Engine, gpt-5-mini on Foundry) finished in 36.7s against a 50.7s serial equivalent, and a third leg that was genuinely dead (expired AWS credentials) rendered inline as "[leg unavailable: openai — ...]" with a "2/3 legs answered" coverage line and a non-zero exit. The run also surfaced something not planned for: every leg is sent the same shaping instruction, and Foundry honored it both times while the Gemini leg honored it once and on the second run replied with a clarifying question instead of an answer — HTTP 200, non-empty, fast, structurally perfect, and useless to an orchestrator that cannot answer questions. That is the SECOND instance the lab has measured of a successful-looking response carrying nothing usable; the first was an Agentforce action blowing its budget and returning its section heading with the content silently gone. Twelve of the lab's first thirteen scenarios are 1:1 — one caller, one remote agent, one call path to reason about. Real enterprises are not shaped like that: a disruption, a diligence review or a security incident decomposes into independent questions owned by different functions, and in any company of scale those functions already run different agent platforms chosen at different times. WS8 builds the first 1:many cell — one orchestrator dispatching to Google ADK, Microsoft Foundry and OpenAI concurrently — to measure three things the 1:1 cells cannot reach. FIRST, the delegation guard under parallel dispatch rather than chaining: D27's depth limit was designed for chains, and a supervisor calling three platforms is depth-1 three times. SECOND, correlation: a 1:1 run spans at most two platforms' logs, while a fan-out spans four, each with its own retention, ingestion lag and join key — and the lab already measured that only platforms logging the utterance text can be joined by the D34 rider convention, with Foundry joining by response id instead. The expected result is that three of four legs can be traced back to the run that caused them, and THAT NUMBER is the deliverable. THIRD, partial failure, which at fan-out is the normal case rather than the edge case — and which the lab has already seen wearing a disguise: on 2026-07-25 an Agentforce action that blew its budget still returned HTTP 200 with its section heading present and the delegated content silently absent, at full cost. One leg of one call path. A fan-out has three times that surface.
+
+**Advisor take:** Before promising multi-agent orchestration, ask what the system does when one agent of several does not answer — and check that the answer is not "produce a shorter report and call it success". Partial failure is the default state of any fan-out, so make it structural: every branch gets a section in the output whether or not it succeeded, and every result carries a coverage count. A degraded run that reads like a complete one is worse than an error, because nothing downstream — logs, dashboards, evals, or the human reading the summary — can tell the difference. Then verify you can still trace one logical task across every platform it touched; if you cannot, you have bought orchestration and sold your observability to pay for it.
+
+**Fan-out: two orchestrators** — The same task, three business units, three clouds — orchestrated two ways. On Managed Agents the fan-out is a custom tool the HOST executes; on ADK it is declared in the agent graph. One buys control at the seam, the other structure in the graph.
+
+```mermaid
+flowchart TB
+    T["Supplier disruption task"] --> C
+    T --> A
+
+    subgraph cma["Variant 1 - Anthropic Managed Agents"]
+        C["Orchestrator agent<br/>declarative: prompt + tool schema"]
+        C -- "custom tool" --> H["HOST executes<br/>asyncio.gather"]
+    end
+
+    subgraph adk["Variant 2 - Google ADK on Agent Engine"]
+        A["SequentialAgent"] --> P["ParallelAgent<br/>framework schedules"]
+        P --> S["synthesiser<br/>reads state keys"]
+    end
+
+    H --> L1
+    H --> L2
+    H --> L3
+    P --> L1
+    P --> L2
+    P --> L3
+
+    L1["Logistics<br/>ADK · GCP"]
+    L2["Commercial<br/>Foundry · Azure"]
+    L3["Customer comms<br/>OpenAI · AWS"]
+
+    L1 -.-> OBS[("join rate 1 of 4:<br/>only CMA is joinable<br/>from its own logs")]
+    L2 -.-> OBS
+    L3 -.-> OBS
+    C -.-> OBS
+```
+
+### "Agentic" is a property of the tool inventory, not the prompt — and moving a tool off the host buys autonomy at the price of a request budget
+
+*Status: measured · refs: D41, plan/03-results.md, plan/07-workstreams.md*
+
+**What the lab showed:** MEASURED 2026-07-26, same agent, same prompt, same three business-unit agents on three clouds, two tool topologies. With ONE host-side tool that fans out, the model's only decision is when to call it: the order and the parallelism are an asyncio.gather in our code, and the session cannot progress unless a laptop stays attached to service the call. With one REMOTE MCP tool per business unit — executing on the vendor's orchestration layer instead — the model issued all three units in a SINGLE turn on both runs (3/3 in 50.5s and 42.6s, different disruptions), with nothing attached. Nothing in the prompt asks for that; it says only that the units are independent, because instructing "call all three at once" would answer the question by assertion. The measurement is per-TURN, taken off the model-request boundary in the event stream: a flat list of tool calls cannot distinguish three at once from three in a row, which is the entire question. Two costs came with it. First, coverage: the host-side tool appends "[coverage: n/3]" computed by code that knows how many units exist, and three independent tools have no such vantage point — nothing but the model knows whether it called all three. Stating the roster in the prompt and asking it to reconcile was enough, both runs reported "Coverage: 3 of 3 units" unprompted, and one volunteered that a unit's contract terms were assumptions rather than verified. Second, and not optional: the units now run inside an HTTP request/response, so they inherit the gateway's 29s integration timeout — 25s per unit against 120s host-side. Warm units measure 1-13s and fit; a cold platform (31-56s cold start) does not, and reports unavailable.
+
+**Advisor take:** When a team says their system is agentic, ask what the model actually decides. If the tool inventory contains one "do_the_thing" tool, the answer is "when", and the sequencing lives in your code — that is a program with a language model in it, which is often the right design but should not be sold as autonomy. Decomposing into one tool per capability moves the scheduling decision to the model, and on this evidence the model takes it. Two things to check before you do. Whatever your aggregate tool computed for free — coverage counts, totals, cross-branch consistency — now has no owner, so state the expected set explicitly and verify the model reconciles against it in code, not in prose. And find out what execution budget the hosting layer imposes: a tool that ran on your own host had only your patience as a limit, while the same work behind a managed gateway inherits an HTTP timeout that no protocol document mentions and that cold starts will find first.
+
+## Identity and trust
+
+### An agent that leaves its own cloud needs an identity in the destination cloud — and that is a deploy problem, not a protocol one
+
+*Status: measured · refs: D39, D40, plan/03-results.md, plan/07-workstreams.md*
+
+**What the lab showed:** MEASURED 2026-07-26. The same orchestrator code, same targets, same prompts, reached 3/3 business units from a laptop and 0/3 from a Vertex AI Agent Engine container. Nothing about A2A changed between those two runs; the laptop held every credential and the container held one. Fixing it took three unrelated corrections, and the spread is the finding. (1) Two legs failed because the container received each target's NAME but not the ${VAR} its endpoint expands from — an unset var expands to "" and an empty endpoint fails as a NETWORK error, sending you to check connectivity for a deploy-manifest bug. (2) The GCP-to-GCP leg 403'd: Agent Engine runs as a Google-managed service agent that cannot query a sibling reasoning engine, so "same cloud" bought no permission. (3) The AWS leg needed federation because Bedrock AgentCore's data plane is SigV4-only with no HTTP front door — there is no bearer-token fallback, unlike the Azure and Google legs. After the fixes: 3/3 legs, 16.8s wall, no long-lived credential in the container at all.
+
+**Advisor take:** When someone says their agents are "multi-cloud", ask which credential each hop presents and where it came from. The protocol conversation is usually settled long before anyone has answered that. Prefer federation to keys where the destination supports it — AWS trusts accounts.google.com natively, so a GCP container can mint its own short-lived AWS credentials with nothing to rotate. And budget for the fact that a cloud's own identity plane is where the transport choice gets made for you: the one leg with no HTTP option was the only one that required real identity work.
 
