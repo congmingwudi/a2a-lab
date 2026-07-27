@@ -138,7 +138,15 @@ def main() -> None:
     import uvicorn
     from dotenv import load_dotenv
 
+    from interop.secret_env import load_secret_env_and_log
+
     load_dotenv()
+    # Hosted (WS7 item 7): credentials live in Secrets Manager, not in the task
+    # definition, and are loaded before anything reads os.environ — the
+    # registry expands ${VAR} at Registry.load(), so a late load produces
+    # empty endpoints that fail as network errors. A no-op locally, where
+    # A2ALAB_RUNTIME_SECRET_ARN is unset and .env already holds everything.
+    load_secret_env_and_log("bridge")
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8100)
     parser.add_argument("--host", default="0.0.0.0")

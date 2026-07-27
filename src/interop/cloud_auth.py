@@ -103,42 +103,75 @@ def google_federation_configured() -> bool:
     return bool(os.environ.get(GOOGLE_AUDIENCE_VAR) and os.environ.get(GOOGLE_SA_VAR))
 
 
+def _aws_region() -> str:
+    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
+
+
+def _botocore_supplier():
+    """Hand google-auth botocore's credential resolution instead of its own.
+
+    google-auth's built-in AWS supplier looks in exactly two places: the
+    ``AWS_ACCESS_KEY_ID`` env vars, then the **EC2 metadata service** at
+    169.254.169.254. That covers Lambda, which sets the env vars — and it does
+    NOT cover ECS/Fargate, which sets neither: a task's credentials come from
+    the container credentials endpoint at ``$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI``.
+    So the identical code path that federated fine from the fan-out Lambda
+    (D41) failed on the bridge's Fargate task with a TransportError trying to
+    reach an IMDS address that does not answer there.
+
+    botocore already resolves every one of these — env vars, container
+    endpoint, IMDS, profiles, assumed roles — so delegating to it makes this
+    work on any AWS compute rather than on the two shapes we happened to test.
+    Credentials are fetched per call because botocore refreshes them underneath
+    us; caching the frozen values here would federate happily until the task's
+    role credentials rotated and then fail for a reason far from the cause.
+    """
+    from google.auth import aws as google_aws
+
+    class BotocoreSupplier(google_aws.AwsSecurityCredentialsSupplier):
+        def get_aws_security_credentials(self, context, request):
+            import boto3
+
+            frozen = boto3.Session().get_credentials()
+            if frozen is None:
+                raise RuntimeError(
+                    "no AWS credentials for GCP federation — the task or function "
+                    "has no role attached"
+                )
+            frozen = frozen.get_frozen_credentials()
+            return google_aws.AwsSecurityCredentials(
+                frozen.access_key, frozen.secret_key, frozen.token
+            )
+
+        def get_aws_region(self, context, request):
+            return _aws_region()
+
+    return BotocoreSupplier()
+
+
 def _external_account_config(audience: str, service_account: str) -> dict[str, Any]:
     """The external_account credential Google's client library expects.
-
-    ``credential_source.environment_id: aws1`` selects google-auth's AWS
-    supplier, which reads ``AWS_ACCESS_KEY_ID`` / ``AWS_SECRET_ACCESS_KEY`` /
-    ``AWS_SESSION_TOKEN`` / ``AWS_REGION`` from the environment **before**
-    trying the EC2 metadata service (google/auth/aws.py, and its own comment
-    names Lambda as the reason). Lambda sets all four from the execution role,
-    so the function needs no metadata endpoint and holds no Google key.
 
     The subject token is not a bearer token at all: it is a *signed but
     unsent* ``sts:GetCallerIdentity`` request. Google replays it against AWS
     STS to learn who the caller is. So the credential presented to Google is
     one AWS can vouch for and Google can verify, and it expires with the
-    Lambda's own short-lived role credentials.
+    workload's own short-lived role credentials.
 
     ``service_account_impersonation_url`` is what makes this usable: the
     federated principal itself has no Google permissions, and Agent Engine
     authorizes service accounts. The pool grants the AWS role the right to
     impersonate one service account, and that account holds the actual
     ``aiplatform.reasoningEngines`` grant.
+
+    Note there is no ``credential_source``: the supplier above replaces it, and
+    google-auth rejects a config carrying both.
     """
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
     return {
         "type": "external_account",
         "audience": audience,
         "subject_token_type": "urn:ietf:params:aws:token-type:aws4_request",
         "token_url": "https://sts.googleapis.com/v1/token",
-        "credential_source": {
-            "environment_id": "aws1",
-            "region_url": "http://169.254.169.254/latest/meta-data/placement/availability-zone",
-            "url": "http://169.254.169.254/latest/meta-data/iam/security-credentials",
-            "regional_cred_verification_url": (
-                f"https://sts.{region}.amazonaws.com?Action=GetCallerIdentity&Version=2011-06-15"
-            ),
-        },
         "service_account_impersonation_url": (
             "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/"
             f"{service_account}:generateAccessToken"
@@ -173,8 +206,11 @@ def google_credentials(scopes: tuple[str, ...] = GOOGLE_SCOPES) -> Any:
             from google.auth import aws as google_aws
 
             try:
+                # from_info rather than the constructor: it strips `type` and
+                # threads the supplier through for us.
                 cached = google_aws.Credentials.from_info(
-                    _external_account_config(audience, service_account)
+                    _external_account_config(audience, service_account),
+                    aws_security_credentials_supplier=_botocore_supplier(),
                 ).with_scopes(list(scopes))
             except Exception as exc:
                 raise RuntimeError(

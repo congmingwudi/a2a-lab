@@ -716,3 +716,92 @@ objects — pool, AWS provider, attribute mapping, attribute condition,
 impersonation binding — before Google would trust AWS at all. "Keyless
 federation" costs very different amounts depending on which way you are going,
 and Google's side is where the identity is *shaped* rather than merely accepted.
+
+---
+
+## 2026-07-26 — The bridge moves to Fargate, and Path A keeps its 45s budget (WS7 item 7)
+
+The Path A bridge was the last lab component running on a laptop: Apex resolved
+`A2ALab_Bridge` to the D20 Cloudflare tunnel, which terminated at
+`uv run python -m bridge` on `:8100`. It now runs as an ECS Fargate service
+behind an ALB.
+
+**Deliberately not the D23/D28 pattern.** Every other hosted lab component is a
+Lambda behind an API Gateway HTTP API. That fits the shim, whose work measures
+10–19s, and does not fit the bridge, whose client timeout is 45s against an HTTP
+API's hard 30s ceiling. The ALB's `idle_timeout.timeout_seconds` is set to 120s,
+so the measured budget survived the move. Same cloud, same team, two components,
+opposite hosting decisions — driven entirely by what each one's work costs.
+
+**Six of six pathways verified through the hosted bridge**, second run, all warm:
+
+| Target | Latency | Path from AWS |
+|---|---|---|
+| `claude-rest` | 4.6s | AgentCore runtime, SigV4 via the task role |
+| `openai-rest` | 10.4s | AgentCore runtime, SigV4 via the task role |
+| `google-adk-a2a` | 1.2s | Agent Engine A2A, AWS→GCP federated |
+| `foundry-commercial-a2a` | 12.6s | Foundry A2A, Entra service principal |
+| `agentforce-rest` | 7.6s | Agentforce Agent API |
+| `agentforce-a2a-shim` | 10.2s | bridge → hosted shim → Agentforce (two hosted hops) |
+
+Every one is inside the 30s an API Gateway would have allowed, which is worth
+saying plainly: the ALB was not needed for *these* calls. It is needed for the
+45s budget Path A is engineered around, and for the delegating turns that budget
+exists to cover. Hosting to the measured ceiling rather than the observed
+average is the point.
+
+### Three failures on the way, and only one was about the bridge
+
+**1. Under-specified deploy manifest, again — but a new variant.** The fan-out
+server's fix was to derive env vars from `targets.yaml`'s own `${VAR}`s instead
+of a hand-written list. That was necessary and *still insufficient* here:
+`SF_AGENT_ID` is read straight from `os.environ` by the Agentforce client, so it
+appears nowhere in `targets.yaml`. The route 500'd with "Agentforce is not
+configured" while every endpoint in the manifest was correct. The deploy now
+derives from two sources — the config file's `${VAR}`s **and** a scan of
+`os.environ` reads across `src/` — because the config file only describes what
+the *registry* expands, not what the *code* reads.
+
+**2. The ambient variable that has now misdirected three components.** Adding
+that source scan immediately shipped `AWS_DEFAULT_REGION=us-west-2` into the
+task — a value that is not in `.env` at all, but exported ambiently by the
+operator's shell. boto3 prefers it over `AWS_REGION`, so the container looked
+for its secret in the wrong region and died at startup with **AccessDenied**,
+which reads unambiguously as a broken IAM policy. It was not: `aws iam
+simulate-principal-policy` returned `allowed` against the exact resource ARN.
+`observability/promql.py` already documents this same variable misdirecting the
+Secrets Manager client (2026-07-25) and the PromQL client (2026-07-26); this is
+the third. The deploy now excludes the ambient AWS identity/region vars
+explicitly and sets `AWS_REGION` from the deploy region.
+
+**The general rule this earns:** a deploy manifest derived from the operator's
+environment inherits everything the operator's environment happens to contain.
+Deriving is still right — a hand-maintained list drifts — but the derivation
+needs a deny-list for the host's own identity, or you ship the laptop into the
+cloud.
+
+**3. Keyless federation is not portable across AWS compute types.** The
+AWS→GCP federation built for the fan-out Lambda (D41) failed on Fargate with a
+`TransportError` reaching `169.254.169.254`. google-auth's built-in AWS supplier
+looks in exactly two places — the `AWS_ACCESS_KEY_ID` env vars, then the EC2
+metadata service. Lambda sets those env vars; **Fargate sets neither**, because
+an ECS task's credentials come from the container credentials endpoint at
+`$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`. The same code, the same role, the
+same pool, a different compute shape, and it stops working.
+
+Fixed by supplying google-auth a custom `AwsSecurityCredentialsSupplier` that
+delegates to **botocore**, which already resolves env vars, the container
+endpoint, IMDS, profiles and assumed roles. The federation now works on any AWS
+compute rather than on the two shapes that happened to get tested. Worth
+generalising: "workload identity federation works on AWS" is not one fact —
+each compute service presents credentials differently, and a library's default
+supplier encodes assumptions about which ones you are on.
+
+### Still manual, deliberately
+
+TLS and DNS are not scripted. `A2ALab_Bridge` points at
+`https://bridge-lab.agenticthings.com`, a Salesforce-visible hostname; cutting
+Path A over needs a certificate the ALB can serve and a DNS change in
+Cloudflare. Everything above was verified on the ALB's own hostname over HTTP
+first, so the cutover is a DNS change against a known-good target rather than a
+deploy and a hope.

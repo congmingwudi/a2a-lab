@@ -699,12 +699,57 @@ WS7.**
    counterpart lands, so one flip really does move the whole stack.
 6. **Retire or re-scope the tunnel.** Once 1–2 land, cloudflared should be a
    convenience for local development, not the lab's public front door.
+7. **Host the bridge — on Fargate behind an ALB, NOT behind API Gateway.**
+   See the section below; this item was missing from the plan until the
+   45s/30s conflict was noticed on 2026-07-26.
+
+### Item 7: hosting the bridge, and why it does not get the shim's treatment
+
+**The bridge is the actual laptop dependency in Path A.** The Apex callout
+resolves `A2ALab_Bridge` to `https://bridge-lab.agenticthings.com`, the D20
+named Cloudflare tunnel, which terminates at `uv run python -m bridge` on
+`:8100`. Nothing in that path is AWS today.
+
+**The conflict, stated precisely.** The obvious move is to copy the shim: a
+Lambda behind an API Gateway HTTP API (D28). That works for the shim because
+its work fits — 10.1s measured on a simple question, 18–19s when the Agentforce
+twin delegates onward, comfortably inside the gateway's ceiling with the
+`targets.yaml` warm-up ping. **The bridge does not fit.** Its client timeout is
+45s (plan/01-architecture.md, Path A budget chain: action ~85–90s → Apex 110s →
+bridge 45s), and an HTTP API's integration timeout maxes at **30s, hard and not
+adjustable** — the adjustable 29s account quota governs REST APIs only. Hosting
+the bridge that way silently cuts Path A's sync research depth by 15s.
+
+Two components, one ceiling, opposite verdicts. That is the whole decision.
+
+**Options considered:**
+
+| Option | Ceiling | Verdict |
+|---|---|---|
+| **Fargate behind an ALB** | ALB `idle_timeout.timeout_seconds` defaults to 60s and is a configurable load-balancer attribute | **Chosen.** The bridge is already a FastAPI app; it runs unchanged. Costs a standing ALB charge. |
+| Lambda + REST API (v1) | The filed 29s quota, if granted | Migrating gateway *products* for one component, on a pending request that may cost account throttle headroom |
+| Lambda Function URL | 15 min, no gateway | **Two unverified blockers**: whether the org SCP permits it (the D23 finding was specifically about *auth-NONE* needing `AddPermission`; IAM-auth same-account may differ) and whether Salesforce can SigV4-sign a callout — the docs could not confirm it. A question, not a plan. |
+| Don't route through the bridge | n/a | Partly available already: **D30** proved Apex can call Agent Engine's A2A endpoint directly via a JWT-bearer cert chain. Narrows the bridge's job but does not remove it — the bridge exists for protocol fan-out Apex cannot speak. |
+
+**The reasoning worth keeping.** The lab has just published a finding (D41) that
+moving agent work behind a managed request/response gateway imposes a budget it
+did not have. Hosting the bridge on a request/response product would be adopting
+that constraint deliberately, one workstream after documenting it. Fargate is
+the option where the bridge keeps its measured budget without a rewrite, a
+pending quota, or an unverified vendor capability.
+
+**Applies to item 2 as well.** The hosted Claude/OpenAI **A2A** faces have the
+same shape as the bridge, not the shim: an A2A call that delegates onward is
+agent work on an open-ended budget. Decide their ingress with this ceiling in
+hand rather than defaulting to the D23/D28 pattern because it is familiar.
 
 **Exit criteria:** `A2ALAB_MODE=hosted` with the laptop powered off, a matrix
 run green, and the console reachable — that is the actual test, and it is worth
-recording as a measured result the first time it passes.
+recording as a measured result the first time it passes. For item 7
+specifically: Path A green end-to-end with the tunnel down and `bridge-lab`
+resolving to the ALB, and a recorded latency showing the 45s budget intact.
 
-**Effort:** ~1 week, dominated by item 2.
+**Effort:** ~1 week, dominated by item 2; item 7 is ~1 day.
 
 ---
 
