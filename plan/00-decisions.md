@@ -1273,3 +1273,59 @@ and that a number is only decision-grade when its label means what a reader
 assumes. `input_tokens` meant something different from "input" and cost this
 project a 36x error that no test, log or alert would ever have raised. Written
 up for presentation in `build-notes/claude/10-consumption-and-list-price.md`.
+
+---
+
+## 2026-07-27 — D45: The credential store covered one file; the other twenty needed a different answer
+
+**Context.** D39 made AWS SSO the only human login and D43 moved `.env` into
+Secrets Manager. Both are about `.env`. Neither touched the rest of the lab's
+secret-shaped local state: `.a2alab/lab_jwt_private.pem`, the Cloudflare origin
+private key, `f6-eca-wiring.md` (four live Salesforce consumer keys), the two
+`*_mcp.json` files that carry bearer tokens, and — outside this repo — nine
+other projects' `.env` files and the machine's SSH key. All single-copy, on one
+laptop. D43's own build note called the same-machine backup script a stopgap
+"while a real answer (chezmoi, or a private dotfiles repo) is chosen."
+
+**Decision.** chezmoi, with age encryption, into a private dotfiles repo
+(`~/.local/share/chezmoi`); the tooling and the discovery workflow live in a
+second private repo, `~/projects/chezmoi-dotfiles-setup`. Secrets are encrypted
+at rest in the repo, so a repo compromise is not a credential compromise. A
+launchd job re-adds tracked files daily.
+
+**This adds a second root of trust, deliberately.** D39's rule was one human
+login; the age private key is a second one, held in 1Password. That is the
+price of covering material AWS SSO cannot bootstrap — including the SSH key
+used to reach the very repos that would hold it. Nothing moved *out* of Secrets
+Manager: `.env` still lives there, and the encrypted mirror is a second copy,
+not a replacement.
+
+**What the classification pass found, which is the transferable part.** Deciding
+encrypt-vs-plain required reading contents rather than filenames, and filenames
+were wrong four times:
+
+| File | Reads as | Actually holds |
+|---|---|---|
+| `fanout_mcp.json`, `obs_mcp.json` | MCP endpoint config | live bearer tokens |
+| `bridge_host.json`, `cloudflare/acm_arn.txt` | hostname / cert reference | ARNs carrying the AWS account id |
+| `f6-eca-wiring.md` | wiring notes, header says "Secrets are NOT here" | four production consumer keys |
+
+Each was true-by-its-own-description and misleading in the way that matters for
+handling. Fixed at the source: `deploy_fanout.sh` now says the file it writes is
+a secret, and `f6-eca-wiring.md`'s header no longer reads as low-sensitivity.
+
+**And the audit reproduced the thing it was auditing.** The findings write-up
+stated the AWS account id in full. It sits in `tmp-docs/` — gitignored, so no
+exposure — but `tests/unit/test_no_account_identifiers.py` walks `git ls-files`
+and structurally could not have flagged it. The guard's scope is tracked files;
+the document describing the cleanup was outside it. Redacted, and recorded here
+because D43's fourth piece is the same shape one layer out: **a boundary check
+only covers the surface it is pointed at.**
+
+**Operational limit, stated because it will bite.** The daily sync runs
+`chezmoi re-add`, which picks up *content changes to already-tracked files
+only*. A brand-new secret under `.a2alab/` is silently unprotected until someone
+runs `chezmoi add --encrypt` once. Nothing in this repo detects that; the
+discovery workflow (`chezmoi-tracking/to-track.md`) is the process answer, and
+it is a process answer, not a control. Written up in
+`build-notes/claude/09-secrets-and-environment-identity.md`.

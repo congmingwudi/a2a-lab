@@ -171,6 +171,76 @@ a team loses an environment. The reason the practices look identical is that
 both failures come from the same source — **configuration that is correct in
 exactly one place**.
 
+## The follow-up: the store covered one file, and there were twenty
+
+Everything above is about `.env`. That framing survived the whole build without
+being questioned, and it was wrong by about twenty files.
+
+`.env` went into Secrets Manager. Still sitting single-copy on the same laptop:
+the lab's JWT signing key, the Cloudflare origin private key, four production
+Salesforce consumer keys, the two bearer tokens that authenticate the MCP
+endpoints — and, outside this repo entirely, nine other projects' `.env` files
+and the SSH key used to reach every one of those repos. **The note's own
+closing line — *configuration that is correct in exactly one place* — applied to
+the note.** Fixing the file that had a rule written about it is not the same as
+fixing the class.
+
+The answer is chezmoi with age encryption into a private dotfiles repo (D45),
+with the tooling in a second repo so a new machine can read *how it works*
+before it can decrypt anything. Secrets are encrypted at rest in the repo, so
+losing the repo is not losing the credentials — losing the age key is, and that
+key has exactly one other copy.
+
+**It costs the one-login rule, and that should be said out loud.** D39's whole
+point was that AWS SSO is the only human login. The age key is a second one. It
+buys coverage of everything SSO cannot bootstrap — most pointedly the SSH key
+you would need to reach the repo that would otherwise hold it. A rule worth
+having is worth breaking on purpose, once, with the reason written down.
+
+### The part worth a slide: filenames are a static scan
+
+Classifying twenty-odd files as encrypt-or-plain meant opening each one. Four
+were not what their names said:
+
+| File | Reads as | Actually holds |
+|---|---|---|
+| `fanout_mcp.json`, `obs_mcp.json` | MCP endpoint config | live bearer tokens |
+| `bridge_host.json`, `acm_arn.txt` | a hostname, a cert reference | ARNs carrying the AWS account id |
+| `f6-eca-wiring.md` | wiring notes — its own header says *"Secrets are NOT here"* | four production consumer keys |
+
+That header is the interesting one. It was **literally true** — consumer
+*secrets* really are not in the file — and it read as *this file is safe*, which
+is how it nearly went into a plaintext backup. A caveat that is accurate and
+misleading is worse than no caveat, because it survives review.
+
+This is piece 5 of the five, one layer out. There, the repo was clean and the
+API served the identifiers anyway. Here, the filename was clean and the file
+held the token anyway. **Both are the same mistake: checking the description of
+a thing instead of the thing.** Fixed at the source rather than in a
+wiki — `deploy_fanout.sh` now prints *"saved with its bearer token … — secret"*,
+and that header no longer claims safety.
+
+### And the audit recreated what the scrub removed
+
+The write-up of these findings stated the AWS account id in full. It lives in
+`tmp-docs/`, which is gitignored, so nothing was exposed — but note *why* the
+guard was never going to catch it: `test_no_account_identifiers.py` walks
+`git ls-files`. Untracked file, invisible to the check, by construction.
+
+The document describing the identifier cleanup was the one place the identifier
+got rewritten in plaintext. Not ironic — structural. **A boundary check covers
+the surface it is pointed at, and the artifacts *about* a cleanup are reliably
+outside it.**
+
+### The gap that is a process, not a control
+
+The daily sync runs `chezmoi re-add`: content changes to **already-tracked**
+files. A brand-new secret under `.a2alab/` is silently unprotected until someone
+runs `chezmoi add --encrypt` once. Nothing detects that. The discovery workflow
+(drop a path in `to-track.md`, review, tag, register) is the answer, and it is a
+process answer — which by this note's own standard is the weakest kind. Recorded
+as a known limit rather than dressed up as a control.
+
 ## Evidence and limits
 
 - **Repository-backed:** `scripts/env_sync.py` and its seven safety tests,
@@ -195,8 +265,8 @@ exactly one place**.
   `AWS_DEFAULT_REGION` together instead of assuming the shell is neutral.
 - The backup script (`~/projects/local-project-files/sync.sh`) is a
   same-machine copy — insurance against `rm -rf`, not against losing the
-  machine. It is explicitly a stopgap while a real answer (chezmoi, or a
-  private dotfiles repo) is chosen.
+  machine. **Superseded later the same day** by the chezmoi setup below (D45);
+  it remains as the fast local undo.
 
 ## Put this in the presentation
 
@@ -221,6 +291,50 @@ the moment the talk stops being about secret hygiene and starts being about
 guardrails. Close on the timing point: these checks run over `git ls-files` so
 they fail before a push, when the fix is still an edit rather than a history
 rewrite.
+
+**Optional second visual** (use if the room is engineers rather than
+leadership): the `f6-eca-wiring.md` header — *"Secrets are NOT here"* — over a
+table of four live consumer keys. Caption: *"accurate, and it nearly put this in
+a plaintext backup."* It lands faster than the API story and makes the same
+point, and it pairs with the `${VAR:-project-id}` slide as a matched set: two
+things that are correct as written and wrong as read.
+
+**Speaker note — chezmoi, the details behind that slide.** Details for the
+follow-up question, not the slide itself:
+
+- **Two repos, on purpose.** `congmingwudi/dotfiles` (private) is the chezmoi
+  source — every tracked config, age-encrypted where sensitive, at
+  `~/.local/share/chezmoi`. `congmingwudi/chezmoi-dotfiles-setup` is the
+  tooling and the written workflow. Split so a new machine can read *how the
+  thing works* before it is able to decrypt anything.
+- **age, one key, two copies.** Private key at `~/.config/chezmoi/key.txt`,
+  0600; the only other copy is a 1Password secure note. Public key is baked
+  into `.chezmoi.toml.tmpl`, so `chezmoi init` self-configures encryption on a
+  new machine. Losing both copies loses every encrypted secret permanently —
+  that is the honest failure mode, and it is why the answer to "why not more
+  redundancy" is 1Password rather than a third repo.
+- **Recovery, end to end:** `brew install chezmoi age` → restore the key from
+  1Password → `chezmoi init --apply <dotfiles repo>`. `.a2alab/` comes back
+  fully populated at its exact original path on a machine that never cloned
+  this repo. `.env` still comes from Secrets Manager (`aws sso login` →
+  `env_sync.py pull`) — the two paths are independent by design, so neither is
+  a single point of failure for the other.
+- **Daily sync is `chezmoi re-add` + commit + push**, launchd at 18:00, logs in
+  `~/Library/Logs/chezmoi-sync/`. Tracked files only — that is the gap above,
+  and if asked "how would you productionise this", the honest answer is that
+  the discovery step is where a team would put a scanner rather than a
+  markdown file.
+- **What is deliberately not backed up:** `cma_sessions.json` (1008-entry
+  session log), `openai_responses.json`, and the regenerated expiry/brief
+  reports. Generated output, not authored config — including them would churn
+  the backup on every run and teach everyone to ignore its diffs. Worth saying
+  because "back up everything" is the instinct and it is how a backup becomes
+  noise.
+- **If asked why not Secrets Manager for all of it:** it would work, and it
+  would mean a `.pem` per secret plus a bootstrap ordering problem for the SSH
+  key that reaches the repos. The deciding factor was that most of this
+  material is *files at paths*, not values — chezmoi restores the path, which
+  is the actual unit of recovery here.
 
 ## Postscript: we built the agent, then removed it
 

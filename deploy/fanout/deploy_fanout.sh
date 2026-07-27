@@ -192,6 +192,9 @@ p.parent.mkdir(parents=True, exist_ok=True)
 p.write_text(json.dumps(state, indent=1))
 PY
 
-echo "MCP endpoint: $URL (saved to .a2alab/fanout_mcp.json)"
+# .a2alab/fanout_mcp.json is NOT plain endpoint config — it carries the live
+# bearer token alongside the URL. Say so here: the filename reads as harmless,
+# and a backup/classification pass that trusts filenames gets this wrong (D45).
+echo "MCP endpoint: $URL (saved with its bearer token to .a2alab/fanout_mcp.json — secret)"
 echo "smoke:  curl -s $URL/healthz"
 echo "next:   uv run python scripts/setup_fanout_orchestrator.py --mcp"

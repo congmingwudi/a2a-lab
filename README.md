@@ -700,8 +700,11 @@ Two rules keep the repo itself safe to publish:
    design, because the wire record IS the exhibit. What they do *not* hold is
    credentials: a scrub pass (F2) redacts bearer tokens, `access_token`,
    `client_secret`, and `sk-…` keys at the sink layer, before anything is
-   written. The JSONL files (`traces/*.jsonl`) are gitignored (as are `.env`
-   and `.a2alab/`) and never leave the lab host; the hosted seams write hops
+   written. The JSONL files (`traces/*.jsonl`) are gitignored and never leave
+   the lab host. `.env` and `.a2alab/` are gitignored too, but *do* leave it —
+   `.env` to Secrets Manager (D43) and the secret-bearing half of `.a2alab/` to
+   a private dotfiles repo, age-encrypted at rest (D45). Both are deliberate:
+   one copy on one laptop is not a security property. The hosted seams write hops
    to the Aurora store (D23) over the RDS Data API, where the secret ARN *is*
    the role selection. A DynamoDB sink (D13) still exists and is superseded
    by the Postgres path for cloud runs.
