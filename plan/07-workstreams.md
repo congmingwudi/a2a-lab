@@ -17,6 +17,16 @@ completion) → WS10 (Agent Fabric comparison)**, with WS9 step 1 pulled forward
 immediately because coding-agent telemetry cannot be backfilled. WS8 and WS9
 were verified not to depend on WS7 — see the analysis inside WS7.
 
+**Status 2026-07-27.** **WS8 is shipped** (D41 — the fan-out legs are remote MCP
+tools and the model schedules them; measured 3/3 units in a single turn) and
+**WS9 is shipped end to end** (both exporters live, per-repo and per-model
+attribution read back through the console, its own Harvest button). The
+**Console and exhibit backlog at the end of this file is cleared** (D42 settled
+the chip/mark tier rule). What is open, in the order it was raised: **WS7**
+(hosted completion — the watcher is the last laptop dependency), **WS11** (A2A
+fire-then-poll, which dissolves the API Gateway ceiling rather than working
+around it), then **WS10**.
+
 Rules that apply to every workstream:
 - **Twin rule (D25):** each platform gets its own Agentforce twin agent
   (Agent Script bundle cloned from the Claude pair, action pinned to that
@@ -1005,6 +1015,85 @@ done; the one step that does is the one that matters most.
 | **Exporters switched on** | ✅ 2026-07-26 — key issued, helper wired, ingestion verified |
 | `observability/promql.py` | ✅ **the harvest was reading the wrong API** — see below |
 | First real coding metrics | ✅ 2026-07-26 — `1 tool-day, $2.82 modelled`, after a second query fix |
+| Per-repository attribution, read end to end | ✅ 2026-07-27 — two repos and both tools in one view; see below |
+| Harvest button in the console's telemetry section | ✅ posts `/api/obs/harvest?platform=coding` |
+
+### The section can now refresh itself
+
+The Coding Agents Telemetry section had no way to pull: its data appeared only
+when someone remembered to run `scripts/obs_harvest.py coding` in a terminal,
+and the empty per-repo view said so in prose. It now has its own **Harvest**
+button, exactly like Observability's. Two details that are deliberate rather
+than incidental:
+
+- **`coding` is reachable by name but excluded from the unqualified sweep.**
+  Observability's button reports "harvested from all platforms", and the whole
+  premise of this section (and of `obs_summary` popping the key) is that the
+  tool which BUILT the lab is not one of those platforms. Test-locked in both
+  directions.
+- **No dollar figures in the Control Panel.** The sidebar shows day counts; the
+  money lives on the dashboard, next to the "modelled at list price, not an
+  invoice" caveat. A `$162.76` chip in a nav rail travels without its caveat,
+  and that caveat is the honest half of the number.
+
+### What the first cross-repo read showed
+
+Three tool-days, both tools, **two** codebases — the attribution works across
+checkouts, which is the claim `@resource.repo` was set to support. It also
+surfaced an attribution-hygiene finding worth keeping: the same project
+appeared as **two** repos, `congmingwudi/aws-logging-service` and
+`<owner>/aws-logging-service`, because that checkout's
+`OTEL_RESOURCE_ATTRIBUTES` carried the example placeholder for its first
+sessions. Resource attributes are free-text and nothing validates them, so a
+typo does not error — it silently splits one codebase's cost into two bars that
+each look plausible.
+
+**Fixed on the read side, because there is no other side.** CloudWatch cannot
+delete metric datapoints at all — "metrics cannot be deleted, but they
+automatically expire after 15 months" is the whole of the vendor's answer, and
+the OTLP store's retention is the same 15 months. So `normalize_repos()` folds
+a `<placeholder>/name` label into the real repo of that name before bucketing:
+the money stays attributed and the totals do not move, where dropping the rows
+would have quietly shrunk the measured cost — the exact failure this section
+exists to avoid. A placeholder with **no** real counterpart is left alone; it is
+the only record of that work, and the odd name is the signal that a checkout
+needs configuring. `A2ALAB_CODING_REPO_ALIASES=wrong=right,…` handles mislabels
+the rule cannot infer.
+
+The `unattributed` bucket keeps its place in the totals but loses its row in
+the table when it carries no cost and no tokens — a $0.00 bar satisfies nobody,
+and what it actually holds (session counts from a Codex run launched without
+the wrapper) is stated in a footnote instead.
+
+### Model attribution was free on both tools — nobody had to configure it
+
+Asked live 2026-07-27, and the answer inverts the project/repo story: **`model`
+is a datapoint label on both tools' metrics already.** `claude_code.cost.usage`
+and `claude_code.token.usage` carry `model=claude-opus-5[1m]` /
+`claude-haiku-4-5-20251001`; `codex.thread.started`,
+`codex.conversation.turn.count` and `codex.turn.token_usage` all carry
+`model=gpt-5.6-sol`. Nothing in `OTEL_RESOURCE_ATTRIBUTES` produces this —
+where the work happened needs configuring, what ran it does not.
+
+The lab was throwing half of it away: `by_model` was keyed off the cost and
+token suffixes only, so **Codex — which publishes no cost metric — reported an
+empty model breakdown while naming its model on every datapoint.** Session
+counts now carry the model too, and the console has a By model table. The units
+stay honest and different: dollars and tokens for Claude Code, sessions and
+turns for Codex.
+
+Worth noting what else is on the wire for later use, all unconfigured: Claude
+Code labels datapoints with `effort`, `query_source` (main vs auxiliary),
+`terminal.type`, `session.id`, and — on tool-call metrics — `skill.name`,
+`mcp_server.name` and `mcp_tool.name`. Codex labels its own with `auth_mode`,
+`session_source`, `originator` and `app.version`.
+
+A separate limit, stated because it looks like a bug and is not: a repo whose
+checkout never set the exporter env vars emits **nothing at all** and cannot
+appear here after the fact, harvest or no harvest. Attribution is per-checkout
+configuration (`.claude/settings.local.json`), so a new project is invisible
+until it is configured — telemetry is not retroactive at repo granularity
+either.
 
 ### The correction that mattered
 
@@ -1501,26 +1590,39 @@ behaviour observed and written up.
 ## Console and exhibit backlog (raised 2026-07-26, after the hosted bridge)
 
 Not a workstream — UI and presentation debt to clear before the demo.
+**Cleared 2026-07-26**; each item below records what was actually found.
 
-1. **"Not yet available" components.** Diagnosed: `components_for()` renders a
-   component as unavailable when its console URL env var is unset, and four are
-   missing from `.env` — `OPENAI_CONSOLE_URL` (this is the M9 one),
-   `SF_LIGHTNING_DOMAIN`, `ADK_CONSOLE_URL`, `FOUNDRY_CONSOLE_URL`. Setting
-   them is the whole fix; no code change.
-2. **Chips are too prominent.** Shrink the platform/product/feature chips
-   relative to surrounding text.
-3. **Chips at group level.** Platform chips currently sit on individual
-   experiments; add them to the Control Panel → Experiments *subsection*
-   headers too (Claude – Agentforce, OpenAI – Agentforce, …).
-4. **Chip iconography cleanup**, with one decision to make deliberately:
-   - **Vendor chips should name the vendor, not the model.** Every other chip
-     is a company — AWS, Microsoft, Google, OpenAI — so **Anthropic** is the
-     consistent choice for that tier, and Claude belongs on the product/model
-     tier where the lab already distinguishes Managed Agents from the
-     self-hosted SDK. The rule to apply everywhere: tier 1 names who operates
-     the cloud, tier 2 names which product or model runs on it. Picking Claude
-     for tier 1 means Google's chip should say Gemini, which nobody wants.
-   - Use the **Google Cloud** logo (not the Gemini spark) for Google ADK and
-     everywhere else Google appears as the platform.
-   - Warm-up panel: the `aws-shim` product chip should carry an **AWS** logo
-     rather than a generic one.
+1. **"Not yet available" components — DONE, and the diagnosis was half wrong.**
+   The mechanism was right (`components_for()` renders a row as unavailable
+   when its url resolves to `None`) but the count was not. Only **one**
+   rendered row was ever missing a link: the M9 OpenAI one, the single
+   component whose url had no code default. `SF_LIGHTNING_DOMAIN` and
+   `ADK_CONSOLE_URL` do not exist as variables — Salesforce rows derive from
+   `SF_MY_DOMAIN` (set, working) and the Agent Engine row has a default built
+   from `GOOGLE_CLOUD_PROJECT`. The real second gap was invisible rather than
+   badged: **Foundry had no component row at all**, so WS3's Details tab
+   listed nothing. Both fixed in code with working defaults, not in `.env`:
+   OpenAI points at `platform.openai.com/traces` (the Agents SDK exports every
+   run there, and the agent itself is our container, so the runs *are* the
+   platform-side asset), Foundry at the portal root — Microsoft documents
+   `ai.azure.com` and no per-project deep-link format, so `FOUNDRY_CONSOLE_URL`
+   is the override for a URL pasted from the browser. A test now fails if any
+   component ships without a link, which is what made the count wrong the first
+   time.
+2. **Chips are too prominent — DONE.** 11px→9.5px, padding 10px→7px, rim
+   softened 38%→30%. Metadata now sits under the text it annotates.
+3. **Vendor marks at group level — DONE.** The Experiments subsection headers
+   carry the same inline vendor marks the experiment cards use, at 12px to
+   match the heading. Chips were the first attempt and the wrong instrument:
+   the group title already names the pair, so a row of chips restating it was
+   furniture. `Google`, `Microsoft` and `AWS Strands` joined the mark patterns
+   so every group title resolves; bare `AWS` deliberately does not, or every
+   "Claude (AWS) → Agentforce" title would carry two competing marks.
+4. **Chip iconography cleanup — DONE, and the rule is now D42.** Tier 1 names
+   who operates the cloud, tier 2 names which product or model runs on it: the
+   vendor chip reads **anthropic**, and Google ADK / Agent Engine wear the
+   **Google Cloud** mark while the Gemini spark stays on the model. Display
+   only — `claude` is still the tag id, CSS class and hue.
+   - The `aws-shim` warm-up row needed no change: it already carried the AWS
+     mark and the solid AWS pill (shipped 2026-07-25, the day before this was
+     raised). Left alone rather than "fixed" twice.

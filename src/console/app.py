@@ -593,9 +593,29 @@ def components_for(tags: set[str]) -> list[dict]:
                 "title": "OpenAI research agent — Agents SDK",
                 "kind": "openai",
                 "note": "M9: the openai-agents backend, answering locally and as the "
-                "a2alab_openai AgentCore runtime.",
-                "url": os.environ.get("OPENAI_CONSOLE_URL") or None,
+                "a2alab_openai AgentCore runtime. The agent is our container, so the "
+                "platform-side asset is its Traces dashboard — the Agents SDK exports "
+                "every run there by default.",
+                # There is no OpenAI-hosted agent object to link to; the runs are
+                # the asset. platform.openai.com/traces is the URL the Agents SDK
+                # tracing docs publish (openai.github.io/openai-agents-python/tracing).
+                "url": os.environ.get("OPENAI_CONSOLE_URL", "https://platform.openai.com/traces"),
                 **_shots("openai-agentcore"),
+            }
+        )
+    if {"foundry", "azure"} & tags:
+        comps.append(
+            {
+                "title": "Microsoft Foundry agent — a2alab-foundry-researcher",
+                "kind": "foundry",
+                "note": "WS3: the prompt agent (gpt-5-mini) with the Agentforce A2A "
+                "tool and inbound A2A enabled — instructions and connection pushed by "
+                "deploy/foundry/provision_foundry.py.",
+                # Microsoft documents the portal only as its root (ai.azure.com); the
+                # per-project deep link carries ids the docs do not specify a format
+                # for, so it is env-supplied — paste the URL the portal shows.
+                "url": os.environ.get("FOUNDRY_CONSOLE_URL", "https://ai.azure.com"),
+                **_shots("foundry-agent"),
             }
         )
     if "agent-engine" in tags:
@@ -1856,6 +1876,7 @@ def create_console_app(registry: Registry | None = None):
 
         by_tool: dict[str, dict] = {}
         by_repo: dict[str, dict] = {}
+        by_model: dict[tuple[str, str], dict] = {}
         days: list[dict] = []
         totals = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "sessions": 0}
         for row in sessions:
@@ -1912,11 +1933,32 @@ def create_console_app(registry: Registry | None = None):
                 agg["sessions"] += int(rb.get("sessions") or 0)
                 agg["active_time_s"] += float(rb.get("active_time_s") or 0)
                 agg["days"].add(str(row.get("created_at") or "")[:10])
-                tb = agg["tools"].setdefault(
-                    tool, {"tool": tool, "cost_usd": 0.0, "sessions": 0}
-                )
+                tb = agg["tools"].setdefault(tool, {"tool": tool, "cost_usd": 0.0, "sessions": 0})
                 tb["cost_usd"] += rcost
                 tb["sessions"] += int(rb.get("sessions") or 0)
+
+            # Which MODEL did the work. Both tools label every datapoint with
+            # it (verified live 2026-07-27), so this is the one dimension that
+            # is genuinely comparable across them — even though the units are
+            # not: Claude Code can say what each model cost, Codex can only say
+            # how many sessions and turns each model ran.
+            for model_name, mb in (raw.get("by_model") or {}).items():
+                mkey = (tool, model_name)
+                magg = by_model.setdefault(
+                    mkey,
+                    {
+                        "tool": tool,
+                        "model": model_name,
+                        "cost_usd": 0.0,
+                        "tokens": 0,
+                        "sessions": 0,
+                        "days": 0,
+                    },
+                )
+                magg["cost_usd"] += float(mb.get("cost_usd") or 0)
+                magg["tokens"] += int(mb.get("tokens") or 0)
+                magg["sessions"] += int(mb.get("sessions") or 0)
+                magg["days"] += 1
 
             days.append(
                 {
@@ -1942,15 +1984,29 @@ def create_console_app(registry: Registry | None = None):
         for bucket in by_tool.values():
             bucket["cost_usd"] = round(bucket["cost_usd"], 4)
 
+        # The unattributed bucket earns its row only when it carries something
+        # measurable. It exists so the per-repo view cannot silently disagree
+        # with the total — an unattributed COST is still a cost — but a bar
+        # reading $0.00 with no tokens satisfies nothing and reads as a broken
+        # repo. Session counts alone (Codex publishes no cost or token metric)
+        # go in the footnote below instead. Never dropped from `totals`.
+        hidden = by_repo.get("unattributed")
+        if (
+            hidden
+            and not hidden["cost_usd"]
+            and not hidden["input_tokens"]
+            and not (hidden["output_tokens"])
+        ):
+            by_repo.pop("unattributed")
+        else:
+            hidden = None
+
         repos = []
         for agg in by_repo.values():
             agg["cost_usd"] = round(agg["cost_usd"], 4)
             agg["days"] = len(agg["days"])
             agg["tools"] = sorted(
-                (
-                    {**t, "cost_usd": round(t["cost_usd"], 4)}
-                    for t in agg["tools"].values()
-                ),
+                ({**t, "cost_usd": round(t["cost_usd"], 4)} for t in agg["tools"].values()),
                 key=lambda t: -t["cost_usd"],
             )
             # Share of the measured total, so "this project vs the ones
@@ -1967,24 +2023,47 @@ def create_console_app(registry: Registry | None = None):
             "harvest": harvest,
             "totals": totals,
             "by_tool": sorted(by_tool.values(), key=lambda b: -b["cost_usd"]),
+            "by_model": sorted(
+                ({**m, "cost_usd": round(m["cost_usd"], 4)} for m in by_model.values()),
+                key=lambda m: (-m["cost_usd"], -m["sessions"], m["model"]),
+            ),
+            "model_note": (
+                "`model` is a datapoint label on both tools' metrics — nothing "
+                "had to be configured for it, unlike project and repo. The "
+                "units differ, though: Claude Code labels its cost and token "
+                "metrics, so cost per model is exact; Codex publishes no cost "
+                "metric, so its models are counted in sessions and turns only."
+            ),
             "by_repo": repos,
+            # What the per-repo table is NOT showing, so the omission is stated
+            # rather than inferred from a table that looks complete.
+            "repo_note": (
+                f"{hidden['sessions']} unattributed session(s) are counted in the "
+                "totals but not listed below: they carry no repo label and no "
+                "measurable cost or tokens. Codex publishes neither metric, so its "
+                "sessions land here whenever a checkout runs without "
+                "OTEL_RESOURCE_ATTRIBUTES."
+            )
+            if hidden
+            else None,
             "days": days,
             "cost_note": (
                 "Modelled build cost at LIST PRICE — a client-side estimate the "
                 "coding agent computes from token counts, not an invoice. On "
                 "subscription or credit plans it is not money that changed hands."
             ),
-            "tool_notes": [
-                {"tool": k, **v} for k, v in BUILD_TELEMETRY_TOOL_NOTES.items()
-            ],
+            "tool_notes": [{"tool": k, **v} for k, v in BUILD_TELEMETRY_TOOL_NOTES.items()],
             "scope_note": (
                 "The totals above are account-wide: the harvest queries each "
                 "metric name with no label selector, so every repository "
                 "exporting to this CloudWatch endpoint is included. Use the "
                 "By repository table to see one codebase on its own, or this "
                 "project beside the repos that support it. Work whose "
-                "exporter ran without resource attributes appears as "
-                "'unattributed' rather than being dropped."
+                "exporter ran without resource attributes is counted as "
+                "'unattributed' rather than being dropped. A repo label left "
+                "on the docs placeholder (<owner>/name) is folded into the "
+                "real repo of that name — the same codebase, mislabelled for "
+                "a while, not two."
             ),
             "setup": BUILD_TELEMETRY_SETUP,
         }
@@ -2038,6 +2117,7 @@ def create_console_app(registry: Registry | None = None):
     async def obs_harvest(platform: str | None = None):
         from observability.adk_source import AdkSource
         from observability.anthropic_source import AnthropicSource
+        from observability.coding_source import CodingSource
         from observability.openai_source import OpenAISource
         from observability.salesforce_source import SalesforceSource
 
@@ -2046,8 +2126,13 @@ def create_console_app(registry: Registry | None = None):
             "salesforce": SalesforceSource,
             "openai": OpenAISource,
             "adk": AdkSource,
+            # WS9. Reachable by name only: the Coding Agents Telemetry section
+            # has its own Harvest button, and the sweep below stays the five
+            # agent platforms so Observability's "harvested from all platforms"
+            # keeps meaning what it says.
+            BUILD_TELEMETRY_PLATFORM: CodingSource,
         }
-        wanted = [platform] if platform else list(sources)
+        wanted = [platform] if platform else [n for n in sources if n != BUILD_TELEMETRY_PLATFORM]
         if any(w not in sources for w in wanted):
             return {"ok": False, "error": f"unknown platform '{platform}'"}
 

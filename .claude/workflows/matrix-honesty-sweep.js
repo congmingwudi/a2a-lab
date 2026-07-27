@@ -62,13 +62,21 @@ const results = await pipeline(
   c =>
     agent(
       `Audit this A2A-lab matrix claim for honesty: ${JSON.stringify(c)}.\n` +
-        'Cross-check three sources in this repo:\n' +
+        'Cross-check four sources in this repo:\n' +
         '(1) config/targets.yaml — does the target exist, with the claimed status ' +
         '(native / via-bridge / via-shim / blocked-beta)?\n' +
         '(2) plan/03-results.md — is every latency or measured number in the claim backed ' +
-        'by a recorded run there (or in plan/00-decisions.md)?\n' +
+        'by a recorded run there, or in plan/00-decisions.md, or in a measured subsection of ' +
+        'plan/07-workstreams.md? (Later workstreams record numbers in the workstream doc; ' +
+        'that is legitimate backing, not a gap.)\n' +
         '(3) src/ and config/scenarios.yaml — do the client/server/platform components the ' +
-        'claim implies actually exist?\n' +
+        'claim implies actually exist, and is the scenario `status: live` if the cell reads ' +
+        'as working today?\n' +
+        '(4) deploy/ — a cell claiming a HOSTED path (AgentCore runtime, the Lambda shim, ' +
+        'Agent Engine, Foundry, the fan-out MCP server) must have the deploy script or ' +
+        'handler that creates it. A hosted claim backed only by local code is a discrepancy.\n' +
+        'Also flag the reverse of a false claim: a cell marked blocked/unsupported that the ' +
+        'code and config now clearly support is just as misleading as an overclaim.\n' +
         'Report verdict "discrepancy" only for real mismatches a reader would be misled by, ' +
         'with file:line evidence; stylistic drift is "consistent".',
       { phase: 'Audit', label: `audit:${c.cell}`, schema: FINDING, effort: 'low' },

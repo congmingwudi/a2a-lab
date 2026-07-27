@@ -1115,3 +1115,44 @@ five objects — pool, AWS provider, attribute mapping, attribute condition,
 impersonation binding — before it will trust AWS at all. "Keyless federation"
 costs very different amounts depending on direction, and Google's side is where
 the identity is *shaped* rather than merely accepted.
+
+---
+
+## 2026-07-26 — D42: Chips have two tiers — the vendor tier names who operates the cloud
+
+**Context.** The console's platform chips grew one per tag with no rule about
+what a chip *is*, and the inconsistency showed on the vendor tier: `aws`,
+`openai`, `ms-foundry` and `google-adk` name companies or their clouds, while
+`claude` names a model. It read fine in isolation and wrong in a row.
+
+**Decision.** Two tiers, one rule. **Tier 1 names who operates the cloud** —
+`anthropic`, `openai`, `google-adk`, `ms-foundry`, `aws`. **Tier 2 names which
+product or model runs on it** — `managed-agents`, `agent-sdk`, `agent-engine`,
+`gemini`, `gpt-5-mini`. So the vendor chip reads **anthropic**, not `claude`;
+Claude is a model and belongs on the tier where the lab already distinguishes
+Managed Agents from the self-hosted SDK.
+
+The argument that settles it is the mirror: picking `claude` for tier 1 commits
+you to `gemini` for Google's, which nobody would defend. The same test applies
+to marks — **Google ADK and Agent Engine wear the Google Cloud mark, not the
+Gemini spark**, because a model's mark on the vendor tier is the same category
+error in pictures.
+
+**Scope.** Display only. `claude` remains the tag id in `config/scenarios.yaml`,
+the CSS class, and the hue — the rename lives in one `CHIP_LABELS` map, so no
+config, no styling and no test moved with it.
+
+**Chips and marks are different instruments, and the subsection headers take
+marks.** A chip is a labelled category; a vendor mark is recognition at a
+glance. The Experiments group headers ("Claude - Agentforce") get the same
+inline marks the experiment cards already use — the pair is legible from the
+title itself, so a row of chips restating it was redundant furniture. Marks
+follow the same tier rule as labels: the platform name takes the operator's
+cloud mark, the model name takes the model's. One exception, by observation
+rather than rule: `AWS` earns a mark only in "AWS Strands", never bare — the
+"Claude (AWS)" in a scenario title says where the Claude end is hosted, and a
+mark there competes with the Anthropic one two words earlier.
+
+**Applies to new platforms.** A new platform contributes a tier-1 chip naming
+its operator and tier-2 chips for whatever product and model it runs — not one
+chip carrying both.

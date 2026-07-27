@@ -837,3 +837,46 @@ Worth keeping in proportion: the other five calls that sweep ran between 4.1s
 and 10.3s, all of which a gateway would have served fine. The ceiling does not
 bite often. It bites when a platform is cold, which is exactly when a demo is
 most likely to hit it.
+
+## Honesty sweeps — run 2026-07-27 (`insights-audit`, `matrix-honesty-sweep`)
+
+Both audit workflows re-run against the whole record before the day's push.
+They are adversarial by construction: a finder agent per item, then an
+independent agent whose job is to *refute* each claimed problem, so what
+survives has been argued against.
+
+| Sweep | Items | Clean | Flagged | Survived refutation |
+|---|---|---|---|---|
+| insights-audit | 30 insights | 22 | 8 | **4** |
+| matrix-honesty-sweep | 51 claims | 50 | 1 | **1** |
+
+**Zero overclaims.** Not one item claimed a capability the lab does not have —
+the failure mode was the opposite in every case. All five confirmed defects were
+**staleness**: a claim that was true when written and had been overtaken by the
+lab's own later work.
+
+- `a2a-async-at-heart` said the D11 SSE demo "exercised" streaming. D11 only
+  *scoped* it; the servers advertise `AgentCapabilities(streaming=True)` and the
+  client hard-codes `ClientConfig(streaming=False)`, and there is no streaming
+  exchange anywhere in the trace archive. The same phrasing had propagated into
+  README.md and CLAUDE.md, which is how a single unbacked clause becomes three.
+- `orchestration-topology` still published the **prediction** that 3 of 4 legs
+  would be joinable "and THAT NUMBER is the deliverable". It was measured the
+  next day at **1 of 4**. Predicting a number then measuring it is the method;
+  leaving the prediction up as though it were the result is not.
+- `telemetry-config-is-not-evidence` reported Codex landing zero datapoints,
+  fixed since — under metric names that were never a mirror of Claude Code's.
+- `least-privilege-is-identity` claimed the split was verified by a *negative*
+  probe (a scope-less token being refused). `identity_preflight.py` is a
+  positive check: it proves each identity is sufficient, not minimal — and the
+  refusal would be 403, not the 401 the entry claimed.
+- The matrix justified the scheduled Claude(AgentCore)↔ADK cell as crossing an
+  AWS↔GCP boundary "that no current cell crosses" and as making the GCP→Azure
+  result three-cloud. **D40/D41 did both, measured**, a day before the sweep.
+
+**The pattern worth keeping:** in a lab that publishes its findings, the durable
+risk is not lying about what works — the honesty rules and the wire archive
+catch that. It is the record falling behind the work, and it fails toward
+*understating* the lab. A sweep that finds only stale self-underclaims is a
+good result, and it is only visible because the audit compares every published
+claim against the current state rather than against the day it was written.

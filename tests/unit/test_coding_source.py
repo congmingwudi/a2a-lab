@@ -9,6 +9,7 @@ from observability.coding_source import (
     CodingSource,
     _tool_of,
     metric_names,
+    normalize_repos,
     summarize_series,
 )
 from observability.store import ObsStore
@@ -341,6 +342,66 @@ def test_datapoints_without_a_repo_label_are_kept_as_unattributed():
     bucket = summarize_series(rows)["claude-code:2026-07-25"]
     assert bucket["by_repo"]["unattributed"]["cost_usd"] == 2.5
     assert sum(r["cost_usd"] for r in bucket["by_repo"].values()) == bucket["cost_usd"]
+
+
+def _cost_row(repo, value, project=None):
+    return {
+        "metric": "claude_code.cost.usage",
+        "tool": "claude-code",
+        "repo": repo,
+        "project": project or repo.rsplit("/", 1)[-1],
+        "dimensions": {},
+        "timestamp": DAY,
+        "value": value,
+    }
+
+
+def test_model_is_recorded_for_a_tool_with_no_cost_metric():
+    """Codex labels every datapoint with `model` but publishes no cost metric.
+
+    Keying by_model off cost alone reported an empty model breakdown for it —
+    the attribution was on the wire the whole time. Sessions are the unit that
+    tool can answer in.
+    """
+    rows = [
+        {
+            "metric": "codex.thread.started",
+            "tool": "codex",
+            "repo": "acme/lab",
+            "project": "lab",
+            "dimensions": {"model": "gpt-5.6-sol"},
+            "timestamp": DAY,
+            "value": 3,
+        }
+    ]
+    bucket = summarize_series(rows)["codex:2026-07-25"]
+    assert bucket["by_model"]["gpt-5.6-sol"]["sessions"] == 3
+    assert bucket["sessions"] == 3
+
+
+def test_placeholder_repo_owner_folds_into_the_real_repo():
+    """`<owner>/x` and `acme/x` are one codebase whose exporter was wrong for a
+    while. Merging keeps the cost attributed; dropping it would quietly shrink
+    the measured total, which is the failure this section exists to avoid."""
+    rows = [_cost_row("acme/logging-service", 1.5), _cost_row("<owner>/logging-service", 2.5)]
+    bucket = summarize_series(rows)["claude-code:2026-07-25"]
+
+    assert set(bucket["by_repo"]) == {"acme/logging-service"}
+    assert bucket["by_repo"]["acme/logging-service"]["cost_usd"] == 4.0
+    assert bucket["cost_usd"] == 4.0  # total unchanged by the merge
+
+
+def test_placeholder_with_no_real_counterpart_is_left_alone():
+    """It is still the only record of that work, and the odd name is the signal
+    that a checkout needs configuring — silently renaming it would hide that."""
+    rows = normalize_repos([_cost_row("<owner>/orphan", 1.0)])
+    assert rows[0]["repo"] == "<owner>/orphan"
+
+
+def test_explicit_repo_alias_from_env(monkeypatch):
+    monkeypatch.setenv("A2ALAB_CODING_REPO_ALIASES", "old/name=new/name, junk=acme/lab")
+    rows = normalize_repos([_cost_row("old/name", 1.0), _cost_row("junk", 2.0)])
+    assert [r["repo"] for r in rows] == ["new/name", "acme/lab"]
 
 
 def test_harvest_keeps_the_resource_repo_label_off_the_wire(tmp_path):

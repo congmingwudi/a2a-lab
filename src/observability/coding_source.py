@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 from collections import defaultdict
 from typing import Any
 
@@ -112,6 +113,61 @@ PROJECT_LABEL = "@resource.project"
 # and hiding it would make the per-repo view silently disagree with the total.
 UNATTRIBUTED = "unattributed"
 
+# A repo label whose owner is still the docs placeholder: `<owner>/name`,
+# `<org>/name`. Nothing validates resource attributes, so this does not error —
+# it just becomes a SECOND codebase in the rollup, and two plausible bars are
+# harder to notice than one missing one. CloudWatch cannot delete datapoints
+# (metrics expire on a rolling 15-month window and that is the only removal
+# there is), so the fix has to live on the read side: fold the placeholder into
+# the real repo it obviously is, rather than dropping the cost.
+PLACEHOLDER_OWNER = re.compile(r"^<[^>/]*>/(?P<name>.+)$")
+
+
+def repo_aliases() -> dict[str, str]:
+    """Explicit `wrong=right` repo rewrites from A2ALAB_CODING_REPO_ALIASES.
+
+    The escape hatch for a mislabel the placeholder rule cannot infer — a repo
+    renamed mid-window, say, or a typo'd owner that is a real-looking name.
+    """
+    raw = os.environ.get("A2ALAB_CODING_REPO_ALIASES", "")
+    out: dict[str, str] = {}
+    for pair in raw.split(","):
+        wrong, _, right = pair.partition("=")
+        if wrong.strip() and right.strip():
+            out[wrong.strip()] = right.strip()
+    return out
+
+
+def normalize_repos(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fold placeholder repo labels into the real repo of the same name.
+
+    `<owner>/aws-logging-service` and `congmingwudi/aws-logging-service` are one
+    codebase whose exporter was misconfigured for a while. Merging keeps the
+    money attributed and the totals unchanged; dropping the rows would quietly
+    shrink the measured cost, which is the failure this whole section exists to
+    avoid. A placeholder with no real counterpart in the window is LEFT ALONE —
+    it is still the only record of that work, and its odd name is the signal
+    that something needs configuring.
+    """
+    aliases = repo_aliases()
+    real_by_name: dict[str, str] = {}
+    for row in rows:
+        repo = row.get("repo") or UNATTRIBUTED
+        if repo == UNATTRIBUTED or PLACEHOLDER_OWNER.match(repo):
+            continue
+        real_by_name.setdefault(repo.rsplit("/", 1)[-1], repo)
+
+    for row in rows:
+        repo = row.get("repo") or UNATTRIBUTED
+        if repo in aliases:
+            row["repo"] = aliases[repo]
+            continue
+        match = PLACEHOLDER_OWNER.match(repo)
+        if match:
+            row["repo"] = real_by_name.get(match.group("name"), repo)
+    return rows
+
+
 # Metric-name prefixes that identify coding-agent telemetry, per tool.
 TOOL_PREFIXES = {
     "claude-code": "claude_code.",
@@ -165,7 +221,9 @@ def summarize_series(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     level finer, no migration.
     """
     buckets: dict[str, dict[str, Any]] = {}
-    for row in rows:
+    # Placeholder owners folded into the real repo BEFORE bucketing, so the
+    # per-repo split is computed once on clean labels.
+    for row in normalize_repos(rows):
         tool = row.get("tool") or _tool_of(row.get("metric", "")) or "unknown"
         ts = row.get("timestamp")
         day = ts.strftime("%Y-%m-%d") if isinstance(ts, dt.datetime) else str(ts)[:10]
@@ -223,6 +281,17 @@ def summarize_series(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         elif suffix in SESSION_SUFFIX:
             b["sessions"] += int(value)
             r["sessions"] += int(value)
+            # Model recorded here too, not just on cost/tokens. VERIFIED live
+            # 2026-07-27: `model` is a datapoint label on BOTH tools' metrics —
+            # claude_code.cost.usage/token.usage carry claude-opus-5[1m] and
+            # claude-haiku-4-5, and codex.thread.started /
+            # codex.conversation.turn.count carry gpt-5.6-sol. Keying model off
+            # cost alone meant Codex — which publishes no cost metric at all —
+            # reported an empty by_model while naming its model on every
+            # datapoint. Which model did the work is answerable for both tools;
+            # for Codex the unit is sessions rather than dollars.
+            if model:
+                b["by_model"][model]["sessions"] += value
         elif suffix in ACTIVE_TIME_SUFFIX:
             b["active_time_s"] += value
             r["active_time_s"] += value

@@ -116,15 +116,24 @@ insights:
 
   - id: a2a-async-at-heart
     category: Protocols
+    # Re-opened 2026-07-27 by the insights-audit sweep: this entry claimed the
+    # D11 SSE demo had been exercised, which the trace archive does not back
+    # (D11 scoped it; nothing ran it). Materially rewritten, so back to
+    # required per D38.
+    review: required
     status: observed
     headline: A2A is an async-capable protocol that everyone drives synchronously — the task lifecycle is its real differentiator
     evidence: >
       Every A2A exchange in the lab returns a Task object with an id, state
       machine, and artifacts (the lab's protocol mapping records the
       completed-Task/one-artifact shape and TASK_STATE_FAILED on errors),
-      and the spec defines streaming for long-running work — the lab's SSE
-      demo (D11) exercised it as a capability comparison. Yet the lab (like most current
-      integrations) drives it synchronously: message:send blocks until the
+      and the spec defines streaming for long-running work. The lab's own
+      A2A servers advertise `AgentCapabilities(streaming=True)` — and its
+      client hard-codes `ClientConfig(streaming=False)`, so the capability is
+      declared and never exercised: D11 scoped an SSE demo as a capability
+      comparison, and there is no run of one in the trace archive. That gap
+      is itself the finding in miniature. The lab (like most current
+      integrations) drives A2A synchronously: message:send blocks until the
       task completes inside one HTTP exchange, and the "response" is simply
       the completed task coming back on the same connection — there is no
       callback leg on the wire. The sync delegation pattern rides on top of
@@ -733,11 +742,15 @@ insights:
       org's only window into what it logs about its own agents. The fix was
       not a shorter list, it was four apps: three agent callers that reach
       only the Agent API now hold `chatbot_api, sfap_api` and no `api`
-      scope at all, and the harvest holds `api` alone — verified from the
-      org rather than from the config, since each app's client-credentials
-      token comes back carrying its own granted scope list, and a
-      `/services/data` query on an agent caller's token 401s while the
-      harvest's succeeds. Salesforce attributes
+      scope at all, and the harvest holds `api` alone — verified from the org
+      rather than from the config by `scripts/identity_preflight.py`, which
+      makes every caller identity actually do its job (mint its own token,
+      run its own call) and fails the run if any cannot. Note what that does
+      NOT prove: it is a positive check, so it confirms each identity is
+      sufficient, not that it is minimal. A negative probe — the same token
+      being refused the call it should not be able to make — is not wired up,
+      and would return 403 (scope missing), not 401 (wrong secret), per the
+      preflight's own error taxonomy. Salesforce attributes
       client-credentials calls to the APP, so one shared app also made every
       lab caller look like one integration user in the org's own audit
       trail — the same modelling error showing up as an observability
@@ -803,9 +816,11 @@ insights:
       a fan-out spans four, each with its own retention, ingestion lag and
       join key — and the lab already measured that only platforms logging the
       utterance text can be joined by the D34 rider convention, with Foundry
-      joining by response id instead. The expected result is that
-      three of four legs can be traced back to the run that caused them, and
-      THAT NUMBER is the deliverable. THIRD, partial failure, which at fan-out
+      joining by response id instead. That number was the deliverable, it was
+      measured on 2026-07-26, and it came in at **1 of 4, not the 3 of 4 this
+      entry originally predicted** (plan/03-results.md, "Fan-out join rate").
+      Predicting the number and then measuring it is the point; publishing the
+      prediction as though it were the result is not. THIRD, partial failure, which at fan-out
       is the normal case rather than the edge case — and which the lab has
       already seen wearing a disguise: on 2026-07-25 an Agentforce action that
       blew its budget still returned HTTP 200 with its section heading present
@@ -975,6 +990,17 @@ insights:
       days, and OTEL_LOGS_EXPORTER=otlp against the metrics endpoint returned
       nothing. Every one of them looked like correct configuration from the
       client side and logged nothing anywhere.
+      RESOLVED 2026-07-27, and the resolution sharpens the finding rather than
+      retiring it: with `metrics_exporter` set, Codex exports — but under names
+      that were never going to match a mirror of Claude Code's schema. There is
+      no `codex.cost.usage`, `codex.token.usage` or `codex.session.count` at
+      all; the live metrics are `codex.thread.started`,
+      `codex.conversation.turn.count` and a `codex.turn.token_usage`
+      HISTOGRAM. So the first zero was a config bug and the second was a
+      naming assumption, and only a query at the destination could tell them
+      apart — from the client side both are "exporter configured, nothing
+      here". Both tools now attribute correctly (tool, project, repo) and both
+      label every datapoint with `model`.
     advisory: >-
       Treat signal, endpoint, and credential as one unit, and never mark a
       telemetry path done on the strength of a config file or a helper that
@@ -986,7 +1012,19 @@ insights:
       always something you add — and the mechanism differs per tool (Claude
       Code takes it from a per-project settings file, while Codex ignores
       `otel` in project-local config entirely and needs a launch wrapper).
-      Assume nothing carries over from one agent's setup to another's.
+      Assume nothing carries over from one agent's setup to another's. Check
+      what is already built in before configuring anything, because the split
+      is not intuitive: both tools label every datapoint with the `model` that
+      ran it, unconfigured (verified 2026-07-27 — claude-opus-5 and
+      claude-haiku-4-5 on Claude Code's cost and token metrics, gpt-5.6-sol on
+      all three Codex metrics), so WHAT ran is free while WHERE it ran is not.
+      And
+      once it is flowing, review the attribution VALUES, not just their
+      presence: resource attributes are unvalidated free text, so a repo left
+      with the example placeholder does not error — it quietly becomes a second
+      codebase in the rollup, and two plausible-looking bars are harder to
+      notice than one missing one (seen 2026-07-27, `<owner>/aws-logging-service`
+      beside the real repo).
     refs:
       - D39
       - build-notes/claude/08-coding-agent-telemetry.md

@@ -419,6 +419,28 @@ single read-only SQL tool (`scripts/setup_obs_analyst.py --run`) —
 interprets the harvested store and writes findings briefs to
 `traces/obs-briefs/`; the pull itself stays deterministic ETL.
 
+**Coding Agents Telemetry** (WS9, its own console section): the lab measuring
+its own construction. Claude Code and the Codex CLI both export OpenTelemetry,
+and CloudWatch ingests OTLP on a managed endpoint — no collector — so
+`src/observability/coding_source.py` reads their metrics back through the same
+harvest seam every platform uses, behind that section's own **Harvest** button.
+Deliberately *not* a sixth column in the Observability coverage panel: every
+column there is an agent platform whose interior the lab harvests, and the tool
+that BUILT the lab is not one of those.
+
+The section's value is the honest comparison, because the two agents do **not**
+emit the same shapes. Claude Code publishes `cost.usage` in USD and a token Sum;
+Codex publishes no cost metric at all and a token *histogram*, so its models are
+counted in sessions and turns. Cost is stated as **modelled at list price** — a
+client-side estimate, not an invoice. Two attribution findings are baked into
+the read path: `model` is a datapoint label on both tools already, while
+**neither** emits anything naming the project or repository, so per-codebase cost
+is configuration you add (`OTEL_RESOURCE_ATTRIBUTES` per checkout, a launch
+wrapper for Codex) — and because those values are unvalidated free text, a repo
+left on the docs placeholder silently becomes a second codebase, which
+`normalize_repos()` folds back. CloudWatch cannot delete datapoints, so every
+such fix lives on the read side.
+
 ## The A2A implementation
 
 The lab speaks the formal [A2A protocol](https://github.com/a2aproject/A2A)
@@ -468,7 +490,9 @@ Two implementation notes:
   A2A hops in the console show the actual wire JSON-RPC, not a reconstruction.
 - The agent card advertises `streaming: true`, but the lab client runs
   `ClientConfig(streaming=False)`: streaming is out of scope for v1 (Apex
-  callouts are buffered); one SSE demo exists as a capability comparison only.
+  callouts are buffered). D11 scoped one SSE demo as a capability comparison
+  and it was never built — a declared capability the lab has not exercised,
+  which is exactly the gap WS11 (A2A fire-then-poll) exists to close.
 
 ### The A2A version spectrum — and the lab's compatibility layer
 

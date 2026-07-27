@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A2A Interop Lab: cross-platform agent-to-agent experiments across Salesforce Agentforce, Claude (Managed Agents + AgentCore sdk), OpenAI (AgentCore), Google ADK (Vertex AI Agent Engine), and Microsoft Foundry, with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`, the Codex build brief for the OpenAI agents-sdk backend in `plan/06-openai-codex-handoff.md` (D24 — that one file is the contract; the `agents-sdk` backend and its tests are Codex's to write, everything else OpenAI-related is ours), the multi-platform buildout roadmap (WS1–WS5: AgentCore pair, GCP ADK, Azure Foundry, LangGraph, Strands) in `plan/07-workstreams.md`, and the published field insights in `plan/08-insights.md` — generated, don't edit: the sources are `config/insights.yaml` and `config/diagrams.yaml` (mermaid diagrams attached to insight ids — a chip on each insight tile in the console opens the diagram, and the export embeds it as a ```mermaid fence; regenerate with `uv run python scripts/export_insights.py`).
+A2A Interop Lab: cross-platform agent-to-agent experiments across Salesforce Agentforce, Claude (Managed Agents + AgentCore sdk), OpenAI (AgentCore), Google ADK (Vertex AI Agent Engine), and Microsoft Foundry, with each direction runnable over REST, MCP, and the A2A protocol — same scenario, protocols compared side by side with raw wire payloads recorded. `plan/` is the source of truth: decision log (ADRs) in `plan/00-decisions.md`, architecture and protocol mapping rules in `plan/01-architecture.md`, the honest protocol matrix in `plan/02-matrix.md`, runbooks in `plan/04-runbooks.md`, the observability plan (M11: cross-platform agent execution logs pulled into the console) in `plan/05-observability.md`, the Codex build brief for the OpenAI agents-sdk backend in `plan/06-openai-codex-handoff.md` (D24 — that one file is the contract; the `agents-sdk` backend and its tests are Codex's to write, everything else OpenAI-related is ours), the multi-platform buildout roadmap in `plan/07-workstreams.md` (WS1–WS11 — the platform pairs, then fan-out orchestration (WS8), build telemetry (WS9), hosted completion (WS7), Agent Fabric (WS10) and A2A fire-then-poll (WS11); the console/exhibit backlog lives at the end of the same file), and the published field insights in `plan/08-insights.md` — generated, don't edit: the sources are `config/insights.yaml` and `config/diagrams.yaml` (mermaid diagrams attached to insight ids — a chip on each insight tile in the console opens the diagram, and the export embeds it as a ```mermaid fence; regenerate with `uv run python scripts/export_insights.py`).
 
 ## Commands
 
@@ -23,6 +23,10 @@ uv run python scripts/matrix.py      # run every runnable protocol cell → appe
 uv run python scripts/sf_smoke.py    # Agentforce go/no-go (needs SF_* in .env)
 uv run python scripts/identity_preflight.py  # prove every caller identity can still do its job (D37/F6)
 uv run python scripts/obs_harvest.py # pull platform execution logs → traces/lab.db (M11)
+uv run python scripts/obs_harvest.py coding  # just the coding-agent telemetry (WS9); same
+                                     # pull as the Harvest button in the console's Coding
+                                     # Agents Telemetry section. NOT in the unqualified
+                                     # sweep — `coding` is not an agent platform.
 uv run python scripts/trace_import.py # rebuild lab.db trace tables from the JSONL archive
 uv run python scripts/setup_managed_agent.py       # once: provisions the Managed Agents agent
 uv run python scripts/obs_analysis.py run          # fire the hosted obs analyst (D23)
@@ -76,5 +80,5 @@ Org metadata (Apex invocable `A2ALabInvokeRemoteAgent` + test, named/external cr
 ## Conventions
 
 - Decisions get an ADR entry appended to `plan/00-decisions.md`; measured results go to `plan/03-results.md` (matrix.py appends there), findings to the ledger in `plan/02-matrix.md`.
-- Streaming is out of scope for v1 (Apex callouts are buffered); one A2A SSE demo exists as a capability comparison only.
+- Streaming is out of scope for v1 (Apex callouts are buffered). D11 scoped one A2A SSE demo as a capability comparison; it has **not** been built — the servers advertise `AgentCapabilities(streaming=True)` and the client hard-codes `ClientConfig(streaming=False)`, so don't describe streaming as exercised.
 - Timeout budget for Path A is tight (Agentforce action ~85–90s **measured** 2026-07-25, plan/03-results.md — not the ~60s long assumed → Apex 110s → bridge 45s → `CLAUDE_ANSWER_TIMEOUT_S=100`); keep the Claude agent fast (Haiku-tier model, concise prompts, warm servers). When the action budget IS blown, Agentforce returns 200 with the delegated section present but empty — check content, not status.

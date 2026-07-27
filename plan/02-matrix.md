@@ -82,10 +82,19 @@ interop.
   same-cloud, same-auth pair tests the runtime, not the interop. Cells earn
   their place by isolating a variable no existing cell isolates.
 - **Claude (AgentCore) ↔ Google ADK — NOT declined, scheduled (WS8).** Kept
-  precisely because it fails the test above in the right direction: it crosses
-  a cloud and identity boundary (AWS ↔ GCP) that no current cell crosses, and
-  turns the one-directional GCP→Azure capstone result into a three-cloud
-  pattern.
+  because it isolates a variable no shipped cell isolates — but **the reason
+  narrowed on 2026-07-26, and the original one is now stale.** It was justified
+  as crossing an AWS ↔ GCP boundary "that no current cell crosses" and as
+  turning the one-directional GCP→Azure capstone into a three-cloud pattern.
+  Both have since been done and measured: the ADK fan-out orchestrator reaches
+  Google, Azure **and** AWS from one GCP container with no long-lived
+  credential in it — GCP→AgentCore over SigV4 via Google-OIDC→STS federation,
+  3/3 legs, 16.8s wall (D40/D41; plan/03-results.md, trace `802a9a3b`).
+  What remains genuinely unmeasured is narrower and still worth a cell: the
+  **AWS→GCP direction** (the federation measured so far runs the other way, and
+  D40's finding is that the two directions cost very different amounts), and a
+  **direct vendor-to-vendor A2A pairing** between the two agent runtimes rather
+  than an orchestrator calling hosted legs.
 
 ## Findings ledger (grow as measured)
 
