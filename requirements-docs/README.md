@@ -69,5 +69,18 @@ the specification is still complete.
 
 ## Status
 
-Early. See `00-plan.md` for what is written, what is drafted, and what is
-outstanding.
+**Complete first pass.** All 28 documents written; see `00-plan.md` for the
+inventory.
+
+| | |
+|---|---|
+| Business requirements | 28, each with a named owner |
+| System requirements | 188 across seven classes, 175 Must / 13 Should |
+| Use cases / user stories | 8 / 25 |
+| Acceptance criteria | 48 across eight capability gates |
+| Upward traceability | 188 of 188 — no orphans |
+
+Not yet `reviewed`: the set has been checked for traceability gaps
+(`90-traceability/01-traceability-matrix.md` §5 records the two found and
+closed) but not yet read end to end for contradiction between documents. That is
+the remaining step before it is handed to a build.

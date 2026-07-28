@@ -115,13 +115,13 @@ set is read end to end for contradiction.
 | 50 | `50-system/06-data-and-privacy-requirements.md` | written |
 | 50 | `50-system/07-security-and-identity-requirements.md` | written |
 | 50 | `50-system/08-observability-requirements.md` | written |
-| 50 | `50-system/09-acceptance-and-verification.md` | todo |
+| 50 | `50-system/09-acceptance-and-verification.md` | written |
 | 60 | `60-cost/01-cost-model-and-projection.md` | written |
 | 60 | `60-cost/02-sizing-framework.md` | written |
-| 70 | `70-delivery/01-delivery-plan.md` | todo |
-| 70 | `70-delivery/02-risks-assumptions-dependencies.md` | todo |
-| 90 | `90-traceability/01-traceability-matrix.md` | todo |
-| 90 | `90-traceability/02-provenance.md` (severable) | todo |
+| 70 | `70-delivery/01-delivery-plan.md` | written |
+| 70 | `70-delivery/02-risks-assumptions-dependencies.md` | written |
+| 90 | `90-traceability/01-traceability-matrix.md` | written |
+| 90 | `90-traceability/02-provenance.md` (severable) | written |
 
 ## Sequence
 

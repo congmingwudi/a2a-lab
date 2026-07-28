@@ -153,6 +153,7 @@ which means failures are hard to attribute.
 
 **Priority.** Must
 **Verification.** Test — each component is deployed independently.
+**Traces to.** BR-104
 
 ---
 
@@ -225,6 +226,7 @@ covered — one uncovered path is the one that will be used.
 **Priority.** Must
 **Verification.** Test — an unintended target is refused before resource
 creation, on every deployment path.
+**Traces to.** BR-306
 
 ---
 

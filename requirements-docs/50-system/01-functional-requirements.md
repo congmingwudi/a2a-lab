@@ -239,6 +239,28 @@ unretrievable.
 
 ---
 
+### FR-208 — Delivery of results into an existing business system
+
+**Statement.** The system SHALL be able to deliver a completed result into a
+system of work outside the evaluation environment, carrying its attribution and
+its correlation identifier, and SHALL retain and retry the delivery if the
+destination is unavailable.
+
+**Rationale.** A result that exists only inside an evaluation surface proves the
+plumbing but not the value — the business owner who would judge whether the
+answer was worth producing never sees it, and asking them to visit an evaluation
+tool means they will not. Retention on failure matters because the destination's
+availability is not controlled by this system, and a result discarded because its
+destination was briefly down represents work already paid for.
+
+**Priority.** Should
+**Verification.** Test — a completed result is delivered into an external system
+with attribution and correlation intact; an induced destination failure results
+in retry rather than loss.
+**Traces to.** BR-207, BR-203
+
+---
+
 ## FR-3xx — Mediation
 
 ### FR-301 — Outbound mediation for constrained platforms

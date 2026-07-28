@@ -157,6 +157,7 @@ operates.
 
 **Priority.** Must
 **Verification.** Inspection and test.
+**Traces to.** BR-306, BR-301
 
 ---
 
@@ -337,6 +338,7 @@ Outbound-initiated exposure achieves the same reachability without it.
 
 **Priority.** Must
 **Verification.** Inspection — no inbound path to an internal host exists.
+**Traces to.** BR-306
 
 ---
 
