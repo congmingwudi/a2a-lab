@@ -64,7 +64,7 @@ fi
 # from one secret, never carried on the task definition.
 SECRET_NAME=a2alab/runtime/console
 SECRET_JSON=$(python3 - <<'PY'
-import json, os
+import json, os, pathlib
 keys = [
     "A2ALAB_TOKEN",          # the console's own service token
     "ANTHROPIC_API_KEY",     # the Lab Guide answers in-process
@@ -77,8 +77,28 @@ keys = [
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
+    # The persona passwords (D36). The is_secret() rule below keeps every
+    # *_PASSWORD off the task definition, which is right — but excluding a
+    # credential without RELOCATING it just deletes it. That is what happened
+    # on the first hardened deploy: the hosted console held no passwords at
+    # all and rejected every login with a correct-looking "wrong user or
+    # password".
+    "A2ALAB_OPERATOR_PASSWORD", "A2ALAB_VIEWER_PASSWORD",
 ]
-print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
+payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
+
+# The lab JWT keypair. The console ISSUES tokens (/api/login), so unlike a seam
+# that only verifies it must carry the signing half. Both live in .a2alab/ —
+# files no container has — and without them the container silently generates a
+# fresh keypair per task: login appears to work, and every session dies at the
+# next deploy because the key that signed it no longer exists.
+key_dir = pathlib.Path(os.environ.get("A2ALAB_JWT_DIR", ".a2alab"))
+for name, filename in (("A2ALAB_JWT_PRIVATE_KEY", "lab_jwt_private.pem"),
+                       ("A2ALAB_JWT_PUBLIC_KEY", "lab_jwt_public.pem")):
+    path = key_dir / filename
+    if path.exists():
+        payload[name] = path.read_text()
+print(json.dumps(payload))
 PY
 )
 aws secretsmanager describe-secret --region "$REGION" --secret-id "$SECRET_NAME" >/dev/null 2>&1 \

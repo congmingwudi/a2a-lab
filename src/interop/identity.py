@@ -72,7 +72,26 @@ def ensure_keypair() -> tuple[Path, Path]:
     return private_path, public_path
 
 
+PRIVATE_KEY_ENV = "A2ALAB_JWT_PRIVATE_KEY"
+
+
 def _private_key() -> str:
+    """The SIGNING half. Env wins, then the local keypair.
+
+    The env route exists because the hosted console ISSUES tokens (WS13): it
+    serves `/api/login`, so "containers must never hold the signing key" —
+    true of a seam that only verifies — cannot hold for the issuer. It arrives
+    through Secrets Manager like every other hosted credential (D39/F1), never
+    on the task definition.
+
+    Without it a container silently generates a FRESH keypair into its own
+    ephemeral filesystem on first use. That fails in a way that looks like
+    nothing: login succeeds, a token comes back, and every session dies at the
+    next deploy because the key that signed it no longer exists.
+    """
+    from_env = os.environ.get(PRIVATE_KEY_ENV)
+    if from_env:
+        return from_env.replace("\\n", "\n")
     return ensure_keypair()[0].read_text()
 
 

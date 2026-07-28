@@ -2,6 +2,7 @@
 
     uv run python -m briefs --run-now "Omega, Inc."   # fire the daily job now
     uv run python -m briefs --watch                    # service scheduled runs
+    uv run python -m briefs --push-state               # local serviced set -> Aurora
 
 --watch is the lab-host half of the scheduled-deployment pattern: Anthropic's
 cron fires sessions autonomously; this loop finds each deployment run,
@@ -9,6 +10,14 @@ attaches to its session, executes the save_account_brief custom tool
 host-side (Salesforce delivery), and records the trace. Sessions fired while
 the lab host was down simply idle awaiting the tool result — they are picked
 up and completed on the next poll, nothing is lost.
+
+--push-state is the MIGRATION step, and skipping it costs real money. The
+serviced set moved from `.a2alab/brief_state.json` to Aurora when the watcher
+moved to Fargate (WS13 item 3), and the hosted store starts EMPTY. A watcher
+with no memory re-services every session still listed in recent deployment runs
+— eight days of them, ten minutes of web research each — and would re-deliver
+any whose tool call had not already been consumed. Run this once before starting
+the hosted watcher, from a machine that has the local file.
 """
 
 from __future__ import annotations
@@ -122,6 +131,42 @@ async def watch() -> None:
         await asyncio.sleep(POLL_S)
 
 
+def push_state() -> None:
+    """Seed the hosted serviced-set from the local file, as a UNION.
+
+    A union rather than a replace: by the time this runs the hosted watcher may
+    already have serviced sessions the local file has never heard of, and
+    dropping those would re-run them.
+    """
+    from observability.pg import STATE_BRIEF_SESSIONS
+
+    # NOTE: this WRITES, and .env points A2ALAB_PG_SECRET_ARN at the lab_reader
+    # secret because everything else the laptop does with Aurora is a read. Run
+    # it as the writer or Postgres refuses with "cannot execute INSERT in a
+    # read-only transaction":
+    #   A2ALAB_PG_SECRET_ARN="$A2ALAB_PG_WRITER_SECRET_ARN" \
+    #     uv run python -m briefs --push-state
+    store = _state_store()
+    if store is None:
+        raise SystemExit(
+            "no hosted store configured — set A2ALAB_PG_CLUSTER_ARN and "
+            "A2ALAB_PG_SECRET_ARN in .env (with no Aurora there is nothing to seed)"
+        )
+    try:
+        hosted = set((store.get_state(STATE_BRIEF_SESSIONS) or {}).get("serviced_sessions") or [])
+        local: set[str] = set()
+        if WATCH_STATE.exists():
+            local = set(json.loads(WATCH_STATE.read_text()).get("serviced_sessions", []))
+        merged = sorted(hosted | local)[-500:]
+        store.put_state(STATE_BRIEF_SESSIONS, {"serviced_sessions": merged})
+    finally:
+        store.close()
+    print(
+        f"[briefs] seeded hosted state: {len(local)} local + {len(hosted)} hosted "
+        f"-> {len(merged)} serviced session(s)"
+    )
+
+
 async def run_now(accounts: str) -> None:
     trace_id = new_trace_id()
     print(f"[briefs] running now for: {accounts} (trace {trace_id})", flush=True)
@@ -144,9 +189,16 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--watch", action="store_true", help="service scheduled runs")
     group.add_argument("--run-now", metavar="ACCOUNTS", help="fire the job immediately")
+    group.add_argument(
+        "--push-state",
+        action="store_true",
+        help="seed the hosted store from .a2alab/brief_state.json (run once, before --watch)",
+    )
     args = parser.parse_args()
     if args.watch:
         asyncio.run(watch())
+    elif args.push_state:
+        push_state()
     else:
         asyncio.run(run_now(args.run_now))
 
