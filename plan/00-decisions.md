@@ -1460,3 +1460,63 @@ a scale-to-zero function does not. **The protocol dissolves the request ceiling;
 it does not conjure compute.** Same shape as D41's finding that where the tool
 runs decides who orchestrates — here, where the *task* runs decides whether
 asynchrony buys anything.
+
+## 2026-07-28 — D48: A hosted service that can serve without its credential must refuse to start
+
+**Context.** WS13 item 1 put the console on ECS Fargate behind the bridge's
+ALB. The deploy script was written 2026-07-28 from the proven
+`deploy/bridge/deploy_bridge.sh` and, per D46, was explicitly recorded as
+*written, NOT run*. It ran clean on the first attempt: image pushed, secret
+created, listener rule added, service stable, `/healthz` 200 through the ALB
+with a Host header. Every check the runbook asked for passed.
+
+The console was nonetheless serving **every** `/api` surface to an
+unauthenticated caller, and accepting a deliberately wrong bearer token.
+
+**Why the checks missed it.** Three independent gaps composed, and none of them
+is visible from a healthy container:
+
+1. `deploy_console.sh` wrote `a2alab/runtime/console` to Secrets Manager and
+   passed `A2ALAB_RUNTIME_SECRET_ARN` on the task definition — but the console,
+   unlike the bridge, never called `load_secret_env_and_log`. The secret was
+   created, shipped, and never read. A perfect D46 repeat in a new shape: the
+   artifact existed, the wiring did not.
+2. `TokenAuthMiddleware` treats an absent `A2ALAB_TOKEN` as *auth is off*. That
+   is right on a laptop — the alternative is making local development need AWS —
+   and catastrophic behind a public load balancer.
+3. Verification used a *valid* token and got 200. A valid token proves nothing
+   when the failure mode is that all tokens are accepted. **The test that finds
+   this is the negative one**, and it costs one extra curl.
+
+**Decision.**
+
+1. **Fail closed on the hosted path.** If `A2ALAB_RUNTIME_SECRET_ARN` is set
+   (the container's own statement that it is hosted) and `A2ALAB_TOKEN` is
+   still unset after the secret load, the console exits rather than serving.
+   The middleware's open-when-unset behaviour is deliberately left alone: the
+   fix belongs where "am I hosted?" is knowable, not in the shared middleware.
+   `tests/unit/test_console.py` asserts both halves — hosted-without-token
+   exits, local-without-token still starts.
+2. **Verify auth with the negative case.** A deploy is not verified until an
+   unauthenticated request and a wrong-credential request have both been shown
+   to fail. Recorded here because the positive test passed on a wide-open
+   console and read as success.
+3. **Env derivation cannot see through a constant.** The task-definition env is
+   derived by scanning `os.environ["LITERAL"]` in `src/`. `observability/pg.py`
+   reads `os.environ.get(SECRET_ARN_ENV)`, so `A2ALAB_PG_SECRET_ARN` was never
+   shipped and `PgClient.configured()` was False — `/api/obs/briefs` said so
+   outright while `/api/traces` just returned `[]`. Aurora vars are now set
+   explicitly, as `deploy_bridge.sh` already did. A heuristic that silently
+   under-collects needs a loud consumer, not more regex.
+4. **Secret-shaped names are excluded by rule, not by list.** The enumerated
+   exclusion predated `SF_CLIENT_ID_OBS`, `SF_CLIENT_SECRET_OBS` and
+   `A2ALAB_FANOUT_MCP_TOKEN`, so all three landed in cleartext on the task
+   definition — the exact exposure the runtime secret exists to prevent, and
+   the same defect is still live on the bridge (F1 follow-up). Now any
+   `SECRET|TOKEN|KEY|PASSWORD` variable is treated as sensitive unless it ends
+   `_ARN`, since an ARN names a secret rather than being one.
+
+**Consequence.** The first hosted run of a component is not a formality that
+confirms a written script; it is the first execution of code paths no test
+covers, and it should be scheduled as work. D46 said building is not
+deploying. This says deploying is not verifying.

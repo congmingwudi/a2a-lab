@@ -1,3 +1,5 @@
+import pytest
+
 import importlib
 import json
 from pathlib import Path
@@ -1139,3 +1141,55 @@ def test_healthz_is_open_and_says_nothing_useful(tmp_path, monkeypatch):
     resp = TestClient(app).get("/healthz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "healthy", "app": "console"}
+
+
+def test_hosted_console_refuses_to_start_without_a_token(monkeypatch):
+    """The hosted console must fail CLOSED when its token never arrives.
+
+    Found by deploying it (2026-07-28, WS13 item 1). `deploy_console.sh` wrote
+    the runtime secret and passed `A2ALAB_RUNTIME_SECRET_ARN`, but the console —
+    unlike the bridge — never called `load_secret_env_and_log`, so `A2ALAB_TOKEN`
+    was unset in the container. `TokenAuthMiddleware` treats an absent expected
+    token as "auth is off" (correct on a laptop, where `.env` is the only source
+    and needing AWS to run locally would be worse). Behind a public ALB it meant
+    every /api surface answered 200 to an unauthenticated caller, and a
+    deliberately wrong bearer token was accepted too.
+
+    The middleware's open-when-unset behaviour is deliberately left alone; what
+    changes is that a container which believes it is hosted refuses to serve
+    with authentication disabled.
+    """
+    import console.app as console_app
+
+    monkeypatch.setattr(console_app, "create_console_app", lambda *a, **k: object())
+    monkeypatch.setattr("interop.secret_env.load_secret_env_and_log", lambda source: None)
+    # main() calls load_dotenv(), and this repo HAS a .env carrying a token —
+    # so without stubbing it the guard cannot be observed here even though it
+    # fires in the container, which has no .env at all.
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+    monkeypatch.setenv("A2ALAB_RUNTIME_SECRET_ARN", "arn:aws:secretsmanager:us-east-1:x:secret:y")
+    monkeypatch.delenv("A2ALAB_TOKEN", raising=False)
+    monkeypatch.setattr("sys.argv", ["console"])
+
+    with pytest.raises(SystemExit) as exc:
+        console_app.main()
+    assert "A2ALAB_TOKEN" in str(exc.value)
+
+
+def test_local_console_still_starts_without_a_token(monkeypatch):
+    """The guard must not break local development, which is the reason the
+    middleware fails open in the first place: no runtime secret ARN means a
+    laptop reading `.env`, and it must not need AWS to run."""
+    import console.app as console_app
+
+    started = {}
+    monkeypatch.setattr(console_app, "create_console_app", lambda *a, **k: object())
+    monkeypatch.setattr("interop.secret_env.load_secret_env_and_log", lambda source: None)
+    monkeypatch.setattr("uvicorn.run", lambda app, **kw: started.update(kw))
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+    monkeypatch.delenv("A2ALAB_RUNTIME_SECRET_ARN", raising=False)
+    monkeypatch.delenv("A2ALAB_TOKEN", raising=False)
+    monkeypatch.setattr("sys.argv", ["console"])
+
+    console_app.main()
+    assert started["port"] == 8200

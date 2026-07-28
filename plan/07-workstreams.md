@@ -1877,11 +1877,54 @@ Path A. That property is why the work is safe to do incrementally.
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Console on Fargate** behind the bridge ALB | `deploy/console/deploy_console.sh` + Dockerfile **written, NOT run** |
+| 1 | **Console on Fargate** behind the bridge ALB | **deployed and serving 2026-07-28**, DNS not yet cut over |
 | 2 | Nine local protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | not started |
 | 3 | **Hosted watcher** — EventBridge Lambda servicing Managed Agents custom tool calls | not started (was WS7 item 3) |
 | 4 | Widen `modes:` in `config/targets.yaml` as each face lands | not started |
 | 5 | Re-scope `cloudflared` to local development | decided, no work |
+| 6 | **`PgObsStore` read side** — the Observability section is empty when hosted | **open, found by item 1** (below) |
+
+### What the first run of item 1 actually found (2026-07-28)
+
+The script ran clean end to end on its first execution — image, secret, roles,
+target group, listener rule, stable service, `/healthz` 200 through the ALB. It
+was also, at that moment, **serving every `/api` surface unauthenticated**. The
+full account is D48; the short version is that three gaps composed, and a
+healthy container shows none of them:
+
+- The console never loaded its runtime secret, so `A2ALAB_TOKEN` was unset and
+  `TokenAuthMiddleware` fell open. Fixed by loading the secret and **failing
+  closed** when a hosted container has no token.
+- `A2ALAB_PG_SECRET_ARN` was never shipped, because the env derivation only
+  matches string literals and `pg.py` reads it through a module constant. Four
+  Aurora-backed surfaces returned empty on a healthy console.
+- `SF_CLIENT_ID_OBS`, `SF_CLIENT_SECRET_OBS` and `A2ALAB_FANOUT_MCP_TOKEN` sat
+  in cleartext on the task definition. **The same exposure is still live on the
+  bridge** — `deploy_bridge.sh` has the same enumerated exclusion list and has
+  not been fixed.
+
+Verified after the fix: unauthenticated and wrong-token requests both 401,
+valid token 200, `/healthz` still open, doc chips 200 (the image carries the
+prose), briefs reading from Aurora, and Path A unaffected throughout.
+
+`/api/traces` returning `[]` is **not** a defect — the console's remote window
+is 6h (`_REMOTE_WINDOW_S`) and the newest hop was 9.9h old.
+
+### Item 6 — the Observability section cannot work hosted yet
+
+`_obs_store()` returns `ObsStore()`, which is **SQLite-only**: it opens
+`traces/lab.db`. `A2ALAB_OBS_STORE=postgres` is honoured only by
+`scripts/obs_harvest.py`. In a container that is a fresh empty database, so
+`/api/obs/sessions`, `/api/obs/events` and `/api/obs/summary` return empty
+forever while Aurora holds the rows (479 sessions at the time of writing).
+`/api/obs/briefs` works only because that endpoint reaches for `PgObsStore`
+directly and bypasses `_obs_store()`.
+
+This is not a config fix. `PgObsStore` implements the harvest **write** path
+plus `list_briefs`/`get_state`; the read methods the console needs —
+`list_sessions`, `list_events`, `summary`, `session_callers`,
+`session_lab_traces`, `lab_traces_for` — do not exist for Postgres. Six methods
+against Aurora, each matching the SQLite semantics the UI already renders.
 
 **Item 1 is written and unrun.** The script is modelled line-for-line on
 `deploy/bridge/deploy_bridge.sh`, including its two hard-won details: env vars

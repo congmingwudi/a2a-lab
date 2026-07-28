@@ -70,8 +70,13 @@ keys = [
     "ANTHROPIC_API_KEY",     # the Lab Guide answers in-process
     "OPENAI_API_KEY",
     "SF_CLIENT_ID", "SF_CLIENT_SECRET",
+    # The _OBS connected app is a SECOND credential pair (D37/F6, per-caller
+    # identity) and was missed on the first run: both landed in plaintext on
+    # the task definition, which is exactly what this secret exists to prevent.
+    "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
+    "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
 ]
 print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
 PY
@@ -207,8 +212,27 @@ for path in pathlib.Path("src").rglob("*.py"):
         referenced.add(m.group(1))
 
 SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
+           "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
-           "ANTHROPIC_API_KEY", "OPENAI_API_KEY"}
+           "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
+
+
+def is_secret(name):
+    """An enumerated list only excludes the secrets someone remembered.
+
+    The first run put SF_CLIENT_ID_OBS, SF_CLIENT_SECRET_OBS and
+    A2ALAB_FANOUT_MCP_TOKEN on the task definition in the clear because the
+    list predated them. Names are a reliable signal here, so treat any
+    SECRET/TOKEN/KEY/PASSWORD variable as sensitive by default — EXCEPT the
+    `*_ARN` pointers (A2ALAB_PG_SECRET_ARN, A2ALAB_RUNTIME_SECRET_ARN), which
+    name a secret rather than being one and MUST stay in plain env or the
+    container cannot find what to fetch.
+    """
+    if name in SECRETS:
+        return True
+    if name.endswith("_ARN"):
+        return False
+    return any(w in name for w in ("SECRET", "TOKEN", "KEY", "PASSWORD"))
 # The task has its own identity and region; the laptop's must not ride along.
 # AWS_DEFAULT_REGION especially: this machine exports a different region than
 # .env sets, and boto3 prefers it — the container then looks for its secret in
@@ -217,12 +241,31 @@ AMBIENT = {"AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID
            "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "PATH", "HOME", "PWD"}
 
 env = {k: os.environ[k] for k in sorted(referenced)
-       if os.environ.get(k) and k not in SECRETS and k not in AMBIENT}
+       if os.environ.get(k) and not is_secret(k) and k not in AMBIENT}
 env["A2ALAB_RUNTIME_SECRET_ARN"] = os.environ["A2ALAB_RUNTIME_SECRET_ARN"]
 env["AWS_REGION"] = os.environ["DEPLOY_REGION"]
 # Hosted console: no traces/ directory, no .a2alab. Aurora is the only source.
 env["A2ALAB_TRACE_SINK"] = "postgres"
 env["A2ALAB_OBS_STORE"] = "postgres"
+# Aurora, set EXPLICITLY — the scan above cannot see these. observability/pg.py
+# reads them as os.environ.get(SECRET_ARN_ENV), i.e. through a module constant,
+# and the regex only matches a string literal inside the call. The first run
+# shipped A2ALAB_PG_CLUSTER_ARN (it appears literally elsewhere) but not
+# A2ALAB_PG_SECRET_ARN, so PgClient.configured() was False and /api/traces,
+# /api/obs/*, /api/cost-brief and build-telemetry all returned empty with the
+# console otherwise healthy. deploy_bridge.sh sets these the same explicit way.
+#
+# The WRITER secret, matching the bridge and for the same reason: with
+# A2ALAB_TRACE_SINK=postgres, PostgresSink INSERTs through PgClient.from_env(),
+# which reads A2ALAB_PG_SECRET_ARN. Handing it the lab_reader ARN would leave
+# the console reading fine and failing every trace write.
+_cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
+_writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
+if _cluster and _writer:
+    env["A2ALAB_PG_CLUSTER_ARN"] = _cluster
+    env["A2ALAB_PG_SECRET_ARN"] = _writer
+if os.environ.get("A2ALAB_PG_DATABASE"):
+    env["A2ALAB_PG_DATABASE"] = os.environ["A2ALAB_PG_DATABASE"]
 print(json.dumps([{"name": k, "value": str(v)} for k, v in env.items()]))
 PY
 )

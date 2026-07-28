@@ -47,6 +47,7 @@ flowchart TB
     SHIM["Agentforce A2A/MCP shim<br/>Lambda + API Gateway"]
     FANOUT["Fan-out MCP server<br/>Lambda + API Gateway"]
     OBS["Obs harvest + obs MCP<br/>Lambda + Aurora"]
+    CONSOLE["Lab console<br/>ECS Fargate, rule on the bridge ALB"]
   end
 
   subgraph GCP["GCP — us-central1"]
@@ -62,7 +63,7 @@ flowchart TB
   end
 
   subgraph LAP["The laptop — dev only"]
-    LOCAL["run_local.sh stack<br/>console, protocol servers"]
+    LOCAL["run_local.sh stack<br/>nine protocol faces"]
     TUNNEL["cloudflared tunnel"]
   end
 
@@ -501,6 +502,7 @@ flowchart LR
     R7["src/platforms/adk/"]
     R8["src/platforms/foundry/core.py"]
     R9["src/console/ + src/platforms/guide/"]
+    R11["protocol faces (9)"]
     R10["salesforce/"]
   end
   R1 -->|"deploy/bridge/deploy_bridge.sh"| D1["ECS service a2alab-bridge"]
@@ -511,7 +513,8 @@ flowchart LR
   R6 -->|"deploy/obs/build_zips.sh + deploy_harvest.sh"| D6["Lambdas obs-harvest + obs-mcp"]
   R7 -->|"deploy/adk/deploy_adk.py"| D7["Agent Engine x3"]
   R8 -->|"deploy/foundry/provision_foundry.py"| D8["Foundry agents"]
-  R9 -->|"scripts/run_local.sh"| D9["Laptop only"]
+  R9 -->|"deploy/console/deploy_console.sh"| D9["ECS service a2alab-console<br/>(rule on the bridge ALB)"]
+  R11 -->|"scripts/run_local.sh"| D11["Laptop only"]
   R10 -->|"Salesforce DX MCP deploy"| D10["Production org"]
 ```
 
@@ -531,7 +534,8 @@ flowchart LR
 | — | `deploy/adk/provision_aws_federation.py` | GCP→AWS trust: one IAM role | AWS |
 | — | `deploy/fanout/provision_gcp_federation.py` | AWS→GCP: pool, provider, mapping, condition, impersonation | GCP |
 | `src/platforms/foundry/core.py` | `deploy/foundry/provision_foundry.py`, `provision_leg_agent.py` | Foundry agents + RemoteA2A connection to the shim + inbound A2A | Azure |
-| `src/console/`, `src/platforms/guide/`, protocol servers | `scripts/run_local.sh` | **Nothing hosted** — laptop only. WS13 moves the console first: `deploy/console/deploy_console.sh` is written and **not yet run** | local |
+| `src/console/` + `src/platforms/guide/` | `deploy/console/deploy_console.sh` | ECR image + task def + ECS service `a2alab-console` on cluster `a2alab`, target group + **host-header rule on the bridge's existing ALB** (no second load balancer), roles `a2alab-console-task` / `-exec`, secret `a2alab/runtime/console`. Deployed 2026-07-28; DNS still points at the tunnel | AWS |
+| the nine protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | `scripts/run_local.sh` | **Nothing hosted** — laptop only. WS13 item 2 | local |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; metrics land in CloudWatch | laptop → AWS |
 | `.env` (gitignored) | `scripts/env_sync.py push` | Secrets Manager secret `A2ALAB_ENV_SECRET` — every platform credential, the account ids, the project ids | AWS |
@@ -542,7 +546,7 @@ flowchart LR
 
 | Still local | Problem? |
 |---|---|
-| The console (`:8200`) and the Lab Guide | No — it is a workspace and a viewer, not a call path. |
+| The console (`:8200`) and the Lab Guide | **No longer local** — on ECS Fargate since 2026-07-28 (WS13 item 1). `cloudflared` still serves the hostname until DNS is cut over, and stays afterwards for local development. |
 | The protocol servers (`:8001`–`:8003`, `:8011`–`:8013`) | No — the hosted equivalents are the AgentCore runtimes; these are the dev loop. |
 | `cloudflared` tunnel | Reduced — the bridge left it on 2026-07-26. It still fronts the console and the direct protocol hostnames. |
 | The brief watcher (`python -m briefs --watch`) | **Yes** — the last laptop dependency on a live path, and the open half of WS7. |
@@ -619,6 +623,8 @@ The choices above that look inconsistent until you know what drove them:
 | …store platform keys in the task definitions? | D39. Task definitions carry a secret ARN; the values are fetched at start from Secrets Manager. |
 | …automate the TLS/DNS cutover? | It is a Salesforce-visible hostname. Verified on the ALB's own hostname first, then one DNS change against a known-good target. |
 | …give the console a CDN front door so it works behind the corporate proxy? | Tried and reverted 2026-07-27. It worked — but it solved the wrong problem. The proxy blocks the lab's whole domain at DNS (a hostname that never existed still hangs 30s), so no front door fixes the *domain*, and the operator is content to drop the proxy to view the console. What actually hurt was the laptop being on the runtime path, which is WS13. |
+| …give the console its own load balancer? | A second ALB is ~$16/month for nothing. The bridge's already terminates TLS on :443 with the `*.agenticthings.com` origin cert, so an extra face costs a target group, a **host-header rule** and a task. The bridge stays the listener's default action and carries no rule, so a wrong host pattern can only make the console unreachable — it cannot break Path A. |
+| …trust that a deploy which passes its own runbook is verified? | D48. The console's first hosted run passed every check — image, secret, rule, stable service, `/healthz` 200 — while serving every `/api` surface unauthenticated, because its runtime secret was created, shipped and never loaded, and the auth middleware treats a missing token as *auth is off*. A valid-token check proves nothing when all tokens are accepted; the negative test is the one that finds it. |
 | …make the credential analyst a Managed Agent like the other two? | It was one, and it was demoted (D44). Its work is one round trip over a report a person just collected — no tools, no schedule, no state. The agent object, setup step and state file were surface with nothing behind them. |
 
 ## Presenter notes
