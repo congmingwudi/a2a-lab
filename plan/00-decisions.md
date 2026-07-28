@@ -1692,3 +1692,61 @@ which the plan mentioned:
 Secrets Manager, attached to deployment `depl_01C6…`, and immediately picked up
 a scheduled session that had been idling with no watcher — which is also the
 proof of the design's forgiveness: nothing is lost while it is down.
+
+## 2026-07-28 — D53: Excluding a credential is not relocating it, and the issuer holds the key
+
+**Context.** The hosted console rejected every login with "wrong user or
+password", for both personas, using the passwords in `.env`. Two independent
+faults, and the second was hidden behind the first.
+
+**Fault 1 — the passwords were deleted, not moved.** D48 replaced the deploy
+scripts' enumerated secret-exclusion list with a rule: any
+`SECRET|TOKEN|KEY|PASSWORD` variable is kept off the task definition. That is
+right, and it correctly caught `A2ALAB_OPERATOR_PASSWORD` and
+`A2ALAB_VIEWER_PASSWORD` — which no previous list had named. But the *other*
+half of the pattern is the secret's `keys = [...]` list, and it was not widened
+to match. A credential excluded from the plain environment and added to nothing
+simply ceases to exist. The container held no passwords, and
+`identity.authenticate` compared the supplied one against `""`.
+
+**Fault 2 — the issuer had no signing key.** `identity.py` had an env route for
+the **public** half of the lab JWT keypair and none for the private, on an
+explicit and reasonable premise: *containers have no keypair and must never hold
+the signing key*. That premise holds for a seam that only **verifies** a token.
+It does not hold for the console, which **issues** them at `/api/login`.
+
+With no private key in the environment, `_private_key()` fell through to
+`ensure_keypair()`, which generated a fresh RSA pair into the container's own
+ephemeral filesystem. The container then signed with that key and verified
+against the configured public one. The observable behaviour is the worst
+available: **login succeeds and returns a token**, and every subsequent request
+401s, with `InvalidSignatureError` swallowed two layers down by a deliberate
+never-raise in the auth middleware.
+
+**Decision.**
+
+1. **Both halves of the keypair travel in the runtime secret**, and
+   `_private_key()` reads `A2ALAB_JWT_PRIVATE_KEY` first. The rule is now: a
+   seam that only verifies gets the public half; **an issuer gets both**.
+2. **A pattern-based exclusion must be paired with the relocation.** Whenever
+   `is_secret()` starts catching a new variable, that variable belongs in the
+   secret's `keys` list in the same change. The two lists are one mechanism.
+3. **Failing closed on the credential is better than failing closed on the
+   request.** `ensure_keypair()` generating a key for a container is a silent
+   substitution of a wrong answer for a missing one. It is left in place for
+   local development, where it is correct and convenient, and the hosted path
+   now supplies the key explicitly.
+
+**Why it took three attempts to see.** Each fix was deployed with
+`--skip-build`, which rewrites the task definition and the secret but **not the
+image**. So the environment was right and the code reading it was a build old —
+including `PRIVATE_KEY_ENV`, which did not exist in the running image at all.
+The diagnosis only landed after running the deployed image locally and finding a
+`lab_jwt_private.pem` the container had written for itself. This is now a
+convention in CLAUDE.md and a row in plan/10-operations.md: **when a fix does not
+take effect, check the image before re-reading the code.**
+
+**Consequence.** `plan/10-operations.md` exists as of this decision — the
+procedures for rotating these credentials had no home, and the reason a rotation
+needs a redeploy (the per-seam secret is built by the deploy script, not by
+`env_sync`) is worth writing down next to the procedure rather than rediscovering.

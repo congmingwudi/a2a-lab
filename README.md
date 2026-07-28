@@ -788,4 +788,8 @@ what is deployed, where, and why there, including the four DNS records (L5.5)
 and the file→deployment table (L6). The console's Architecture section renders
 it live.
 
+**Running it once deployed:** [plan/10-operations.md](plan/10-operations.md) — rotating the console passwords
+and the JWT keypair, which deploys need a rebuild and which do not, moving the
+brief watcher, and the ordered list to work down when the console looks broken.
+
 Milestone status and next steps: see plan/00-decisions.md and plan/02-matrix.md.
