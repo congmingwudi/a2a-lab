@@ -41,6 +41,18 @@ from interop.registry import Registry
 from interop.trace import DEFAULT_TRACE_DIR, TRACE_DIR_ENV
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Every hop between a browser and this app has an idle timeout, and an SSE
+# stream that emits only when trace hops land looks idle for as long as the lab
+# is quiet. The ALB the console moves behind (WS13) uses 120s; proxies and CDNs
+# commonly default to 30s. 15s is inside all of them.
+#
+# The failure this prevents is silent, which is why it is a constant and not a
+# preference: the browser's EventSource reconnects after a drop, but the new
+# generator rebuilds its per-file offsets from current EOF — so hops that
+# landed during the gap are never sent, and the live tail under-reports with no
+# error anywhere.
+SSE_KEEPALIVE_S = 15.0
 SCENARIOS_PATH = Path("config/scenarios.yaml")
 DECISIONS_PATH = Path("plan/00-decisions.md")
 
@@ -1030,14 +1042,35 @@ def create_console_app(registry: Registry | None = None):
         """Credential countdown for the operator (scripts/expiry_report.py).
 
         Operator-only: expiry dates describe the lab's rotation posture, which
-        is not part of the public exhibit. Served from `.a2alab/expiry.json`
-        rather than by shelling out per request — the collectors call four
-        cloud APIs and take seconds, which is a refresh action, not a page load.
+        is not part of the public exhibit. Served from a stored snapshot rather
+        than by shelling out per request — the collectors call four cloud APIs
+        and take seconds, which is a refresh action, not a page load.
+
+        **Hosted store first, local file second (WS13).** The collector needs
+        the operator's own AWS/az/gcloud sessions, so it cannot run in the
+        container the console will move into; reading only `.a2alab/expiry.json`
+        would leave this endpoint permanently empty once hosted. The file
+        remains the fallback so a laptop run with no Aurora config still works.
         """
         import json as _json
 
         if not _is_operator(request):
             raise HTTPException(status_code=403, detail="operator-only")
+
+        try:
+            from observability.pg import STATE_EXPIRY, PgClient, PgObsStore
+
+            if PgClient.configured():
+                store = PgObsStore()
+                try:
+                    stored = store.get_state(STATE_EXPIRY)
+                finally:
+                    store.close()
+                if stored:
+                    return stored
+        except Exception:  # noqa: BLE001 - fall through to the file
+            pass
+
         path = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "expiry.json"
         if not path.exists():
             return {
@@ -1193,6 +1226,16 @@ def create_console_app(registry: Registry | None = None):
             media_type="text/markdown; charset=utf-8",
             headers={"content-disposition": 'attachment; filename="a2a-lab-insights.md"'},
         )
+
+    @app.get("/healthz")
+    async def healthz():
+        """Liveness for the ALB target group (WS13).
+
+        Deliberately answers from process state only — no store round trip. A
+        health check that reaches Aurora turns a slow query into a rolling task
+        replacement, and the console's job when the store is down is to say so,
+        not to be replaced."""
+        return {"status": "healthy", "app": "console"}
 
     @app.get("/api/decisions")
     async def decisions():
@@ -1739,8 +1782,19 @@ def create_console_app(registry: Registry | None = None):
                 for path in trace_dir.glob("*.jsonl"):
                     offsets[path] = path.stat().st_size
             yield "event: hello\ndata: {}\n\n"
+            # A quiet lab emits nothing, and every intermediary reads silence as
+            # a dead connection — the ALB the console moves behind (WS13) idles
+            # at 120s, proxies commonly at 30s. The browser's EventSource
+            # reconnects, but `offsets` is rebuilt from current EOF on the new
+            # generator, so hops that landed during the gap are skipped and the
+            # tail lies by omission. A comment line is the SSE no-op that keeps
+            # the connection warm.
+            last_emit = time.monotonic()
             while True:
                 await asyncio.sleep(0.5)
+                if time.monotonic() - last_emit >= SSE_KEEPALIVE_S:
+                    last_emit = time.monotonic()
+                    yield ": keepalive\n\n"
                 trace_dir = _trace_dir()
                 if not trace_dir.exists():
                     continue
@@ -1764,6 +1818,7 @@ def create_console_app(registry: Registry | None = None):
                         continue  # partial line — pick it up next poll
                     offsets[path] = prev + last_newline + 1
                     for event in _parse_lines(chunk[: last_newline + 1]):
+                        last_emit = time.monotonic()
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(
@@ -2533,6 +2588,11 @@ def create_console_app(registry: Registry | None = None):
         app,
         exempt_paths=(
             "/",
+            # WS13: the ALB health check has no credentials and never will —
+            # a gated health path marks every task unhealthy and the service
+            # never stabilises. It answers {"status":"healthy"} and nothing
+            # else, so exempting it discloses only that the process is up.
+            "/healthz",
             "/api/users",
             "/api/login",
             "/api/scenarios",

@@ -457,9 +457,22 @@ to the credential analyst, which was deliberately demoted to a plain API call:
 the sentinel passes all three tests that one failed (it needs tools — the delta
 is a SQL question; it can genuinely be scheduled — collection runs in the harvest
 Lambda, not on a laptop; and it needs state — week-over-week needs history).
-Created **paused**, because a firing bills a real session. The framing behind all
-of this, written for a presales conversation, is
+Created **paused**, because a firing bills a real session. Its first firing
+(2026-07-28) did the thing it was built for: it **refused** the week-over-week
+comparison as too thin rather than inventing one, attributed the day-over-day
+move to session count on the same repo and model, and — unprompted — flagged a
+CloudWatch permission gap in its own input. The framing behind all of this,
+written for a presales conversation, is
 `build-notes/claude/10-consumption-and-list-price.md`.
+
+Getting it from code-complete to running produced **D46**: four separate ways an
+artifact can be built and never deployed, every one of which reported success. A
+zip nobody pushed, a schema migration whose only caller lacked the privilege to
+run it, a backfill that could not write since a credential split, and a
+permission that existed as a comment rather than a policy. The rule that came
+out of it — *a build step that produces an artifact must also own shipping it* —
+is D37's "config no script owns is config nobody updates", reaching build
+artifacts and database schema.
 
 ## The A2A implementation
 
@@ -511,8 +524,19 @@ Two implementation notes:
 - The agent card advertises `streaming: true`, but the lab client runs
   `ClientConfig(streaming=False)`: streaming is out of scope for v1 (Apex
   callouts are buffered). D11 scoped one SSE demo as a capability comparison
-  and it was never built — a declared capability the lab has not exercised,
-  which is exactly the gap WS11 (A2A fire-then-poll) exists to close.
+  and it was never built — a declared capability the lab has not exercised.
+- **The asynchronous half of A2A is now exercised, and it was one unset field**
+  (D47). `SendMessage` MUST return immediately and processing MAY continue
+  after; the lab had implemented that lifecycle and driven it synchronously for
+  months, because `configuration.return_immediately` was never set. Setting it
+  took the hosted Agentforce shim from work bounded by API Gateway's 29s
+  integration timeout to **31.1 seconds of work completed behind it, with a
+  longest single request of 1.18s**. Support is uneven and only measurement
+  shows it: Azure Foundry implements the async half, while Vertex AI Agent
+  Engine returns a task id in 826ms that no request shape reads back. And on a
+  scale-to-zero runtime the polling *is* the compute — submit then stay quiet
+  for 45s and the task is still WORKING, because Lambda freezes between
+  invocations. Numbers in `plan/03-results.md`.
 
 ### The A2A version spectrum — and the lab's compatibility layer
 

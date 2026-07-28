@@ -175,7 +175,11 @@ targets:
     protocol: foundry-api
     # The platform's own front door (D15 entry): the project's Responses
     # surface with an agent_reference. No endpoint here — the client builds
-    # it from AZURE_FOUNDRY_PROJECT_ENDPOINT (Entra ADC auth). 100s: the
+    # it from AZURE_FOUNDRY_PROJECT_ENDPOINT. Auth is an explicit Entra
+    # SERVICE PRINCIPAL, never DefaultAzureCredential (D39) — this comment
+    # said "ADC" until 2026-07-28, which describes the one thing
+    # platforms/foundry/core.py refuses to do, and reads as though the cell
+    # depends on a developer's own az login. 100s: the
     # client retries a failed platform-side tool call once (cold shim leg
     # ~30s + warmed retry ~40s must both fit).
     status: native

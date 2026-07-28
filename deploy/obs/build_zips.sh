@@ -40,7 +40,14 @@ uv pip install --target "$DIST/harvest" \
 cp -R src/observability "$DIST/harvest/observability"
 rm -f "$DIST/harvest/observability/analyst.py"
 mkdir -p "$DIST/harvest/interop"
-cp src/interop/trace.py "$DIST/harvest/interop/"
+# cloud_auth alongside trace: observability/credentials.py imports
+# interop.cloud_auth for the EXPLICIT Azure service-principal credential (D39 —
+# never DefaultAzureCredential). The import is lazy, inside the function, so
+# omitting it does not break the bundle at load — only the foundry source, and
+# only at harvest time, with `No module named 'interop.cloud_auth'` recorded as
+# that platform's status while every other platform reports ok. Found 2026-07-27
+# the first time this bundle was rebuilt after cloud_auth was introduced.
+cp src/interop/trace.py src/interop/cloud_auth.py "$DIST/harvest/interop/"
 echo '"""packaging shim (deploy/obs/build_zips.sh)"""' > "$DIST/harvest/interop/__init__.py"
 (cd "$DIST/harvest" && zip -qr ../a2alab-obs-harvest.zip . -x '*__pycache__*')
 

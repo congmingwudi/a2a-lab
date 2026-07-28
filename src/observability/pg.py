@@ -110,7 +110,23 @@ DDL: list[str] = [
     # which is correct — they were all its briefs before the sentinel existed.
     f"""ALTER TABLE {SCHEMA}.obs_briefs
         ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'observability'""",
+    # WS13: small operator artifacts that the console reads but does not
+    # compute — today the credential expiry snapshot, which lived only in
+    # `.a2alab/expiry.json`. A hosted console has no `.a2alab`, so anything
+    # read from a local file is a laptop dependency wearing a cache costume.
+    # Deliberately a key/value table rather than a column per artifact: these
+    # are whole documents produced by a script and rendered verbatim, and a
+    # second one should not need a migration.
+    f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.lab_state (
+        key        text PRIMARY KEY,
+        payload    jsonb NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+    )""",
 ]
+
+# Keys used in lab.lab_state. Named here so a typo is an ImportError rather
+# than a silently empty read.
+STATE_EXPIRY = "expiry"
 
 # The brief kinds that share lab.obs_briefs. Unknown values are accepted on
 # write (a future analyst should not need a schema change) but the console
@@ -421,6 +437,40 @@ class PgObsStore:
                 FROM {SCHEMA}.obs_briefs {where} ORDER BY id DESC LIMIT :limit""",
             {"limit": limit, **({"kind": kind} if kind else {})},
         )
+
+    # ---- lab_state: operator artifacts a hosted console must not read from
+    # a local file (WS13) ---------------------------------------------------
+
+    def put_state(self, key: str, payload: Any) -> None:
+        """Upsert one artifact. The producer is a script with the operator's
+        cloud sessions; the reader is a console that may be running in a
+        container with no `.a2alab` at all."""
+        self.client.execute(
+            f"""INSERT INTO {SCHEMA}.lab_state (key, payload, updated_at)
+                VALUES (:key, CAST(:payload AS jsonb), now())
+                ON CONFLICT (key) DO UPDATE SET
+                  payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at""",
+            {"key": key, "payload": json.dumps(payload, ensure_ascii=False)},
+        )
+
+    def get_state(self, key: str) -> dict[str, Any] | None:
+        """The stored document plus `stored_at`, or None. Returns the artifact
+        itself rather than a wrapper so callers render it unchanged — the
+        freshness stamp is added as a field because an operator looking at a
+        credential countdown needs to know how old it is."""
+        rows = self.client.execute(
+            f"""SELECT payload, CAST(updated_at AS text) AS updated_at
+                FROM {SCHEMA}.lab_state WHERE key = :key""",
+            {"key": key},
+        )
+        if not rows:
+            return None
+        payload = rows[0]["payload"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if isinstance(payload, dict):
+            payload = {**payload, "stored_at": rows[0]["updated_at"]}
+        return payload
 
     def close(self) -> None:
         self.client.close()

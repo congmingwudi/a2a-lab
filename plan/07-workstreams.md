@@ -23,11 +23,15 @@ tools and the model schedules them; measured 3/3 units in a single turn) and
 **WS9 is shipped end to end** (both exporters live, per-repo and per-model
 attribution read back through the console, its own Harvest button). The
 **Console and exhibit backlog at the end of this file is cleared** (D42 settled
-the chip/mark tier rule). What is open, in the order it was raised: **WS7**
-(hosted completion — the watcher is the last laptop dependency), **WS11** (A2A
-fire-then-poll, which dissolves the API Gateway ceiling rather than working
-around it), then **WS10**, plus **WS12** (cost sentinel — the first scheduled
-operational agent that passes the tools/schedule/state test).
+the chip/mark tier rule). **WS12 is provisioned and has fired** (2026-07-27, paused, first scheduled
+firing 2026-08-03) — and provisioning it produced **D46**, after finding four
+ways an artifact can be built without ever being deployed. **WS11's client half
+is measured** (D47): the API Gateway ceiling is dissolved, and the per-platform
+table of who implements A2A's async half is in plan/03-results.md.
+
+What is open: **WS13** (full hosting — this supersedes WS7, which is closed
+except for its completed bridge item), the remainder of **WS11** (the fan-out
+server's submit/check tools), then **WS10**.
 
 Rules that apply to every workstream:
 - **Twin rule (D25):** each platform gets its own Agentforce twin agent
@@ -1506,6 +1510,48 @@ editing one and not the other fails the suite instead of the demo.
 
 ## WS11 — A2A fire-then-poll: the protocol's own answer to the gateway ceiling (raised 2026-07-26)
 
+**Status 2026-07-27: the client half is BUILT and the per-platform measurement
+is TAKEN (D47).** `A2AClient.submit()` / `.poll()` ship alongside the blocking
+`ask()`, `tests/e2e/test_a2a_async.py` proves the shape against a deterministic
+slow adapter, and `scripts/a2a_async_probe.py` produced the per-platform table
+in plan/03-results.md. Three results, in order of importance:
+
+1. **The gateway ceiling is dissolved, measured on the component that hit it.**
+   The hosted Agentforce shim ran **31.1s of work behind API Gateway's 29s
+   integration timeout**, longest single request **1.18s**. The quota request
+   and the apigatewayv2→v1 migration D41 costed out are both unnecessary for
+   this path.
+2. **The workstream's stated blocker did not exist.** No change to
+   `AdapterExecutor` was needed — the a2a-sdk already honours
+   `configuration.return_immediately` and keeps consuming in a background task.
+   The lab had the async half switched on and had simply never asked for it.
+3. **Support is uneven, and Lambda is not free.** Foundry implements the async
+   lifecycle properly; Agent Engine returns a task id it will not give back
+   (submit-only — an async submit there loses the answer); and on Lambda the
+   background work only advances while the client polls, because the runtime
+   freezes between invocations.
+
+**Build item 3 — the durable half, written 2026-07-28.** `src/fanout_mcp/tasks.py`
+plus `lab.fanout_tasks` (migrated, live). The obvious submit/check would have
+been broken, and finding 3 above is why: starting a leg in the background of the
+invocation that returns the task id gives work that does not progress, in state
+no other instance can read. So the state goes in Aurora, which every instance
+shares, and the work runs in a **separate invocation** (`InvocationType='Event'`)
+that owns its own execution window. Six tests pin the properties that follow
+from the measurement — submit does not do the work, a second instance can read a
+task it did not create, a worker that raises leaves FAILED rather than a task
+stuck WORKING for ever, and a redelivered task (async invoke is at-least-once)
+does not re-run the leg and bill a second agent call.
+
+**Still open:** the submit/check MCP tools themselves are not registered yet, so
+build item 4 — the orchestrator prompt, and the measurement of whether the model
+polls sensibly or busy-waits — is unmeasured. That measurement is now sharper
+than when it was written: on Lambda, polling is what advances the work, so a
+model that backs off politely makes its own run slower. The dispatcher and the
+worker are in place and tested; wiring them into the registry and redeploying
+the fan-out bundle is the next step.
+
+
 **Why this exists.** D41 measured the cost of putting agent work behind a
 managed gateway: the fan-out MCP server's legs inherit API Gateway's 30s
 ceiling, against 120s host-side. The workaround so far is to keep legs fast and
@@ -1594,12 +1640,22 @@ behaviour observed and written up.
 
 ## WS12 — Cost sentinel: a scheduled agent over the build-telemetry store (raised 2026-07-27)
 
-**Status: BUILT 2026-07-27, not yet provisioned (D44).** Code, console view and
-tests are in; the agent and its weekly deployment have not been created against
-the Claude platform yet — run `scripts/setup_cost_sentinel.py` (needs
-`.a2alab/managed.json` and `.a2alab/obs_mcp.json`). Exit criteria below are
-therefore **not** met: they require a real firing. All three open questions are
-settled — see the answers inline.
+**Status: PROVISIONED 2026-07-27 (D44).** The agent, its own vault on the obs
+MCP server and the weekly deployment (`0 7 * * 1` America/New_York, next firing
+2026-08-03) exist and the deployment is **paused**, as designed. Exit criteria
+below are **not** met yet and cannot be for another week — see "What
+provisioning found" and "What the data supports" at the end of this section.
+
+**What provisioning found — three gaps between built and running, now D46.**
+Getting from code-complete to a working firing was not one setup script. The
+`kind` column had never reached Aurora (the DDL's only caller runs as
+`lab_writer`, which cannot ALTER a master-owned table, and caught the failure as
+"assuming provisioned"); nothing in the repo had ever pushed the obs MCP zip, so
+the deployed function predated the column by three days; `pg_backfill.py` had
+been unable to write rows at all since the reader/writer secret split; and the
+hosted harvest both predated `coding_source.py` and lacked the CloudWatch PromQL
+grant, so **Aurora held zero coding rows** while the local console looked
+healthy. All four are fixed, and `scripts/pg_migrate.py` now owns DDL.
 
 **Goal.** A weekly briefing that answers the question nobody remembers to ask
 until the invoice arrives: *what did this lab cost this week, how does that
@@ -1686,6 +1742,50 @@ a cost movement the operator can independently verify from the by-day table —
 and one week where nothing notable happened produces a brief that says so in two
 lines.
 
+**First firing, 2026-07-28 (manual, while paused).** The brief is in
+`lab.obs_briefs` with `kind='cost'`, and it did the thing it was built to do:
+it **refused the week-over-week comparison** ("too thin for a week-over-week
+read"), reported the two days it had, and attributed the movement correctly —
+$16.22 → $171.31 driven by 1 → 7 sessions and 9.5x active time on the *same*
+repo and model, with cost per active-second flat at +6%, explicitly ruling out a
+mix shift. Every figure was checked against `lab.obs_sessions` by hand and
+matches to the cent. It kept Codex's sessions out of the dollar total, led with
+the list-price caveat once, and — unprompted — **flagged the CloudWatch 403 as
+an operational risk to next week's brief**, which is exactly the missing PromQL
+grant D46 describes. An agent reporting the gap in its own input is the best
+available evidence that rule 1 is holding.
+
+**`obs_briefs.session_id` — closed by reconciliation 2026-07-27.** The column
+had been null for every brief either analyst ever wrote, and it is structurally
+unfillable at the write site: `save_brief` takes it as a tool argument, and the
+Managed Agents runtime never tells the agent its own session id. Stamping it
+from `cost_sentinel.py run` would have covered manual firings only — the weekly
+cron has no local runner, which is the entire point of scheduling it. The id
+lives on the deployment RUN, so the join happens after the fact:
+`cost_sentinel.py reconcile` matches each unlinked brief to the newest run
+starting at or before it within an hour, claiming each session at most once
+(two briefs matching one session means the guess is wrong, so both are left
+null rather than duplicated). It runs opportunistically from `status` — the
+command a person runs after a scheduled firing — and explicitly on demand.
+Verified against the first firing: it recovered `sesn_01ExJPuJvqKGSBuJQ8M1mpnp`
+at +73s, the same id `run` had printed, and a second pass is a no-op.
+
+**The analyst's brief is still unlinked** (`kind='observability'`, 2026-07-18).
+Same defect, different deployment id — the fix ports to `obs_analysis.py`
+unchanged, and has not been done.
+
+**What the data supports today (2026-07-27).** Aurora holds **three** coding
+day-rows: `claude-code:2026-07-26`, `claude-code:2026-07-27`, `codex:2026-07-27`.
+Telemetry is not retroactive and collection started on the 26th, so a
+week-over-week comparison is arithmetically impossible until 2026-08-03 — which
+is, conveniently, the first scheduled firing. The kickoff prompt already handles
+this ("if the store holds less than two weeks of data, say so and report what is
+there rather than inventing a comparison"), so the first brief is a test of rule
+1 — *never state a number you did not get from a query* — rather than of the
+attribution the workstream exists for. **A first brief that refuses to compare
+is a pass, not a failure**; the exit criteria stay open until a firing has two
+real weeks behind it.
+
 ---
 
 ## Console and exhibit backlog (raised 2026-07-26, after the hosted bridge)
@@ -1727,3 +1827,103 @@ Not a workstream — UI and presentation debt to clear before the demo.
    - The `aws-shim` warm-up row needed no change: it already carried the AWS
      mark and the solid AWS pill (shipped 2026-07-25, the day before this was
      raised). Left alone rather than "fixed" twice.
+
+---
+
+## WS13 — Full hosting: take the laptop off the runtime path (raised 2026-07-28)
+
+**Why this exists, in the operator's words:** *"can't the whole lab env stack be
+completely deployed on AWS and not rely on my AWS login from my host machine?"*
+Yes — and the question exposed that two different dependencies had been running
+together in the record:
+
+1. **Runtime.** The console, nine protocol faces and the Managed Agents watcher
+   run on a laptop and reach the world through `cloudflared`. This is the one
+   that hurts, and it is what this workstream removes.
+2. **The AWS login.** A *deploy-time* credential. Hosting does not remove it and
+   should not: you authenticate to push changes. Once deployed, nothing needs a
+   live session for the lab to keep working.
+
+**What this supersedes.** WS7 framed the same work as "hosted completion" and
+picked up a front-door problem along the way — the operator's corporate proxy
+blocks the lab's whole domain at DNS (measured in plan/03-results.md: a hostname
+that never existed still hangs 30s). A CDN front door was built, measured
+working, and reverted the same day, because it removed a *toggle* and left the
+*dependency*. With nothing running locally there is no cost to dropping the
+proxy to look at the console, so the front door stops being a problem worth
+solving. WS7's items 1, 2, 3 and 5 move here; its bridge item (7) is done.
+
+**The tunnel stays.** Explicitly kept for local development — it is a
+convenience for iterating on a laptop, not the lab's front door. WS7 item 6
+("retire or re-scope the tunnel") is settled as *re-scope*.
+
+### The shape, and why it is cheap
+
+The bridge already proved every piece of this on 2026-07-26: ECS Fargate, an
+ALB, and a one-field DNS cutover that is reversible. Two facts make the rest
+repetition rather than design, both **verified 2026-07-28**:
+
+- The bridge's ALB already terminates TLS on **:443** with the imported
+  Cloudflare Origin certificate for `*.agenticthings.com` — so every lab
+  hostname is already covered and **no new certificate is needed**.
+- Additional faces are a **listener rule**, a target group and a task. Not
+  another load balancer, which is what made this look expensive.
+
+The bridge stays the listener's **default action** and carries no rule, so a
+malformed host condition can only make a new face unreachable — it cannot break
+Path A. That property is why the work is safe to do incrementally.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | **Console on Fargate** behind the bridge ALB | `deploy/console/deploy_console.sh` + Dockerfile **written, NOT run** |
+| 2 | Nine local protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | not started |
+| 3 | **Hosted watcher** — EventBridge Lambda servicing Managed Agents custom tool calls | not started (was WS7 item 3) |
+| 4 | Widen `modes:` in `config/targets.yaml` as each face lands | not started |
+| 5 | Re-scope `cloudflared` to local development | decided, no work |
+
+**Item 1 is written and unrun.** The script is modelled line-for-line on
+`deploy/bridge/deploy_bridge.sh`, including its two hard-won details: env vars
+derived from *both* `targets.yaml` and a scan of what the code reads (a client
+can read `os.environ` for something in no config file — `SF_AGENT_ID` taught
+that), and the ambient-shell exclusion that keeps the laptop's
+`AWS_DEFAULT_REGION` from misdirecting the container's secret lookup. The first
+run needs a person watching, because its one risky step touches the load
+balancer Salesforce depends on.
+
+### What had to change in the console before it could be hosted
+
+Both found by asking what a container would *not* have, rather than by running
+it:
+
+- **`/healthz`** did not exist. The ALB health check carries no credentials, so
+  it also had to join the auth-exempt list — a gated health path marks every
+  task unhealthy and the service never stabilises.
+- **`/api/expiry` read `.a2alab/expiry.json`**, a file no container has. The
+  collector cannot move into the container either: it needs the operator's own
+  AWS/az/gcloud sessions. Resolved by giving the hosted store a `lab.lab_state`
+  key/value table — `scripts/expiry_report.py --write` now publishes there as
+  well as to the file, and the console reads the store first and falls back to
+  the file. **Verified 2026-07-28:** 14 credentials round-tripped through
+  Aurora. A key/value table rather than a column per artifact, because these
+  are whole documents produced by a script and rendered verbatim, and the next
+  one should not need a migration.
+- **The image must carry the repo's prose.** The console *renders* `plan/`,
+  `docs/`, `build-notes/` and `README.md` through `/api/docs`, reads
+  `config/insights.yaml`, and parses `plan/09-deployment-map.md` for the
+  Architecture section. An image with only `src/` starts healthy and 404s every
+  doc chip.
+
+**Still to find:** the same question has not been asked of the Run buttons, the
+warm-up path or the obs harvest trigger. Each one that shells out, reads
+`.a2alab/`, or assumes a local trace directory is another item 1 discovery, and
+they will surface one at a time on the first hosted run rather than all at once.
+
+### Exit criteria
+
+`A2ALAB_MODE=hosted` with the laptop closed: the console reachable, an
+experiment runnable from it end to end, the async brief firing without a local
+watcher, and `config/targets.yaml` showing no `localhost` target that lacks a
+hosted counterpart. The tunnel still runs for local development and nothing in
+the live path depends on it.

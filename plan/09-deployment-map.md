@@ -279,7 +279,7 @@ flowchart TB
 
   subgraph OPS["Operational agents — not experiments"]
     EXP["expiry_report.py<br/>collector: AWS, Entra, GCP, ACM<br/>MEASURED dates only"]
-    CANA["A2ALab Credential Analyst<br/>Managed Agent · ad-hoc<br/>judgment, never arithmetic"]
+    CANA["credential analyst<br/>one Claude API call · ad-hoc<br/>judgment, never arithmetic"]
     EXP --> CANA
   end
   SM -.-> EXP
@@ -352,8 +352,8 @@ ECA secrets, the tunnel credential) is **declared** in
 `config/credentials.yaml` and labelled as such, so an intention never reads as a
 measurement.
 
-Above it sits the **A2ALab Credential Analyst** — a Claude Managed Agent, and
-the lab's first agent doing operations rather than experiments. It is handed the
+Above it sits the **credential analyst** — one Claude API call, and the lab's
+first agent doing operations rather than experiments. It is handed the
 measured report and asked what a threshold cannot answer: what to rotate first,
 what each failure would look like, and what the report does not cover. On its
 first run it found something neither the script nor the operator had noticed —
@@ -361,11 +361,22 @@ the GCP key and the Entra secret expire within days of each other next July, so
 that is one coordinated rotation rather than two events — and flagged that the
 no-expiry GCP key is the only credential that will never prompt anyone.
 
-Three design choices, each deliberate:
+Four design choices, each deliberate:
 
 - **The collector is deterministic and the agent never computes a date.** D22's
   rule (ETL below, interpretation above) applied to credentials. The agent's
   instructions forbid citing any number not in the report.
+- **It is a plain API call, not a Managed Agent — and it was built both ways.**
+  The first version was a Managed Agent and it worked; then the shape was
+  checked against what that abstraction is for. Hosted tool execution: no tools.
+  Scheduled deployments: cannot be scheduled, see the next bullet. Session
+  state: one shot. Managed sandbox: unused. What it cost was real —
+  `agents.create` + `sessions.create` + `events.send` + idle detection, a setup
+  step, a state file, an agent object to version, and a bug that existed only
+  because of the extra surface. A single `messages.create` is the same model,
+  the same prompt, the same data, in one round trip. D44 records the three tests
+  it failed and names the cost sentinel as the counter-example that passes them;
+  the moment collection moves server-side, this should go back.
 - **It is ad-hoc, not scheduled** — which is a limitation, stated. Collection
   needs the operator's own AWS SSO session, `az` login and `gcloud` ADC, so a
   cron firing in Anthropic's sandbox would report "cannot query" every night and
@@ -451,7 +462,28 @@ week-over-week needs history. Same lab, same rule, opposite answer.
 `scripts/obs_harvest.py` is *half* the job. The hosted Lambda
 (`observability/lambda_handlers.py`) and its bundle (`deploy/obs/build_zips.sh`)
 need the same entry and the client library — or the platform reads "blocked"
-hosted forever while local looks fine.
+hosted forever while local looks fine. **Proven again on 2026-07-27** (D46): the
+`coding` source existed locally for two days while Aurora held zero rows,
+because the deployed bundle predated it *and* the execution role had no PromQL
+grant — and an unauthorized read surfaces as the friendly "no coding metrics
+yet, switch the exporters on" status, so empty and forbidden look identical.
+
+**The store now holds two things that are not telemetry**, both because a hosted
+console cannot read a laptop's filesystem (WS13):
+
+- `lab.lab_state` — key/value, for operator artifacts the console *renders* but
+  cannot *produce*. The credential expiry snapshot lives here: collecting it
+  needs the operator's own AWS/az/gcloud sessions, so it can never run in the
+  container. `scripts/expiry_report.py --write` publishes to both the file and
+  the store; the console reads the store first.
+- `lab.fanout_tasks` — the durable half of A2A fire-then-poll (WS11/D47). On a
+  function runtime, in-memory task state is per-instance and background work is
+  frozen between invocations, so a submit/check pair that keeps state in the
+  process is broken in two separate ways.
+
+**Schema changes go through `scripts/pg_migrate.py`**, which connects as the
+table owner. `pg_backfill.py` moves rows and cannot ALTER — the split that D46
+exists to record.
 
 ---
 
@@ -492,16 +524,18 @@ flowchart LR
 | `src/platforms/openai/` | `deploy/agentcore/deploy.sh openai` | AgentCore runtime `a2alab_openai` + secret `a2alab/runtime/openai` | AWS |
 | `src/platforms/agentforce/` (shim) + `deploy/shim/handler.py` | `build_zip.sh` then `deploy_shim.sh` | Lambda `a2alab-af-shim` + API Gateway HTTP API + secret `a2alab/runtime/shim` | AWS |
 | `src/fanout_mcp/` | `build_zip.sh` then `deploy_fanout.sh` | Lambda `a2alab-fanout-mcp` + API Gateway + secret `a2alab/runtime/fanout-mcp` | AWS |
-| `src/observability/` | `deploy/obs/build_zips.sh` then `deploy_harvest.sh` / `expose_mcp.sh` | Lambdas `a2alab-obs-harvest` (EventBridge 6h) and `a2alab-obs-mcp` (+ API Gateway), secret `a2alab/obs/harvest` | AWS |
+| `src/observability/` | `deploy/obs/build_zips.sh` then `deploy_harvest.sh` / `expose_mcp.sh` | Lambdas `a2alab-obs-harvest` (EventBridge 6h) and `a2alab-obs-mcp` (+ API Gateway), secret `a2alab/obs/harvest`, role policy `a2alab-obs-promql` | AWS |
+| `src/obs_mcp/` | `deploy/obs/expose_mcp.sh` (`--code` for code alone) | Function code for `a2alab-obs-mcp`. **Nothing pushed this zip until 2026-07-27** — `expose_mcp.sh` built the API and left the code to a hand-run `update-function-code` | AWS |
+| `observability/pg.py` `DDL` | `scripts/pg_migrate.py` | Schema changes in Aurora `a2alab`, run as the **table owner**. `pg_backfill.py` (rows only) connects as `lab_writer`, which cannot ALTER | AWS |
 | `src/platforms/adk/` | `deploy/adk/deploy_adk.py` | Agent Engine deployments `a2alab-adk-researcher`, `a2alab-supply-orchestrator-adk`, `a2alab-logistics-agent` | GCP |
 | — | `deploy/adk/provision_aws_federation.py` | GCP→AWS trust: one IAM role | AWS |
 | — | `deploy/fanout/provision_gcp_federation.py` | AWS→GCP: pool, provider, mapping, condition, impersonation | GCP |
 | `src/platforms/foundry/core.py` | `deploy/foundry/provision_foundry.py`, `provision_leg_agent.py` | Foundry agents + RemoteA2A connection to the shim + inbound A2A | Azure |
-| `src/console/`, `src/platforms/guide/`, protocol servers | `scripts/run_local.sh` | **Nothing hosted** — laptop only | local |
+| `src/console/`, `src/platforms/guide/`, protocol servers | `scripts/run_local.sh` | **Nothing hosted** — laptop only. WS13 moves the console first: `deploy/console/deploy_console.sh` is written and **not yet run** | local |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; metrics land in CloudWatch | laptop → AWS |
 | `.env` (gitignored) | `scripts/env_sync.py push` | Secrets Manager secret `A2ALAB_ENV_SECRET` — every platform credential, the account ids, the project ids | AWS |
-| `scripts/credential_analyst.py` | `credential_analyst.py setup` | Managed Agent "A2ALab Credential Analyst" (no deployment — ad-hoc only) | Anthropic |
+| `scripts/credential_analyst.py` | — (no deploy step) | **Nothing hosted** — one `messages.create` per run, started by a person | laptop → Anthropic API |
 | `scripts/setup_cost_sentinel.py`, `scripts/cost_sentinel.py` | `setup_cost_sentinel.py` | Managed Agent "A2ALab Cost Sentinel" + weekly scheduled deployment (created **paused**) + its own vault on the obs MCP server | Anthropic |
 
 **What is still on the laptop, and whether that is a problem:**
@@ -584,6 +618,8 @@ The choices above that look inconsistent until you know what drove them:
 | …use one Salesforce connected app? | Salesforce attributes client-credentials calls to the app, so one app makes every caller look like one user in the audit trail. |
 | …store platform keys in the task definitions? | D39. Task definitions carry a secret ARN; the values are fetched at start from Secrets Manager. |
 | …automate the TLS/DNS cutover? | It is a Salesforce-visible hostname. Verified on the ALB's own hostname first, then one DNS change against a known-good target. |
+| …give the console a CDN front door so it works behind the corporate proxy? | Tried and reverted 2026-07-27. It worked — but it solved the wrong problem. The proxy blocks the lab's whole domain at DNS (a hostname that never existed still hangs 30s), so no front door fixes the *domain*, and the operator is content to drop the proxy to view the console. What actually hurt was the laptop being on the runtime path, which is WS13. |
+| …make the credential analyst a Managed Agent like the other two? | It was one, and it was demoted (D44). Its work is one round trip over a report a person just collected — no tools, no schedule, no state. The agent object, setup step and state file were surface with nothing behind them. |
 
 ## Presenter notes
 

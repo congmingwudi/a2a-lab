@@ -32,8 +32,16 @@ uv run python scripts/setup_managed_agent.py       # once: provisions the Manage
 uv run python scripts/obs_analysis.py run          # fire the hosted obs analyst (D23)
 uv run python scripts/cost_sentinel.py run         # fire the weekly cost sentinel (WS12/D44);
                                      # setup_cost_sentinel.py provisions it, created PAUSED
-uv run python scripts/pg_backfill.py               # copy local lab.db → hosted Aurora store
-deploy/obs/build_zips.sh                           # rebuild the obs Lambda bundles (D23)
+uv run python scripts/pg_backfill.py               # copy local lab.db ROWS → hosted Aurora
+uv run python scripts/pg_migrate.py                # apply observability.pg DDL as the table
+                                     # OWNER (needs A2ALAB_PG_MASTER_SECRET_ARN). The only
+                                     # path that can ALTER: lab_writer cannot, and pg_backfill
+                                     # used to swallow that as "assuming provisioned" (D46).
+deploy/obs/build_zips.sh                           # rebuild the obs Lambda bundles (D23);
+                                     # SHIP them with deploy/obs/deploy_harvest.sh [--code]
+                                     # and deploy/obs/expose_mcp.sh [--code] — building is
+                                     # not deploying, which is how the MCP function ran
+                                     # hand-pushed code for three days (D46)
 deploy/agentcore/deploy.sh <claude|openai>         # build/push/create-or-update an AgentCore runtime (D26)
 deploy/adk/deploy_adk.py                           # deploy/update the ADK agent on Vertex AI Agent Engine (WS2)
 uv run python deploy/foundry/provision_foundry.py  # provision/update the Foundry agent + connection + inbound A2A (WS3)

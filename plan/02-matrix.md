@@ -90,9 +90,15 @@ interop.
   Google, Azure **and** AWS from one GCP container with no long-lived
   credential in it — GCP→AgentCore over SigV4 via Google-OIDC→STS federation,
   3/3 legs, 16.8s wall (D40/D41; plan/03-results.md, trace `802a9a3b`).
-  What remains genuinely unmeasured is narrower and still worth a cell: the
-  **AWS→GCP direction** (the federation measured so far runs the other way, and
-  D40's finding is that the two directions cost very different amounts), and a
+  The **AWS→GCP direction is also measured** as of 2026-07-26 (D41): the
+  fan-out MCP Lambda holds no Google key, federates its ambient IAM role into a
+  GCP service account, and calls `adk-logistics-a2a` on Agent Engine — 3/3 legs
+  in two recorded runs (traces `ede9e3bc` 50.5s, `161d7a46` 42.6s), plus a
+  1.2s leg through the hosted bridge. This paragraph said that direction was
+  unmeasured until 2026-07-28; it was written before D41 landed and then not
+  revisited, which is the failure mode this ledger exists to catch.
+  What remains genuinely unmeasured is narrower still, and still worth a cell:
+  an **AgentCore runtime** (rather than a Lambda) as the AWS caller, and a
   **direct vendor-to-vendor A2A pairing** between the two agent runtimes rather
   than an orchestrator calling hosted legs.
 
@@ -173,3 +179,19 @@ interop.
   callers reach only the Agent API and now carry `Chatbot, SFApiPlatform`
   with no `Api` at all. Least privilege was an identity-modelling problem
   wearing a scope-configuration costume.
+- **Speaking A2A and implementing its async half are different claims**
+  (measured 2026-07-27, WS11/D47, `scripts/a2a_async_probe.py`). Every
+  `protocol: a2a` row in this matrix means the endpoint accepts
+  `message/send`. It says nothing about whether the endpoint honours
+  `configuration.return_immediately` and serves `tasks/get` — and the
+  agent card does not say either, because the spec's "MAY continue
+  asynchronously" lets a blocking implementation be fully conformant.
+  Measured: the hosted Agentforce shim and both Foundry agents implement
+  it; **Vertex AI Agent Engine is submit-only** — it returns a task id in
+  826ms that no tried request shape reads back (`GET /tasks/{id}` →
+  *"A2A version '0.3' is not supported by this handler"*), so an async
+  submit there silently loses the answer and its legs must keep the
+  blocking `ask()`. The matrix deliberately does NOT grow an "async"
+  column yet: one probe per endpoint on one day is thin evidence for a
+  standing claim, and Agent Engine's cause is unresolved rather than
+  established. plan/03-results.md carries the numbers.

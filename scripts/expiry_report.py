@@ -414,6 +414,42 @@ ICON = {
 }
 
 
+def _publish(report: dict) -> None:
+    """Also push the snapshot to the hosted store (WS13).
+
+    The console renders this report but cannot produce it — collecting expiry
+    dates needs the operator's own AWS/az/gcloud sessions, which a container
+    does not have. Writing it to `.a2alab/expiry.json` alone therefore makes the
+    console unhostable: the file is a laptop dependency wearing a cache costume.
+
+    Best-effort on purpose. This script's job is the report; a store that is
+    unreachable must not turn a working local run into a failure, and the file
+    write above has already happened."""
+    try:
+        from observability.pg import STATE_EXPIRY, PgClient, PgObsStore
+
+        if not PgClient.configured():
+            return
+        # The writer secret, not from_env(): the standard pair is `lab_reader`
+        # and an INSERT there fails with `cannot execute INSERT in a read-only
+        # transaction` (D46 — the same trap pg_backfill.py sat in for days).
+        cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
+        writer_secret = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
+        client = (
+            PgClient(cluster_arn=cluster, secret_arn=writer_secret)
+            if cluster and writer_secret
+            else PgClient.from_env()
+        )
+        store = PgObsStore(client)
+        try:
+            store.put_state(STATE_EXPIRY, report)
+            print(f"published to the hosted store (lab_state/{STATE_EXPIRY})")
+        finally:
+            store.close()
+    except Exception as exc:  # noqa: BLE001 - reporting is the job, publishing is a bonus
+        print(f"hosted publish skipped ({type(exc).__name__}: {str(exc)[:120]})")
+
+
 def main() -> int:
     load_dotenv()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -425,6 +461,7 @@ def main() -> int:
     if args.write:
         STATE.parent.mkdir(parents=True, exist_ok=True)
         STATE.write_text(json.dumps(report, indent=2))
+        _publish(report)
     if args.json:
         print(json.dumps(report, indent=2))
         return 0

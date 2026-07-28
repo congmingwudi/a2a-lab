@@ -232,14 +232,71 @@ got rewritten in plaintext. Not ironic — structural. **A boundary check covers
 the surface it is pointed at, and the artifacts *about* a cleanup are reliably
 outside it.**
 
-### The gap that is a process, not a control
+### The gap that was a process, and is now half a control
 
 The daily sync runs `chezmoi re-add`: content changes to **already-tracked**
 files. A brand-new secret under `.a2alab/` is silently unprotected until someone
-runs `chezmoi add --encrypt` once. Nothing detects that. The discovery workflow
-(drop a path in `to-track.md`, review, tag, register) is the answer, and it is a
-process answer — which by this note's own standard is the weakest kind. Recorded
-as a known limit rather than dressed up as a control.
+runs `chezmoi add --encrypt` once. Nothing detected that. The discovery workflow
+(drop a path in `to-track.md`, review, tag, register) was the answer, and it was
+a process answer — which by this note's own standard is the weakest kind.
+
+**Half of it is now automated, and it is worth being precise about which half.**
+A `Stop` hook runs a scanner after every turn: it lists what is present,
+subtracts what `chezmoi managed` already holds and what the file's own git repo
+already tracks, and appends the remainder to a queue, untagged. Detection is now
+a control. **Classification is still deliberately human** — the whole reason
+this workflow exists is the four files whose names lied, and auto-encrypting on
+discovery would remove the review step that caught them.
+
+Two details make it work rather than nag:
+
+- **It scans for presence, not for writes.** A `Write|Edit` tool hook would have
+  caught none of the three files carrying bearer tokens and an account id —
+  they are written by python heredocs inside bash deploy scripts. The trigger is
+  *what is here that isn't registered*, not *who typed it*.
+- **It dedupes against chezmoi itself**, plus the queue, so a path awaiting
+  review is not re-queued every turn. An earlier version deduped against a
+  markdown log of what had been tracked; that log read **0 entries while chezmoi
+  managed 17 paths**, because a bare `chezmoi add` never wrote to it. The
+  register has to be the thing itself, not a note about the thing — the same
+  mistake as checking a filename instead of a file, one level up.
+
+The residue is honest: a file is unprotected between detection and review, and
+nothing nags. That window is a habit, not a guarantee.
+
+### Round three: the files the agent wrote about itself
+
+`.env` was round one. The twenty secret files were round two (D45). Round three
+arrived from a direction none of the framing anticipated: **the coding agent's
+own persistent memory.**
+
+Claude Code memory is hand-curated — the corrections given to it, the
+constraints it learned, the reasoning behind decisions that appear nowhere in
+the code. It is in no git repo by construction. On this machine it was **seven
+stores, 40 files**, single-copy.
+
+Three things about it that generalize past this lab:
+
+- **It is per-project, not global.** Each store lives at
+  `<config-dir>/projects/<encoded-path>/memory/`. There is no user-level memory
+  directory, so "back up my memory" is never one path — and a backup that
+  assumes one silently covers a fraction.
+- **It sits inside a directory that must not be backed up.** The same
+  `projects/` tree holds session transcripts: **135M of them against ~200K of
+  memory.** The finder globs `*/memory`, never the parent. Getting this wrong
+  does not fail loudly; it produces a backup nobody reads.
+- **The review caught a real one.** A memory note for a personal side project —
+  reading as a build-and-deploy cheatsheet — carried the AWS account id across
+  five ARNs and ECR URLs *plus the employer's SSO start URL*. That pairing
+  identifies whose cloud it is. Exactly the `f6-eca-wiring.md` lesson, in a file
+  class nobody had thought to look at.
+
+**The class kept widening, and the widening is the finding.** Each round the
+boundary moved: *the secret is `.env`* → *the secret is any file holding a
+credential* → **anything that exists only because work happened on this
+machine.** Agent memory is the current edge of that, and it is the one where the
+loss is least recoverable — a credential can be rotated, and a rediscovered
+constraint costs the session that rediscovers it.
 
 ## Evidence and limits
 
@@ -267,6 +324,16 @@ as a known limit rather than dressed up as a control.
   same-machine copy — insurance against `rm -rf`, not against losing the
   machine. **Superseded later the same day** by the chezmoi setup below (D45);
   it remains as the fast local undo.
+- **Verified live 2026-07-27 (round three):** 40 memory files across seven
+  stores registered, each encrypted round-trip-verified by `chezmoi cat` against
+  the original. 92 paths tracked, 60 encrypted. One store
+  (`salesforce-internal`) excluded by decision — internal work content stays off
+  a personal GitHub account — and the exclusion lives in the finder rather than
+  as a queue line declined every session.
+- **Observed in this project, not a vendor claim:** the per-project memory
+  layout, the two-config-dir split, and the 135M-of-transcripts-beside-200K-of-
+  memory ratio are this machine on this date. The *shape* of the lesson
+  generalizes; the numbers do not.
 
 ## Put this in the presentation
 
@@ -298,6 +365,46 @@ table of four live consumer keys. Caption: *"accurate, and it nearly put this in
 a plaintext backup."* It lands faster than the API story and makes the same
 point, and it pairs with the `${VAR:-project-id}` slide as a matched set: two
 things that are correct as written and wrong as read.
+
+---
+
+**Second slide headline:** Every time we fixed it, the class got bigger.
+
+| Round | "The thing to protect is…" | Found by |
+|---|---|---|
+| 1 | `.env` | writing the rule down |
+| 2 | any file holding a credential — **20 of them** | auditing the class the rule named |
+| 3 | anything that exists only because work happened here — **agent memory, 40 files** | asking what else has no second copy |
+
+**Three bullets:**
+
+- A secret store fixes the file you point it at. It does not fix the class, and
+  the note that said *"configuration correct in exactly one place"* was itself
+  correct in exactly one place.
+- The widening ends somewhere useful: **not "what is secret" but "what has no
+  second copy."** Agent memory qualifies, and it is the least recoverable of the
+  three — you can rotate a credential; you cannot rotate a constraint the agent
+  learned six weeks ago.
+- Detection can be automated; **classification should not be.** A `Stop` hook
+  finds unregistered files after every turn. A human still decides encrypt or
+  plain, because four files in this lab were not what their names said.
+
+**Visual:** the three-round table above, with the third row's cell reading
+*"a deploy cheatsheet for a side project — and an account id in five ARNs plus
+the SSO domain."*
+
+**Speaker note:** the honest version of the punchline is that rounds 2 and 3
+were found by *asking the question again*, not by a tool. The tool came after,
+and only automates the noticing. If the room asks "how would you productionise
+this", that is the answer: a scanner replaces the noticing, and the review stays
+human until the misclassification cost is lower than the review cost.
+
+**If asked "why is agent memory worth backing up at all?"** — because it is the
+only artifact of the working relationship. The code is in git, the decisions are
+in ADRs, the results are in the results file. What the agent learned about *how
+to work here* — never `git add -A` in this repo, VPN off for the console and on
+for deploys, mark new insights `review: required` — exists nowhere else, and
+each of those was a correction that cost something to arrive at.
 
 **Speaker note — chezmoi, the details behind that slide.** Details for the
 follow-up question, not the slide itself:

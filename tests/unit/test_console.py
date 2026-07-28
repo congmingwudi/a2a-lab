@@ -1107,3 +1107,35 @@ def test_expiry_says_so_when_no_report_has_been_collected(tmp_path, monkeypatch)
     )
     assert data["credentials"] == []
     assert "expiry_report.py" in data["error"]
+
+
+def test_sse_keepalive_fits_inside_common_idle_timeouts():
+    """The live tail and the Lab Guide chat are both SSE, and a quiet lab emits
+    nothing — which every intermediary reads as a dead connection. The ALB the
+    console moves behind (WS13) idles out at 120s and proxies commonly at 30s,
+    so the keepalive has to be under the smallest of them.
+
+    The drop itself is recoverable; the data loss is not. EventSource
+    reconnects, but the rebuilt generator restarts its per-file offsets at
+    current EOF, so hops that arrived during the gap are skipped silently.
+
+    Asserted as a constant rather than by reading the stream: the tail never
+    ends, so every 'read until done' idiom hangs the suite. The emission itself
+    is exercised in the live console.
+    """
+    import console.app as console_app
+
+    assert console_app.SSE_KEEPALIVE_S < 30, (
+        "keepalive must stay under the smallest common idle timeout (30s)"
+    )
+
+
+def test_healthz_is_open_and_says_nothing_useful(tmp_path, monkeypatch):
+    """The ALB health check carries no credentials, so a gated /healthz marks
+    every task unhealthy and the service never stabilises (WS13). It must also
+    disclose nothing beyond liveness — it is the one unauthenticated endpoint
+    added for infrastructure rather than for the exhibit."""
+    app = make_app(tmp_path / "traces", monkeypatch)
+    resp = TestClient(app).get("/healthz")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "healthy", "app": "console"}

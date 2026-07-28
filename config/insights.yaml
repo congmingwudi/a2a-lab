@@ -45,13 +45,15 @@ insights:
       2026-07-25 — the ~60s the lab engineered against for six weeks was a
       reported figure nobody had tested; an action returning at 84.7s was
       used, one at 89.7s was abandoned) → Apex callout 110s → bridge 45s →
-      remote agent 40s. Worth naming that the correction went the generous
+      remote agent 100s (`CLAUDE_ANSWER_TIMEOUT_S`; raised from 40s, which
+      proved too tight the moment a delegated turn contained a platform round
+      trip — 40 survives only as an in-code fallback the shipped .env
+      overrides). Worth naming that the correction went the generous
       direction and still cost something: the budget was tuned to buy
       research depth against a ceiling 25s lower than the real one. The
       delegated agent's thinking depth is
       governed by the smallest budget upstream, and one platform's retry can
-      blow another's ceiling. A 40s agent timeout proved too tight the moment
-      the delegated turn itself contained a platform round trip. When the
+      blow another's ceiling. When the
       ceiling IS hit, nothing on the wire says so: the Agent API returns 200,
       the Agentforce agent writes its "External market research (from the
       Claude research agent):" heading exactly as on a good turn, and fills
@@ -118,35 +120,42 @@ insights:
     category: Protocols
     # Re-opened 2026-07-27 by the insights-audit sweep: this entry claimed the
     # D11 SSE demo had been exercised, which the trace archive does not back
-    # (D11 scoped it; nothing ran it). Materially rewritten, so back to
-    # required per D38.
+    # (D11 scoped it; nothing ran it). Re-opened AGAIN 2026-07-28 by the same
+    # sweep, for the opposite reason — it still said the lab drives A2A
+    # synchronously with "no callback leg on the wire", which WS11/D47 made
+    # false the day before. Materially rewritten twice, so required per D38.
     review: required
-    status: observed
-    headline: A2A is an async-capable protocol that everyone drives synchronously — the task lifecycle is its real differentiator
+    status: measured
+    headline: A2A is an async-capable protocol that almost everyone drives synchronously — and here the sync default was one unset client field
     evidence: >
       Every A2A exchange in the lab returns a Task object with an id, state
       machine, and artifacts (the lab's protocol mapping records the
-      completed-Task/one-artifact shape and TASK_STATE_FAILED on errors),
-      and the spec defines streaming for long-running work. The lab's own
-      A2A servers advertise `AgentCapabilities(streaming=True)` — and its
-      client hard-codes `ClientConfig(streaming=False)`, so the capability is
-      declared and never exercised: D11 scoped an SSE demo as a capability
-      comparison, and there is no run of one in the trace archive. That gap
-      is itself the finding in miniature. The lab (like most current
-      integrations) drives A2A synchronously: message:send blocks until the
-      task completes inside one HTTP exchange, and the "response" is simply
-      the completed task coming back on the same connection — there is no
-      callback leg on the wire. The sync delegation pattern rides on top of
-      a protocol built for more.
+      completed-Task/one-artifact shape and TASK_STATE_FAILED on errors).
+      For months the lab drove that lifecycle synchronously and assumed the
+      server was the reason. MEASURED 2026-07-27, it was not: the a2a-sdk
+      already honours `configuration.return_immediately`, responding once the
+      Task exists while a background task drains the queue, and the lab had
+      simply never set the field. No server change was required. With it set,
+      `submit()` returns in 13–29ms against adapter work of 2s, 10s and 45s —
+      flat while the work grows 22x — and the hosted Agentforce shim completed
+      31.1s of work behind an API Gateway whose integration timeout is 29s,
+      longest single request 1.18s. Streaming remains the genuinely unexercised
+      capability: the servers advertise `AgentCapabilities(streaming=True)`,
+      the client hard-codes `ClientConfig(streaming=False)`, and D11 scoped an
+      SSE demo that never ran. Vendor support for the async half is uneven and
+      only measurement reveals it — Azure Foundry implements it; Vertex AI
+      Agent Engine returns a task id in 826ms that no request shape reads back.
     advisory: >
-      Don't conflate the pattern with the protocol. REST gives you
-      request/response; A2A gives you a durable task you could hand off,
-      poll, or subscribe to — which is exactly what long-running cross-org
-      delegation needs (compare the lab's async pattern, hand-rolled over
-      platform schedulers). If your delegations will outgrow a timeout
-      budget, A2A's task lifecycle is the standards-based escape hatch —
-      ask vendors whether they implement it, not just message exchange.
-    refs: [D11, D16, plan/01-architecture.md, plan/02-matrix.md]
+      Don't conflate the pattern with the protocol, and check your own client
+      before you re-platform. A2A gives you a durable task you could hand off,
+      poll, or subscribe to — but the blocking call is the one in every
+      quickstart, so teams hit a gateway timeout and scope a migration to
+      escape a ceiling that one configuration field would have dissolved. Then
+      verify per platform rather than per specification: "MAY continue
+      asynchronously" lets a conformant implementation block, and no agent card
+      tells you which one you are talking to. Submit, compare the response time
+      against the total, and you have your answer in a minute.
+    refs: [D11, D16, D47, plan/01-architecture.md, plan/02-matrix.md, plan/03-results.md]
 
   - id: native-a2a-young
     category: Protocols
@@ -257,11 +266,19 @@ insights:
 
   - id: managed-vs-self-hosted
     category: Hosting models
+    # Re-opened 2026-07-28 by the insights-audit sweep: this entry published
+    # the pre-measurement ASSUMPTION of ~5-10s managed provisioning, which the
+    # 2026-07-25 run refuted (~2s) — and refuted in the direction that
+    # strengthens the entry's own argument. A changed measured claim, so
+    # required per D38.
+    review: required
     status: measured
     headline: "Managed agent runtime vs self-hosted framework is the real platform decision — model choice is downstream"
     evidence: >
       The lab runs the same Claude agent two ways: Anthropic Managed Agents
-      (zero infra, host-side tools, ~5–10s first-turn container provisioning)
+      (zero infra, host-side tools, ~2s of per-session provisioning — MEASURED
+      2026-07-25 at cold 5.2s p50 vs warm 3.2s, against the ~5–10s the lab had
+      assumed, and less than half the WARM self-hosted sdk backend at 11.7s)
       and the self-hosted Agent SDK containerized on Bedrock AgentCore
       (IAM-only data plane, credentials and telemetry are yours). The OpenAI
       agent runs the self-hosted path on the identical runtime for a clean
@@ -417,6 +434,11 @@ insights:
 
   - id: fabricated-attribution
     category: Security & trust
+    # Marked for sign-off 2026-07-28 by the insights-audit sweep: the entry had
+    # no `review:` key at all, yet it had grown the ~50%-under-hard-rules
+    # finding and the tool_choice fix since it was first written. A materially
+    # changed claim the lab would say in public, so required per D38.
+    review: required
     status: measured
     headline: When a delegated tool call fails, a model may invent the other agent's answer — attribution and all
     evidence: >
@@ -607,8 +629,10 @@ insights:
       they assume structured, governed, negotiated surfaces exist end to
       end. Measured counterexamples: "use the hosted MCP server" (five
       platforms in, exactly two platform-native protocol endpoints exist —
-      both A2A, neither MCP; Salesforce's MCP inbound is gated beta, and
-      every other MCP endpoint in the matrix is one the lab hosts itself —
+      both A2A, neither MCP; Salesforce has no GA MCP inbound at all, and the
+      one `blocked-beta` MCP row in the matrix is Agentforce as an MCP
+      *client* — the opposite direction; and
+      every MCP endpoint in the matrix is one the lab hosts itself —
       the shim in front of Agentforce, or the lab's own inbound seam in
       front of an agent the lab runs); "never regex-scrape text"
       (every structured channel failed somewhere: A2A metadata was dropped
@@ -774,12 +798,15 @@ insights:
       caller, each scoped to what that caller actually calls. You get least
       privilege and per-caller attribution from the same change — and the
       attribution is often the part the auditors were really asking for.
-    refs: [D37, D25, plan/04-runbooks.md]
+    refs: [D37, plan/04-runbooks.md, plan/02-matrix.md]
 
   - id: orchestration-topology
     category: Orchestration topology
-    # Not yet measured — the cells are built but the platform agents are not
-    # deployed. Status flips to `measured` when WS8 records a live run.
+    # Status flipped to `measured` 2026-07-28 by the insights-audit sweep: this
+    # comment still said "not yet measured — the platform agents are not
+    # deployed", but WS8 recorded live runs on 2026-07-25 and 2026-07-26 (3/3
+    # legs, 37.4s wall, trace 9024af03…) and the four-platform join rate was
+    # measured at 1 of 4. Both preconditions it named were already satisfied.
     review: required
     # Upgraded hypothesis -> observed 2026-07-25: the first live dispatch ran
     # (ADK + Foundry in parallel, openai leg genuinely dead). Not yet `measured`
@@ -1078,3 +1105,87 @@ insights:
       - build-notes/claude/10-consumption-and-list-price.md
       - src/console/app.py
       - src/observability/coding_source.py
+
+  - id: async-protocol-half-is-unused-not-missing
+    category: Orchestration topology
+    review: required
+    status: measured
+    headline: >-
+      The API gateway timeout that bounds agent work is a client default, not a
+      protocol limit — and the fix was one unset field
+    evidence: >-
+      MEASURED 2026-07-27. A2A specifies that SendMessage MUST return
+      immediately and processing MAY continue afterwards, and the lab had
+      implemented that lifecycle — InMemoryTaskStore, the full SUBMITTED →
+      WORKING → COMPLETED state machine — then driven it synchronously for
+      months. The workstream that set out to fix this named the server as the
+      blocker (an executor awaiting the adapter inline) and was WRONG: the
+      a2a-sdk already reads `configuration.return_immediately` and, when set,
+      responds after the first Task event while a background task drains the
+      queue. No server change was made. Setting one field on the client took
+      the hosted Agentforce shim from work bounded by API Gateway's 29s
+      integration timeout to 31.1 SECONDS of work completed behind it, with a
+      longest single request of 1.18s — dissolving the ceiling that D41 had
+      costed out an apigatewayv2→v1 migration and a quota request to raise.
+      Against a deterministic slow adapter, submit latency is flat at 13–29ms
+      while the work grows from 2s to 45s. Support is uneven and only
+      measurement reveals it: Azure Foundry implements the async half properly
+      (ratio 0.25–0.33); Vertex AI Agent Engine is submit-only, returning a task
+      id in 826ms that no tried request shape reads back (GET /tasks/{id} is
+      rejected with "A2A version '0.3' is not supported by this handler"), so an
+      async submit there silently loses the answer.
+    advisory: >-
+      Before you re-platform to escape a timeout, check whether your client is
+      using the asynchronous half of the protocol you already speak. Async task
+      lifecycles are common in agent protocols and almost universally driven
+      synchronously, because the blocking call is the one in the quickstart — so
+      the ceiling teams hit is usually a default rather than a limit, and the
+      migration they scope to fix it is usually unnecessary. Then verify support
+      per platform rather than per specification: "MAY continue asynchronously"
+      permits a conformant implementation to block, and nothing in an agent card
+      tells you which one you are talking to. The measurement is cheap — submit,
+      then compare the response time against the total — and the answer changes
+      your architecture.
+    refs:
+      - D47
+      - D41
+      - plan/03-results.md
+      - plan/07-workstreams.md
+
+  - id: async-needs-a-runtime-that-keeps-computing
+    category: Orchestration topology
+    review: required
+    status: measured
+    headline: >-
+      Fire-then-poll dissolves the request ceiling but conjures no compute — on
+      a scale-to-zero runtime, backing off starves the work you are waiting for
+    evidence: >-
+      MEASURED 2026-07-27 on the lab's hosted Agentforce A2A shim (Lambda behind
+      API Gateway). Polled steadily, a 31.1s job completed in 21 polls with no
+      request longer than 1.18s. Submitted and then left QUIET for 45 seconds —
+      comfortably longer than the ~30s the underlying work takes — the task was
+      still WORKING on the first poll, and completed only after 12 further polls
+      at t+67.7s. Lambda freezes the execution environment when the response is
+      sent, so the background consumer gets CPU only while an invocation is in
+      flight: the polls are not observing the work, they are paying for it.
+      Total wall-clock got WORSE with less polling, which inverts ordinary
+      polling advice. The same pattern against always-on hosts (Azure Foundry,
+      the lab's own Fargate bridge) progresses whether or not anyone is looking.
+      A second limit rides along — the task lives in an in-memory store in one
+      warm container, and nothing guarantees a later poll reaches that instance.
+    advisory: >-
+      Asynchronous protocols and serverless runtimes make a promise each that
+      the other does not keep. The protocol says the work continues after the
+      response; the runtime says compute stops when the response is sent. Where
+      both are true you get a system that only advances while someone is
+      watching it — worst-case behaviour for exactly the long-running jobs
+      async was adopted for. Two questions settle it before you build: does the
+      compute keep running between requests, and does the task survive the
+      instance that created it? If either answer is no, put the agent on an
+      always-on host or an explicit job runner and keep the async protocol for
+      the client-facing seam, where its real benefit — no long-held connection —
+      does not depend on the runtime at all.
+    refs:
+      - D47
+      - plan/03-results.md
+      - plan/09-deployment-map.md

@@ -31,8 +31,12 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         "salesforce": SalesforceSource,
         "openai": OpenAISource,
         # WS9 build telemetry — reads CloudWatch in this same account, so the
-        # Lambda's execution role needs cloudwatch:ListMetrics +
-        # cloudwatch:GetMetricStatistics. No new secret (D39).
+        # Lambda's execution role needs cloudwatch:GetMetricData +
+        # cloudwatch:ListMetrics (the documented pair for the PromQL
+        # QueryMetrics operation — this comment said GetMetricStatistics until
+        # 2026-07-27, a leftover from the pre-PromQL version of coding_source,
+        # and the grant was never applied at all). Owned by
+        # deploy/obs/deploy_harvest.sh. No new secret (D39).
         "coding": CodingSource,
         # adk reads Cloud Logging/Monitoring with a service-account key from the
         # secret (see _materialize_gcp_key); foundry reads App Insights with the

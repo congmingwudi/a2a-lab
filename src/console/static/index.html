@@ -3853,11 +3853,11 @@ function credsReportHtml() {
     </tr>`).join("");
 
   return `
-    <div class="hint" style="margin:0 0 14px">The <b>A2ALab Credential Analyst</b> is a Claude
-    Managed Agent — the lab's first agent doing operations rather than experiments. The table is
+    <div class="hint" style="margin:0 0 14px">The <b>credential analyst</b> is one Claude API
+    call — the lab's first agent doing operations rather than experiments. The table is
     collected deterministically; the agent is handed exactly those numbers and asked what a
-    threshold cannot answer. See the Details tab for how it works, or plan/09-deployment-map.md
-    for where it sits in the estate.</div>
+    threshold cannot answer. See the Details tab for why it is an API call and not a Managed
+    Agent (D44), or plan/09-deployment-map.md for where it sits in the estate.</div>
 
     <div class="creds-actions">
       <button class="ghost ${credsUrgent() ? "exp-" + credsWorst() : ""}"

@@ -31,6 +31,23 @@ if [[ -f .env ]]; then
   set +a
 fi
 
+# ---- PromQL grant ----------------------------------------------------------
+# Runs in every mode, because it is one idempotent call and the failure it
+# prevents is silent: the coding source (WS9) reads OTLP metrics through
+# CloudWatch's Prometheus-compatible API, which is NOT the classic metrics API,
+# and an unauthorized role gets a bare 403 that the harvest reports as the
+# ordinary "no coding metrics yet — switch the exporters on" status. Collection
+# looks merely empty rather than forbidden, which is how Aurora held zero
+# coding rows for a day while the exporters worked (found 2026-07-27).
+#
+# The two actions are what AWS documents for QueryMetrics (/api/v1/query and
+# /api/v1/query_range) — GetMetricData + ListMetrics, NOT GetMetricStatistics.
+# Its own inline policy rather than an edit to a2alab-obs-access: that policy
+# is shared with the MCP function and a put-role-policy replaces wholesale.
+aws iam put-role-policy --role-name a2alab-obs-lambda --policy-name a2alab-obs-promql \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudwatch:GetMetricData","cloudwatch:ListMetrics"],"Resource":"*"}]}'
+echo "ensured role policy a2alab-obs-promql (cloudwatch:GetMetricData + ListMetrics)"
+
 # ---- credentials -----------------------------------------------------------
 if [[ "$MODE" == "all" || "$MODE" == "--secret" ]]; then
   # Merge, never replace: the secret also carries ANTHROPIC_API_KEY /

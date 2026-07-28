@@ -1,17 +1,31 @@
 """A2A client: discovers the remote AgentCard, sends message/send, and reads
 the completed Task's text artifact. contextId <-> session_id; trace_id rides
-in message metadata."""
+in message metadata.
+
+Two shapes, both first-class (WS11):
+
+- `ask()` — blocking. Send, wait, read the artifact. What every lab leg used
+  before 2026-07-27 and what the matrix's latency numbers are measured with.
+- `submit()` + `poll()` — the protocol's asynchronous half. `submit()` sets
+  `configuration.return_immediately`, so the server responds as soon as the
+  task exists rather than when the work is done, and `poll()` reads
+  `tasks/get`. The point is not elegance: it takes the agent's runtime OFF the
+  HTTP request, which is what dissolves API Gateway's 29s integration ceiling
+  for the fan-out legs (D41) instead of working around it.
+"""
 
 from __future__ import annotations
 
 import time
 import uuid
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from a2a.client import ClientConfig, create_client
-from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
+from a2a.types import GetTaskRequest, Message, Part, Role, SendMessageRequest, TaskState
 from a2a.utils import TransportProtocol
 
 from interop.clients.base import RemoteAgentClient, auth_headers
@@ -26,6 +40,58 @@ DEFAULT_TIMEOUT = 45.0
 
 def _texts_from_parts(parts) -> list[str]:
     return [p.text for p in parts if p.WhichOneof("content") == "text"]
+
+
+# Terminal in the protocol's sense: no further events will arrive without a new
+# request. INPUT_REQUIRED and AUTH_REQUIRED are NOT here — they are stalled, not
+# finished, and a caller that treats them as failure loses the distinction the
+# state machine exists to express.
+TERMINAL_STATES = frozenset(
+    {
+        TaskState.TASK_STATE_COMPLETED,
+        TaskState.TASK_STATE_FAILED,
+        TaskState.TASK_STATE_CANCELED,
+        TaskState.TASK_STATE_REJECTED,
+    }
+)
+
+# Stalled: the task is alive but needs something from outside before it moves.
+INTERRUPTED_STATES = frozenset(
+    {TaskState.TASK_STATE_INPUT_REQUIRED, TaskState.TASK_STATE_AUTH_REQUIRED}
+)
+
+
+@dataclass
+class TaskHandle:
+    """What `submit()` returns — enough to poll with, and nothing else. The
+    absence of an answer here is the point: the work has not happened yet."""
+
+    task_id: str
+    context_id: str | None
+    state: str
+    trace_id: str
+    submit_ms: int
+    #: Set when the server answered with a finished task anyway — i.e. it
+    #: ignored `return_immediately` and blocked. That is a per-platform finding
+    #: (WS11), not an error: the lab records who implements the async half.
+    answered_immediately: bool = False
+    text: str = ""
+
+
+@dataclass
+class TaskSnapshot:
+    """One `tasks/get` reading."""
+
+    task_id: str
+    state: str
+    text: str
+    done: bool
+    interrupted: bool
+    detail: str = ""
+
+    @property
+    def working(self) -> bool:
+        return not self.done and not self.interrupted
 
 
 class A2AClient(RemoteAgentClient):
@@ -109,6 +175,145 @@ class A2AClient(RemoteAgentClient):
 
             return _EntraAuth()
         return None
+
+    @asynccontextmanager
+    async def _connected(self):
+        """Card discovery + transport selection, shared by ask/submit/poll.
+
+        A fresh httpx client per call, deliberately: `poll()` is a separate
+        request that may happen minutes after `submit()`, possibly from another
+        process entirely (the fan-out Lambda's whole point), so nothing may
+        depend on a connection surviving between them."""
+        adc_auth = self._httpx_auth()
+        headers = {} if adc_auth else auth_headers(self.auth)
+        async with httpx.AsyncClient(timeout=self.timeout, headers=headers, auth=adc_auth) as hc:
+            config = ClientConfig(streaming=False, httpx_client=hc)
+            if self.transport:
+                from a2a.client import minimal_agent_card
+
+                transport = self.transport.upper().replace("-", "_")
+                config.supported_protocol_bindings = [getattr(TransportProtocol, transport)]
+                agent = minimal_agent_card(self.endpoint, [getattr(TransportProtocol, transport)])
+            else:
+                agent = self.endpoint
+            client = await create_client(agent, config, relative_card_path=self.card_path)
+            try:
+                yield client
+            finally:
+                await client.close()
+
+    async def submit(self, req: AgentRequest) -> TaskHandle:
+        """Fire: hand the work over and return the task id without waiting.
+
+        `configuration.return_immediately` is the protocol's own switch — the
+        server's `DefaultRequestHandler` reads it as `blocking = not
+        return_immediately` and, when non-blocking, returns after the first
+        Task event while a tracked background task keeps consuming the rest.
+        No change to `AdapterExecutor` was needed for this; the executor runs
+        as its own producer task, so awaiting the adapter inline never blocked
+        the response in the first place (WS11 corrected its own premise here)."""
+        req.trace_id = req.trace_id or new_trace_id()
+
+        message = Message(
+            message_id=uuid.uuid4().hex,
+            role=Role.ROLE_USER,
+            parts=[Part(text=req.message)],
+        )
+        if req.session_id:
+            message.context_id = req.session_id
+        message.metadata.update({**(req.metadata or {}), "trace_id": req.trace_id})
+        request = SendMessageRequest(message=message)
+        request.configuration.return_immediately = True
+
+        start = time.perf_counter()
+        with Hop(
+            req.trace_id,
+            source=self.source_name,
+            target=self.target_name,
+            protocol="a2a",
+            transport_detail=f"SendMessage(return_immediately) @ {self.endpoint}",
+            request_payload={
+                "message": req.message,
+                "contextId": req.session_id,
+                "metadata": req.metadata or {},
+                "returnImmediately": True,
+            },
+        ) as hop:
+            async with self._connected() as client:
+                task = None
+                async for chunk in client.send_message(request):
+                    if chunk.HasField("task"):
+                        task = chunk.task
+                        break
+                    if chunk.HasField("message"):
+                        # A direct Message reply means the remote never made a
+                        # task at all — there is nothing to poll.
+                        texts = _texts_from_parts(chunk.message.parts)
+                        raise RuntimeError(
+                            f"A2A submit to {self.target_name} returned a message, not a task — "
+                            f"this endpoint has no task lifecycle to poll ({' '.join(texts)[:120]})"
+                        )
+
+            if task is None:
+                raise RuntimeError(f"A2A submit to {self.target_name} yielded no task")
+
+            elapsed = int((time.perf_counter() - start) * 1000)
+            state = TaskState.Name(task.status.state)
+            texts: list[str] = []
+            for artifact in task.artifacts:
+                texts.extend(_texts_from_parts(artifact.parts))
+            done = task.status.state in TERMINAL_STATES
+            hop.response_payload = {
+                "taskId": task.id,
+                "contextId": task.context_id,
+                "state": state,
+                "answeredImmediately": done,
+            }
+            return TaskHandle(
+                task_id=task.id,
+                context_id=task.context_id or None,
+                state=state,
+                trace_id=req.trace_id,
+                submit_ms=elapsed,
+                answered_immediately=done,
+                text="\n".join(texts),
+            )
+
+    async def poll(self, task_id: str, *, trace_id: str | None = None) -> TaskSnapshot:
+        """Then-poll: one `tasks/get`. The caller decides the cadence — for the
+        fan-out orchestrator that caller is the model, which is the point."""
+        trace_id = trace_id or new_trace_id()
+        with Hop(
+            trace_id,
+            source=self.source_name,
+            target=self.target_name,
+            protocol="a2a",
+            transport_detail=f"GetTask @ {self.endpoint}",
+            request_payload={"taskId": task_id},
+        ) as hop:
+            async with self._connected() as client:
+                task = await client.get_task(GetTaskRequest(id=task_id))
+
+            state = TaskState.Name(task.status.state)
+            texts: list[str] = []
+            for artifact in task.artifacts:
+                texts.extend(_texts_from_parts(artifact.parts))
+            detail = ""
+            if task.status.state == TaskState.TASK_STATE_FAILED:
+                detail = "\n".join(_texts_from_parts(task.status.message.parts)) or "task failed"
+            hop.response_payload = {
+                "taskId": task.id,
+                "state": state,
+                "artifacts": texts,
+            }
+            return TaskSnapshot(
+                task_id=task.id,
+                state=state,
+                text="\n".join(texts),
+                done=task.status.state in TERMINAL_STATES,
+                interrupted=task.status.state in INTERRUPTED_STATES,
+                detail=detail,
+            )
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         req.trace_id = req.trace_id or new_trace_id()

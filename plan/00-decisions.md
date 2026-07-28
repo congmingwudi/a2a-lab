@@ -1329,3 +1329,134 @@ runs `chezmoi add --encrypt` once. Nothing in this repo detects that; the
 discovery workflow (`chezmoi-tracking/to-track.md`) is the process answer, and
 it is a process answer, not a control. Written up in
 `build-notes/claude/09-secrets-and-environment-identity.md`.
+
+---
+
+## 2026-07-27 — D46: A build step that produces an artifact must also own shipping it
+
+**Context.** WS12 was recorded as "code-complete, not provisioned" — one setup
+script away from done. Provisioning it found three separate gaps between *built*
+and *running*, none of which had failed anything:
+
+1. **The obs MCP zip had no deployer.** `deploy/obs/build_zips.sh` built
+   `a2alab-obs-mcp.zip`; `expose_mcp.sh` created the API Gateway and never
+   pushed code. The function had been running a hand-deployed bundle from
+   2026-07-24, so `src/obs_mcp/tools.py` had been writing the briefs `kind`
+   column for a day against a deployed function that knew nothing about it.
+2. **The schema migration had no execution path at all.** `observability.pg.DDL`
+   gained the `kind` ALTER, and `ensure_schema()`'s only caller —
+   `pg_backfill.py` — connects as `lab_writer`, while `lab.obs_briefs` is owned
+   by the master role. Every DDL statement failed with `must be owner of table`
+   (42501), and the caller caught it and printed *"assuming provisioned"*. The
+   column existed in the model, in the writer, and in the reader; it never
+   existed in Aurora. `pg_backfill.py` had also been unable to write **rows**
+   since the reader/writer secret split — it was running `from_env()`, which is
+   `lab_reader`.
+3. **The PromQL grant was a comment, not a policy.** `lambda_handlers.py` said
+   the harvest role "needs cloudwatch:ListMetrics + GetMetricStatistics". The
+   role had neither, and the named pair is wrong besides — AWS documents
+   `cloudwatch:GetMetricData` + `cloudwatch:ListMetrics` for the PromQL
+   `QueryMetrics` operation. Meanwhile the deployed harvest zip predated
+   `coding_source.py` entirely. Aurora held **zero** coding rows while the
+   console's local view showed the exporters working perfectly.
+
+**The shared failure mode is that each gap reported success.** The zip built.
+The backfill printed row counts. The harvest returned `status: blocked` with the
+friendly *"no coding metrics yet — switch the exporters on"* detail, which is
+what an unauthorized 403 looks like when the caller assumes empty rather than
+forbidden. Three green paths over a feature that did not exist end to end.
+
+**Decision.**
+
+1. **Every artifact a build step produces has a script that ships it.** The
+   `--code` half of `deploy/obs/expose_mcp.sh` exists now. A `build_*.sh` with no
+   corresponding push is an unfinished deploy path, not a convenience.
+2. **DDL is owned by `scripts/pg_migrate.py`, which connects as the table
+   owner** (`A2ALAB_PG_MASTER_SECRET_ARN`). `pg_backfill.py` moves rows and no
+   longer calls `ensure_schema()` at all. The three identities keep the
+   privileges they should have — reader reads, writer writes rows, owner
+   reshapes tables — and the migration stops depending on the one identity that
+   cannot perform it.
+3. **A permission a comment claims is a permission a script grants.** The
+   `a2alab-obs-promql` role policy is applied by `deploy/obs/deploy_harvest.sh`
+   on every mode, because the failure it prevents is silent.
+4. **Do not catch a schema error and call it "assuming provisioned".** That line
+   is what converted a hard failure into a year-shaped lie. If a migration
+   cannot run, it fails.
+
+**Postscript, same day: fixing (1) immediately exposed a fourth instance.** The
+first rebuild of the harvest bundle in two days shipped a `foundry_source` that
+now reaches `interop.cloud_auth` (the explicit Azure SP credential, D39) —
+a module `build_zips.sh` copies no part of, because the packaging list was
+written before `cloud_auth` existed. The import is lazy and inside a function,
+so the bundle loaded fine and five platforms reported `ok` while Foundry alone
+recorded `No module named 'interop.cloud_auth'`. **A hand-curated packaging list
+is itself config that rots**, and it rots silently in exactly the direction this
+ADR describes: the artifact keeps building, and only the platform that needed
+the missing file notices. Worth remembering that the deploy which *found* this
+had been unable to find it for two days, because nothing was pushing the zip.
+
+This is D37's rule — *config no script owns is config nobody updates* — reaching
+the two places it had not: build artifacts and database schema. The rule holds
+for both, and the tell is identical. **The half that runs on someone else's
+computer is the half that rots**, because the local half keeps passing.
+
+---
+
+## 2026-07-27 — D47: Fire-then-poll is a first-class client shape, and the runtime decides whether it helps
+
+**Context.** D41 measured the fan-out legs inheriting API Gateway's 29s
+integration timeout — 25s per leg against 120s host-side — and the workaround
+was to keep legs fast and report the rest as unavailable. WS11 proposed using
+A2A's asynchronous half instead: `SendMessage` MUST return immediately, and
+processing MAY continue afterwards.
+
+**What building it found first: there was nothing to build on the server.** The
+workstream named `AdapterExecutor.execute()` awaiting the adapter inline as the
+blocker. That was wrong. The a2a-sdk's `DefaultRequestHandler` already computes
+`blocking = not params.configuration.return_immediately` and, when non-blocking,
+returns after the first Task event while a tracked background task drains the
+event queue into the task store. The executor is its own producer task, so the
+inline await never held the response. **The lab had implemented the asynchronous
+lifecycle, switched it on, and then never asked for it** — every call left
+`return_immediately` unset. That is the published `a2a-async-at-heart` finding
+with a sharper edge: the sync default is not a protocol limitation, and it is
+not even a server limitation. It is one unset field on the client.
+
+**Decision.**
+
+1. **`submit()` + `poll()` are first-class on `A2AClient`, alongside `ask()`.**
+   Not a replacement — `ask()` stays blocking, because every existing leg and
+   every matrix latency number would otherwise change meaning silently.
+   `tests/e2e/test_a2a_async.py` asserts both: submit must return inside 0.75s
+   against a 2s adapter, and `ask()` must still take the full 2s.
+2. **The async half is measured per platform, not read off an agent card.**
+   `scripts/a2a_async_probe.py` discriminates on `submit / total`. Recorded:
+   the hosted shim and both Foundry agents implement it; **Agent Engine is
+   submit-only** — it returns a task in 826ms that no tried shape can read back
+   (`GET /tasks/{id}` → *"A2A version '0.3' is not supported by this handler"*).
+   Recorded as *cause unresolved*, since Google documents a get-task method;
+   the operational consequence is unambiguous either way, so Agent Engine legs
+   keep using `ask()`.
+3. **A polling client on a freeze-between-invocations runtime must poll
+   steadily, not back off.** On Lambda the background consumer gets CPU only
+   while an invocation is in flight. Submitting and staying quiet for 45s left
+   the task WORKING past the ~30s the work takes; it completed after 12 further
+   polls at t+67.7s, against 31.1s when polled steadily. **Backing off starves
+   the work you are waiting for** — the inverse of ordinary polling advice, and
+   a trap for any future orchestrator prompt that tells a model to "check back
+   later".
+4. **Fire-then-poll on Lambda is not production-shaped until the task store is
+   durable.** `InMemoryTaskStore` lives in one warm container and nothing routes
+   a later poll back to it. The ceiling is genuinely gone; the durability is
+   genuinely missing, and the second is not a reason to understate the first.
+
+**The general result.** The protocol's asynchronous half moves the agent's
+runtime off the HTTP request, which is what a request/response gateway actually
+constrains — 31.1s of work with a 1.18s longest request, under a 29s limit. But
+*where* that background work runs decides whether it progresses on its own. An
+always-on host (Foundry, the Fargate bridge) computes while nobody is watching;
+a scale-to-zero function does not. **The protocol dissolves the request ceiling;
+it does not conjure compute.** Same shape as D41's finding that where the tool
+runs decides who orchestrates — here, where the *task* runs decides whether
+asynchrony buys anything.

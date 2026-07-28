@@ -880,3 +880,180 @@ catch that. It is the record falling behind the work, and it fails toward
 *understating* the lab. A sweep that finds only stale self-underclaims is a
 good result, and it is only visible because the audit compares every published
 claim against the current state rather than against the day it was written.
+
+---
+
+## 2026-07-27 — WS11: who implements A2A's asynchronous half
+
+The matrix records who *speaks* A2A. It has never recorded who implements the
+half that decides hosting shape: `SendMessage` MUST return immediately and
+processing MAY continue afterwards. **"MAY" is not a guarantee, and an agent
+card cannot tell you** — so this is measured, with
+`scripts/a2a_async_probe.py` (submit with `configuration.return_immediately`,
+then poll `tasks/get`). `ratio` = submit / total: near 0 means the work outlived
+the request, near 1 means the request *was* the work.
+
+| Target | Verdict | submit | total | ratio | polls | state@submit → final |
+|---|---|---:|---:|---:|---:|---|
+| `agentforce-a2a-shim` (Lambda + API GW) | **async** | 1180ms | 31084ms | 0.04 | 21 | SUBMITTED → COMPLETED |
+| `foundry-a2a` (Azure Foundry) | **async** | 4731ms | 19169ms | 0.25 | 6 | SUBMITTED → COMPLETED |
+| `foundry-commercial-a2a` | **async** | 3231ms | 9817ms | 0.33 | 3 | SUBMITTED → COMPLETED |
+| `google-adk-a2a` (Agent Engine) | **submit-only** | 826ms | — | — | 0 | SUBMITTED → *unreachable* |
+
+**The headline: the API Gateway ceiling is gone, on the component that hit it.**
+D41 measured the fan-out legs inheriting API Gateway's 29s integration timeout.
+Here the same hosted shim ran **31.1 seconds of work** with a longest single
+request of **1.18s**. Nothing was raised, no quota was granted, and the
+apigatewayv2→v1 migration D41 costed out is not needed: the work simply stopped
+living inside one request.
+
+**Loopback control** (`tests/e2e/test_a2a_async.py`, deterministic slow adapter):
+
+| Adapter work | submit | state at submit | polls | total |
+|---:|---:|---|---:|---:|
+| 2.0s | 29ms | SUBMITTED | 5 | 2.1s |
+| 10.0s | 14ms | SUBMITTED | 21 | 10.3s |
+| 45.0s | 13ms | SUBMITTED | 89 | 45.2s |
+
+Submit latency is **flat at 13–29ms while the work grows 22x**. That is the
+property being bought: request duration decoupled from agent duration.
+
+### The premise WS11 was written on was wrong, in the lab's favour
+
+The workstream said the blocker was `AdapterExecutor.execute()` awaiting the
+adapter inline. **No server change was required.** The a2a-sdk's
+`DefaultRequestHandler` already reads `blocking = not
+params.configuration.return_immediately` and, when non-blocking, returns after
+the first Task event while a tracked background task drains the queue into the
+task store. The executor runs as its own producer task, so awaiting inline never
+held the response. The lab had the asynchronous half switched on the whole time
+and was calling it with `return_immediately` unset — which is a sharper version
+of the published `a2a-async-at-heart` finding than the one it replaces.
+
+### Agent Engine accepts a task it will not give back
+
+Warm, Vertex AI Agent Engine returns a task in **826ms** with
+`TASK_STATE_SUBMITTED` and no artifact — a textbook async submit. The task then
+could not be retrieved by any shape tried:
+
+- `GET {endpoint}/tasks/{id}` — the 1.0 REST binding for `GetTask` — returns
+  400 `FAILED_PRECONDITION`: **"A2A version '0.3' is not supported by this
+  handler"**.
+- `GET {endpoint}/v1/tasks/{id}`, suggested by the documented resource name
+  `projects.locations.reasoningEngines.a2a.v1.tasks`, returns 400 with the
+  container's own `{"detail":"Not Found"}`.
+- JSON-RPC `tasks/get` and `GetTask` posted at the endpoint both 404 at the
+  Google front door (this endpoint is pinned to `http_json` precisely because
+  its agent card route 404s).
+
+Recorded as **submit-only, cause unresolved** rather than "not implemented":
+Google documents a get-task method, so the honest statement is that the lab
+could not reach it, not that it is absent. **The operational consequence holds
+either way — an asynchronous submit to Agent Engine loses the answer**, so its
+legs must keep using the blocking `ask()`. This is the first measured cost of
+the A2A version spectrum that `a2a_compat.py` was written for: the same server
+that requires 1.0 for messages rejects a 1.0 task read as 0.3.
+
+### On Lambda, polling is not free — it is what buys the CPU
+
+The shim result above needs a caveat that changes how it should be used.
+Submitting and then **staying quiet for 45s** left the task at
+`TASK_STATE_WORKING` — well past the ~30s the underlying Agentforce call takes.
+It reached COMPLETED only after 12 further polls, at t+67.7s.
+
+**Lambda freezes the execution environment when the response is sent**, so the
+background consumer gets no CPU between invocations. Each poll thaws the
+container and the work advances in that slice. So:
+
+- The ceiling is genuinely dissolved — no single request is long.
+- But there is **no free background execution**. Total wall-clock got *worse*
+  (67.7s quiet-then-poll vs 31.1s polled steadily); a client that backs off
+  aggressively starves the work it is waiting for. This exactly inverts the
+  usual polling advice.
+- And it rides on `InMemoryTaskStore` in one warm container. Nothing guarantees
+  a later poll reaches the same instance, so a task can become unreadable
+  through no fault of the protocol. A durable task store is the prerequisite for
+  treating this as production-shaped, and it is not built.
+
+The always-on hosts (Foundry, and the lab's own Fargate bridge) have neither
+problem: their work progresses whether or not anyone is looking.
+
+---
+
+## 2026-07-28 — WS7: why the console has to move, and what the proxy actually blocks
+
+**The operator's corporate proxy blocks the lab's domain at DNS — the whole
+domain, not a hostname.** Measured on one machine within one minute:
+
+| Host | With the proxy on |
+|---|---|
+| `console-lab.agenticthings.com` | no resolution, **30s timeout** |
+| `agenticthings.com` (apex) | **30s timeout** |
+| `zzz-nonexistent.agenticthings.com` — never existed | **30s timeout** |
+| `zzz-nonexistent.cloudfront.net` — never existed | **NXDOMAIN in 0.05s** |
+| `*.execute-api.<region>.amazonaws.com` | HTTP 200 in 0.1s |
+
+The discriminator is **timeout vs NXDOMAIN**. A fast "no such host" proves the
+resolver is answering for that domain; a 30s hang is policy. A name that has
+never existed on the lab domain still hangs, so the block cannot be worked
+around by pointing the name somewhere else — DNS resolution happens before any
+of that.
+
+**Two things follow, and the second is the one that matters.**
+
+1. A custom domain and this proxy are mutually exclusive until the domain is
+   recategorised. Not a lab problem to solve in code.
+2. **Hosting is not a front-door problem.** A CDN in front of the console was
+   built, measured working (HTTP 200, 301,525 bytes, 0.45s with the proxy on)
+   and then **reverted the same day**: it removed a toggle, not a dependency.
+   The dependency is that the console, nine protocol faces and the Managed
+   Agents watcher run on a laptop — which is WS13, and which makes the toggle
+   irrelevant, because with nothing running locally there is no cost to
+   dropping the proxy while looking at the console.
+
+The measurement is kept because it is the evidence for WS13's shape: **the
+browser-facing surface is the only one the proxy touches at all.** Apex reaches
+the bridge, Foundry and Agent Engine reach the shim, and AgentCore is SigV4 —
+all from clouds, none through the proxy. So the lab domain keeps working for
+every machine-to-machine hop, and the console is the single exception.
+
+### The SSE finding that survived the revert
+
+The live tail emits only when trace hops land, so a quiet lab sends no bytes at
+all. Every intermediary reads that as a dead connection — the ALB the console
+moves behind idles at 120s, proxies and CDNs commonly at 30s. The drop itself is
+harmless; **the data loss is not.** The browser's `EventSource` reconnects, but
+the new generator rebuilds its per-file offsets from current EOF, so hops that
+landed during the gap are never sent and the tail under-reports with no error
+anywhere. Fixed with a 15s keepalive comment; the same applies to the Lab Guide
+chat, which is SSE on the same origin.
+
+---
+
+## 2026-07-28 — Honesty sweeps after WS11/WS12/WS13
+
+Both audit workflows run against the record as it stood after the overnight
+session. **Insights: 33 audited, 26 backed, 7 problems. Matrix: 53 cells
+audited, 51 consistent, 2 discrepancies** — both upheld under adversarial
+verification. Every finding was a claim the record had let drift, and **all
+seven insight problems were the record lagging the work, not overclaiming it**
+— the same direction the previous sweep found.
+
+| Entry | Problem | Fix |
+|---|---|---|
+| `a2a-async-at-heart` | Still said the lab drives A2A synchronously with "no callback leg on the wire" — WS11/D47 made that false **the day before** | Rewritten around the measurement; status `observed` → `measured` |
+| `timeout-budget-stack` | Published `→ remote agent 40s` while the shipped `.env` sets `CLAUDE_ANSWER_TIMEOUT_S=100`, and contradicted itself two sentences later | Chain corrected to 100s, with 40s named as the superseded value |
+| `managed-vs-self-hosted` | Carried the pre-measurement **assumption** of ~5–10s managed provisioning, refuted at ~2s on 2026-07-25 | Replaced with the measured numbers; re-opened for sign-off |
+| `orchestration-topology` | Leading comment still read "not yet measured — the platform agents are not deployed" after WS8's live runs | Comment corrected; both named preconditions had been met |
+| `fabricated-attribution` | No `review:` key at all, despite growing new findings since it was written | `review: required` added |
+| `least-privilege-is-identity` | Cited D25, which does not discuss the topic | Refs corrected |
+| `antipattern-lens` | Said "Salesforce's MCP inbound is gated beta" — the matrix's `blocked-beta` row is Agentforce as an MCP **client**, the opposite direction | Reworded to the direction the record supports |
+| `plan/02-matrix.md` | Said the **AWS→GCP** federation direction was unmeasured; D41 measured it the same day the paragraph was last touched | Corrected; residual gap narrowed to AgentCore-as-caller |
+| `config/targets.yaml` | Described `foundry-rest` as "Entra ADC auth" — the exact thing `platforms/foundry/core.py` refuses to do (D39) | Corrected to "explicit service principal" |
+
+**The pattern, now seen three sweeps running:** the durable risk in a lab that
+publishes its findings is not that a claim was too strong when written — it is
+that the claim stopped being true and nobody re-read it. Two of these were
+falsified **by work done in the same 24 hours**, which is the shortest
+staleness interval yet recorded and the strongest argument for running the
+sweep at the end of a session rather than before a demo.

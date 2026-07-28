@@ -4,11 +4,17 @@
 
 Idempotent (upserts / ON CONFLICT DO NOTHING). Needs A2ALAB_PG_DSN (or the
 Data API env pair) pointing at the writer role.
+
+Writes go through A2ALAB_PG_WRITER_SECRET_ARN, the same split the obs MCP
+server uses: `A2ALAB_PG_SECRET_ARN` is lab_reader, and a reader gets
+`cannot execute INSERT in a read-only transaction` — which is what this script
+did from the moment the reader/writer secrets were split until 2026-07-27.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -33,6 +39,16 @@ def _jsonify(raw) -> str:
         return json.dumps(str(raw), ensure_ascii=False)
 
 
+def _writer_client() -> PgClient:
+    """Data API with the writer secret when both are configured; otherwise the
+    standard env (the local-DSN case, where the DSN user holds write grants)."""
+    cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
+    writer_secret = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
+    if cluster and writer_secret:
+        return PgClient(cluster_arn=cluster, secret_arn=writer_secret)
+    return PgClient.from_env()
+
+
 def main() -> int:
     load_dotenv()
     db_path = default_db_path()
@@ -41,11 +57,11 @@ def main() -> int:
         return 1
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    pg = PgClient.from_env()
-    try:
-        pg.ensure_schema()
-    except Exception as exc:  # noqa: BLE001 - schema is provisioned by master; writer may lack DDL
-        print(f"ensure_schema skipped ({type(exc).__name__}) — assuming provisioned")
+    pg = _writer_client()
+    # DDL belongs to scripts/pg_migrate.py, which runs as the table owner.
+    # This used to call ensure_schema() and swallow the failure as "assuming
+    # provisioned" — which is how the WS12 `kind` column sat undelivered while
+    # three layers of code above it were correct. Backfill moves ROWS.
 
     counts = {}
     for row in conn.execute("SELECT * FROM trace_events"):
