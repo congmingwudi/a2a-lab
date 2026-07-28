@@ -7,6 +7,17 @@ says what to expect and how to back out.
 hosted harvest is green on all six platforms, and the cost sentinel has fired
 once successfully. These are the next moves, not repairs.
 
+## 0. The branch — read this first
+
+**This session's work is on `chezmoi-dotfiles-secrets-note`, not `main`.** The
+session-start snapshot said `main`, but the working branch had already moved to
+the D45 chezmoi branch, so that is where the commits landed and where they were
+pushed. `main` is untouched at `3a411be`.
+
+That branch now carries far more than its name suggests — WS11, WS12, WS13 and
+the honesty sweeps as well as the D45 note. Merging it to `main` (or renaming
+it) is your call, which is why I did not do it.
+
 ---
 
 ## 1. Delete the CloudFront distribution (2 minutes)
