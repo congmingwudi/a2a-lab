@@ -102,11 +102,11 @@ set is read end to end for contradiction.
 | 20 | `20-lens-a-enterprise/01-executive-overview.md` | written |
 | 20 | `20-lens-a-enterprise/02-business-requirements.md` | written |
 | 20 | `20-lens-a-enterprise/03-value-hypotheses-and-measures.md` | written |
-| 30 | `30-lens-b-salesforce-field/01-executive-overview.md` | todo |
-| 30 | `30-lens-b-salesforce-field/02-business-case-and-roi.md` | todo |
-| 40 | `40-lens-c-lab-learning/01-executive-overview.md` | todo |
-| 40 | `40-lens-c-lab-learning/02-learning-objectives.md` | todo |
-| 40 | `40-lens-c-lab-learning/03-build-vs-buy.md` | todo |
+| 30 | `30-lens-b-salesforce-field/01-executive-overview.md` | written |
+| 30 | `30-lens-b-salesforce-field/02-business-case-and-roi.md` | written |
+| 40 | `40-lens-c-lab-learning/01-executive-overview.md` | written |
+| 40 | `40-lens-c-lab-learning/02-learning-objectives.md` | written |
+| 40 | `40-lens-c-lab-learning/03-build-vs-buy.md` | written |
 | 50 | `50-system/01-functional-requirements.md` | todo |
 | 50 | `50-system/02-use-cases-and-stories.md` | todo |
 | 50 | `50-system/03-nonfunctional-requirements.md` | todo |
