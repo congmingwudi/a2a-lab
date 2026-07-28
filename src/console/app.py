@@ -563,6 +563,22 @@ def _shots(*slugs: str) -> dict:
     }
 
 
+def _env_url(var: str, default: str) -> str:
+    """A component's deep link: the env override, or the working default.
+
+    `os.environ.get(var, default)` is wrong here, and was wrong in the running
+    console for as long as `.env` carried `AGENTCORE_CONSOLE_URL=` and
+    `AGENT_ENGINE_CONSOLE_URL=` with empty values: an empty string is a present
+    key, so it BEAT the default and both rows rendered "not yet available" —
+    the exact failure `test_every_component_has_a_console_url` exists to
+    prevent. The test could not see it because tests do not load `.env` and
+    `run_local.sh` does.
+
+    An empty override means "I have nothing better", not "show no link".
+    """
+    return os.environ.get(var) or default
+
+
 def public_components(comps: list[dict], signed_in: bool) -> list[dict]:
     """Component rows with the deep links removed for anonymous callers.
 
@@ -597,7 +613,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "kind": "claude",
                 "note": "Agent + environment configuration (model, prompt, the "
                 "ask_agentforce custom tool) in the Claude platform console.",
-                "url": os.environ.get(
+                "url": _env_url(
                     "CLAUDE_AGENT_CONSOLE_URL",
                     "https://platform.claude.com/workspaces/default/agents",
                 ),
@@ -632,7 +648,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 # There is no OpenAI-hosted agent object to link to; the runs are
                 # the asset. platform.openai.com/traces is the URL the Agents SDK
                 # tracing docs publish (openai.github.io/openai-agents-python/tracing).
-                "url": os.environ.get("OPENAI_CONSOLE_URL", "https://platform.openai.com/traces"),
+                "url": _env_url("OPENAI_CONSOLE_URL", "https://platform.openai.com/traces"),
                 **_shots("openai-agentcore"),
             }
         )
@@ -647,7 +663,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 # Microsoft documents the portal only as its root (ai.azure.com); the
                 # per-project deep link carries ids the docs do not specify a format
                 # for, so it is env-supplied — paste the URL the portal shows.
-                "url": os.environ.get("FOUNDRY_CONSOLE_URL", "https://ai.azure.com"),
+                "url": _env_url("FOUNDRY_CONSOLE_URL", "https://ai.azure.com"),
                 **_shots("foundry-agent"),
             }
         )
@@ -659,7 +675,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "kind": "adk",
                 "note": "WS2: the ADK/Gemini agent deployed with native A2A serving "
                 "(deploy/adk/deploy_adk.py); scale-to-zero on a personal GCP project.",
-                "url": os.environ.get(
+                "url": _env_url(
                     "AGENT_ENGINE_CONSOLE_URL",
                     "https://console.cloud.google.com/vertex-ai/agents/agent-engines"
                     + (f"?project={project}" if project else ""),
@@ -675,7 +691,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "note": "D26: the self-hosted Agent SDK containers deployed to Bedrock "
                 "AgentCore Runtime (IAM-only data plane, no public HTTP endpoint) — "
                 "deploy/agentcore/deploy.sh builds and pushes them.",
-                "url": os.environ.get(
+                "url": _env_url(
                     "AGENTCORE_CONSOLE_URL",
                     "https://us-east-1.console.aws.amazon.com/bedrock-agentcore/home"
                     "?region=us-east-1#/agent-runtimes",
@@ -1833,9 +1849,21 @@ def create_console_app(registry: Registry | None = None):
     # same pull as scripts/obs_harvest.py.
 
     def _obs_store():
-        from observability import ObsStore
+        """Aurora when it is configured; sqlite only as the local fallback (D49).
 
-        return ObsStore()
+        This used to return `ObsStore()` unconditionally — sqlite, always. The
+        hosted harvest Lambda writes Aurora and the local `obs_harvest.py`
+        writes `traces/lab.db`, so the console rendered the local copy while
+        the authoritative one filled up unseen. Nothing failed; the numbers
+        were just quietly the wrong ones, and a container (no lab.db at all)
+        showed an empty section.
+
+        `A2ALAB_OBS_STORE=sqlite` still forces the local store, for working on
+        a harvested snapshot offline.
+        """
+        from observability import make_obs_store
+
+        return make_obs_store()
 
     # The honest capability matrix (plan/05-observability.md) — rendered
     # live in the coverage panel next to what was actually harvested.

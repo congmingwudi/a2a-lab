@@ -1882,7 +1882,7 @@ Path A. That property is why the work is safe to do incrementally.
 | 3 | **Hosted watcher** — EventBridge Lambda servicing Managed Agents custom tool calls | not started (was WS7 item 3) |
 | 4 | Widen `modes:` in `config/targets.yaml` as each face lands | not started |
 | 5 | Re-scope `cloudflared` to local development | decided, no work |
-| 6 | **`PgObsStore` read side** — the Observability section is empty when hosted | **open, found by item 1** (below) |
+| 6 | **`PgObsStore` read side** — the Observability section is empty when hosted | **done 2026-07-28** (D49) |
 
 ### What the first run of item 1 actually found (2026-07-28)
 
@@ -1910,21 +1910,46 @@ prose), briefs reading from Aurora, and Path A unaffected throughout.
 `/api/traces` returning `[]` is **not** a defect — the console's remote window
 is 6h (`_REMOTE_WINDOW_S`) and the newest hop was 9.9h old.
 
-### Item 6 — the Observability section cannot work hosted yet
+### Item 6 — Postgres is now the only observability store (done, D49)
 
-`_obs_store()` returns `ObsStore()`, which is **SQLite-only**: it opens
-`traces/lab.db`. `A2ALAB_OBS_STORE=postgres` is honoured only by
-`scripts/obs_harvest.py`. In a container that is a fresh empty database, so
-`/api/obs/sessions`, `/api/obs/events` and `/api/obs/summary` return empty
-forever while Aurora holds the rows (479 sessions at the time of writing).
-`/api/obs/briefs` works only because that endpoint reaches for `PgObsStore`
-directly and bypasses `_obs_store()`.
+The section was empty hosted because `_obs_store()` returned the **SQLite-only**
+`ObsStore()` unconditionally, while `A2ALAB_OBS_STORE=postgres` was honoured
+only by `scripts/obs_harvest.py` — and was commented out in `.env`. So the
+*local* harvest filled `traces/lab.db` (382 sessions), the *hosted* harvest
+filled Aurora (479), and the console read the first. It was never empty on a
+laptop, so nothing looked wrong; hosting it removed the local file and made the
+divergence visible.
 
-This is not a config fix. `PgObsStore` implements the harvest **write** path
-plus `list_briefs`/`get_state`; the read methods the console needs —
-`list_sessions`, `list_events`, `summary`, `session_callers`,
-`session_lab_traces`, `lab_traces_for` — do not exist for Postgres. Six methods
-against Aurora, each matching the SQLite semantics the UI already renders.
+Closed by making Postgres the source of truth for storage, dashboard and the
+Managed Agent's analysis briefs, with **one** selector
+(`observability.make_obs_store()`) that both the console and the harvest call.
+`PgObsStore` gained the six read methods it never had. Two of them had to be
+written around the RDS Data API's **1 MB result cap**: rider extraction moved
+into SQL (the matching payloads total 3.6 MB) and `list_events` pages itself
+(one session's events measured 2.43 MB).
+
+**Verified hosted 2026-07-28:** 5 platforms, 200 sessions, 35 caller riders, 29
+lab-trace riders, build telemetry enabled — all read from Aurora, with
+unauthenticated requests still 401.
+
+### Two things the same session found by accident
+
+- **A live console bug, not a test artifact.** `.env` carried
+  `AGENTCORE_CONSOLE_URL=` and `AGENT_ENGINE_CONSOLE_URL=` with *empty* values,
+  and the code read them as `os.environ.get(var, default)` — where an empty
+  string is a present key and beats the default. Both component rows rendered
+  "not yet available" in the running console, which is precisely what
+  `test_every_component_has_a_console_url` exists to prevent. The test could not
+  see it because the suite does not load `.env` and `run_local.sh` does. Now
+  routed through `_env_url()`, with a regression test that sets the vars empty.
+- **The unit suite could read and write hosted Aurora.** With `A2ALAB_PG_*`
+  exported, `/api/expiry` returned the *real* credential report instead of the
+  temp file two tests had just written — so the suite failed only for developers
+  who had sourced `.env`. `tests/conftest.py` already cleared `A2ALAB_TOKEN`,
+  `BRIDGE_TOKEN` and `A2ALAB_MODE` for exactly this reason; the database group
+  was simply never added. `A2ALAB_TRACE_SINK` is cleared with it, because
+  `postgres` there would have the unit suite writing hop rows into the hosted
+  store.
 
 **Item 1 is written and unrun.** The script is modelled line-for-line on
 `deploy/bridge/deploy_bridge.sh`, including its two hard-won details: env vars

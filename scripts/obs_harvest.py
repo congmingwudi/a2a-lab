@@ -11,7 +11,6 @@ the hosted harvest Lambda runs the same sources against Postgres.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -19,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from dotenv import load_dotenv
 
-from observability import ObsStore
 from observability.adk_source import AdkSource
 from observability.anthropic_source import AnthropicSource
 from observability.coding_source import CodingSource
@@ -41,11 +39,13 @@ SOURCES = {
 
 
 def make_store():
-    if os.environ.get("A2ALAB_OBS_STORE", "sqlite").lower() == "postgres":
-        from observability.pg import PgObsStore
+    # The shared selector (D49). This used to default to sqlite while the
+    # console hardcoded sqlite reads, so a local harvest and the hosted one
+    # filled two different stores and the dashboard showed whichever the
+    # laptop had.
+    from observability import make_obs_store
 
-        return PgObsStore()
-    return ObsStore()
+    return make_obs_store()
 
 
 def main() -> int:

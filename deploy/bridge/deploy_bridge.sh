@@ -63,8 +63,14 @@ import json, os
 keys = [
     "BRIDGE_TOKEN", "A2ALAB_TOKEN",
     "SF_CLIENT_ID", "SF_CLIENT_SECRET",
+    # The _OBS connected app is a SECOND credential pair (D37/F6, per-caller
+    # identity). It postdates this list, so it rode the task definition in
+    # cleartext from the first hosted bridge until D48 — the exact exposure
+    # this secret exists to prevent.
+    "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "ANTHROPIC_API_KEY",
+    "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
 ]
 print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
 PY
@@ -227,8 +233,27 @@ for path in pathlib.Path("src").rglob("*.py"):
 # read via os.environ too, so the scan above would otherwise put them straight
 # back into the config it took them out of.
 SECRETS = {"BRIDGE_TOKEN", "A2ALAB_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
+           "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
-           "ANTHROPIC_API_KEY", "OPENAI_API_KEY"}
+           "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
+
+
+def is_secret(name):
+    """An enumerated list only excludes the secrets someone remembered.
+
+    SF_CLIENT_ID_OBS, SF_CLIENT_SECRET_OBS and A2ALAB_FANOUT_MCP_TOKEN all
+    postdate the list above and rode the task definition in cleartext until
+    D48. Names are a reliable signal, so treat any SECRET/TOKEN/KEY/PASSWORD
+    variable as sensitive by default — EXCEPT `*_ARN` pointers
+    (A2ALAB_PG_SECRET_ARN, A2ALAB_RUNTIME_SECRET_ARN), which NAME a secret
+    rather than being one and must stay in plain env or the container cannot
+    find what to fetch.
+    """
+    if name in SECRETS:
+        return True
+    if name.endswith("_ARN"):
+        return False
+    return any(w in name for w in ("SECRET", "TOKEN", "KEY", "PASSWORD"))
 
 # The task has its OWN AWS identity and region; the laptop's must never ride
 # along. These come from the AMBIENT SHELL, not .env, so the source scan picks
@@ -243,7 +268,7 @@ AMBIENT_AWS = {"AWS_DEFAULT_REGION", "AWS_PROFILE", "AWS_ACCESS_KEY_ID",
                "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_DEFAULT_PROFILE"}
 
 keys = [k for k in (referenced + sorted(read_by_code))
-        if k not in SECRETS and k not in AMBIENT_AWS]
+        if not is_secret(k) and k not in AMBIENT_AWS]
 keys += ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
          "A2ALAB_RUNTIME_SECRET_ARN", "A2ALAB_MODE"]
 env = {k: os.environ[k] for k in dict.fromkeys(keys) if os.environ.get(k)}

@@ -1520,3 +1520,59 @@ is visible from a healthy container:
 confirms a written script; it is the first execution of code paths no test
 covers, and it should be scheduled as work. D46 said building is not
 deploying. This says deploying is not verifying.
+
+## 2026-07-28 — D49: One store for observability, and one place that chooses it
+
+**Context.** Asked why the hosted console's Observability section was empty, the
+honest answer was that it had never been reading the store the lab writes to.
+Two selectors existed with **opposite defaults**:
+
+- `scripts/obs_harvest.py` chose Postgres only when `A2ALAB_OBS_STORE=postgres`,
+  defaulting to sqlite. That variable was commented out in `.env`, so **local**
+  harvests filled `traces/lab.db`.
+- The hosted harvest Lambda sets it, so **its** harvests filled Aurora.
+- The console's `_obs_store()` returned `ObsStore()` — sqlite — unconditionally,
+  ignoring the variable entirely.
+
+So the dashboard rendered the laptop's copy (382 sessions) while the
+authoritative one filled up unseen (479 sessions), and the two drifted for as
+long as both harvests ran. Nothing errored. The numbers were simply the wrong
+ones, and no test could see it because the divergence lived in configuration.
+
+Hosting the console turned the silent version loud: a container has no
+`traces/lab.db`, so the section was empty rather than stale.
+
+**Decision.**
+
+1. **Postgres is the source of truth** for the observability section — storage,
+   the dashboard, and the analysis briefs the Managed Agent writes. `sqlite`
+   remains selectable (`A2ALAB_OBS_STORE=sqlite`) for working on a harvested
+   snapshot with no AWS session, and remains the fallback when Postgres is not
+   configured so a fresh checkout still runs.
+2. **One function chooses.** `observability.make_obs_store()` is the only
+   selector; the console and `obs_harvest.py` both call it. Two call sites with
+   two defaults is what caused this, and the fix is not "set the variable" —
+   it is having one place where the question is answered.
+3. **`PgObsStore` grew the read side it never had**: `summary`, `list_sessions`,
+   `list_events`, `session_callers`, `session_lab_traces`, `lab_traces_for`.
+   It had only ever implemented the harvest's write path plus briefs and state,
+   which is why `/api/obs/briefs` worked while everything beside it was empty —
+   that one endpoint reached for `PgObsStore` directly and bypassed the
+   selector.
+4. **Two of the six cannot be written the obvious way.** The RDS Data API
+   refuses any result over **1 MB**:
+   - the rider joins matched ~3.6 MB of `raw_json`, so extraction moved **into
+     SQL** (`substring(... from ...)`) and only the short captured value crosses
+     the wire. The Postgres and Python patterns are asserted equal by a test,
+     because two dialects of one rule is exactly the shape that drifts.
+   - one session's events measured **2.43 MB**, so `list_events` pages itself,
+     with the page size derived from the widest row in that session rather than
+     guessed — payload sizes differ by two orders of magnitude between
+     platforms.
+
+**Consequence.** The hosted console now reports 5 platforms, 200 sessions, 35
+caller riders and 29 lab-trace riders, all from Aurora. The general lesson is
+narrower than "use one store": a fallback that silently succeeds is worse than
+one that fails, because it produces a plausible answer from the wrong source.
+Both of this decision's fixes are really the same fix — make the choice once,
+and make the wrong choice impossible rather than merely unlikely.

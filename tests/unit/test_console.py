@@ -1193,3 +1193,31 @@ def test_local_console_still_starts_without_a_token(monkeypatch):
 
     console_app.main()
     assert started["port"] == 8200
+
+
+def test_empty_console_url_env_falls_back_to_the_default(tmp_path, monkeypatch):
+    """An empty override means "I have nothing better", not "show no link".
+
+    `.env` carried `AGENTCORE_CONSOLE_URL=` and `AGENT_ENGINE_CONSOLE_URL=`
+    with empty values, and the code read them with `os.environ.get(var,
+    default)` — where an empty string is a PRESENT key and beats the default.
+    Both rows rendered "not yet available" in the running console for as long
+    as that was true. test_every_component_has_a_console_url could not catch it
+    because the suite does not load `.env` and `run_local.sh` does.
+    """
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("AGENTCORE_CONSOLE_URL", "")
+    monkeypatch.setenv("AGENT_ENGINE_CONSOLE_URL", "")
+    monkeypatch.setenv("FOUNDRY_CONSOLE_URL", "")
+    monkeypatch.setenv("OPENAI_CONSOLE_URL", "")
+    monkeypatch.setenv("CLAUDE_AGENT_CONSOLE_URL", "")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    data = TestClient(app).get("/api/scenarios", headers={"X-Lab-Token": "sekrit"}).json()
+    missing = [
+        (s["name"], c["title"])
+        for s in data["scenarios"]
+        for c in s.get("components") or []
+        if not c.get("url")
+    ]
+    assert missing == [], f"empty env var blanked a console link: {missing}"

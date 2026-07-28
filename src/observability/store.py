@@ -76,6 +76,44 @@ def default_db_path() -> Path:
     return Path(os.environ.get(TRACE_DIR_ENV, DEFAULT_TRACE_DIR)) / DEFAULT_DB_NAME
 
 
+# The rider regexes and the usage rollup are shared with PgObsStore (D49).
+# They encode what the console RENDERS, so a second copy in pg.py would be a
+# second thing to keep in step — and the Postgres store is now the only one the
+# console reads, which is exactly when a silent divergence would go unnoticed.
+CALLER_RIDER_RE = re.compile(r"caller-agent:\\?n?\s*([\w-]+)")
+LAB_TRACE_RIDER_RE = re.compile(r"lab-trace:\\?n?\s*([0-9a-fA-F-]{8,})")
+
+_TOKEN_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+)
+
+
+def accumulate_usage(platforms: dict[str, Any], platform: str, usage_json: Any) -> None:
+    """Fold one session's harvested usage into the per-platform rollup.
+
+    Tolerant by design: a platform that reports no usage, or reports it in a
+    shape we do not recognise, must not break the whole summary — the panel is
+    a coverage report, and one unparsable row should cost that row only.
+    """
+    try:
+        usage = json.loads(usage_json) if isinstance(usage_json, str) else usage_json
+        tokens = sum(int(usage.get(k) or 0) for k in _TOKEN_FIELDS)
+        plat = platforms.setdefault(platform, {})
+        plat["tokens"] = plat.get("tokens", 0) + tokens
+        # Platforms that bill something other than tokens (Agent Engine bills
+        # allocated compute) surface an estimated-cost rollup instead/in
+        # addition — additive and optional.
+        if usage.get("est_cost_usd") is not None:
+            plat["est_cost_usd"] = round(
+                plat.get("est_cost_usd", 0.0) + float(usage["est_cost_usd"]), 4
+            )
+    except (ValueError, TypeError, AttributeError):
+        pass
+
+
 class ObsStore:
     def __init__(self, db_path: str | Path | None = None):
         self.db_path = Path(db_path) if db_path else default_db_path()
@@ -199,35 +237,14 @@ class ObsStore:
         for row in self._conn.execute(
             "SELECT platform, usage_json FROM obs_sessions WHERE usage_json IS NOT NULL"
         ):
-            try:
-                usage = json.loads(row["usage_json"])
-                tokens = sum(
-                    int(usage.get(k) or 0)
-                    for k in (
-                        "input_tokens",
-                        "output_tokens",
-                        "cache_creation_input_tokens",
-                        "cache_read_input_tokens",
-                    )
-                )
-                plat = out["platforms"].setdefault(row["platform"], {})
-                plat["tokens"] = plat.get("tokens", 0) + tokens
-                # Platforms that bill something other than tokens (Agent
-                # Engine bills allocated compute) surface an estimated-cost
-                # rollup instead/in addition — additive and optional.
-                if usage.get("est_cost_usd") is not None:
-                    plat["est_cost_usd"] = round(
-                        plat.get("est_cost_usd", 0.0) + float(usage["est_cost_usd"]), 4
-                    )
-            except (ValueError, TypeError, AttributeError):
-                pass
+            accumulate_usage(out["platforms"], row["platform"], row["usage_json"])
         return out
 
     def session_callers(self) -> dict[str, str]:
         """(platform:native_id) -> caller-agent, extracted from the D27
         rider text visible inside harvested events — the delegating agent's
         self-identification, as recorded by the PLATFORM's own logs."""
-        rider = re.compile(r"caller-agent:\\?n?\s*([\w-]+)")
+        rider = CALLER_RIDER_RE
         out: dict[str, str] = {}
         for row in self._conn.execute(
             """SELECT platform, native_session_id, raw_json FROM obs_events
@@ -246,7 +263,7 @@ class ObsStore:
         events — the text-level join between a platform's own execution
         logs and the lab run that caused them, surviving hops where no
         header or metadata field does."""
-        rider = re.compile(r"lab-trace:\\?n?\s*([0-9a-fA-F-]{8,})")
+        rider = LAB_TRACE_RIDER_RE
         out: dict[str, str] = {}
         for row in self._conn.execute(
             """SELECT platform, native_session_id, raw_json FROM obs_events
