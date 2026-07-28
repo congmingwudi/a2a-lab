@@ -89,8 +89,24 @@ things cannot be distinguished from one that forgot them.
 | **Inspection** | Established by reading code, configuration, or output |
 | **Analysis** | Established by reasoning over measurements or models rather than direct observation |
 
-Every *Must* requirement needs a verification method stronger than Inspection,
-or an explicit note explaining why it cannot have one.
+Every *Must* requirement needs a verification method stronger than Inspection, or
+a `**Verification note.**` naming which exception class applies. Three classes
+legitimately cannot have one:
+
+1. **Structural completeness** — that *every* path traverses a control. A test
+   proves a specific bypass fails, not that none exists. Verified by Analysis
+   over enumerated paths, plus a test that a constructed bypass fails.
+2. **Third-party behaviour** — depends on a platform the programme cannot force
+   into a state. Verified by Demonstration.
+3. **Documentation and artefact presence** — the property is the existence and
+   adequacy of a recorded artefact, which no execution can assert. An inventory's
+   *completeness*, a rationale's *adequacy*, and a role assignment's
+   *correctness* are judgements, not assertions.
+
+Class 3 is the one to apply sparingly, because it is the easiest to reach for. The
+test: if the property could be checked by a script over the artefact, it is a Test
+and not an exception. "Every monetary figure carries a label" is checkable.
+"The inventory is current" is not.
 
 ## 3. Evidence labelling
 

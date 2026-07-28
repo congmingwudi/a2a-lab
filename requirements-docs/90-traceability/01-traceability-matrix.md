@@ -132,6 +132,25 @@ is the classic traceability finding, and it was invisible from either document
 read alone — the use case looked complete because the step was described, and the
 requirement set looked complete because nothing referenced the missing capability.
 
+## 5a. Contradictions found and closed
+
+A separate pass, read across documents rather than within them. Six findings.
+
+| # | Contradiction | Resolution |
+|---|---|---|
+| 1 | **SR-201 required every exposed endpoint to authenticate**, while FR-105 required an *unauthenticated* liveness surface and SR-503/IR-503 required anonymous discovery. Three requirements directly contradicted one | SR-201 now carries a **closed, enumerated** exempt set of three endpoints, each with its reason and its constraining requirements. Adding a fourth is a change to the requirement, not a configuration decision |
+| 2 | **OR-101 required payloads recorded "as transmitted"** and AC-601 required them "byte-identical to what traversed the network", while SR-405, NFR-703 and DR-205 require credential and boundary-excluded content to be removed *before* writing. As written, unsatisfiable | OR-101 now states fidelity **except at redaction markers**, names redaction as the sole permitted divergence, and forbids every other transformation. AC-601 restated; AC-607 added to verify the removals on the same payload |
+| 3 | **26 Must requirements were verified by Inspection alone**, against a rule stated in `01-conventions.md` §2 and restated in `09-acceptance-and-verification.md` §1 | 14 upgraded to Test or Analysis where the property is genuinely checkable; 11 retained as Inspection under a newly-defined **exception class 3** (documentation and artefact presence), each carrying a `Verification note`. TR-302 resolved separately under finding 4 |
+| 4 | **TR-302 forbade persisting another division's data**, while OR-101 requires recording payloads that routinely *are* that data | TR-302 rewritten to constrain **access shape** rather than content: records addressable by interaction, never indexed or queryable by business entity. The DR-503 subject-location obligation is named as the single scoped exception |
+| 5 | **X5 excluded "streaming"** while SR-604 required streaming surfaces to authenticate out of band | X5 narrowed to streaming *between agents*, explicitly not the operator surface's continuous update |
+| 6 | **FR-606's "no external credentials"** was readable as exempting loopback from SR-202's fail-closed authentication | Scope note added: no *external platform* credentials; the system's own inbound authentication still applies. There is no authentication-optional mode |
+
+Findings 1, 2 and 4 are the material ones — each was a pair of Must requirements
+that could not both be satisfied, and none was visible from reading either
+document on its own. Finding 3 is the set contradicting its own stated rule,
+which is the failure mode a conventions document exists to prevent and is
+therefore the most embarrassing of the six.
+
 ## 6. Downward coverage — use cases and stories
 
 Every `UC-` and `US-` entry in `50-system/02-use-cases-and-stories.md` carries a

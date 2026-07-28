@@ -310,9 +310,7 @@ more interoperable than it is, and the error surfaces only during a production
 migration that assumed otherwise.
 
 **Priority.** Must
-**Verification.** Inspection — every reported capability carries a native or
-mediated designation, verified against what the system actually does rather than
-against a configuration label.
+**Verification.** Test — an automated check fails when any reported capability lacks a native or mediated designation; designations are additionally reconciled by inspection against what the system does rather than against a configuration label.
 **Traces to.** BR-502
 
 ---
@@ -668,6 +666,13 @@ plumbing and a remote platform, and there is no way to establish a baseline. It
 also allows the system to be developed and verified by anyone, which is what
 prevents it from depending on one person's credentials.
 
+**Note on scope of "no credentials".** This means no credentials for *external
+platforms*. It does not exempt the loopback path from the system's own inbound
+authentication, which fails closed when unconfigured (SR-202) — a loopback run
+configures a local token like any other deployment. The two requirements are
+compatible and are easily misread as conflicting: there is no
+authentication-optional mode, only an absence of external platforms.
+
 **Priority.** Must
 **Verification.** Test — the full loopback suite passes with no external
 credentials present.
@@ -707,8 +712,7 @@ to justify or refuse investment and must withstand challenge from the vendors
 they concern.
 
 **Priority.** Must
-**Verification.** Inspection — every recorded finding carries conditions and a
-resolvable reference to its supporting interaction.
+**Verification.** Test — a finding cannot be recorded without conditions and a resolvable reference to its supporting interaction.
 **Traces to.** BR-501
 
 ---
@@ -742,8 +746,7 @@ findings is part of the requirement: a register nobody encounters does not
 discharge it.
 
 **Priority.** Must
-**Verification.** Inspection — published outputs contain the register, and each
-claimed capability is marked exercised or merely declared.
+**Verification.** Test — published outputs are checked for the register, and for an exercised-or-declared marking on every claimed capability.
 **Traces to.** BR-503, BR-502
 
 ---

@@ -77,10 +77,20 @@ inventory.
 | Business requirements | 28, each with a named owner |
 | System requirements | 188 across seven classes, 175 Must / 13 Should |
 | Use cases / user stories | 8 / 25 |
-| Acceptance criteria | 48 across eight capability gates |
+| Acceptance criteria | 50 across eight capability gates |
 | Upward traceability | 188 of 188 — no orphans |
 
-Not yet `reviewed`: the set has been checked for traceability gaps
-(`90-traceability/01-traceability-matrix.md` §5 records the two found and
-closed) but not yet read end to end for contradiction between documents. That is
-the remaining step before it is handed to a build.
+**Reviewed.** Two passes are complete and their findings are recorded rather than
+silently repaired:
+
+- **Traceability** — one missing requirement and four missing trace links, in
+  `90-traceability/01-traceability-matrix.md` §5.
+- **Contradiction** — six cross-document conflicts, in §5a of the same document.
+  Three were pairs of Must requirements that could not both be satisfied; one was
+  the set contradicting a rule it states twice.
+
+Both passes are re-runnable and should be re-run after any requirement is added,
+removed or re-scoped. Neither is a substitute for review by someone who did not
+write the set — in particular, the regulatory requirements in `50-system/06`
+were written by an engineer reasoning about obligations and warrant a
+practitioner's read before they are relied upon.

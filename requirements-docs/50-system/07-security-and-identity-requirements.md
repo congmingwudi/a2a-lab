@@ -102,12 +102,30 @@ no person can authenticate as a component.
 
 **Statement.** Every endpoint the system exposes SHALL enforce its own
 authentication, and SHALL NOT rely on network position, an upstream proxy, or a
-tunnel edge to have done so.
+tunnel edge to have done so — except for the exempt endpoints enumerated below,
+which SHALL be a closed set.
+
+**Exempt endpoints.** Three, each exempt for a stated reason and no others:
+
+| Exempt | Why | Constrained by |
+|---|---|---|
+| Protocol-required discovery descriptions | Conformant clients must be able to retrieve them anonymously; requiring credentials breaks interoperability | SR-503, SR-504, IR-503 |
+| Liveness indication | Must be answerable when the component cannot serve, including before credentials resolve | FR-105 |
+| Readiness indication | Same | FR-105 |
+
+Adding a fourth exempt endpoint is a change to this requirement, not a
+configuration decision.
 
 **Rationale.** Endpoints published over untrusted networks are reachable by
 anyone who learns the address, and edge components frequently perform no
 authentication at all. An endpoint trusting an upstream it does not control is
 unauthenticated in practice.
+
+The exemptions are enumerated rather than described by rule because "endpoints
+that need to be open" is a category that grows. A closed list makes each addition
+a visible decision; a rule makes the next addition somebody's judgement call.
+Every exempt endpoint is additionally constrained by SR-504 and SR-505 — being
+unauthenticated, anything they return is public.
 
 **Priority.** Must
 **Verification.** Test — each endpoint refuses unauthenticated requests when
@@ -291,6 +309,7 @@ inventory is the control.
 **Priority.** Must
 **Verification.** Inspection — the inventory exists, is current, and every entry
 is encrypted at rest and backed up.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-306
 
 ---
@@ -337,7 +356,7 @@ attack surface, granted for an evaluation and rarely withdrawn afterwards.
 Outbound-initiated exposure achieves the same reachability without it.
 
 **Priority.** Must
-**Verification.** Inspection — no inbound path to an internal host exists.
+**Verification.** Analysis — network paths to internal hosts are enumerated and none is inbound.
 **Traces to.** BR-306
 
 ---

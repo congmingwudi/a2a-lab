@@ -32,13 +32,29 @@ valuable ones.
 
 ### OR-101 — Every hop is recorded with its actual payloads
 
-**Statement.** Every inter-agent hop SHALL append a record containing the actual
+**Statement.** Every inter-agent hop SHALL append a record containing the
 request and response payloads as transmitted, together with participants,
-protocol, timing and status.
+protocol, timing and status. The recorded payload SHALL be byte-identical to what
+traversed the network **except at redaction markers**, which SHALL be the only
+permitted divergence.
+
+**Redaction is the sole exception, and it is mandatory.** Two rules require
+content to be withheld from the record before it is written — credential removal
+(SR-405, NFR-703) and boundary-excluded content (DR-205). Each such removal
+leaves a visible marker. This requirement therefore obliges *fidelity everywhere
+those rules do not apply*, not literal completeness, and no other transformation
+is permitted: no reformatting, no re-serialisation, no normalisation, no
+truncation.
 
 **Rationale.** The wire record is the exhibit. A protocol comparison that cannot
 show what was exchanged is an opinion, and the characteristic cross-platform
 failure — two ends each appearing correct — is diagnosable only from content.
+
+The exception is stated explicitly because the alternative readings are both
+wrong. Read as absolute fidelity, this requirement is unsatisfiable alongside
+SR-405. Read loosely, it permits a builder to normalise payloads for convenience
+and destroy the evidence of a dialect difference — which is exactly the class of
+finding the record exists to capture.
 
 **Priority.** Must
 **Verification.** Test — recorded payloads match transmitted bytes for every
@@ -226,6 +242,7 @@ closed.
 **Priority.** Must
 **Verification.** Inspection — each join failure carries a classification
 supported by evidence.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-502, BR-503
 
 ---
@@ -243,6 +260,7 @@ listing only what works reads as complete coverage.
 
 **Priority.** Must
 **Verification.** Inspection — the coverage report includes explicit absences.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-502, BR-503, BR-404
 
 ---
@@ -349,7 +367,7 @@ Presented unlabelled they will be compared against an invoice and will not match
 which discredits the whole measurement.
 
 **Priority.** Must
-**Verification.** Inspection — every monetary figure carries the label.
+**Verification.** Test — an automated check fails when a monetary figure is presented without the label.
 **Traces to.** BR-401, BR-403
 
 ---
@@ -419,8 +437,7 @@ description and never invoked is exactly this, and it will be read as
 demonstrated.
 
 **Priority.** Must
-**Verification.** Inspection — each claimed capability carries an exercised or
-declared marking.
+**Verification.** Test — an automated check fails when a claimed capability carries no exercised-or-declared marking.
 **Traces to.** BR-503, BR-502
 
 ---
@@ -438,6 +455,7 @@ they are quietly omitted.
 
 **Priority.** Must
 **Verification.** Inspection — the findings record contains observability gaps.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-503, BR-404
 
 ---

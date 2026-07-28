@@ -20,16 +20,27 @@ satisfied by an absence and an absence is easy to declare and hard to notice.
 | **Inspection** | Established by reading code, configuration, or output | Structural constraints and presence-of-artefact requirements |
 | **Analysis** | Established by reasoning over measurements or enumerations | Completeness properties — that *every* path traverses a control |
 
-Every Must requirement needs a method stronger than Inspection, or an explicit
-note saying why it cannot have one. Two classes legitimately cannot:
+Every Must requirement needs a method stronger than Inspection, or a
+`**Verification note.**` naming its exception class. Three classes legitimately
+cannot:
 
-- **Structural completeness properties** (TR-105, FR-405, OR-104) require
+- **Class 1 — structural completeness** (TR-105, FR-405, OR-104, SR-502) requires
   Analysis, because a test can prove a specific bypass fails but not that no
   bypass exists. Analysis here means enumerating paths and demonstrating each
   traverses the control — plus a test that a deliberately constructed bypass
   fails.
-- **Third-party behavioural findings** require Demonstration, because they depend
+- **Class 2 — third-party behaviour** requires Demonstration, because it depends
   on a platform the programme does not control and cannot force into a state.
+- **Class 3 — documentation and artefact presence** (NFR-201, TR-101, TR-102,
+  TR-202, IR-103, DR-103, DR-502, SR-404, OR-304, OR-305, OR-602) remains
+  Inspection, because the property is the existence and *adequacy* of a recorded
+  artefact. An inventory's completeness and a rationale's adequacy are
+  judgements, not assertions.
+
+Class 3 carries eleven requirements, and the boundary is worth watching: if a
+property could be checked by a script over the artefact, it is a Test and not an
+exception. "Every monetary figure carries a label" is checkable and is a Test
+(OR-406). "The inventory is current" is not, and is Class 3 (SR-404).
 
 ## 2. Test strategy
 
@@ -173,7 +184,8 @@ compliance.
 
 | # | Criterion | Method |
 |---|---|---|
-| AC-601 | Recorded payloads are byte-identical to what traversed the network, including for library-mediated protocols | Test (L2) |
+| AC-601 | Recorded payloads are byte-identical to what traversed the network except at redaction markers, including for library-mediated protocols | Test (L2) |
+| AC-607 | Credential material and boundary-excluded content are absent from storage, each leaving a visible marker — verified on the same payload as AC-601 | Test (L3) |
 | AC-602 | A multi-platform interaction is reconstructed end to end from the record by someone who did not run it | Demonstration |
 | AC-603 | Join rate is computed at two, three and four participants, with each failure classified structural or fixable | Test (L5) |
 | AC-604 | Consumption is reported per billed category and reconciled against a provider's own figures within a stated tolerance | Test (L4) |

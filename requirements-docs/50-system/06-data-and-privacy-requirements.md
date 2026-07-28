@@ -34,8 +34,7 @@ by default carries whatever a model chooses to include. Declaring before
 enabling is what makes the assessment a gate rather than an audit finding.
 
 **Priority.** Must
-**Verification.** Inspection — every enabled seam has a classification;
-enablement without one is refused.
+**Verification.** Test — enabling a seam without a declared classification is refused.
 **Traces to.** BR-301
 
 ---
@@ -72,6 +71,7 @@ gets some seams wrong.
 **Priority.** Must
 **Verification.** Inspection — roles are recorded per seam and reviewed by the
 DPO.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-301
 
 ---
@@ -126,8 +126,7 @@ treat it as though it were not, which produces a residency and retention posture
 that is wrong precisely where it was believed to be strongest.
 
 **Priority.** Must
-**Verification.** Inspection — pseudonymised content is classified and handled as
-personal data throughout.
+**Verification.** Analysis and test — pseudonymised content is traced through classification, residency, retention and reporting, and is shown to be handled as personal data at each; a residency rule is asserted to apply to it.
 **Traces to.** BR-302
 
 ---
@@ -321,6 +320,7 @@ under pressure, in favour of whichever party is present.
 **Priority.** Must
 **Verification.** Inspection — long-retained evidential artefacts are reduced,
 and the reduction preserves reproducibility.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-501, BR-301
 
 ---
@@ -401,10 +401,21 @@ refused.
 only for that interaction, and SHALL NOT be retained for reuse in subsequent
 interactions.
 
+**Boundary.** A multi-turn conversation within one session (FR-603) is **one
+interaction** for this purpose. Carrying context between turns of the same
+conversation is not reuse; carrying it into a new conversation, or to a different
+requester, is.
+
 **Rationale.** Caching a division's data across interactions creates a
 persistent copy outside its owner (TR-302), and reuses data for a purpose it was
 not obtained for. The performance temptation is real, which is why the
 prohibition is explicit.
+
+The boundary is stated because conversational context is exactly where it blurs.
+A session that accumulates one division's records across turns is legitimate; a
+session-keyed store that outlives the conversation is the same data serving a
+second purpose, and the implementation difference between them can be a single
+cache expiry setting.
 
 **Priority.** Must
 **Verification.** Inspection and test — no cache of division data outlives its

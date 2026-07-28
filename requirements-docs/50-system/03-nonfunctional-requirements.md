@@ -183,6 +183,7 @@ demonstrated.
 **Priority.** Must
 **Verification.** Inspection — the target is documented and appears wherever
 readiness is described.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-503
 
 ---
@@ -428,8 +429,7 @@ components change per platform, cost grows rather than falls and every existing
 platform is exposed to regression.
 
 **Priority.** Must
-**Verification.** Inspection — the change set for the most recent onboarding
-touches only that platform's unit and configuration.
+**Verification.** Analysis — the change set for the most recent onboarding is enumerated and shown to touch only that platform's unit and its configuration entries.
 **Traces to.** BR-104
 
 ---
@@ -440,8 +440,7 @@ touches only that platform's unit and configuration.
 hosted agent implementation.
 
 **Priority.** Must
-**Verification.** Inspection — the change set for an added protocol contains no
-agent implementation changes.
+**Verification.** Analysis — the change set for an added protocol is enumerated and shown to contain no agent implementation changes.
 **Traces to.** BR-103, BR-104
 
 ---
@@ -496,8 +495,7 @@ question it exists to answer. Redaction must be visible so absence is not
 mistaken for a platform omission.
 
 **Priority.** Must
-**Verification.** Inspection — displayed payloads match recorded bytes, with
-redactions marked.
+**Verification.** Test — displayed payloads are compared against recorded bytes, and redactions are asserted to render as markers.
 **Traces to.** BR-501
 
 ---
@@ -514,7 +512,7 @@ requirement that keeps BR-502 and BR-503 effective in practice rather than
 nominally satisfied.
 
 **Priority.** Must
-**Verification.** Inspection — every summary presentation carries the labels.
+**Verification.** Test — every summary presentation is checked for the native-or-mediated designation and the evidence classification.
 **Traces to.** BR-502, BR-503
 
 ---

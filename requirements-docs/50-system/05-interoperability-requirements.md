@@ -88,6 +88,7 @@ depends on the protocol side being a known quantity.
 
 **Priority.** Must
 **Verification.** Inspection.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-501
 
 ---

@@ -121,7 +121,7 @@ silently, which is why each carries its reason.
 | X2 | Externally-facing agent surfaces for customers or partners | Every interaction in scope is internal. External exposure is a different threat model and a different regulatory analysis |
 | X3 | Model selection, tuning, fine-tuning or answer-quality evaluation | The system compares interoperability. Each platform's model is a given |
 | X4 | Running production business processes on the system | It is an evaluation environment. Promotion to production is a decision this system exists to inform |
-| X5 | Streaming / incremental response delivery | Deferred deliberately. Several platforms in the estate buffer responses end to end, so streaming cannot be compared across the estate. Revisit only when a protocol comparison depends on it |
+| X5 | Streaming / incremental response delivery **between agents** | Deferred deliberately. Several platforms in the estate buffer responses end to end, so streaming cannot be compared across the estate. Revisit only when a protocol comparison depends on it. **Does not exclude** continuous update of the operator's own evaluation surface, which is an interface concern and is covered by SR-604 |
 | X6 | Human-in-the-loop approval workflows within agent interactions | Valuable and orthogonal. Adding it would confound the protocol comparison with a workflow comparison |
 | X7 | Cost optimisation of the divisional platforms themselves | The system measures and models consumption; it does not tune anyone's platform |
 | X8 | High availability and disaster recovery to production standards | An evaluation environment. Availability requirements are stated at evaluation grade and explicitly marked as such |

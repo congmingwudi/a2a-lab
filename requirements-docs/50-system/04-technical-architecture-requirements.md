@@ -45,6 +45,7 @@ without any external platform (TR-501).
 **Priority.** Must
 **Verification.** Inspection — both seams are expressed in the canonical model;
 no protocol-specific type appears in agent implementations or calling code.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-102, BR-103
 
 ---
@@ -63,6 +64,7 @@ it later means changing every component.
 **Priority.** Must
 **Verification.** Inspection — the canonical model is reviewed against each
 supported protocol for leaked concepts.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-103
 
 ---
@@ -80,8 +82,7 @@ per platform would expose every existing platform to regression on each
 onboarding, which is precisely the outcome divisional architects will refuse.
 
 **Priority.** Must
-**Verification.** Inspection — the change set for an onboarding touches only that
-platform's unit and configuration.
+**Verification.** Analysis — the change set for an onboarding is enumerated and shown to touch only that platform's unit and configuration.
 **Traces to.** BR-104
 
 ---
@@ -172,6 +173,7 @@ changes.
 **Priority.** Must
 **Verification.** Inspection — each component's hosting model and reason are
 documented.
+**Verification note.** Inspection-only by exception class 3 (documentation and artefact-presence): the property is the existence and adequacy of a recorded artefact, which no execution can assert.
 **Traces to.** BR-404
 
 ---
@@ -252,17 +254,34 @@ implementation with only configuration differing.
 ### TR-302 — No division's data is persisted outside its owner
 
 **Statement.** The system SHALL NOT create a persistent store of another
-division's business data. Retained records are of *interactions* — what was
-exchanged — not a copy of any division's records.
+division's business data organised for retrieval as data. Retained interaction
+records SHALL be addressable only by interaction — by correlation identifier,
+participant, or time — and SHALL NOT be indexed or queryable by the business
+entities their content happens to mention.
 
 **Rationale.** Test 1. Copying a division's data would create a second system of
 record, a residency problem and an authorisation problem the estate does not
-otherwise have. It is also outside scope (X9), and the boundary is easy to cross
-unintentionally when caching for performance.
+otherwise have (X9).
+
+The distinction needs stating precisely, because interaction records unavoidably
+*contain* another division's business data — OR-101 requires recording what was
+exchanged, and what was exchanged is frequently a customer record. What
+separates a trace archive from a shadow system of record is not its content but
+its **access shape**: one is addressable by interaction, the other by business
+entity. A well-intentioned index over payload content to make search convenient
+converts the first into the second while satisfying every other requirement, and
+it is the most likely way this boundary is crossed.
+
+The one exception is DR-503, which requires records to be locatable by data
+subject for access and erasure obligations. That capability is a compliance
+function, not a query path: it is restricted to that purpose, attributable
+(SR-603), and does not make the store generally addressable by business entity.
 
 **Priority.** Must
-**Verification.** Inspection — no persistent store contains another division's
-business records; caches are bounded to a single interaction's lifetime.
+**Verification.** Analysis and test — the record store's access paths are
+enumerated and none permits retrieval by business entity outside the DR-503
+compliance function; caches are shown to be bounded to a single interaction's
+lifetime.
 **Traces to.** BR-301, BR-303
 
 ---
@@ -313,8 +332,7 @@ version change.
 asked to re-integrate on a silent change (BR-104).
 
 **Priority.** Must
-**Verification.** Inspection — each external interface has a versioned
-description.
+**Verification.** Test — each external interface is checked for a machine-readable description and a version.
 **Traces to.** BR-104
 
 ---
