@@ -99,9 +99,9 @@ set is read end to end for contradiction.
 | 10 | `10-context/01-glossary.md` | written |
 | 10 | `10-context/02-stakeholders-and-personas.md` | written |
 | 10 | `10-context/03-scope-and-system-context.md` | written |
-| 20 | `20-lens-a-enterprise/01-executive-overview.md` | todo |
-| 20 | `20-lens-a-enterprise/02-business-requirements.md` | todo |
-| 20 | `20-lens-a-enterprise/03-value-hypotheses-and-measures.md` | todo |
+| 20 | `20-lens-a-enterprise/01-executive-overview.md` | written |
+| 20 | `20-lens-a-enterprise/02-business-requirements.md` | written |
+| 20 | `20-lens-a-enterprise/03-value-hypotheses-and-measures.md` | written |
 | 30 | `30-lens-b-salesforce-field/01-executive-overview.md` | todo |
 | 30 | `30-lens-b-salesforce-field/02-business-case-and-roi.md` | todo |
 | 40 | `40-lens-c-lab-learning/01-executive-overview.md` | todo |
@@ -142,19 +142,35 @@ before traceability.
 6. **Delivery and RAID** — phasing depends on the full requirement set.
 7. **Traceability** — last, mechanically, and it is where contradictions surface.
 
+## Resolved questions
+
+- **Q1 — Naming. Resolved: keep *Meridiaan Group*.** The profile — dual EU/US
+  headquarters, five divisions of differing autonomy, acquisition-driven
+  heterogeneity — is representative of real multinationals, which is the
+  property that matters. Confirmed 2026-07-28.
+- **Q3 — Autonomous-build cut line. Resolved: `10-context/` travels with
+  `50-system/` and `60-cost/`.** The objective in O2 is a build that succeeds
+  with minimal intervention, not a controlled experiment isolating the
+  contribution of each document. A glossary, persona catalogue and context
+  boundary are constituent parts of a requirements suite rather than
+  supplementary aids; withholding them would make the input an unrealistically
+  impoverished set, so a failed build would indict a document nobody would
+  actually hand a team.
+
+  The real threat to O2 is **not** supporting context — it is hindsight leaking
+  design into the requirements (rule R3). Module layouts, component names,
+  library choices and "the way the reference implementation happened to do it"
+  are what would reduce the exercise to transcription. R3 is therefore the rule
+  under active enforcement; document count is not.
+
 ## Open questions
 
 Carried here rather than guessed at. None currently block progress.
 
-- **Q1 — Renaming.** Is *Meridiaan Group* acceptable, or is a different fictional
-  name preferred? Single find-and-replace either way; not worth blocking on.
 - **Q2 — Divisional platform mapping.** The five divisions are assigned agent
-  platforms to create a genuinely heterogeneous estate. That mapping is a
-  modelling choice and is open to revision if a different one is more
+  platform *classes* to create a genuinely heterogeneous estate. That mapping is
+  a modelling choice and remains open to revision if a different one is more
   representative of the enterprises worth arguing about.
-- **Q3 — Autonomous-build cut line.** O2 lifts `50-system/` and `60-cost/`. Open
-  whether `10-context/` should travel too. It makes the spec more readable and
-  the build more likely to succeed, which arguably weakens the measurement.
 
 ## Done criteria
 
