@@ -107,8 +107,8 @@ set is read end to end for contradiction.
 | 40 | `40-lens-c-lab-learning/01-executive-overview.md` | written |
 | 40 | `40-lens-c-lab-learning/02-learning-objectives.md` | written |
 | 40 | `40-lens-c-lab-learning/03-build-vs-buy.md` | written |
-| 50 | `50-system/01-functional-requirements.md` | todo |
-| 50 | `50-system/02-use-cases-and-stories.md` | todo |
+| 50 | `50-system/01-functional-requirements.md` | written |
+| 50 | `50-system/02-use-cases-and-stories.md` | written |
 | 50 | `50-system/03-nonfunctional-requirements.md` | todo |
 | 50 | `50-system/04-technical-architecture-requirements.md` | todo |
 | 50 | `50-system/05-interoperability-requirements.md` | todo |
