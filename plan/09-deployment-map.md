@@ -12,7 +12,7 @@ behind API Gateway. Two components, same account, opposite hosting decisions —
 which is correct, and confusing, unless the reason is written down next to the
 picture.
 
-**How to read it.** Seven levels, each a diagram plus what it is and why it is
+**How to read it.** Eight levels, each a diagram plus what it is and why it is
 that way. L0 is the whole estate on one screen. L6 maps repo files to deployed
 artifacts. Read down until you have the detail you need, then stop.
 
@@ -22,6 +22,7 @@ artifacts. Read down until you have the detail you need, then stop.
 - **L3** — Path B end to end: the platforms reach into Salesforce
 - **L4** — identity: who authenticates as what, and which way federation runs
 - **L5** — observability: five interiors, one store
+- **L5.5** — DNS: the four hostnames, and what each one is for
 - **L6** — code → deployment: which file becomes which running thing
 
 **What this is written from.** The deploy scripts in this repo and the measured
@@ -49,6 +50,7 @@ flowchart TB
     OBS["Obs harvest + obs MCP<br/>Lambda + Aurora"]
     CONSOLE["Lab console<br/>ECS Fargate, rule on the bridge ALB"]
     FACES["Eleven protocol faces<br/>ECS Fargate, one process, by path"]
+    WATCH["Brief watcher<br/>ECS Fargate, no inbound path"]
   end
 
   subgraph GCP["GCP — us-central1"]
@@ -489,6 +491,66 @@ exists to record.
 
 ---
 
+## L5.5 — DNS: the four hostnames, and what each one is for
+
+```mermaid
+flowchart LR
+  subgraph CF["Cloudflare — proxied, Full (strict)"]
+    H1["bridge-lab"]
+    H2["console-lab"]
+    H3["faces-lab"]
+    H4["claude-*-lab (3)"]
+  end
+
+  ALB["ALB a2alab-bridge<br/>:443, *.agenticthings.com origin cert"]
+  TUN["cloudflared tunnel<br/>local dev only"]
+
+  H1 --> ALB
+  H2 --> ALB
+  H3 --> ALB
+  H4 --> TUN
+
+  ALB -->|"default action, no rule"| BR["a2alab-bridge<br/>Path A"]
+  ALB -->|"host-header rule, prio 20"| CON["a2alab-console"]
+  ALB -->|"host-header rule, prio 30"| FAC["a2alab-faces<br/>11 faces by path"]
+```
+
+Every public entrance to the lab is a **CNAME in Cloudflare, proxied (orange),
+with SSL/TLS mode Full (strict)** — and, since the WS13 cutover, three of the
+four point at the *same* ALB. Recorded here because a hostname is the one piece
+of the estate no script creates: each is a hand-made record, and a lab that is
+otherwise fully deployed still has four manual steps hiding in it.
+
+| Hostname | Points at | Serves | Created |
+|---|---|---|---|
+| `bridge-lab` | ALB `a2alab-bridge` | Path A — the Apex callout's Named Credential target. **Salesforce-visible**, so this is the one to change carefully | 2026-07-26 (WS7 item 7) |
+| `console-lab` | the same ALB | The lab console, routed by a host-header rule (priority 20) | 2026-07-28 (WS13 item 1) |
+| `faces-lab` | the same ALB | All eleven protocol faces, rule priority 30, addressed by **path**: `/<target-name>/...` | 2026-07-28 (WS13 item 2) |
+| `claude-rest-lab`, `claude-mcp-lab`, `claude-a2a-lab` | the `cloudflared` tunnel | Local development only. Superseded for hosted use by `faces-lab`; kept because the tunnel is now a dev convenience rather than the front door | M6 |
+
+**Why three hostnames and one load balancer.** The ALB terminates TLS on :443
+with the imported Cloudflare Origin certificate for `*.agenticthings.com`, so
+every lab hostname is already covered and a new face needs **no new
+certificate** — just a listener rule and a target group. The bridge stays the
+listener's *default action* and carries no rule, which is what makes adding a
+face safe: a malformed host condition can only make the new face unreachable,
+never Path A.
+
+**Why `faces-lab` is one record and not nine.** Nine faces addressed by hostname
+would be nine hand-made DNS records and nine listener rules. Addressed by path
+they are one of each (D51), and the mount prefix is the target name — so
+`claude-mcp` lives at `https://faces-lab.../claude-mcp/mcp`.
+
+**The corporate-proxy caveat.** The operator's proxy blocks this whole domain at
+DNS, so none of these hostnames resolve from the work laptop with the proxy on
+(measured: a hostname that never existed still hangs 30s, plan/03-results.md).
+That is not a deployment fault and no front door fixes it — with nothing running
+locally there is no cost to dropping the proxy to look. Verify from inside AWS,
+or against the ALB's own hostname with a `Host:` header, which is how every
+cutover in this file was checked.
+
+---
+
 ## L6 — Code → deployment: which file becomes which running thing
 
 ```mermaid
@@ -537,6 +599,7 @@ flowchart LR
 | `src/platforms/foundry/core.py` | `deploy/foundry/provision_foundry.py`, `provision_leg_agent.py` | Foundry agents + RemoteA2A connection to the shim + inbound A2A | Azure |
 | `src/console/` + `src/platforms/guide/` | `deploy/console/deploy_console.sh` | ECR image + task def + ECS service `a2alab-console` on cluster `a2alab`, target group + **host-header rule on the bridge's existing ALB** (no second load balancer), roles `a2alab-console-task` / `-exec`, secret `a2alab/runtime/console`. Deployed 2026-07-28; DNS still points at the tunnel | AWS |
 | `src/faces/` (the nine protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces`. **One process serves all eleven, addressed by path** | AWS |
+| `src/briefs/` (the watcher) | `deploy/briefs/deploy_briefs.sh` | ECS service `a2alab-briefs` on the shared cluster, roles `a2alab-briefs-task` / `-exec`, secret `a2alab/runtime/briefs`. **Reuses the faces image**, no ALB, no target group — it serves nothing | AWS |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; metrics land in CloudWatch | laptop → AWS |
 | `.env` (gitignored) | `scripts/env_sync.py push` | Secrets Manager secret `A2ALAB_ENV_SECRET` — every platform credential, the account ids, the project ids | AWS |
@@ -625,6 +688,7 @@ The choices above that look inconsistent until you know what drove them:
 | …automate the TLS/DNS cutover? | It is a Salesforce-visible hostname. Verified on the ALB's own hostname first, then one DNS change against a known-good target. |
 | …give the console a CDN front door so it works behind the corporate proxy? | Tried and reverted 2026-07-27. It worked — but it solved the wrong problem. The proxy blocks the lab's whole domain at DNS (a hostname that never existed still hangs 30s), so no front door fixes the *domain*, and the operator is content to drop the proxy to view the console. What actually hurt was the laptop being on the runtime path, which is WS13. |
 | …keep sqlite as the console's observability store? | D49. It was, and that was the bug: the hosted harvest wrote Aurora, the local harvest wrote `traces/lab.db`, and the console read only the file — so the dashboard showed the laptop's copy while the authoritative one drifted. Postgres is the source of truth now, chosen in one place, with sqlite kept only for offline work on a snapshot. |
+| …make the brief watcher an EventBridge Lambda? | That is what WS13 item 3 assumed, and it was the wrong shape. Its work is a poll LOOP, and a Lambda would need a third zip carrying the Anthropic SDK, httpx and the Salesforce client — another bundle to build and keep in step (D46's whole subject). The faces image already contains the code and every dependency, so the watcher is that image with a different command, at ~$4/month. |
 | …run each protocol face as its own service? | D51. Nine Fargate tasks (~$80/month) to run nine `uvicorn`s, when every face is an ASGI app that `build_app()` already returns without a server. One process serves all eleven, addressed by PATH rather than by nine hostnames — nine DNS records somebody creates by hand, against one, for no behavioural difference. It also sidesteps ECS's limit of five target groups per service. |
 | …give the console its own load balancer? | A second ALB is ~$16/month for nothing. The bridge's already terminates TLS on :443 with the `*.agenticthings.com` origin cert, so an extra face costs a target group, a **host-header rule** and a task. The bridge stays the listener's default action and carries no rule, so a wrong host pattern can only make the console unreachable — it cannot break Path A. |
 | …trust that a deploy which passes its own runbook is verified? | D48. The console's first hosted run passed every check — image, secret, rule, stable service, `/healthz` 200 — while serving every `/api` surface unauthenticated, because its runtime secret was created, shipped and never loaded, and the auth middleware treats a missing token as *auth is off*. A valid-token check proves nothing when all tokens are accepted; the negative test is the one that finds it. |

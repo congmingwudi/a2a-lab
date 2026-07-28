@@ -33,8 +33,14 @@ REPO_BRANCH = os.environ.get("A2ALAB_REPO_BRANCH", "main")
 PRESENTER_HEADING = "Presenter notes"
 
 # "## L0 — The estate: five homes, one lab" (em dash or hyphen, either way).
-_LEVEL_RE = re.compile(r"^##\s+(L\d+)\s*[—-]\s*(.+?)\s*$", re.M)
-_SECTION_RE = re.compile(r"^##\s+(?!L\d+\s*[—-])(.+?)\s*$", re.M)
+# A level may carry a decimal — L5.5 (DNS) was inserted between the
+# observability level and the code→deployment table, which is named as "L6" in
+# CLAUDE.md and in the console's own copy, so renumbering to make room would
+# have broken references outside this file. Without the decimal the section is
+# silently demoted to an appendix: the doc still renders, the Architecture
+# section just quietly loses a level.
+_LEVEL_RE = re.compile(r"^##\s+(L\d+(?:\.\d+)?)\s*[—-]\s*(.+?)\s*$", re.M)
+_SECTION_RE = re.compile(r"^##\s+(?!L\d+(?:\.\d+)?\s*[—-])(.+?)\s*$", re.M)
 _MERMAID_RE = re.compile(r"```mermaid\n(.*?)```", re.S)
 
 # A repo-relative path written in the prose, usually inside backticks:

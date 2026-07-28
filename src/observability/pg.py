@@ -133,6 +133,11 @@ STATE_EXPIRY = "expiry"
 # An approval is a named human act; losing one silently is the worst possible
 # failure for it. The file remains the local store and the diffable artifact.
 STATE_INSIGHT_REVIEWS = "insight_reviews"
+# Which scheduled brief sessions the watcher has already serviced (WS13 item
+# 3). Hosted, this is what stops a container restart re-delivering every
+# brief still listed in recent deployment runs — duplicate
+# A2ALab_Account_Brief__c records in a production org.
+STATE_BRIEF_SESSIONS = "brief_serviced_sessions"
 
 # The brief kinds that share lab.obs_briefs. Unknown values are accepted on
 # write (a future analyst should not need a schema change) but the console

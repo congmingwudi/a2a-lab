@@ -28,6 +28,12 @@ RUN uv sync --frozen --no-install-project --no-dev --extra aws
 # rather than a failure at start.
 RUN uv pip install "azure-identity>=1.25.3" "google-auth>=2.35"
 
+# The OpenAI faces ARE the OpenAI platform, not a caller of it: with
+# OPENAI_BACKEND=agents-sdk the adapter runs the Agents SDK in-process, so a
+# missing `agents` module is a ModuleNotFoundError inside the tool call —
+# the face starts healthy and fails only when asked to answer.
+RUN uv pip install "openai-agents>=0.18.3,<1"
+
 COPY src ./src
 COPY config ./config
 # The Lab Guide's corpus is repo prose — its three faces answer FROM these

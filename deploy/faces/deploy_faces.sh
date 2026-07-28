@@ -268,6 +268,16 @@ env["A2ALAB_OBS_STORE"] = "postgres"
 # (both shims, and the Claude adapter's ask_agentforce tool). Nothing in them
 # calls Agent Engine, so there is no Google identity to present.
 
+# The Managed Agents ids, set EXPLICITLY — the third instance of the D48 blind
+# spot. managed_backend.py reads them as os.environ.get(AGENT_ID_ENV), through
+# module constants, and the scan above only matches string literals. Locally
+# they come from .a2alab/managed.json, a file no container has, so without
+# these the Claude faces start healthy and answer every call with "Managed
+# Agents backend is not provisioned".
+for _var in ("CLAUDE_MANAGED_AGENT_ID", "CLAUDE_MANAGED_ENV_ID"):
+    if os.environ.get(_var):
+        env[_var] = os.environ[_var]
+
 _cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
 _writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
 if _cluster and _writer:

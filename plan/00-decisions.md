@@ -1647,3 +1647,48 @@ advertise an *absolute* URL that a client calls back, and a mounted app cannot
 infer its own prefix. They are told their public origin through the same
 variable `targets.yaml` expands, so the address advertised and the address
 clients are sent to cannot drift.
+
+## 2026-07-28 — D52: The watcher is a loop, so it is a service — not the Lambda the plan assumed
+
+**Context.** WS13 item 3 was written as "hosted watcher — EventBridge Lambda
+servicing Managed Agents custom tool calls". It was the last runtime dependency
+on the operator's laptop: Anthropic's cron fires a brief session autonomously,
+the session then **stalls** awaiting the result of a host-side
+`save_account_brief` tool (Salesforce credentials never enter the managed
+sandbox, D16/D27), and something has to be watching to service it. That
+something was `python -m briefs --watch` inside `scripts/run_local.sh`.
+
+**Decision — a small ECS service, reusing the faces image.** The plan's shape
+was assumed before anyone looked at the work. Three things argued against the
+Lambda:
+
+1. **The work is a poll loop**, not an event. EventBridge would have imposed a
+   schedule on something whose natural form is `while True: poll; sleep`.
+2. **It would have needed a third zip** carrying the Anthropic SDK, httpx and
+   the Salesforce client — another bundle to build, ship and keep in step,
+   which is precisely what D46 is about. The faces image already contains this
+   code and every dependency it needs.
+3. **It serves nothing**, so it needs no ALB, no target group, no listener rule
+   and no ingress at all — a security group with egress only. ~$4/month at 0.25
+   vCPU.
+
+So the watcher is the faces image with a different command. Recorded because
+the plan's guess survived unexamined into three documents, and the cost of
+following it would have been a whole packaging path built to satisfy a word.
+
+**The two file dependencies that actually made it laptop-bound**, neither of
+which the plan mentioned:
+
+- `.a2alab/brief.json` — the provisioned ids. Configuration rather than secrets,
+  so the environment now supplies them and wins over the file.
+- `.a2alab/brief_state.json` — **the set of sessions already serviced**. This is
+  the one that matters. In a container it dies with the task, and the next poll
+  re-delivers every brief still listed in recent deployment runs: duplicate
+  `A2ALab_Account_Brief__c` records in a **production org**. It now lives in
+  `lab.lab_state` (D50's table), and the write is deliberately not soft-failed —
+  a lost write means a double delivery, so it must surface.
+
+**Verified on first run:** the hosted watcher loaded four credentials from
+Secrets Manager, attached to deployment `depl_01C6…`, and immediately picked up
+a scheduled session that had been idling with no watcher — which is also the
+proof of the design's forgiveness: nothing is lost while it is down.

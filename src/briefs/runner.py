@@ -102,12 +102,39 @@ SAVE_TOOL_DEF = {
 }
 
 
+# Env overrides for the ids that normally live in .a2alab/brief.json — a file
+# no container has (WS13 item 3). Same shape as CLAUDE_MANAGED_AGENT_ID for the
+# Claude backend, and for the same reason: the ids are configuration, not
+# secrets, so they belong in the environment when the state directory is absent.
+DEPLOYMENT_ID_ENV = "A2ALAB_BRIEF_DEPLOYMENT_ID"
+BRIEF_AGENT_ID_ENV = "A2ALAB_BRIEF_AGENT_ID"
+BRIEF_ENV_ID_ENV = "A2ALAB_BRIEF_ENV_ID"
+
+
 def load_brief_ids() -> dict:
+    """The provisioned brief agent's ids: environment first, then the file.
+
+    The environment wins so a hosted watcher needs no state directory at all.
+    Locally neither is set beyond `scripts/setup_brief_agent.py`'s output, so
+    behaviour is unchanged.
+    """
+    from_env = {
+        "deployment_id": os.environ.get(DEPLOYMENT_ID_ENV),
+        "agent_id": os.environ.get(BRIEF_AGENT_ID_ENV),
+        "environment_id": os.environ.get(BRIEF_ENV_ID_ENV),
+    }
+    if from_env["deployment_id"]:
+        if STATE_FILE.exists():  # merge, so accounts/cron/model stay available
+            return {
+                **json.loads(STATE_FILE.read_text()),
+                **{k: v for k, v in from_env.items() if v},
+            }
+        return {k: v for k, v in from_env.items() if v}
     if not STATE_FILE.exists():
         raise RuntimeError(
             "Brief agent not provisioned. Run "
             "`uv run python scripts/setup_brief_agent.py` once (needs "
-            "ANTHROPIC_API_KEY)."
+            f"ANTHROPIC_API_KEY), or set {DEPLOYMENT_ID_ENV} for a hosted watcher."
         )
     return json.loads(STATE_FILE.read_text())
 
