@@ -69,7 +69,7 @@ the specification is still complete.
 
 ## Status
 
-**Complete first pass.** All 28 documents written; see `00-plan.md` for the
+**Complete first pass.** All 29 documents written; see `00-plan.md` for the
 inventory.
 
 | | |
