@@ -109,11 +109,11 @@ set is read end to end for contradiction.
 | 40 | `40-lens-c-lab-learning/03-build-vs-buy.md` | written |
 | 50 | `50-system/01-functional-requirements.md` | written |
 | 50 | `50-system/02-use-cases-and-stories.md` | written |
-| 50 | `50-system/03-nonfunctional-requirements.md` | todo |
-| 50 | `50-system/04-technical-architecture-requirements.md` | todo |
-| 50 | `50-system/05-interoperability-requirements.md` | todo |
-| 50 | `50-system/06-data-and-privacy-requirements.md` | todo |
-| 50 | `50-system/07-security-and-identity-requirements.md` | todo |
+| 50 | `50-system/03-nonfunctional-requirements.md` | written |
+| 50 | `50-system/04-technical-architecture-requirements.md` | written |
+| 50 | `50-system/05-interoperability-requirements.md` | written |
+| 50 | `50-system/06-data-and-privacy-requirements.md` | written |
+| 50 | `50-system/07-security-and-identity-requirements.md` | written |
 | 50 | `50-system/08-observability-requirements.md` | todo |
 | 50 | `50-system/09-acceptance-and-verification.md` | todo |
 | 60 | `60-cost/01-cost-model-and-projection.md` | todo |
