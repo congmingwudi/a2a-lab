@@ -1788,6 +1788,46 @@ real weeks behind it.
 
 ---
 
+## Operations backlog (raised 2026-07-28, after full hosting)
+
+Not a workstream — operational debt found while running the hosted lab. Each
+item has a written-down workaround in `plan/10-operations.md`, so nothing here
+blocks use; they are the "this should be one command" list.
+
+1. **A rotate script for the per-seam secrets — NOT STARTED.** Rotating a
+   console password today is: edit `.env`, `env_sync.py push`, then re-run
+   `deploy/console/deploy_console.sh --skip-build`. The redeploy is not about
+   where the value is *read* — it is because the per-seam secret
+   (`a2alab/runtime/console`) is **built by the deploy script**, from a
+   `keys = [...]` list that lives inside that script. `env_sync push` updates
+   `a2alab/env/dev`, which no container reads.
+
+   The fix is a script that rewrites the per-seam secrets from `.env` — no
+   image, no task definition, no service update. The obstacle is that those key
+   lists live in four separate shell scripts (bridge, console, faces, briefs)
+   and would move to one place both they and the rotate script read.
+
+   Pairs with a **TTL re-read in `interop/secret_env.py`**: today
+   `load_secret_env()` runs once per process (`_loaded`, `setdefault`), so even
+   a refreshed secret needs a restart. A short cache on values checked per
+   request would let a rotation take effect on its own. With the rotate script
+   alone, rotating is push + rotate + restart; with both, push + rotate.
+
+   **Do NOT solve this by pointing the console at `a2alab/env/dev`.** That
+   secret holds every credential in the lab — the GCP service-account key, the
+   Aurora master secret. The per-seam secrets exist to scope what a compromised
+   container can read (D39/F1). Related and worth doing in the same change: the
+   console task role currently grants `secretsmanager:GetSecretValue` on
+   `a2alab/*`, which already includes `env/dev` — tighten it to its own secret.
+
+2. **Run All steals the view — FIXED 2026-07-28.** Every turn wrote the global
+   `selected` and re-rendered the main pane, so a background run dragged the
+   screen back to itself and the console read as locked while an experiment
+   ran. Nothing was locked. Runs now update their own `chat.selected` and the
+   sidebar chip, and only touch the view when their experiment is on screen.
+
+---
+
 ## Console and exhibit backlog (raised 2026-07-26, after the hosted bridge)
 
 Not a workstream — UI and presentation debt to clear before the demo.

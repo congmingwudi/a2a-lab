@@ -4785,6 +4785,14 @@ function chatTurnsHtml(chat) {
   }).join("");
 }
 
+// Is the experiment that owns this turn the one currently on screen? Runs are
+// backgroundable — Run All fires a dozen — so anything that writes shared UI
+// state (the global `selected`, the main pane) has to ask first.
+function isViewingExperiment(kind, name) {
+  return !!view && view.type === "experiment"
+    && expKey(view.kind, view.name) === expKey(kind, name);
+}
+
 async function sendTurn(kind, name, message) {
   const key = expKey(kind, name);
   const chat = chats[key];
@@ -4795,11 +4803,21 @@ async function sendTurn(kind, name, message) {
   chat.turns.push({ role: "user", text: message, trace_id });
   chat.turns.push({ role: "running" });
   runState[key] = { state: "running" };
-  selected = trace_id;
   chat.selected = trace_id;
+  // A run belongs to its experiment, not to the screen. `selected` is the
+  // GLOBAL trace the main pane shows, so writing it unconditionally meant any
+  // background turn — every step of Run All — dragged the view back to itself:
+  // you could navigate away and were pulled back a few seconds later, which
+  // read as "the console is locked while an experiment runs". Nothing was
+  // locked; the view was being stolen. Each experiment already remembers its
+  // own trace in `chat.selected`, so a run that is not on screen simply
+  // updates that and the sidebar chip, and openExperiment() restores it when
+  // you come back.
+  if (isViewingExperiment(kind, name)) selected = trace_id;
   turnWindows[trace_id] = { start: Date.now() / 1000 };
   traces.unshift({ trace_id, started: Date.now() / 1000, hops: [], protocols: [] });
-  renderSidebar(); renderMain();
+  renderSidebar();
+  if (isViewingExperiment(kind, name)) renderMain();
 
   const body = { trace_id, message, session_id: chat.session };
   if (kind === "scenario") {
@@ -4838,7 +4856,10 @@ async function sendTurn(kind, name, message) {
     runState[key] = { state: "fail", note: result.error || result.detail || "FAIL" };
   }
   chat.running = false;
-  renderSidebar(); renderMain();
+  renderSidebar();
+  // Same rule on the way out: a finished background run updates its chip and
+  // its own stored trace, and waits to be looked at.
+  if (isViewingExperiment(kind, name)) renderMain();
   // Backfill from disk: SSE is the live tail, but if the stream dropped
   // mid-run (console restart, laptop sleep) its missed events are gone for
   // good — the authoritative trace files are not.
