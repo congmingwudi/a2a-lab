@@ -1878,9 +1878,9 @@ Path A. That property is why the work is safe to do incrementally.
 | # | Item | State |
 |---|---|---|
 | 1 | **Console on Fargate** behind the bridge ALB | **deployed and serving 2026-07-28**, DNS not yet cut over |
-| 2 | Nine local protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | not started |
-| 3 | **Hosted watcher** — EventBridge Lambda servicing Managed Agents custom tool calls | not started (was WS7 item 3) |
-| 4 | Widen `modes:` in `config/targets.yaml` as each face lands | not started |
+| 2 | Nine local protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | **done 2026-07-28** (D51) — one Fargate service, addressed by path |
+| 3 | **Hosted watcher** — EventBridge Lambda servicing Managed Agents custom tool calls | not started (was WS7 item 3) — **the last laptop dependency** |
+| 4 | Widen `modes:` in `config/targets.yaml` as each face lands | **done 2026-07-28** — nine `*-hosted` twins, nine mode mappings |
 | 5 | Re-scope `cloudflared` to local development | decided, no work |
 | 6 | **`PgObsStore` read side** — the Observability section is empty when hosted | **done 2026-07-28** (D49) |
 

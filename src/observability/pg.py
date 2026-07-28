@@ -127,6 +127,12 @@ DDL: list[str] = [
 # Keys used in lab.lab_state. Named here so a typo is an ImportError rather
 # than a silently empty read.
 STATE_EXPIRY = "expiry"
+# Insight sign-offs (D38). They lived only in config/insight_reviews.yaml,
+# which is baked into the console image — so a sign-off made in the HOSTED
+# console was written to a container filesystem and lost on the next restart.
+# An approval is a named human act; losing one silently is the worst possible
+# failure for it. The file remains the local store and the diffable artifact.
+STATE_INSIGHT_REVIEWS = "insight_reviews"
 
 # The brief kinds that share lab.obs_briefs. Unknown values are accepted on
 # write (a future analyst should not need a schema change) but the console

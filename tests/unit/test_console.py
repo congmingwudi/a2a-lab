@@ -1221,3 +1221,92 @@ def test_empty_console_url_env_falls_back_to_the_default(tmp_path, monkeypatch):
         if not c.get("url")
     ]
     assert missing == [], f"empty env var blanked a console link: {missing}"
+
+
+def test_sign_offs_persist_to_the_hosted_store_when_configured(monkeypatch, tmp_path):
+    """D50: the hosted console's filesystem is a layer of the container image,
+    so a sign-off written there vanishes on the next restart with no error —
+    the worst failure mode for a named human decision. Aurora is the store when
+    it is configured."""
+    from console import reviews
+
+    saved = {}
+
+    class FakeStore:
+        def get_state(self, key):
+            return saved.get(key)
+
+        def put_state(self, key, payload):
+            saved[key] = payload
+
+        def close(self):
+            saved["closed"] = True
+
+    monkeypatch.setattr(reviews, "_hosted_store", lambda: FakeStore())
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+
+    entry = reviews.record(
+        {"id": "a2a-async-at-heart", "headline": "h", "status": "measured"},
+        "approved",
+        user={"sub": "ryan", "name": "Ryan Cox"},
+        comment="checked against the run",
+    )
+    assert entry["by"] == "ryan"
+    assert saved["insight_reviews"]["reviews"]["a2a-async-at-heart"]["state"] == "approved"
+    # and it reads back from the store, not the file
+    assert reviews.load_reviews()["a2a-async-at-heart"]["name"] == "Ryan Cox"
+
+
+def test_sign_offs_still_use_the_file_with_no_hosted_store(monkeypatch, tmp_path):
+    """A fresh checkout, the unit suite and offline work must not need Aurora."""
+    from console import reviews
+
+    monkeypatch.setattr(reviews, "_hosted_store", lambda: None)
+    path = tmp_path / "insight_reviews.yaml"
+    reviews.record(
+        {"id": "managed-vs-self-hosted", "headline": "h"},
+        "approved",
+        user={"sub": "ryan"},
+        path=path,
+    )
+    assert path.exists()
+    assert reviews.load_reviews(path)["managed-vs-self-hosted"]["state"] == "approved"
+
+
+def test_an_explicit_path_is_never_answered_from_the_store(monkeypatch, tmp_path):
+    """scripts/insight_reviews_sync.py compares the two copies, so a caller
+    naming a file must get that file — otherwise `diff` compares the store
+    with itself and always reports 'in sync'."""
+    from console import reviews
+
+    class LoudStore:
+        def get_state(self, key):
+            raise AssertionError("explicit path must not consult the store")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(reviews, "_hosted_store", lambda: LoudStore())
+    path = tmp_path / "insight_reviews.yaml"
+    path.write_text("reviews:\n  x:\n    state: approved\n")
+    assert reviews.load_reviews(path)["x"]["state"] == "approved"
+
+
+def test_a_failing_store_does_not_report_a_silent_success(monkeypatch, tmp_path):
+    """The whole point is that a lost sign-off must not look like a saved one."""
+    from console import reviews
+
+    class BrokenStore:
+        def get_state(self, key):
+            return None
+
+        def put_state(self, key, payload):
+            raise RuntimeError("aurora is asleep")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(reviews, "_hosted_store", lambda: BrokenStore())
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+    with pytest.raises(RuntimeError, match="aurora is asleep"):
+        reviews.record({"id": "x", "headline": "h"}, "approved", user={"sub": "ryan"})

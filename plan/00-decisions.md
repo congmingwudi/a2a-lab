@@ -1576,3 +1576,74 @@ narrower than "use one store": a fallback that silently succeeds is worse than
 one that fails, because it produces a plausible answer from the wrong source.
 Both of this decision's fixes are really the same fix — make the choice once,
 and make the wrong choice impossible rather than merely unlikely.
+
+## 2026-07-28 — D50: A sign-off is durable or it is not a sign-off
+
+**Context.** Insight approvals were written to `config/insight_reviews.yaml`,
+beside the claims they govern, where they are diffable — the right home while
+the console ran on a laptop. Hosting it made that file a layer of the container
+image: a sign-off made in the deployed console was written to a filesystem that
+does not survive a restart, and it never reached the repo. No error, no trace,
+and three insights were sitting in `review: required` waiting to be approved.
+
+An approval is a named human act on a public claim (D38). Losing one silently is
+the worst available failure for it — worse than refusing to record it, because
+the reviewer believes the job is done.
+
+**Decision.** `lab.lab_state` is the store when Aurora is configured; the file
+remains the store on a laptop and the diffable artifact in the repo.
+`scripts/insight_reviews_sync.py pull|push|diff` moves the record between them —
+`pull` after signing off, then commit.
+
+Two details that are the point rather than incidental:
+
+1. **The store write is not wrapped in a swallow-everything.** Every other
+   Aurora read in the console soft-fails to a local source, correctly. A write
+   must not: a green tick over an unsaved approval is the exact bug this exists
+   to fix, so a broken store surfaces as a 500.
+2. **An explicit path is never answered from the store.** The sync script
+   compares the two copies; if a caller naming a file got the store's answer,
+   `diff` would compare the store with itself and always report "in sync".
+
+## 2026-07-28 — D51: Eleven faces, one process, addressed by path
+
+**Context.** Nine cells in `config/targets.yaml` pointed at `localhost:80xx` —
+Claude and OpenAI's MCP/A2A servers, the Lab Guide's three, both Agentforce
+shims. Inside a container `localhost` is the container, so every one failed from
+the hosted console and the lab still needed `run_local.sh` on a laptop to
+exercise a protocol comparison. This was the last runtime dependency on the
+operator's machine, and the operator's requirement was that there be none.
+
+**Decision.**
+
+1. **One process, not nine services.** Every face is an ASGI app that
+   `interop.adapter.build_app()` already returns without running a server, so
+   nine Fargate tasks (~$80/month) would have bought nothing over one. It also
+   sidesteps ECS's limit of **five target groups per service**, which nine
+   separately-addressed faces would have hit — a constraint that would have
+   forced two services purely to satisfy the addressing scheme.
+2. **Paths, not nine hostnames.** Host-based routing is what the console uses
+   and would have worked. But each hostname is a DNS record a person creates by
+   hand, so it is nine records and nine listener rules against one of each, for
+   no behavioural difference. The faces answer at
+   `https://<faces host>/<target-name>/...`, and the mount prefix IS the target
+   name so a failing cell maps to a URL without a lookup table.
+3. **The hosted twins are the same objects.** Same adapters, same `build_app`,
+   same auth middleware — only the address differs. A face that behaved
+   differently hosted would make the protocol comparison meaningless, and the
+   comparison is the lab's subject.
+
+**What the work actually cost, which was not the mounting.** Starlette's `Mount`
+does **not** run a mounted app's lifespan, and FastMCP starts its
+streamable-HTTP session manager there. Every MCP face resolved its route
+perfectly and then answered `RuntimeError: Task group is not initialized`. The
+parent app now enters each sub-app's lifespan explicitly, reaching through two
+of our own ASGI middlewares to find the object that owns it. The lesson
+generalises past MCP: **mounting an ASGI app moves its routes, not its
+startup** — and the failure appears only on a real call, never on a route check.
+
+The A2A cards needed the same kind of care for the opposite reason: they
+advertise an *absolute* URL that a client calls back, and a mounted app cannot
+infer its own prefix. They are told their public origin through the same
+variable `targets.yaml` expands, so the address advertised and the address
+clients are sent to cannot drift.

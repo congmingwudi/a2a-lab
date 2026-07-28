@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Host the lab console on ECS Fargate, behind the ALB the bridge already has
-# (WS13 item 1).
+# Host the nine protocol faces on ECS Fargate, behind the ALB the bridge and
+# console already share (WS13 item 2).
 #
-#   deploy/console/deploy_console.sh                # build, push, create-or-update
-#   deploy/console/deploy_console.sh --skip-build   # redeploy the current image
+# One service, one port, eleven mounted ASGI apps addressed by PATH
+# (https://<FACES_HOSTNAME>/<target-name>/...). See src/faces/__init__.py for
+# why that rather than nine services on nine hostnames.
+#
+#   deploy/faces/deploy_faces.sh                    # build, push, create-or-update
+#   deploy/faces/deploy_faces.sh --skip-build       # redeploy the current image
 #
 # ⚠️  NOT YET RUN. Written 2026-07-28 from the proven deploy/bridge script but
 # never executed — the first run needs a person watching. Its risky step is the
@@ -30,18 +34,18 @@ set -a; source .env; set +a
 source deploy/aws_preflight.sh
 
 REGION="${AWS_REGION:-us-east-1}"
-NAME=a2alab-console
+NAME=a2alab-faces
 CLUSTER=a2alab
 BRIDGE_NAME=a2alab-bridge             # whose ALB and cluster this joins
-TASK_ROLE=a2alab-console-task
-EXEC_ROLE=a2alab-console-exec
-CONTAINER_PORT=8200
+TASK_ROLE=a2alab-faces-task
+EXEC_ROLE=a2alab-faces-exec
+CONTAINER_PORT=8300
 # The hostname this face answers on. No fallback default: a ${VAR:-...} here
 # would route someone else's checkout at the author's hostname.
-HOSTNAME_="${CONSOLE_HOSTNAME:?set CONSOLE_HOSTNAME in .env - e.g. console-lab.example.com}"
+HOSTNAME_="${FACES_HOSTNAME:?set FACES_HOSTNAME in .env - e.g. faces-lab.example.com}"
 # Rule priority on the shared listener. Low numbers match first; the bridge is
 # the default action and has no rule, so any free priority works.
-RULE_PRIORITY="${CONSOLE_RULE_PRIORITY:-20}"
+RULE_PRIORITY="${FACES_RULE_PRIORITY:-30}"
 SKIP_BUILD="${1:-}"
 
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
@@ -53,7 +57,7 @@ if [ "$SKIP_BUILD" != "--skip-build" ]; then
     || aws ecr create-repository --repository-name "$NAME" --region "$REGION" >/dev/null
   aws ecr get-login-password --region "$REGION" \
     | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com" >/dev/null
-  docker build --platform linux/arm64 -f deploy/console/Dockerfile -t "$NAME" .
+  docker build --platform linux/arm64 -f deploy/faces/Dockerfile -t "$NAME" .
   docker tag "$NAME:latest" "$ECR:latest"
   docker push "$ECR:latest" >/dev/null
   echo "pushed $ECR:latest"
@@ -62,7 +66,7 @@ fi
 # ---- credentials -> Secrets Manager (D39/F1) --------------------------------
 # Same rule as every other hosted seam: secrets are fetched at container start
 # from one secret, never carried on the task definition.
-SECRET_NAME=a2alab/runtime/console
+SECRET_NAME=a2alab/runtime/faces
 SECRET_JSON=$(python3 - <<'PY'
 import json, os
 keys = [
@@ -245,6 +249,7 @@ env = {k: os.environ[k] for k in sorted(referenced)
 env["A2ALAB_RUNTIME_SECRET_ARN"] = os.environ["A2ALAB_RUNTIME_SECRET_ARN"]
 env["AWS_REGION"] = os.environ["DEPLOY_REGION"]
 # Hosted console: no traces/ directory, no .a2alab. Aurora is the only source.
+env["A2ALAB_FACES_BASE"] = f"https://{os.environ['FACES_HOSTNAME']}"
 env["A2ALAB_TRACE_SINK"] = "postgres"
 env["A2ALAB_OBS_STORE"] = "postgres"
 # Aurora, set EXPLICITLY — the scan above cannot see these. observability/pg.py
@@ -259,13 +264,9 @@ env["A2ALAB_OBS_STORE"] = "postgres"
 # A2ALAB_TRACE_SINK=postgres, PostgresSink INSERTs through PgClient.from_env(),
 # which reads A2ALAB_PG_SECRET_ARN. Handing it the lab_reader ARN would leave
 # the console reading fine and failing every trace write.
-# AWS -> GCP federation for the Agent Engine targets the Run buttons reach
-# (deploy/console/gcp_federation.sh). Renamed from the CONSOLE-scoped names on
-# the way in: the generic pair in .env would put the LAPTOP into federation
-# mode, where there is no AWS role to present.
-if os.environ.get("A2ALAB_CONSOLE_GCP_AUDIENCE"):
-    env["A2ALAB_GCP_WORKLOAD_AUDIENCE"] = os.environ["A2ALAB_CONSOLE_GCP_AUDIENCE"]
-    env["A2ALAB_GCP_IMPERSONATE_SA"] = os.environ["A2ALAB_CONSOLE_GCP_SA"]
+# No GCP federation here, unlike the console: these faces consult Agentforce
+# (both shims, and the Claude adapter's ask_agentforce tool). Nothing in them
+# calls Agent Engine, so there is no Google identity to present.
 
 _cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
 _writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")

@@ -257,7 +257,88 @@ targets:
 # runtimes with no Salesforce or scenario changes. scripts/matrix.py is
 # exempt (exact=True): a matrix cell always measures the target it names.
 # Restart the stack after flipping — bridge/console cache clients per name.
+
+  # ---- Hosted twins of the nine local protocol faces (WS13 item 2) ----
+  # One Fargate service serves all of them, addressed by PATH under one
+  # hostname — see src/faces/__init__.py. `modes.hosted` below swaps each
+  # localhost cell for its twin, so A2ALAB_MODE=hosted needs no laptop.
+  # The twins are the SAME adapters behind the SAME auth as the local ones;
+  # only the address differs, which is what keeps the protocol comparison
+  # honest.
+
+  claude-mcp-hosted:
+    platform: claude
+    protocol: mcp
+    endpoint: ${A2ALAB_FACES_BASE}/claude-mcp/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  claude-a2a-hosted:
+    platform: claude
+    protocol: a2a
+    endpoint: ${A2ALAB_FACES_BASE}/claude-a2a
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  openai-mcp-hosted:
+    platform: openai
+    protocol: mcp
+    endpoint: ${A2ALAB_FACES_BASE}/openai-mcp/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  openai-a2a-hosted:
+    platform: openai
+    protocol: a2a
+    endpoint: ${A2ALAB_FACES_BASE}/openai-a2a
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  guide-rest-hosted:
+    platform: guide
+    protocol: rest
+    endpoint: ${A2ALAB_FACES_BASE}/guide-rest
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  guide-mcp-hosted:
+    platform: guide
+    protocol: mcp
+    endpoint: ${A2ALAB_FACES_BASE}/guide-mcp/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  guide-a2a-hosted:
+    platform: guide
+    protocol: a2a
+    endpoint: ${A2ALAB_FACES_BASE}/guide-a2a
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  agentforce-mcp-hosted:
+    platform: agentforce
+    protocol: mcp
+    endpoint: ${A2ALAB_FACES_BASE}/agentforce-mcp/mcp
+    status: via-shim
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  agentforce-a2a-hosted:
+    platform: agentforce
+    protocol: a2a
+    endpoint: ${A2ALAB_FACES_BASE}/agentforce-a2a
+    status: via-shim
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
 modes:
   hosted:
     claude-rest: claude-agentcore
     openai-rest: openai-agentcore
+    claude-mcp: claude-mcp-hosted
+    claude-a2a: claude-a2a-hosted
+    openai-mcp: openai-mcp-hosted
+    openai-a2a: openai-a2a-hosted
+    guide-rest: guide-rest-hosted
+    guide-mcp: guide-mcp-hosted
+    guide-a2a: guide-a2a-hosted
+    agentforce-mcp: agentforce-mcp-hosted
+    agentforce-a2a: agentforce-a2a-hosted
