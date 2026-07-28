@@ -96,9 +96,9 @@ set is read end to end for contradiction.
 | — | `README.md` | written |
 | — | `00-plan.md` (this file) | written |
 | — | `01-conventions.md` | written |
-| 10 | `10-context/01-glossary.md` | todo |
-| 10 | `10-context/02-stakeholders-and-personas.md` | todo |
-| 10 | `10-context/03-scope-and-system-context.md` | todo |
+| 10 | `10-context/01-glossary.md` | written |
+| 10 | `10-context/02-stakeholders-and-personas.md` | written |
+| 10 | `10-context/03-scope-and-system-context.md` | written |
 | 20 | `20-lens-a-enterprise/01-executive-overview.md` | todo |
 | 20 | `20-lens-a-enterprise/02-business-requirements.md` | todo |
 | 20 | `20-lens-a-enterprise/03-value-hypotheses-and-measures.md` | todo |
