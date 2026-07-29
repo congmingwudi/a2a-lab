@@ -407,6 +407,15 @@
          border-radius: 999px; padding: 3px 12px; font-size: 11.5px; font-weight: 600; }
   .tab:hover { color: var(--fg); border-color: var(--border-hi); }
   .tab.on { color: var(--fg); background: var(--card2); border-color: var(--border-hi); }
+  /* A tab selects a CANVAS, not a filter (D57). The panel gives the selected
+     tab a surface of its own so "Details" reads as somewhere you went, rather
+     than extra text appended under the thing you were already looking at. */
+  .tabpanel { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+              padding: 16px 20px 8px; margin: 0 0 16px; }
+  .tabpanel > .flow:first-child > h3:first-child { margin-top: 0; }
+  .tabpanel .arch-prose, .tabpanel p { line-height: 1.6; }
+  .tabpanel h3 { margin: 16px 0 6px; font-size: 13.5px; color: var(--fg-hi); }
+  .tabpanel table { display: block; overflow-x: auto; max-width: 100%; }
 
   /* chat (Run tab) */
   .chat { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
@@ -1420,14 +1429,21 @@ function tableRows(lines, start) {
   };
 }
 
-// opts.joinLines: treat a paragraph's source newlines as SOFT wraps and join
-// with a space, which is what markdown means. Default stays <br> because the
-// console's other caller is agent output, where a model's line breaks are
-// usually deliberate. A hard-wrapped DOCUMENT (plan/*.md wraps at ~78 chars)
-// rendered the default way gets a forced break every 78 characters — text that
-// re-wraps into a ragged column and reads like a terminal, not a page.
+// Newlines inside a paragraph are SOFT WRAPS and join with a space — which is
+// what markdown means, and now the default.
+//
+// It used to default to <br>, on the reasoning that agent output has deliberate
+// line breaks. That was the wrong default for the console, where almost every
+// text surface renders a hard-wrapped DOCUMENT: plan/*.md wraps at ~78 chars,
+// so every D-chip popover, every Details pane and every architecture level got
+// a forced break every 78 characters and re-wrapped into a ragged column that
+// ignored the width of its container. Correct markdown, and correct typography,
+// is to let the paragraph fill its box.
+//
+// opts.hardBreaks keeps the old behaviour for the two CHAT surfaces, where a
+// model may lay something out on purpose and the container is narrow anyway.
 function mdToHtml(src, opts) {
-  const joiner = opts && opts.joinLines ? " " : "<br>";
+  const joiner = opts && opts.hardBreaks ? "<br>" : " ";
   const lines = esc(src).split(/\r?\n/);
   const out = [];
   let list = null, code = false, para = [];
@@ -2361,7 +2377,7 @@ Same table, same tool, different question.`,
 function obsBriefDetailsHtml(kind) {
   const meta = BRIEF_META[kind];
   if (!meta) return `<div class="flow"><div class="desc"><span class="stat">No description for this brief kind yet.</span></div></div>`;
-  return `<div class="flow"><div class="obs-card brief-md">${mdToHtml(meta.details)}</div></div>`;
+  return `<div class="flow">${mdToHtml(meta.details)}</div>`;
 }
 
 // What the dashboard is showing, and how the data got there.
@@ -2402,7 +2418,7 @@ exposes. Two examples that shape everything above: OpenAI has **no list-executio
 API**, so its rows exist only for responses the lab recorded an id for; and Agent
 Engine has **no session read API** at all on the preview A2A surface, so its honest
 shape is one session per deployed engine with log entries as events.`;
-  return `<div class="flow"><div class="obs-card brief-md">${mdToHtml(md)}</div></div>`;
+  return `<div class="flow">${mdToHtml(md)}</div>`;
 }
 
 // "last updated" stamp: absolute local time + relative age.
@@ -2536,7 +2552,7 @@ window.harvestObs = async ev => {
       obsMsg("Console server predates the Observability API — restart scripts/run_local.sh.", true);
       return;
     }
-    const data = await r.json();
+    const data = await readJson(r, "Harvest failed");
     if (!data.ok) { obsMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
     // Hosted: the server fired the harvest Lambda and returned immediately
     // (D54). A full sweep outlives the load balancer's 120s idle timeout, so
@@ -2568,6 +2584,25 @@ window.harvestObs = async ev => {
 // moment we fired. Each one lands independently, so the panel fills in as they
 // finish rather than all at once — which is also the honest picture of what a
 // six-platform sweep is doing.
+// Read a JSON response, or explain what actually answered.
+//
+// When something upstream replies instead of the app — the load balancer's 504
+// page, a proxy's 500, a Cloudflare error — the body is HTML or plain text and
+// `r.json()` throws `SyntaxError: Unexpected token '<'`. That message names the
+// first character of the intruder and nothing else, and it has now been
+// reported twice as if the harvest itself were broken (D54). Show the status
+// and a scrap of what came back instead.
+async function readJson(r, what) {
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const snippet = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+    throw new Error(`${what}: HTTP ${r.status}${r.statusText ? " " + r.statusText : ""}`
+      + (snippet ? ` — ${snippet}` : "") + " (that is not the app answering)");
+  }
+}
+
 async function pollHarvest(startedAt) {
   const DEADLINE_S = 600;   // the Lambda's own timeout; past this it is not coming
   const EVERY_MS = 5000;
@@ -3172,8 +3207,30 @@ window.harvestBuild = async ev => {
       buildMsg("Console server predates the coding harvest — restart scripts/run_local.sh.", true);
       return;
     }
-    const data = await r.json();
+    const data = await readJson(r, "Harvest failed");
     if (!data.ok) { buildMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
+    // Hosted, the server fires the harvest Lambda and returns at once (D54) —
+    // there are no per-platform results to read. Reading data.results[0] off an
+    // async reply gave `undefined: no coding metrics returned`, a failure
+    // message for a harvest that was running perfectly well.
+    if (data.async) {
+      buildMsg("Harvest running in the background — this panel updates when the coding feed lands.");
+      const t0 = Date.now();
+      for (;;) {
+        await new Promise(res => setTimeout(res, 5000));
+        await loadBuildTelemetry();
+        buildNav();
+        const at = buildData && buildData.harvest && buildData.harvest.at;
+        if (at && at > data.started_at) {
+          buildMsg("Done — " + ((buildData.harvest && buildData.harvest.detail) || "coding telemetry harvested."));
+          return;
+        }
+        if (Date.now() - t0 > 600000) {
+          buildMsg("The coding feed has not reported in 10 minutes — check the harvest function's logs.", true);
+          return;
+        }
+      }
+    }
     const res = (data.results || [])[0] || {};
     buildMsg(res.status === "ok"
       ? "Done — " + (res.detail || `${res.sessions || 0} tool-day(s) harvested.`)
@@ -3526,7 +3583,7 @@ function costBriefHtml() {
     costBrief.cron ? `cron '${costBrief.cron}' ${costBrief.timezone || ""}`.trim() : null,
   ].filter(Boolean).join(" · ");
   const body = briefs.length
-    ? `<div class="cred-brief">${mdToHtml(briefs[0].brief_md, { joinLines: true })}</div>
+    ? `<div class="cred-brief">${mdToHtml(briefs[0].brief_md)}</div>
        <div class="hint" style="margin-top:8px">
          ${esc(briefs[0].brief_date)} · ${briefs[0].queries_run ?? "?"} queries ·
          session <code>${esc(briefs[0].session_id || "—")}</code>
@@ -3773,7 +3830,7 @@ function archHtml() {
     ${repoCallout}
     ${view && view.level
       ? `<p class="hint"><a href="#" onclick="archNav(event);return false">← all levels</a></p>`
-      : `<div class="arch-prose" style="margin:8px 0 20px">${mdToHtml(archData.intro || "", { joinLines: true })}</div>`}`;
+      : `<div class="arch-prose" style="margin:8px 0 20px">${mdToHtml(archData.intro || "")}</div>`}`;
 
   const body = shown.map(l => `
     <section class="arch-level" id="arch-${esc(l.id)}">
@@ -3787,7 +3844,7 @@ function archHtml() {
       </div>
       ${l.mermaid ? `<div class="arch-figure" id="archfig-${esc(l.id)}"
         data-level="${esc(l.id)}"><span class="hint">Rendering…</span></div>` : ""}
-      <div class="arch-prose">${mdToHtml(l.prose || "", { joinLines: true })}</div>
+      <div class="arch-prose">${mdToHtml(l.prose || "")}</div>
     </section>`).join("");
 
   // The appendices ("Checking reality", "Why not") only make sense with the
@@ -3795,7 +3852,7 @@ function archHtml() {
   const tail = (view && view.level) ? "" : (archData.sections || []).map(s => `
     <section class="arch-level">
       <h3>${esc(s.title)}</h3>
-      <div class="arch-prose">${mdToHtml(s.body || "", { joinLines: true })}</div>
+      <div class="arch-prose">${mdToHtml(s.body || "")}</div>
     </section>`).join("");
 
   return head + body + tail +
@@ -3891,7 +3948,7 @@ function credBriefHtml() {
     .filter(Boolean).join(" · ");
   return `<h3>Analysis
       <span class="obs-updated" style="float:right">${esc(meta)}</span></h3>
-    <div class="cred-brief">${mdToHtml(credBrief.brief, { joinLines: true })}</div>`;
+    <div class="cred-brief">${mdToHtml(credBrief.brief)}</div>`;
 }
 
 window.runCredentialAnalyst = async () => {
@@ -4183,7 +4240,7 @@ window.archPresenterNotes = () => {
         <h3>Presenter notes</h3>
         <button type="button" class="dgclose" title="Close (Esc)" aria-label="Close">×</button>
       </header>
-      <div class="dgbody arch-prose">${mdToHtml(archData.presenter, { joinLines: true })}</div>
+      <div class="dgbody arch-prose">${mdToHtml(archData.presenter)}</div>
     </div>`;
   mask.addEventListener("click", ev => { if (ev.target === mask) closeDiagram(); });
   mask.querySelector(".dgclose").addEventListener("click", closeDiagram);
@@ -5041,7 +5098,7 @@ function chatTurnsHtml(chat) {
       return `<div class="turn agent running">agents are talking…</div>`;
     }
     const err = !!turn.error;
-    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text)}</div>`}
+    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text, { hardBreaks: true })}</div>`}
       <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}${
         turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}${
         turn.af_route === "direct" ? ` · <span class="badge a2a" title="This turn's external-research leg went straight from Apex to Vertex AI Agent Engine's native A2A endpoint — no lab bridge, untraced by design">direct a2a</span>` : ""}</span></div>`;
@@ -5440,12 +5497,16 @@ function renderMain(force) {
       const tab = obs.tab || "dashboard";
       const kind = OBS_TAB_KIND[tab];
       const details = obs.sub === "details";
-      el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + obsSubTabsHtml() + (
-        kind
-          ? (details ? obsBriefDetailsHtml(kind) : obsBriefsHtml(kind))
-          : (details
-              ? obsDashboardDetailsHtml()
-              : obsPipelineHtml(true) + obsDashboardHtml() + obsSessionsHtml(null)));
+      const pane = kind
+        ? (details ? obsBriefDetailsHtml(kind) : obsBriefsHtml(kind))
+        // "How observability works" belongs in Details — that is what Details
+        // is for. The dashboard tab shows the numbers; Details explains the
+        // pipeline that produced them.
+        : (details
+            ? obsPipelineHtml(true) + obsDashboardDetailsHtml()
+            : obsDashboardHtml() + obsSessionsHtml(null));
+      el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + obsSubTabsHtml()
+        + `<div class="tabpanel">${pane}</div>`;
     }
     return;
   }
@@ -5856,7 +5917,7 @@ function gdRender() {
     if (t.role === "tool") return `<div class="gd-tool">${esc(t.content)}</div>`;
     if (t.role === "user") return `<div class="gd-turn user">${esc(t.content)}</div>`;
     return `<div class="gd-turn guide ${t.error ? "err" : ""}">` +
-      (t.error ? esc(t.content) : `<div class="md">${mdToHtml(t.content || "…")}</div>`) + `</div>`;
+      (t.error ? esc(t.content) : `<div class="md">${mdToHtml(t.content || "…", { hardBreaks: true })}</div>`) + `</div>`;
   }).join("");
   chat.scrollTop = chat.scrollHeight;
   const sug = document.getElementById("gdSuggest");
