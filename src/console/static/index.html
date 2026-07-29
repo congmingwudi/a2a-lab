@@ -1287,6 +1287,10 @@ window.labSignIn = async () => {
     document.getElementById("userPwInput").value = "";
     pendingUser = null;
     renderUserBtn();
+    // Reveal the Control Panel gear, the Lab Guide button and the drawer
+    // handle, all of which the signed-out pass hid. Without this the console
+    // comes up signed in with no way to reach anything.
+    applyAuthGating();
     await signedInRefresh();
     return;
   } catch (e) { alert("Sign-in failed: " + e.message); }
@@ -1319,6 +1323,10 @@ window.labSignOut = () => {
   localStorage.removeItem("a2a-user-jwt");
   localStorage.removeItem("a2a-user");
   labUser = null;
+  // Reload is right HERE and wrong on sign-in: signing out should drop every
+  // panel that was fetched with a credential, and the landing page is what a
+  // signed-out visitor gets anyway. Nothing is left on screen that the new
+  // state should not show.
   window.location.reload();
 };
 
@@ -1334,26 +1342,49 @@ function requireSignIn() {
   return false;
 }
 
+// Gating is SYMMETRIC — it sets both states rather than only hiding.
+//
+// It used to only hide, which was correct while it ran once on a fresh DOM at
+// boot. Signing in without a page reload made that assumption visible: the
+// Control Panel gear, the Lab Guide button and the drawer handle stayed hidden
+// from the signed-out pass, so the console came up signed in with no way to
+// reach anything until the user refreshed by hand.
+//
+// The rule to keep: any function that both a first paint and a later state
+// change call must restore as explicitly as it removes.
 function applyAuthGating() {
+  const show = (id, on) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? "" : "none";
+  };
+  const handle = document.querySelector(".side-handle");
+  const main = document.querySelector("main");
+
   if (!labUser) {
-    document.getElementById("guideBtn").style.display = "none";
-    document.getElementById("gearBtn").style.display = "none";
-    const handle = document.querySelector(".side-handle");
+    show("guideBtn", false);
+    show("gearBtn", false);
     if (handle) handle.style.display = "none";
-    document.querySelector("main").classList.add("side-closed");
+    main.classList.add("side-closed");
     return;
   }
-  if (labUser.role === "viewer") {
-    // Viewer (D36 role model): everything read-only; execution surfaces
-    // are hidden here and 403'd server-side.
-    document.getElementById("gearBtn").style.display = "none";
-    for (const id of ["harvestBtn", "analyzeBtn", "buildHarvestBtn"]) {
-      const el = document.getElementById(id);
-      if (el) el.style.display = "none";
-    }
-    const runAll = document.getElementById("runAllBtn");
-    if (runAll) runAll.parentElement.style.display = "none";
-  }
+
+  // Viewer (D36 role model): everything read-only; execution surfaces are
+  // hidden here and 403'd server-side. Operators get the lot.
+  const operator = labUser.role !== "viewer";
+  show("guideBtn", true);
+  show("gearBtn", operator);
+  if (handle) handle.style.display = "";
+  for (const id of ["harvestBtn", "analyzeBtn", "buildHarvestBtn"]) show(id, operator);
+  const runAll = document.getElementById("runAllBtn");
+  if (runAll) runAll.parentElement.style.display = operator ? "" : "none";
+
+  // Restore the drawer to the operator's own preference. The signed-out branch
+  // force-closes it, so without this a sign-in leaves it shut even for someone
+  // who had it open — and the boot-time restore already ran, before there was
+  // a user.
+  let saved = null;
+  try { saved = localStorage.getItem("a2a-side-open"); } catch (e) { /* ignore */ }
+  if (saved === "1") main.classList.remove("side-closed");
 }
 
 const newTraceId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "")
