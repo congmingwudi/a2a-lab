@@ -1498,7 +1498,14 @@ def create_console_app(registry: Registry | None = None):
         runtime — there is no file to serve. The well-known path is
         auth-exempt on our servers, so no token rides along."""
         try:
-            target = get_registry().get(target_name)
+            reg = get_registry()
+            # RESOLVE first (D55). Every other read path does — /api/targets,
+            # /api/run — and this one did not, so in hosted mode the Details tab
+            # asked localhost:8003 for a card that only exists on the faces
+            # service. The browser saw "ConnectError: All connection attempts
+            # failed" and the Components tab looked broken, while the same
+            # target ran perfectly from the Run tab.
+            target = reg.get(reg.resolve_name(target_name))
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
         if target.protocol != "a2a" or not target.endpoint:
@@ -1532,9 +1539,24 @@ def create_console_app(registry: Registry | None = None):
                 ),
             }
         url = target.endpoint.rstrip("/") + "/.well-known/agent-card.json"
+        # Send the target's OWN configured auth header. The well-known path is
+        # in EXEMPT_PATHS, which held while each face was its own server on its
+        # own port — but the hosted faces are MOUNTED under a path prefix
+        # (D51), and an exempt path does not survive the mount: the middleware
+        # matches on the full request path, so /claude-a2a/.well-known/... is
+        # not /.well-known/... and every card 401'd.
+        #
+        # Sending the credential is the better fix either way. These faces are
+        # public internet now, and the lab gates them deliberately; relying on
+        # an unauthenticated hole for the console's own convenience would be
+        # the wrong thing to preserve.
+        headers = {}
+        auth = target.auth or {}
+        if auth.get("header_name") and auth.get("header_value"):
+            headers[auth["header_name"]] = auth["header_value"]
         try:
             async with httpx.AsyncClient(timeout=5.0) as http:
-                r = await http.get(url)
+                r = await http.get(url, headers=headers)
                 r.raise_for_status()
                 card = r.json()
         except Exception as exc:  # server down / not provisioned — a result, not a 500

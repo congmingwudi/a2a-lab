@@ -1330,19 +1330,30 @@ window.labSignIn = async () => {
   renderUserBtn();
 };
 
+// Every panel whose data needs a credential. ONE list, used by first paint and
+// by sign-in, because enumerating it twice is exactly how Architecture and
+// Coding Agents Telemetry ended up blank on the hosted console: the in-place
+// sign-in refetched seven panels and silently missed two, and a signed-out boot
+// had already had their requests 401'd.
+//
+// Adding a panel? Add its loader here and nowhere else.
+const SIGNED_IN_LOADERS = [
+  loadLaunchers,       // scenarios + targets (the experiment nav)
+  loadDecisions,       // the D-chip corpus
+  refreshTraces,       // trace list, now that /api/traces answers
+  loadObs,             // observability summary + sessions
+  loadInsights,
+  loadBuildTelemetry,  // coding agents telemetry + the cost brief
+  loadArchitecture,    // the deployment map the Architecture section renders
+  loadWarmup,
+  loadConfig,
+];
+
 // Everything the signed-out page could not fetch. Kept in one place so sign-in
 // and first paint cannot drift apart — a panel added to boot and not to this
 // list is a panel that stays empty until the user reloads.
 async function signedInRefresh() {
-  await Promise.allSettled([
-    loadLaunchers(),      // scenarios + targets (the experiment nav)
-    loadDecisions(),      // the D-chip corpus
-    refreshTraces(),      // trace list, now that /api/traces answers
-    loadObs(),            // observability summary + sessions
-    loadInsights(),
-    loadWarmup(),
-    loadConfig(),
-  ]);
+  await Promise.allSettled(SIGNED_IN_LOADERS.map(fn => fn()));
   // Deliberately NOT connectStream(). The loop started at boot never exits —
   // on 401 it drops the dead credential, slows to a poll and reconnects by
   // itself once a sign-in lands (see its own comment). Starting a second one
@@ -6212,15 +6223,10 @@ window.gdSend = async () => {
   gdRender();
 };
 
+// First paint drives the SAME list sign-in does, so the two cannot drift. The
+// stream is separate: its loop owns reconnection and must be started once.
 load().then(connectStream);
-loadLaunchers().then(renderMain);
-loadObs();
-loadInsights();
-loadBuildTelemetry();
-loadArchitecture();
-loadConfig();
-loadWarmup();
-loadDecisions();
+Promise.allSettled(SIGNED_IN_LOADERS.map(fn => fn())).then(renderMain);
 renderUserBtn();
 applyAuthGating();
 </script>
