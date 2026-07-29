@@ -34,79 +34,94 @@ below links to the source.
 
 ---
 
-## L0 — The estate: five homes, one lab
+## L0 — The estate: the console drives five platforms across four clouds
 
 ```mermaid
 flowchart TB
-  subgraph SF["Salesforce production org"]
-    AF["Agentforce agents<br/>one twin per platform"]
-    APEX["Apex invocable<br/>A2ALabInvokeRemoteAgent"]
+  subgraph DRV["THE LAB CONSOLE — the driver"]
+    direction LR
+    C1["Experiments · Protocol calls<br/>Run All, multi-turn, wire traces"]
+    C2["Observability · Insights<br/>Architecture · Lab Guide"]
+    C3["ECS Fargate · ALB<br/>console-lab · faces-lab"]
   end
 
-  subgraph AWS["AWS — us-east-1<br/>the lab's runtime account"]
-    BRIDGE["Bridge<br/>ECS Fargate + ALB"]
-    RUNTIMES["Claude + OpenAI agents<br/>Bedrock AgentCore"]
-    SHIM["Agentforce A2A/MCP shim<br/>Lambda + API Gateway"]
-    FANOUT["Fan-out MCP server<br/>Lambda + API Gateway"]
-    OBS["Obs harvest + obs MCP<br/>Lambda + Aurora"]
-    CONSOLE["Lab console<br/>ECS Fargate, rule on the bridge ALB"]
-    FACES["Eleven protocol faces<br/>ECS Fargate, one process, by path"]
-    WATCH["Brief watcher<br/>ECS Fargate, no inbound path"]
+  subgraph SF["SALESFORCE — Agentforce"]
+    SF1["Agents: one twin per platform<br/>+ A2ALab Research Assistant"]
+    SF2["In: Agent API · MCP shim · A2A shim"]
+    SF3["Out: Apex invocable to the bridge"]
+    SF4["Obs: Data Cloud session-tracing DMOs"]
   end
 
-  subgraph GCP["GCP — us-central1"]
-    ADK["ADK agents on<br/>Vertex AI Agent Engine"]
+  subgraph ANT["ANTHROPIC — Managed Agents"]
+    AN1["Agents: researcher · brief · obs analyst<br/>cost sentinel · fan-out orchestrator"]
+    AN2["In/Out: REST · MCP · A2A"]
+    AN3["Obs: sessions + per-session events"]
   end
 
-  subgraph AZ["Azure — eastus"]
-    FOUNDRY["Foundry prompt agents<br/>Agent Service"]
+  subgraph GCP["GOOGLE CLOUD — Vertex AI Agent Engine"]
+    G1["Agents: researcher · logistics<br/>supply orchestrator (ADK)"]
+    G2["In/Out: A2A native (preview)"]
+    G3["Obs: Cloud Logging + billing meters"]
   end
 
-  subgraph ANT["Anthropic platform"]
-    CMA["Managed Agents<br/>agent + scheduled deployment"]
+  subgraph AZ["MICROSOFT AZURE — AI Foundry"]
+    Z1["Agents: researcher · commercial"]
+    Z2["In/Out: A2A, Entra-only"]
+    Z3["Obs: App Insights gen_ai spans"]
   end
 
-  subgraph LAP["The laptop — dev only"]
-    LOCAL["run_local.sh stack<br/>dev convenience only"]
-    TUNNEL["cloudflared tunnel"]
+  subgraph AWS["AWS — the lab's OWN infrastructure, and two agents"]
+    direction TB
+    A1["Agents: Claude + OpenAI SDK twins<br/>Bedrock AgentCore, IAM data plane"]
+    A2["Bridge — Path A's front door<br/>ECS Fargate, 45s budget"]
+    A3["Protocol faces ×11<br/>REST · MCP · A2A, one process"]
+    A4["Shims + fan-out<br/>Lambda + API Gateway"]
+    A5[("Aurora Postgres<br/>traces · obs · briefs · state")]
+    A6["Scheduled: harvest 6h · brief watcher<br/>credential expiry"]
   end
 
-  APEX -->|"HTTPS, Named Credential"| BRIDGE
-  BRIDGE --> RUNTIMES
-  BRIDGE --> ADK
-  BRIDGE --> FOUNDRY
-  BRIDGE --> AF
-  RUNTIMES -->|"consult"| SHIM
-  ADK -->|"consult"| SHIM
-  FOUNDRY -->|"consult"| SHIM
-  CMA -->|"MCP tools"| FANOUT
-  SHIM --> AF
-  FANOUT --> ADK
-  FANOUT --> FOUNDRY
-  FANOUT --> RUNTIMES
-  OBS -.->|"pull logs"| AF
-  OBS -.-> CMA
-  OBS -.-> ADK
-  OBS -.-> FOUNDRY
-  TUNNEL -.-> LOCAL
+  DRV ==>|"runs every experiment"| SF
+  DRV ==> ANT
+  DRV ==> GCP
+  DRV ==> AZ
+  DRV ==> AWS
+
+  SF <-->|"consults, both directions"| ANT
+  SF <--> GCP
+  SF <--> AZ
+  SF <--> AWS
+
+  SF4 -.->|"harvested"| A5
+  AN3 -.-> A5
+  G3 -.-> A5
+  Z3 -.-> A5
+  A5 -.->|"reads"| DRV
 ```
 
-**What you are looking at.** Five places hold something the lab depends on, and
-one of them — the laptop — no longer holds anything on a live call path.
+**What you are looking at.** The console at the top is not a viewer — it is the
+**driver**: every experiment in this lab is fired from it, over the protocol the
+experiment names, and every hop's raw wire bytes come back to it. Below it are
+the five agent platforms, each showing the three things that actually matter for
+interop: **what agents live there**, **which protocols it speaks in and out**,
+and **what its own execution logs expose**.
 
-**Why it is spread like this.** Not for redundancy; deliberately, because the
-lab's subject *is* cross-platform interop. An agent on each major platform, each
-in its vendor's own native home, is the experiment. The alternative — running
-everything as containers in one cloud — would test our containers, not the
-platforms.
+**The two asymmetries worth seeing immediately.** Salesforce sits in the middle
+of the platform row because it is the hub every other platform consults, in both
+directions — that is the lab's subject. And **AWS is not a peer**: it holds two
+agents like the others, but it also holds the lab's own infrastructure — the
+bridge Path A depends on, the eleven protocol faces, the shims, the fan-out
+server, the Postgres store every observability number comes from, and the
+scheduled jobs that keep it current. The dotted lines are that store filling up:
+each platform's *interior* record of the runs the console drove, harvested back
+into one place.
 
-**The one asymmetry worth knowing:** AWS is not just a peer. It is where the
-lab's *own* infrastructure lives (bridge, shim, fan-out, observability store),
-because AWS is the only account with an SSO login the lab treats as its single
-human credential (D39). GCP and Azure hold platform-native agents and nothing
-else.
-
----
+**Why spread across four clouds at all.** Not for redundancy — because the
+subject *is* cross-platform interop. An agent on each vendor's own home turf is
+the experiment; running everything as containers in one cloud would test our
+containers, not the platforms. The levels below take this apart: L1 the four AWS
+hosting shapes and why each, L2 and L3 the two call paths end to end, L4
+identity, L5 observability, L5.5 DNS, L5.7 the scheduled processes, L6 which
+file becomes which running thing.
 
 ## L1 — AWS: four hosting shapes, four different reasons
 

@@ -2433,8 +2433,7 @@ function obsBriefDetailsHtml(kind) {
   const meta = BRIEF_META[kind];
   if (!meta) return `<div class="flow"><div class="desc"><span class="stat">No description for this brief kind yet.</span></div></div>`;
   return `<div class="flow">
-    <h3>How this brief is produced</h3>
-    <div class="archsvg-wrap" id="obsBriefFig" style="margin:6px 0 18px"></div>
+    ${figureHtml("obsBriefFig", "How this brief is produced")}
     ${mdToHtml(meta.details)}
   </div>`;
 }
@@ -2467,8 +2466,7 @@ events, rather than one session per turn.
 The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
 six-platform sweep runs longer than a browser request may stay open.`;
   return `<div class="flow">
-    <h3>The architecture behind it</h3>
-    <div class="archsvg-wrap" id="obsDashFig" style="margin:6px 0 18px"></div>
+    ${figureHtml("obsDashFig", "The architecture behind it")}
     ${mdToHtml(md)}
   </div>`;
 }
@@ -3702,6 +3700,8 @@ async function renderMermaidInto(elId, src, svgId) {
     });
     const { svg } = await mermaid.render(svgId || (elId + "-svg"), src);
     fig.innerHTML = svg;
+    fig.dataset.mermaidSrc = src;
+    fig.dataset.showingSource = "0";
   } catch (e) {
     fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
       + `<pre>${esc(src)}</pre>`;
@@ -3709,24 +3709,12 @@ async function renderMermaidInto(elId, src, svgId) {
 }
 
 async function renderCostDiagram() {
-  const fig = document.getElementById("costfig");
-  if (!fig) return;
-  try {
-    const mermaid = await ensureMermaid();
-    const dark = document.documentElement.getAttribute("data-theme") === "dark";
-    mermaid.initialize({
-      startOnLoad: false, theme: dark ? "dark" : "default",
-      securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
-    });
-    const { svg } = await mermaid.render("costfig-svg", COST_SENTINEL_DIAGRAM);
-    fig.innerHTML = svg;
-  } catch (e) {
-    // Same honesty rule as every other diagram: say what broke, hand over the
-    // source anyway — it is the thing you can paste elsewhere.
-    fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
-      + `<pre>${esc(COST_SENTINEL_DIAGRAM)}</pre>`;
-  }
+  // Through the shared renderer so this figure gets the same Full screen and
+  // mermaid-source controls as every other diagram — it stashes the source on
+  // the element, which is what the source toggle reads.
+  return renderMermaidInto("costfig", COST_SENTINEL_DIAGRAM, "costfig-svg");
 }
+
 
 // ---- WS12: the cost sentinel's brief, inline above the measured tables -----
 // The tables answer "what did it cost"; the brief answers "why did that move",
@@ -3844,7 +3832,7 @@ function buildDetailsHtml() {
     <p class="hint">Deterministic collection below, model interpretation above — the lab's D22
     split, applied to cost. The sentinel never computes a number; the pipeline never writes a
     sentence.</p>
-    <div class="arch-figure" id="costfig"><span class="hint">Rendering…</span></div>
+    ${figureHtml("costfig", "How the weekly cost brief is produced")}
 
     <h3>Where the brief lands</h3>
     <p class="hint">The same <code>lab.obs_briefs</code> table as the observability analyst's
@@ -4224,35 +4212,8 @@ const CRED_SCHEDULED_DIAGRAM = `flowchart LR
 
 
 async function renderCredDiagram() {
-  const figs = [["credfig", CRED_AGENT_DIAGRAM], ["credfig2", CRED_SCHEDULED_DIAGRAM]];
-  let mermaid;
-  try {
-    mermaid = await ensureMermaid();
-    const dark = document.documentElement.getAttribute("data-theme") === "dark";
-    mermaid.initialize({
-      startOnLoad: false, theme: dark ? "dark" : "default",
-      securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
-    });
-  } catch (e) {
-    figs.forEach(([id]) => {
-      const f = document.getElementById(id);
-      if (f) f.innerHTML = `<span class="hint">Could not load mermaid.</span>`;
-    });
-    return;
-  }
-  for (const [id, src] of figs) {
-    const fig = document.getElementById(id);
-    if (!fig) continue;
-    try {
-      const { svg } = await mermaid.render(id + "-svg", src);
-      fig.innerHTML = svg;
-    } catch (e) {
-      // Same honesty rule as every other diagram: say what broke, hand over the
-      // source anyway — it is the thing you can paste elsewhere.
-      fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
-        + `<pre>${esc(src)}</pre>`;
-    }
-  }
+  await renderMermaidInto("credfig", CRED_AGENT_DIAGRAM, "credfig-svg");
+  await renderMermaidInto("credfig2", CRED_SCHEDULED_DIAGRAM, "credfig2-svg");
 }
 
 window.setCredsTab = id => {
@@ -4267,7 +4228,7 @@ function credsDetailsHtml() {
     above</b> — applied to credentials instead of execution logs. Where this sits in the estate is
     plan/09-deployment-map.md.</div>
 
-    <div class="arch-figure" id="credfig"><span class="hint">Rendering…</span></div>
+    ${figureHtml("credfig", "Collector, then judgment")}
 
     <div class="arch-prose">
       <h4>Where the collection runs</h4>
@@ -4316,7 +4277,7 @@ function credsDetailsHtml() {
     <div class="hint" style="margin:6px 0 14px">Not built — the sketch of what would justify a
     Managed Agent here, kept because the condition is plausible rather than hypothetical.</div>
 
-    <div class="arch-figure" id="credfig2"><span class="hint">Rendering…</span></div>
+    ${figureHtml("credfig2", "Where it runs on a schedule")}
 
     <div class="arch-prose">
       <p><b>The one change that unlocks it</b> is moving collection off this laptop. A Lambda with
@@ -4451,8 +4412,12 @@ window.archToggleSource = id => {
 // Full screen for a readout: the native Fullscreen API on the figure itself,
 // so the diagram gets the whole display and Esc returns. Falls back to a
 // full-viewport overlay where the API is unavailable or refused.
-window.archFullscreen = id => {
-  const fig = document.getElementById("archfig-" + id);
+// Any diagram, anywhere, by element id. The Architecture levels had this from
+// the start and every other embedded diagram did not, so a reader could enlarge
+// the deployment map but not the pipeline, the analyst architecture or the cost
+// flow — the ones a presenter is most likely to be pointing at.
+window.figFullscreen = elId => {
+  const fig = document.getElementById(elId);
   if (!fig) return;
   fig.classList.add("arch-fs");
   const done = () => fig.classList.remove("arch-fs");
@@ -4464,6 +4429,41 @@ window.archFullscreen = id => {
     }).catch(() => { fig.classList.add("arch-fsfallback"); });
   } else {
     fig.classList.add("arch-fsfallback");
+  }
+};
+
+window.archFullscreen = id => figFullscreen("archfig-" + id);
+
+// The header strip every embedded diagram gets: a label, Full screen, and the
+// mermaid source. One helper so a new diagram cannot ship without them.
+function figureHtml(elId, label) {
+  return `
+    <div class="arch-head">
+      ${label ? `<h3>${esc(label)}</h3>` : "<span></span>"}
+      <button class="ghost" onclick="figFullscreen('${esc(elId)}')"
+        title="Full screen (Esc to exit)">Full screen</button>
+      <button class="ghost" onclick="figToggleSource('${esc(elId)}')"
+        id="figsrc-${esc(elId)}">mermaid source</button>
+    </div>
+    <div class="arch-figure" id="${esc(elId)}"><span class="hint">Rendering…</span></div>`;
+}
+
+// Show the mermaid text behind a rendered figure — the thing you can paste
+// into a doc or a ticket. renderMermaidInto stashes the source on the element.
+window.figToggleSource = elId => {
+  const fig = document.getElementById(elId);
+  const btn = document.getElementById("figsrc-" + elId);
+  if (!fig) return;
+  const src = fig.dataset.mermaidSrc || "";
+  if (fig.dataset.showingSource === "1") {
+    fig.innerHTML = fig.dataset.renderedSvg || "";
+    fig.dataset.showingSource = "0";
+    if (btn) btn.textContent = "mermaid source";
+  } else {
+    fig.dataset.renderedSvg = fig.innerHTML;
+    fig.innerHTML = `<pre>${esc(src)}</pre>`;
+    fig.dataset.showingSource = "1";
+    if (btn) btn.textContent = "diagram";
   }
 };
 
