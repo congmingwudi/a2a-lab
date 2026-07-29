@@ -1878,3 +1878,61 @@ Recorded alongside `plan/09-deployment-map.md` **L5.7**, the inventory of
 scheduled and long-running processes, which exists because this is the second
 time in two days that something's *state* — paused, unscheduled, or quietly not
 running — was invisible until a person asked a direct question about its output.
+
+## 2026-07-29 — D57: The console canvas template — a thing, and what is behind it
+
+**Context.** The console had grown seven canvas types (`experiment`, `obs`,
+`insights`, `arch`, `build`, `creds`, `trace`) with two different ideas of
+structure. Experiments had it right — a **Run** tab showing the thing and a
+**Details** tab explaining the call path, the planned narrative and the real
+agent assets. Everywhere else, provenance was either missing or crammed into
+the same pane as the content.
+
+That is not a cosmetic problem. This lab's subject is *how these platforms
+actually behave*, and a panel that shows a number without saying where the
+number came from is the exact failure the honest matrix exists to prevent. Twice
+in two days a reader could not tell what they were looking at: a cost brief
+rendered under an observability heading (D56), and an empty dashboard that meant
+"paused agent" but looked like "no data".
+
+**Decision — every area of the console follows one template.**
+
+1. **Nav → canvas.** A section is reached from the Control Panel sidebar and
+   owns the main canvas. One `view.type` per section.
+2. **Top tabs name the THINGS in that section**, as peers. Observability is
+   `Dashboard | Observability Analysis | Cost Analysis` — not one "briefs" tab
+   with kinds nested inside it. If two things are produced by different
+   processes, they are peers, because nesting implies one is a facet of the
+   other and readers believe it.
+3. **Every tab carries a `Details` sub-tab**, the shape experiments already
+   used. The canvas shows **the thing**; Details answers **where the thing came
+   from**:
+   - what produces it (which agent, script, Lambda or schedule — by name),
+   - how it reads its inputs and with what identity,
+   - where the output is stored (table, column, bucket),
+   - what BOUNDS it — the limitation that stops it saying more,
+   - and the caveat that must travel with the numbers, if there is one.
+4. **Details is markdown**, so `linkifyDecisions` turns `D<n>` and `plan/*.md`
+   into chips for free. **Cite real refs** — the mechanism renders only
+   references that exist, and an explanation citing nothing produces no chips.
+5. **An empty state explains itself.** "No briefs in the last 7 days — the
+   analyst is a paused deployment, so it only runs when you press Analyze" is
+   information. A blank panel is a bug report waiting to be filed.
+6. **A tab opens on its content, never on its Details.** Switching tabs resets
+   the sub-tab; Details is a question the reader chooses to ask.
+7. **State is `view.type` + a per-section tab + a per-tab sub-tab**, and the
+   render cache key includes all three — or switching a sub-tab silently shows
+   the previous pane.
+
+**What this is really enforcing.** The lab publishes claims, and a console that
+shows results without provenance is asking to be trusted rather than read. The
+Details pane is where a visitor finds out that OpenAI has no list-executions
+API, that the cost figure is a client-side estimate at list price, that the
+analyst has been paused since the 18th. Those are the interesting facts. The
+template exists so that adding a section means being asked, structurally,
+"and where does this come from?"
+
+**Applies to new work.** A new area of the console starts as: one `view.type`,
+peer tabs for its things, a Details pane per tab, and an empty state that says
+why. Recorded in CLAUDE.md as the rule to follow rather than a thing to
+rediscover.

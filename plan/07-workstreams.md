@@ -1828,6 +1828,28 @@ blocks use; they are the "this should be one command" list.
 
 ---
 
+## Canvas template rollout (raised 2026-07-29, D57)
+
+The console canvas template is settled (D57) and two of the seven canvases
+follow it. The rest predate it and are **not broken** — they are simply missing
+the Details pane that says where their content comes from, which is the half a
+visitor needs to read a claim rather than take it on trust.
+
+| Canvas | State |
+|---|---|
+| `experiment` | **conforms** — `Run \| Details` since WS6 |
+| `obs` | **conforms** — `Dashboard \| Observability Analysis \| Cost Analysis`, each with Details (D57) |
+| `insights` | Details pane not started — should explain: `config/insights.yaml` is the source, `review: required` gates sign-off, sign-offs live in `lab.lab_state` (D50), export regenerates `plan/08-insights.md` |
+| `build` | Details pane not started — should explain WS9: CloudWatch PromQL, the four billing buckets (D44), and that the cost is a modelled client-side estimate at list price |
+| `creds` | Details pane not started — should explain: the collector runs on the operator's own sessions, publishes to `lab.lab_state`, and the console only READS it (WS13) |
+| `arch` | Details pane not started — arguably exempt: the canvas IS the explanation. Decide rather than default |
+| `trace` | Details pane not started — should explain the wire capture: raw bytes, the ASGI wiretap for MCP/A2A, the D27 rider as the correlation channel that survived every hop |
+
+Not urgent, and deliberately not done in one sweep — each pane is worth writing
+properly, with real refs, when that area is next touched.
+
+---
+
 ## Console and exhibit backlog (raised 2026-07-26, after the hosted bridge)
 
 Not a workstream — UI and presentation debt to clear before the demo.
