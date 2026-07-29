@@ -193,6 +193,16 @@ the only one worth running locally.
 scripts/run_console.sh          # console alone -> http://localhost:8200
 ```
 
+**It auto-reloads on Python changes.** `index.html` is read from disk on every
+request, so HTML/CSS/JS edits appear on a browser refresh; `src/**.py` is
+imported once, so without `--reload` an edited endpoint keeps serving the old
+code and looks like the change did nothing. That asymmetry cost a debugging
+round on a harvest 500 that was only a stale process. `CONSOLE_RELOAD=0`
+disables it.
+
+If a change still seems absent: **hard-refresh** (`Cmd+Shift+R`). The console
+sends no cache headers on `/`, so a browser may reuse the page it has.
+
 **Why the console alone is a complete environment.** `.env` carries
 `A2ALAB_MODE=hosted`, so a locally-running console resolves every target to its
 **hosted twin**: Run buttons reach the real Fargate faces and the real AgentCore

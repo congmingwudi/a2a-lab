@@ -53,14 +53,40 @@ warning: A2ALAB_MODE is not "hosted".
 WARN
 fi
 
+# --reload: uvicorn watches src/ and restarts on a Python change. Without it,
+# editing app.py and refreshing the browser shows the OLD code — index.html is
+# read from disk per request, so HTML edits appear instantly and Python edits do
+# not, which is a genuinely confusing pair of behaviours to hold in your head.
+# It cost a debugging round on a harvest 500 that was simply a stale process.
+RELOAD="${CONSOLE_RELOAD:-1}"
+
 echo "console      http://localhost:$PORT"
 echo "mode         ${A2ALAB_MODE:-local}  (targets resolve to the hosted twins)"
 echo "faces        ${A2ALAB_FACES_BASE:-<unset — Run buttons will fail>}"
 echo "obs store    ${A2ALAB_OBS_STORE:-sqlite}"
-# Unset here on purpose: with no harvest function the Harvest button sweeps
-# IN-PROCESS, which is the local behaviour (D54) and avoids a dev console
-# firing the production harvest Lambda by accident. Export it before running
-# this script if you specifically want to test the hosted path.
-echo "harvest      ${A2ALAB_HARVEST_FUNCTION:+hosted Lambda ($A2ALAB_HARVEST_FUNCTION)}${A2ALAB_HARVEST_FUNCTION:-in-process (local)}"
+# The Harvest button fires the harvest Lambda from here too (D54), the same as
+# hosted. The in-process sweep is NOT a working local fallback — it writes, and
+# .env points A2ALAB_PG_SECRET_ARN at the READER secret, so every source raises
+# "cannot execute INSERT in a read-only transaction". Set
+# A2ALAB_HARVEST_FUNCTION="" to force it anyway.
+if [ -n "${A2ALAB_HARVEST_FUNCTION-unset}" ] && [ "${A2ALAB_HARVEST_FUNCTION-a2alab-obs-harvest}" != "" ]; then
+  echo "harvest      fires ${A2ALAB_HARVEST_FUNCTION:-a2alab-obs-harvest} (same as hosted)"
+else
+  echo "harvest      in-process (forced; writes need the WRITER secret)"
+fi
+if [ "$RELOAD" = "1" ]; then
+  echo "reload       on — Python changes restart the server automatically"
+else
+  echo "reload       off"
+fi
 echo
+
+if [ "$RELOAD" = "1" ]; then
+  # --factory calls create_console_app() with no args. It skips console.main(),
+  # which is fine HERE and only here: main() does load_dotenv (this script has
+  # already sourced .env), the Secrets Manager load (a no-op with no runtime
+  # secret ARN) and the hosted fail-closed guard (hosted only).
+  exec uv run uvicorn console.app:create_console_app --factory \
+    --host 0.0.0.0 --port "$PORT" --reload --reload-dir src
+fi
 exec uv run python -m console --port "$PORT"
