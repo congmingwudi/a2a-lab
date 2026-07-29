@@ -417,6 +417,18 @@
   .tabpanel h3 { margin: 16px 0 6px; font-size: 13.5px; color: var(--fg-hi); }
   .tabpanel table { display: block; overflow-x: auto; max-width: 100%; }
 
+  /* Run All failures: a list you can act on. The summary used to be one line
+     of text that truncated the error, so the only way to find out what broke
+     was to run it again — each row opens that experiment instead. */
+  .runall-fails { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
+  .runall-fail { display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%;
+                 background: var(--card2); border: 1px solid var(--border); border-left: 3px solid var(--err, #c66);
+                 border-radius: 8px; padding: 7px 10px; cursor: pointer; }
+  .runall-fail:hover { border-color: var(--border-hi); }
+  .rf-name { font-size: 11.5px; font-weight: 600; color: var(--fg); }
+  .rf-err { font-size: 11px; color: var(--muted); font-family: var(--font-mono);
+            overflow-wrap: anywhere; line-height: 1.45; }
+
   /* chat (Run tab) */
   .chat { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
           margin-bottom: 16px; overflow: hidden; }
@@ -2396,7 +2408,9 @@ function obsBriefDetailsHtml(kind) {
 
 // What the dashboard is showing, and how the data got there.
 function obsDashboardDetailsHtml() {
-  const md = `### What this dashboard shows
+  const md = `### How the data reaches this dashboard
+
+### What this dashboard shows
 
 Per-platform **sessions**, **events**, **token totals** and the **last harvest status** for every
 platform the lab talks to. It reads \`lab.obs_sessions\`, \`lab.obs_events\` and \`lab.obs_harvest\`
@@ -2421,7 +2435,11 @@ events, rather than one session per turn.
 
 The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
 six-platform sweep runs longer than a browser request may stay open.`;
-  return `<div class="flow">${mdToHtml(md)}</div>`;
+  return `<div class="flow">
+    <h3>How the data reaches this dashboard</h3>
+    <div class="archsvg-wrap" id="obsDashFig" style="margin:6px 0 18px"></div>
+    ${mdToHtml(md.replace("### How the data reaches this dashboard\n\n", ""))}
+  </div>`;
 }
 
 
@@ -2608,43 +2626,71 @@ async function readJson(r, what) {
 }
 
 async function pollHarvest(startedAt) {
-  const DEADLINE_S = 600;   // the Lambda's own timeout; past this it is not coming
+  // Watch lab.obs_harvest for platforms whose last_harvest_at moves past the
+  // moment we fired. Each lands independently, so the panel fills in as they
+  // finish — which is also the honest picture of a six-platform sweep.
+  //
+  // EXPECTED comes from the platforms the store already knows about, not a
+  // hardcoded count. The first version waited for a literal 6 and, when one
+  // platform's timestamp did not advance inside the window, announced that the
+  // harvest had "stopped reporting" — a phrase that means nothing, about a
+  // sweep whose status chips all said ok. If it cannot name what is missing it
+  // has no business raising an alarm.
   const EVERY_MS = 5000;
+  const SETTLE_POLLS = 4;      // ~20s with nothing new = the sweep is done
+  const DEADLINE_S = 900;
+  const expected = new Set(Object.keys((obs.summary && obs.summary.platforms) || {}));
   const t0 = Date.now();
   const landed = new Set();
-  obsMsg("Harvest running in the background — each platform appears as it lands.");
+  let quiet = 0;
+
+  const report = (done) => {
+    const missing = [...expected].filter(p => !landed.has(p)).sort();
+    const secs = Math.round((Date.now() - t0) / 1000);
+    if (!missing.length) {
+      obsMsg(`Done — ${landed.size} platform${landed.size === 1 ? "" : "s"} refreshed in ${secs}s.`);
+      return;
+    }
+    // Name them, and say what their own status line claims, so the reader can
+    // tell "still working" from "quietly broken" without leaving the page.
+    const plats = (obs.summary && obs.summary.platforms) || {};
+    const detail = missing.map(p => {
+      const h = (plats[p] || {}).harvest || {};
+      return `${p} (last: ${h.status || "unknown"}${h.at ? ", " + fmtWhen(h.at) : ""})`;
+    }).join(" · ");
+    obsMsg(`${landed.size} of ${expected.size} platforms refreshed in ${secs}s. `
+      + `No new data from: ${detail}. `
+      + (done ? "Their existing rows are unchanged — open Details for what each source needs."
+              : "Still running; this panel keeps updating."), true);
+  };
+
+  obsMsg(`Harvest running — ${expected.size} platforms, each appears as it lands.`);
   for (;;) {
     await new Promise(r => setTimeout(r, EVERY_MS));
     await loadObs();
-    // Re-render wherever the user happens to be; the sweep does not own the view.
     renderObsSide();
-    if (!view || view.type === "obs") openObservability(view && view.platform);
+    if (!view || view.type === "obs") renderMain(true);
+
+    const before = landed.size;
     const plats = (obs.summary && obs.summary.platforms) || {};
     for (const [name, p] of Object.entries(plats)) {
       const at = p.harvest && p.harvest.at;
       if (at && at > startedAt) landed.add(name);
+      expected.add(name);   // a platform harvested for the first time counts too
     }
-    const elapsed = Math.round((Date.now() - t0) / 1000);
+    quiet = landed.size > before ? 0 : quiet + 1;
+
     if (landed.size) {
-      obsMsg(`Harvest running — ${landed.size} platform(s) updated so far `
-        + `(${[...landed].sort().join(", ")}) · ${elapsed}s`);
+      const secs = Math.round((Date.now() - t0) / 1000);
+      obsMsg(`Harvest running — ${landed.size}/${expected.size} refreshed `
+        + `(${[...landed].sort().join(", ")}) · ${secs}s`);
     }
-    // Six is the Lambda's full sweep; the console's own list is shorter, so
-    // stop on "nothing new for a while" rather than on a hard count.
-    if (landed.size >= 6) {
-      obsMsg(`Done — ${landed.size} platforms harvested in ${elapsed}s.`);
-      return;
-    }
-    if (elapsed > DEADLINE_S) {
-      obsMsg(landed.size
-        ? `Harvest stopped reporting after ${elapsed}s — ${landed.size} platform(s) updated. `
-          + `Check the status chips; the rest may still be running.`
-        : `No platform reported in ${elapsed}s. Check /ecs logs for the harvest function.`,
-        true);
-      return;
-    }
+    if (landed.size >= expected.size) return report(true);
+    if (landed.size && quiet >= SETTLE_POLLS) return report(true);
+    if ((Date.now() - t0) / 1000 > DEADLINE_S) return report(false);
   }
 }
+
 
 function obsEventClass(t) {
   if (!t) return "";
@@ -3520,6 +3566,46 @@ function buildHtml() {
 
 // The sentinel's pipeline, D22 split made visible: everything below the store
 // is deterministic and hosted, the agent sits above it and only interprets.
+// What the DASHBOARD is reading, and how the data got there. Deliberately
+// names the store and the identity boundary — the two things a number on a tile
+// cannot tell you by itself.
+const OBS_HARVEST_DIAGRAM = `flowchart TB
+  subgraph SRC["Each platform's own interior record"]
+    AF["Agentforce<br/>Data Cloud session-tracing DMOs (SOQL)"]
+    CL["Claude Managed Agents<br/>sessions + per-session events"]
+    OA["OpenAI<br/>stored responses, by id only"]
+    GG["Vertex AI Agent Engine<br/>Cloud Logging + Monitoring meters"]
+    FD["Microsoft Foundry<br/>App Insights gen_ai spans (KQL)"]
+    CD["Coding agents<br/>CloudWatch OTLP metrics (WS9)"]
+  end
+
+  SCHED["EventBridge Scheduler<br/>rate(6 hours)"]
+  HARV["Lambda a2alab-obs-harvest<br/>deterministic pulls — no LLM in the loop<br/>credentials from Secrets Manager"]
+
+  subgraph AUR["Aurora Postgres — lab schema (the source of truth)"]
+    S[("obs_sessions")]
+    E[("obs_events")]
+    H[("obs_harvest<br/>per-platform status + timestamp")]
+    T[("trace_events<br/>the lab's own wire hops")]
+  end
+
+  UI["Console — Observability Dashboard<br/>sessions · events · tokens · harvest status"]
+
+  SCHED --> HARV
+  AF --> HARV
+  CL --> HARV
+  OA --> HARV
+  GG --> HARV
+  FD --> HARV
+  CD --> HARV
+  HARV --> S
+  HARV --> E
+  HARV --> H
+  S --> UI
+  E --> UI
+  H --> UI
+  T -.->|"platform_ref join"| S`;
+
 // What the observability analyst actually does, for its Details pane. Same
 // shape as the sentinel's below: the agent never touches the database.
 const OBS_ANALYST_DIAGRAM = `flowchart TB
@@ -4255,15 +4341,25 @@ function credsReportHtml() {
 
 function credsHtml() {
   if (!expiryData) return `<div class="empty">Sign in as an operator to see credential expiry.</div>`;
-  const stamp = credBrief
-    ? `last analysed ${fmtWhen(credBrief.generated_at)}`
-    : "never analysed — run one";
+  // TWO timestamps, and the snapshot's is the one that changes what the
+  // numbers MEAN. The countdowns are computed from a report the operator
+  // generated on their own machine (it needs their AWS/az/gcloud sessions), so
+  // a snapshot taken a week ago is a week wrong — and until this was shown, a
+  // stale one looked exactly like a fresh one. The analyst's stamp says when
+  // the prose was written; this says when the facts were true.
+  const snapAt = expiryData.generated_at || expiryData.stored_at;
+  const ageH = snapAt ? (Date.now() - new Date(String(snapAt).replace(" ", "T")).getTime()) / 3.6e6 : null;
+  const stale = ageH != null && ageH > 24;
+  const stamp = (snapAt
+      ? `snapshot ${fmtWhen(snapAt)}${stale ? " — STALE, re-run expiry_report.py --write" : ""}`
+      : "no snapshot — run scripts/expiry_report.py --write")
+    + (credBrief ? ` · analysed ${fmtWhen(credBrief.generated_at)}` : "");
   // Same tabbar the experiment views use: title left, tabs top-right, Run
   // first. This is an operational surface, so it should navigate like one.
   return `
     <div class="tabbar">
       <h2>Credentials Expiry Analysis</h2>
-      <span class="obs-updated">${esc(stamp)}</span>
+      <span class="obs-updated" ${stale ? 'style="color:var(--warn,#c96)"' : ""}>${esc(stamp)}</span>
       <div class="tabs">
         <button class="tab ${credsTab === "run" ? "on" : ""}" onclick="setCredsTab('run')">Run</button>
         <button class="tab ${credsTab === "details" ? "on" : ""}" onclick="setCredsTab('details')">Details</button>
@@ -5266,21 +5362,40 @@ window.runAllExperiments = async ev => {
   const skipped = scenarios.length - list.length;
   const msg = document.getElementById("runAllMsg");
   btn.disabled = true; msg.style.display = "";
+  // Open every group that has something in this run, so the whole board is
+  // visible while it works. A dozen experiments change state over several
+  // minutes and the chips are the only per-experiment progress there is —
+  // watching them from behind collapsed groups means watching nothing.
+  if (!openGroups) openGroups = new Set();
+  const running = new Set(list.map(s => s.group).filter(Boolean));
+  for (const id of running) openGroups.add(id);
+  document.getElementById("accExperiments").open = true;
+  ensureSideOpen();
+  renderScenarios();
   let pass = 0; const failures = [];
   const t0 = Date.now();
   for (let i = 0; i < list.length; i++) {
     const s = list[i];
-    msg.textContent = `${i + 1}/${list.length} · ${s.title || s.name}…`;
+    msg.innerHTML = `<span class="stat">${i + 1}/${list.length}</span> · ${esc(s.title || s.name)}…`;
     const key = expKey("scenario", s.name);
     if (!chats[key]) chats[key] = { session: "ui-chat-" + s.name + "-" + Date.now(), turns: [], running: false };
     const ok = await sendTurn("scenario", s.name, s.question || defaultQuestion);
-    if (ok) pass++; else failures.push(s.name);
+    if (ok) pass++;
+    // Keep the REASON, not just the name. A run-all that says "1 FAIL
+    // (supplier-disruption-adk)" makes you go and reproduce it to find out
+    // what happened; the error is already here.
+    else failures.push({ name: s.name, title: s.title || s.name,
+                         error: (runState[key] || {}).note || "FAIL" });
   }
   const secs = Math.round((Date.now() - t0) / 1000);
-  msg.textContent = `${pass} PASS · ${failures.length} FAIL`
-    + (failures.length ? ` (${failures.join(", ")})` : "")
-    + ` · ${secs}s`
-    + (skipped ? ` · ${skipped} skipped (async / upcoming / wrong mode)` : "");
+  msg.innerHTML = `<span class="stat">${pass} PASS · ${failures.length} FAIL</span> · ${secs}s`
+    + (skipped ? ` · ${skipped} skipped (async / upcoming / wrong mode)` : "")
+    + (failures.length ? `<div class="runall-fails">` + failures.map(f => `
+        <button class="runall-fail" onclick="openExperiment('scenario', '${esc(f.name)}')"
+          title="Open ${esc(f.title)} — its Run tab has the full error and the call path">
+          <span class="rf-name">${esc(f.title)}</span>
+          <span class="rf-err">${esc(String(f.error).replace(/\s+/g, " ").slice(0, 160))}</span>
+        </button>`).join("") + `</div>` : "");
   btn.disabled = false;
 };
 
@@ -5555,15 +5670,22 @@ function renderMain(force) {
         // is for. The dashboard tab shows the numbers; Details explains the
         // pipeline that produced them.
         : (details
-            ? obsPipelineHtml(true) + obsDashboardDetailsHtml()
+            // Just the diagram and the prose. obsPipelineHtml's stage boxes
+            // say the same thing a third time and still live in the first-run
+            // view, where they are the whole explanation.
+            ? obsDashboardDetailsHtml()
             : obsDashboardHtml() + obsSessionsHtml(null));
       el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + obsSubTabsHtml()
         + `<div class="tabpanel">${pane}</div>`;
       // The Details pane carries an architecture figure; mermaid renders after
       // the markup is in the DOM.
-      if (kind && details) {
-        const meta = BRIEF_META[kind];
-        if (meta && meta.diagram) renderMermaidInto("obsBriefFig", meta.diagram(), `obsfig-${kind}`);
+      if (details) {
+        if (kind) {
+          const meta = BRIEF_META[kind];
+          if (meta && meta.diagram) renderMermaidInto("obsBriefFig", meta.diagram(), `obsfig-${kind}`);
+        } else {
+          renderMermaidInto("obsDashFig", OBS_HARVEST_DIAGRAM, "obsfig-dashboard");
+        }
       }
     }
     return;
