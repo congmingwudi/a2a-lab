@@ -142,9 +142,15 @@ if [ -n "${A2ALAB_PG_CLUSTER_ARN:-}" ]; then
 fi
 # bedrock-agentcore:InvokeAgentRuntime — the Run buttons reach the hosted
 # Claude/OpenAI runtimes, which have an IAM data plane and no URL (D26).
+# lambda:InvokeFunction — the Harvest button fires the scheduled harvest
+# Lambda asynchronously rather than sweeping in-process (D54): a full sweep
+# outlives the ALB's 120s idle timeout, and that function already holds the
+# platform credentials this container does not.
+HARVEST_FN="${A2ALAB_HARVEST_FUNCTION:-a2alab-obs-harvest}"
 aws iam put-role-policy --role-name "$TASK_ROLE" --policy-name console-access \
   --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[
     $PG_STMTS
+    {\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"arn:aws:lambda:$REGION:$ACCOUNT:function:$HARVEST_FN\"},
     {\"Effect\":\"Allow\",\"Action\":\"bedrock-agentcore:InvokeAgentRuntime\",\"Resource\":\"*\"}
   ]}"
 
@@ -267,6 +273,9 @@ env["AWS_REGION"] = os.environ["DEPLOY_REGION"]
 # Hosted console: no traces/ directory, no .a2alab. Aurora is the only source.
 env["A2ALAB_TRACE_SINK"] = "postgres"
 env["A2ALAB_OBS_STORE"] = "postgres"
+# Presence of this is what makes the Harvest button asynchronous (D54). Unset
+# on a laptop, where the sweep runs in-process because nothing times it out.
+env["A2ALAB_HARVEST_FUNCTION"] = os.environ.get("A2ALAB_HARVEST_FUNCTION", "a2alab-obs-harvest")
 # Aurora, set EXPLICITLY — the scan above cannot see these. observability/pg.py
 # reads them as os.environ.get(SECRET_ARN_ENV), i.e. through a module constant,
 # and the regex only matches a string literal inside the call. The first run

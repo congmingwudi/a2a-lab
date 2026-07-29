@@ -200,10 +200,22 @@
            border: 1px solid color-mix(in srgb, var(--hero-link) 38%, transparent);
            cursor: pointer; vertical-align: baseline; }
   .dchip:hover { color: var(--fg-hi); border-color: var(--hero-link); }
-  .dpopover { position: fixed; z-index: 60; width: min(560px, calc(100vw - 24px));
-              max-height: min(65vh, 560px); overflow: auto; background: var(--card);
+  /* Wide enough to read the underlying doc, not just glance at it. These
+     popovers render real plan/ prose — ADR bodies run to several paragraphs
+     and plan/05's capability matrix is six columns — and at 560px that was a
+     column of about eight words. The fixed-position code clamps left to the
+     viewport, so a wider box cannot push itself off-screen. */
+  .dpopover { position: fixed; z-index: 60; width: min(920px, calc(100vw - 48px));
+              max-height: min(78vh, 760px); overflow: auto; background: var(--card);
               border: 1px solid var(--border-hi); border-radius: 12px; padding: 4px 18px 12px;
               box-shadow: 0 14px 40px var(--shadow-lg); font-size: 13px; line-height: 1.55; }
+  /* A wide markdown table scrolls inside its own box rather than stretching
+     the popover past the clamp — the honest matrix is the case that needs it. */
+  .dpopover table { display: block; overflow-x: auto; max-width: 100%;
+                    border-collapse: collapse; margin: 8px 0 12px; font-size: 12px; }
+  .dpopover th, .dpopover td { border: 1px solid var(--border); padding: 5px 9px;
+                               text-align: left; vertical-align: top; }
+  .dpopover th { background: var(--code); color: var(--fg-hi); white-space: nowrap; }
   .dpopover h4, .dpopover h5, .dpopover h6 { margin: 12px 0 6px; font-size: 13px; color: var(--fg-hi); }
   .dpopover code { background: var(--code); border: 1px solid var(--border);
                    padding: 1px 5px; border-radius: 5px; font-size: 12px; }
@@ -2325,6 +2337,13 @@ window.harvestObs = async ev => {
     }
     const data = await r.json();
     if (!data.ok) { obsMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
+    // Hosted: the server fired the harvest Lambda and returned immediately
+    // (D54). A full sweep outlives the load balancer's 120s idle timeout, so
+    // awaiting the result is not an option the front door offers — the browser
+    // used to get the ALB's HTML 504 and report it as
+    // "SyntaxError: Unexpected token '<'". Watch the store instead.
+    if (data.async) { await pollHarvest(data.started_at); return; }
+    // Local: it ran in-process, so the outcomes came back with the response.
     // Per-platform outcomes live in the status chips — the message only
     // carries what the chips can't: an all-clear or what failed.
     const failed = data.results.filter(x => x.status !== "ok" && x.status !== "blocked");
@@ -2343,6 +2362,49 @@ window.harvestObs = async ev => {
     renderObsSide();
   }
 };
+
+// Watch lab.obs_harvest for platforms whose last_harvest_at is newer than the
+// moment we fired. Each one lands independently, so the panel fills in as they
+// finish rather than all at once — which is also the honest picture of what a
+// six-platform sweep is doing.
+async function pollHarvest(startedAt) {
+  const DEADLINE_S = 600;   // the Lambda's own timeout; past this it is not coming
+  const EVERY_MS = 5000;
+  const t0 = Date.now();
+  const landed = new Set();
+  obsMsg("Harvest running in the background — each platform appears as it lands.");
+  for (;;) {
+    await new Promise(r => setTimeout(r, EVERY_MS));
+    await loadObs();
+    // Re-render wherever the user happens to be; the sweep does not own the view.
+    renderObsSide();
+    if (!view || view.type === "obs") openObservability(view && view.platform);
+    const plats = (obs.summary && obs.summary.platforms) || {};
+    for (const [name, p] of Object.entries(plats)) {
+      const at = p.harvest && p.harvest.at;
+      if (at && at > startedAt) landed.add(name);
+    }
+    const elapsed = Math.round((Date.now() - t0) / 1000);
+    if (landed.size) {
+      obsMsg(`Harvest running — ${landed.size} platform(s) updated so far `
+        + `(${[...landed].sort().join(", ")}) · ${elapsed}s`);
+    }
+    // Six is the Lambda's full sweep; the console's own list is shorter, so
+    // stop on "nothing new for a while" rather than on a hard count.
+    if (landed.size >= 6) {
+      obsMsg(`Done — ${landed.size} platforms harvested in ${elapsed}s.`);
+      return;
+    }
+    if (elapsed > DEADLINE_S) {
+      obsMsg(landed.size
+        ? `Harvest stopped reporting after ${elapsed}s — ${landed.size} platform(s) updated. `
+          + `Check the status chips; the rest may still be running.`
+        : `No platform reported in ${elapsed}s. Check /ecs logs for the harvest function.`,
+        true);
+      return;
+    }
+  }
+}
 
 function obsEventClass(t) {
   if (!t) return "";

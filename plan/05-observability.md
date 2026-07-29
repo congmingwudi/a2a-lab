@@ -14,13 +14,35 @@ platform docs; re-verify betas before building).
 
 ## What each platform lets us pull (honest matrix)
 
-| Capability | Salesforce Agentforce | Anthropic Managed Agents | OpenAI |
-|---|---|---|---|
-| List executions org-wide | ✅ SQL over STDM DMOs | ✅ `GET /v1/sessions` (paginated; no time-range filter documented) | ❌ none (usage metrics only) |
-| Per-execution step detail | ✅ interaction steps DMO; OTel export (beta) | ✅ `GET /v1/sessions/{id}/events` | ⚠️ `GET /v1/responses/{id}` by known id only |
-| LLM request/response logs | ✅ Einstein GenAI audit DMOs | ⚠️ inside session events (thinking/tool events, token spans) | ⚠️ stored responses, 30-day TTL, fetch by id |
-| Real-time stream | ❌ (poll DMOs) | ✅ `GET /v1/sessions/{id}/events/stream` (SSE) | ❌ |
-| Aggregate usage/cost API | ⚠️ via DMO SQL aggregation | ❌ none | ✅ `GET /v1/organization/usage/*`, `/costs` (admin key) |
+All five platforms the lab harvests. The columns are deliberately not ranked —
+each is strong somewhere and absent somewhere else, and **which axis a platform
+is strong on is the finding**, not a scoreboard.
+
+| Capability | Salesforce Agentforce | Anthropic Managed Agents | OpenAI | Google Agent Engine | Microsoft Foundry |
+|---|---|---|---|---|---|
+| List executions org-wide | ✅ SQL over STDM DMOs | ✅ `GET /v1/sessions` (paginated; no time-range filter documented) | ❌ none (usage metrics only) | ⚠️ no session/turn read API on the preview A2A surface — Cloud Logging entries per ReasoningEngine instead | ✅ KQL over App Insights `AppDependencies` |
+| Per-execution step detail | ✅ interaction steps DMO; OTel export (beta) | ✅ `GET /v1/sessions/{id}/events` | ⚠️ `GET /v1/responses/{id}` by known id only | ⚠️ container app logs and request lines — not agent-semantic, and A2A `contextId` does not appear in the default logs | ✅ gen_ai spans: `invoke_agent` (turn), `chat <model>`, `execute_tool` (its own record of calling the lab's shim) |
+| LLM request/response logs | ✅ Einstein GenAI audit DMOs | ⚠️ inside session events (thinking/tool events, token spans) | ⚠️ stored responses, 30-day TTL, fetch by id | ❌ not exposed | ✅ full input/output messages on the `chat` spans |
+| Real-time stream | ❌ (poll DMOs) | ✅ `GET /v1/sessions/{id}/events/stream` (SSE) | ❌ | ❌ (poll Cloud Logging) | ❌ (poll KQL) |
+| Aggregate usage/cost API | ⚠️ via DMO SQL aggregation | ❌ none | ✅ `GET /v1/organization/usage/*`, `/costs` (admin key) | ✅ Cloud Monitoring — `cpu/allocation_time` and `memory/allocation_time`, the **literal billing meters**, plus publisher token counts | ⚠️ `gen_ai.usage.*` tokens on each span, aggregate by KQL; no cost API |
+
+**Read the table by column, and the shape of each platform falls out.**
+Salesforce is queryable session/step data. Anthropic is deep per-session events
+and the only real-time stream. OpenAI is effectively **write-only** for
+execution detail and the only one with a first-class cost API. Google lands
+*between*: real, queryable, billing-grade telemetry — but request-level rather
+than agent-semantic, because Agent Engine bills **allocated compute, not
+tokens**, and its meters say so. Foundry is the column WS3 hoped for:
+agent-semantic **and** queryable, with the platform's own record of calling us.
+
+Two consequences the lab actually ran into. Because Agent Engine exposes no
+session read, its honest shape in the store is **one obs session per deployed
+engine**, with log entries as events and a daily metrics rollup — not one per
+turn. And because Foundry keys its spans on `gen_ai.response.id`, which is the
+same id the lab's `FoundryClient` records as `platform_ref`, the
+`trace_events ↔ obs_sessions` join works with no extra correlation machinery —
+the only platform where that is true by construction rather than by the D27
+rider.
 
 ### Salesforce — the richest pull surface
 - **Session Tracing Data Model (STDM)** — Data Cloud DMOs, queryable with

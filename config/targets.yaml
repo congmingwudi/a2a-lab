@@ -258,6 +258,20 @@ targets:
 # exempt (exact=True): a matrix cell always measures the target it names.
 # Restart the stack after flipping — bridge/console cache clients per name.
 
+  claude-rest-hosted:
+    platform: claude
+    protocol: rest
+    endpoint: ${A2ALAB_FACES_BASE}/claude-rest
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
+  openai-rest-hosted:
+    platform: openai
+    protocol: rest
+    endpoint: ${A2ALAB_FACES_BASE}/openai-rest
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
   # ---- Hosted twins of the nine local protocol faces (WS13 item 2) ----
   # One Fargate service serves all of them, addressed by PATH under one
   # hostname — see src/faces/__init__.py. `modes.hosted` below swaps each
@@ -330,9 +344,18 @@ targets:
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
 modes:
+  # WS13/D55: claude-rest and openai-rest used to remap to the AGENTCORE
+  # runtimes here. That was right while the protocol faces were laptop-only —
+  # AgentCore was the sole hosted option — and became wrong the moment the
+  # faces were hosted (D51), because AgentCore runs the SELF-HOSTED SDK twin.
+  # The effect was that `claude-to-agentforce` ("Claude Managed Agent →
+  # Agentforce") and `claude-aws-to-agentforce` ran the same backend in hosted
+  # mode, while the pair exists to compare Managed Agents AGAINST self-hosted.
+  # The faces serve CLAUDE_BACKEND=managed, so these now point there and the
+  # agentcore cells keep their own scenarios.
   hosted:
-    claude-rest: claude-agentcore
-    openai-rest: openai-agentcore
+    claude-rest: claude-rest-hosted
+    openai-rest: openai-rest-hosted
     claude-mcp: claude-mcp-hosted
     claude-a2a: claude-a2a-hosted
     openai-mcp: openai-mcp-hosted

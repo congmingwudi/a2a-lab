@@ -1310,3 +1310,109 @@ def test_a_failing_store_does_not_report_a_silent_success(monkeypatch, tmp_path)
     monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
     with pytest.raises(RuntimeError, match="aurora is asleep"):
         reviews.record({"id": "x", "headline": "h"}, "approved", user={"sub": "ryan"})
+
+
+def test_hosted_harvest_fires_the_lambda_and_returns_at_once(tmp_path, monkeypatch):
+    """A full six-platform sweep runs past two minutes. The ALB's idle timeout
+    is 120s and Cloudflare's proxy limit is lower, so a synchronous harvest
+    cannot finish through the front door whatever we configure — the browser
+    got the load balancer's HTML 504 and reported
+    `SyntaxError: Unexpected token '<'` (D54).
+
+    Delegating also fixes what the in-process sweep could not do at all: the
+    Lambda covers six platforms to this endpoint's four, and holds the GCP key
+    and Entra principal the console container does not.
+    """
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_HARVEST_FUNCTION", "a2alab-obs-harvest")
+    invoked = {}
+
+    class FakeLambda:
+        def invoke(self, **kw):
+            invoked.update(kw)
+            return {"StatusCode": 202}
+
+    monkeypatch.setattr("boto3.client", lambda *a, **k: FakeLambda())
+    app = make_app(tmp_path / "traces", monkeypatch)
+    resp = TestClient(app).post("/api/obs/harvest", headers={"X-Lab-Token": "sekrit"})
+    body = resp.json()
+    assert body["ok"] is True and body["async"] is True
+    assert body["started_at"] > 0  # the poll contract
+    assert invoked["FunctionName"] == "a2alab-obs-harvest"
+    assert invoked["InvocationType"] == "Event"  # fire-and-forget, not RequestResponse
+
+
+def test_local_harvest_still_runs_in_process(tmp_path, monkeypatch):
+    """No Lambda configured means a laptop, where nothing is timing the request
+    out — running it here keeps the per-platform outcomes in the response."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.delenv("A2ALAB_HARVEST_FUNCTION", raising=False)
+
+    class FakeSource:
+        def __init__(self, *a, **k):
+            pass
+
+        def harvest(self, store):
+            return SimpleNamespace(__dict__={"platform": "claude", "status": "ok", "detail": ""})
+
+    import console.app as console_app
+
+    app = make_app(tmp_path / "traces", monkeypatch)
+    monkeypatch.setattr("observability.anthropic_source.AnthropicSource", FakeSource)
+    resp = TestClient(app).post(
+        "/api/obs/harvest?platform=claude", headers={"X-Lab-Token": "sekrit"}
+    )
+    assert resp.json().get("async") is None  # synchronous path
+    assert console_app is not None
+
+
+def test_an_unstartable_harvest_reports_rather_than_pretending(tmp_path, monkeypatch):
+    """The old failure told the user 'Harvest failed: SyntaxError'. A refusal to
+    start must say so in words the panel can render."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_HARVEST_FUNCTION", "a2alab-obs-harvest")
+
+    def boom(*a, **k):
+        raise RuntimeError("AccessDeniedException: lambda:InvokeFunction")
+
+    monkeypatch.setattr("boto3.client", boom)
+    app = make_app(tmp_path / "traces", monkeypatch)
+    body = TestClient(app).post("/api/obs/harvest", headers={"X-Lab-Token": "sekrit"}).json()
+    assert body["ok"] is False
+    assert "lambda:InvokeFunction" in body["error"]
+
+
+def test_hosted_mode_keeps_the_managed_and_self_hosted_cells_distinct():
+    """D55. `claude-to-agentforce` targets claude-rest and is titled "Claude
+    Managed Agent"; `claude-aws-to-agentforce` targets claude-agentcore, the
+    SELF-HOSTED SDK twin. The pair exists to compare the two.
+
+    Hosted mode used to remap claude-rest → claude-agentcore, so both ran the
+    same backend and the comparison silently compared nothing. Proven from a
+    trace hop before the fix: claude-rest resolved to
+    `claude-agentcore (agentcore-http)` reporting `"backend": "sdk"`.
+    """
+    from interop.registry import Registry
+
+    registry = Registry.load()
+    hosted = registry.modes.get("hosted", {})
+    assert hosted.get("claude-rest") != "claude-agentcore", (
+        "hosted mode must not send the Managed Agent cell to the self-hosted runtime"
+    )
+    assert hosted.get("openai-rest") != "openai-agentcore"
+    # and the two cells must still resolve somewhere DIFFERENT from each other
+    assert hosted.get("claude-rest", "claude-rest") != hosted.get(
+        "claude-agentcore", "claude-agentcore"
+    )
+
+
+def test_every_hosted_remap_points_at_a_real_target():
+    """A mode entry naming a target that does not exist fails at request time
+    with an unknown-target KeyError, long after the typo."""
+    from interop.registry import Registry
+
+    registry = Registry.load()
+    for mode, mapping in registry.modes.items():
+        for src, dst in mapping.items():
+            assert src in registry.targets, f"{mode}: unknown source target {src}"
+            assert dst in registry.targets, f"{mode}: unknown destination target {dst}"

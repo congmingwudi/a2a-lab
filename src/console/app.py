@@ -1871,6 +1871,11 @@ def create_console_app(registry: Registry | None = None):
     # out of the Observability coverage panel and rendered in its own section.
     BUILD_TELEMETRY_PLATFORM = "coding"
 
+    # Set by deploy/console/deploy_console.sh to the scheduled harvest Lambda.
+    # Its presence is what makes the Harvest button asynchronous — unset on a
+    # laptop, where the sweep runs in-process because nothing is timing it out.
+    HARVEST_FUNCTION_ENV = "A2ALAB_HARVEST_FUNCTION"
+
     # One string, two consumers (the telemetry payload and the cost sentinel's
     # brief panel). It is the caveat that has to travel with every rendering of
     # the number, so a second copy is a second thing that can drift out of it.
@@ -2440,6 +2445,54 @@ def create_console_app(registry: Registry | None = None):
         if any(w not in sources for w in wanted):
             return {"ok": False, "error": f"unknown platform '{platform}'"}
 
+        # Hosted: hand the work to the Lambda that already does it on a
+        # schedule, and return immediately (D54).
+        #
+        # A full sweep takes over two minutes. The ALB's idle timeout is 120s
+        # and Cloudflare's proxy limit is lower still, so a synchronous harvest
+        # could not finish through the front door whatever we set: the browser
+        # got the load balancer's HTML 504 and reported it as
+        # `SyntaxError: Unexpected token '<'`. Raising a timeout would only
+        # move the ceiling to one we do not control.
+        #
+        # Delegating also fixes two things the in-process sweep got wrong. The
+        # Lambda harvests SIX platforms (this dict has four — foundry was never
+        # in it, despite the comment above saying five), and it holds the
+        # credentials the console container does not: the GCP service-account
+        # key ADK needs, the Entra principal for Foundry, the CloudWatch grants
+        # for coding. ADK failed here for exactly that reason.
+        function = os.environ.get(HARVEST_FUNCTION_ENV)
+        if function:
+            started_at = time.time()
+
+            def fire():
+                import boto3
+
+                payload = {"platform": platform} if platform else {}
+                boto3.client(
+                    "lambda", region_name=os.environ.get("AWS_REGION", "us-east-1")
+                ).invoke(
+                    FunctionName=function,
+                    InvocationType="Event",  # fire-and-forget; the result lands in Aurora
+                    Payload=json.dumps(payload).encode(),
+                )
+
+            try:
+                await asyncio.get_event_loop().run_in_executor(None, fire)
+            except Exception as exc:  # noqa: BLE001 - surfaced, not swallowed
+                return {"ok": False, "error": f"could not start the harvest: {exc}"}
+            # `started_at` is the poll contract: the client watches
+            # lab.obs_harvest for a last_harvest_at newer than this.
+            return {
+                "ok": True,
+                "async": True,
+                "started_at": started_at,
+                "platforms": None if platform is None else [platform],
+                "note": "harvest running in the background — this panel updates as each platform lands",
+            }
+
+        # Local: no Lambda configured, so run it here. Still the right
+        # behaviour on a laptop, where there is no load balancer in the way.
         def run():
             store = _obs_store()
             try:

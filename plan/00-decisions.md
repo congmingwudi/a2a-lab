@@ -1750,3 +1750,86 @@ take effect, check the image before re-reading the code.**
 procedures for rotating these credentials had no home, and the reason a rotation
 needs a redeploy (the per-seam secret is built by the deploy script, not by
 `env_sync`) is worth writing down next to the procedure rather than rediscovering.
+
+## 2026-07-29 — D54: The harvest button fires the Lambda that already does the harvest
+
+**Context.** The console's Harvest button reported
+`Harvest failed: SyntaxError: Unexpected token '<', "<!DOCTYPE "...`. That is
+not a harvest error — it is a browser parsing an HTML page as JSON. Measured
+against the load balancer directly: `POST /api/obs/harvest` returned **HTTP 504
+in 120.18s**, the ALB's own timeout page. A full sweep takes longer than the
+ALB's 120s idle timeout.
+
+Raising the timeout does not fix it. Cloudflare's proxy limit sits below the
+ALB's, so the ceiling would simply move to one the lab does not control, and the
+same failure would return as a 524. **A request that cannot finish inside the
+front door's budget is the wrong shape, not the wrong setting** — the same
+conclusion WS11/D47 reached about A2A.
+
+**Decision.** `/api/obs/harvest` invokes the **existing** `a2alab-obs-harvest`
+Lambda with `InvocationType: "Event"` and returns `started_at` immediately; the
+console polls `lab.obs_harvest` for a `last_harvest_at` newer than that. The
+in-process sweep stays for local development, where nothing is timing the
+request out.
+
+**Delegating fixed two faults nothing else had caught**, and they are the
+better argument than the timeout:
+
+1. **The console harvested four platforms; the Lambda harvests six.** Foundry
+   was never in the console's `sources` dict at all — despite the comment above
+   it saying "the five agent platforms". The button claimed "harvested from all
+   platforms" and never touched Foundry.
+2. **ADK could not work from the console at all.** It failed with
+   `DefaultCredentialsError`, because the GCP service-account key lives in the
+   harvest secret and is materialised by `observability.credentials.prepare()`
+   — which the Lambda calls and the console does not. The console container has
+   no Google identity for Cloud Logging, so that cell was never going to
+   succeed however long the request was allowed to run.
+
+**Consequence.** The button now does less work in the web app, not more: the
+console asks the component that owns the job to do it. The general rule is
+worth keeping — *when a hosted seam already performs a job on a schedule, a UI
+that wants it on demand should invoke that seam, not reimplement it in the
+request path.* The reimplementation had silently drifted to two-thirds of the
+platforms and one broken credential.
+
+## 2026-07-29 — D55: A mode remap must not change what an experiment IS
+
+**Context.** The operator asked whether the two Claude↔Agentforce experiments
+were still using the **Managed Agent**, or had quietly become the self-hosted
+AgentCore twin. They had.
+
+`config/targets.yaml` carried `modes.hosted: claude-rest → claude-agentcore`.
+That was correct when written: the protocol faces ran only on a laptop, so in
+hosted mode AgentCore was the *only* reachable Claude. Hosting the faces (D51)
+made it wrong the same day, and nothing failed — which is the problem.
+
+Proven from a trace hop rather than argued: `claude-rest` resolved to
+`claude-agentcore (agentcore-http)` and the response carried
+`"raw": {"backend": "sdk"}`. So `claude-to-agentforce` (titled *Claude Managed
+Agent → Agentforce*) and `claude-aws-to-agentforce` ran **the same backend**,
+while the entire purpose of the pair is to compare Managed Agents against
+self-hosted. The lab was showing two cells of one thing and calling it a
+comparison.
+
+**Decision.**
+
+1. **Hosted mode maps a face to its hosted TWIN, never to a different
+   implementation.** `claude-rest → claude-rest-hosted` and
+   `openai-rest → openai-rest-hosted`, both served by the faces container,
+   which runs `CLAUDE_BACKEND=managed`. The AgentCore cells keep their own
+   scenarios and their own names.
+2. **A mode entry may change an address. It may not change a backend, a
+   platform, or a protocol.** Those are what the experiment *is*; the mode
+   switch is about where it runs. A remap that crosses that line converts an
+   honest matrix into a false one silently, because every cell still passes.
+3. Two tests pin it: hosted mode may not send the Managed Agent cell to the
+   self-hosted runtime, and every remap must name targets that exist.
+
+**Verified after the fix:** `claude-rest` reports `backend=managed`,
+`claude-agentcore` reports `backend=sdk`.
+
+**The lesson is about timing, not YAML.** This remap was right for three weeks
+and wrong from the moment a better option existed. Nothing re-examines a
+workaround when the thing it worked around goes away — so when a capability
+lands, the compensations made in its absence are part of the change.
