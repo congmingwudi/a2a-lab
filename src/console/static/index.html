@@ -2225,88 +2225,185 @@ async function loadBriefs() {
       obs.analysisRunning = false;
       renderObsSide();
       if (obs.briefWatch) { clearInterval(obs.briefWatch); obs.briefWatch = null; }
-      obs.tab = "brief";
+      obs.tab = "observability";
+      obs.sub = "main";
       obsMsg("");
     }
     if (view && view.type === "obs" && !view.session) renderMain(true);
   } catch { /* hosted store not configured — the brief tab explains itself */ }
 }
 
+// The Observability canvas, one entry per top tab. Analysis briefs sit BESIDE
+// the dashboard rather than inside it: they are separate readings of the same
+// store, written by different agents, and burying one under the other is what
+// let a cost brief masquerade as the analyst's (D56).
+const OBS_TABS = [
+  ["dashboard", "Dashboard"],
+  ["observability", "Observability Analysis"],
+  ["cost", "Cost Analysis"],
+];
+// Brief kinds keyed by tab id — `null` for the dashboard, which reads the
+// harvested tables rather than lab.obs_briefs.
+const OBS_TAB_KIND = { dashboard: null, observability: "observability", cost: "cost" };
+
 window.setObsTab = t => {
   obs.tab = t;
+  obs.sub = "main";   // a new tab opens on its content, never on its Details
   renderMain(true);
 };
 
-function obsBriefsHtml() {
-  const briefs = obs.briefs || [];
-  const running = obs.analysisRunning ? `
+// Every tab carries a Details pane, the same shape experiments use: the canvas
+// shows the thing, Details explains where the thing came from.
+window.setObsSub = s => { obs.sub = s; renderMain(true); };
+
+function obsSubTabsHtml() {
+  const sub = obs.sub === "details" ? "details" : "main";
+  const main = (OBS_TABS.find(([id]) => id === (obs.tab || "dashboard")) || [, "Dashboard"])[1];
+  return `<div class="tabs" style="margin:10px 0 4px">
+    <button class="tab ${sub === "main" ? "on" : ""}" onclick="setObsSub('main')">${esc(main)}</button>
+    <button class="tab ${sub === "details" ? "on" : ""}" onclick="setObsSub('details')">Details</button>
+  </div>`;
+}
+
+function obsBriefsHtml(kind) {
+  const briefs = (obs.briefs || []).filter(b => (b.kind || "observability") === kind);
+  const meta = BRIEF_META[kind] || { label: kind, who: "An analysis agent" };
+  const running = obs.analysisRunning && kind === "observability" ? `
     <div class="desc"><span class="stat">${esc(obs.analysisAgent || "The analyst agent")} is running —
       this tab updates when the brief lands (usually a few minutes).</span></div>` : "";
-  // One sub-tab per brief KIND, built from the data rather than a hardcoded
-  // list: lab.obs_briefs takes any number of authors and a new analysis agent
-  // should appear here as a new tab without editing this function. KIND_META
-  // supplies a human label and a blurb for the ones we know; anything else
-  // falls back to its raw kind, which is ugly but never wrong.
-  const KIND_META = {
-    observability: {
-      label: "Observability analysis",
-      blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
-           + "experiment telemetry across all six platforms.",
-    },
-    cost: {
-      label: "Cost sentinel",
-      blurb: "The weekly <b>build-cost</b> read (WS12/D44). Modelled cost at list price — a client-side "
-           + "estimate, not an invoice.",
-    },
-  };
-  const kindMeta = k => KIND_META[k] || { label: k, blurb: `Briefs of kind <code>${esc(k)}</code>.` };
-  // Known kinds first and in a stable order, then anything new, alphabetically.
-  const ORDER = Object.keys(KIND_META);
-  const kinds = [...new Set(briefs.map(b => b.kind || "observability"))]
-    .sort((a, b) => {
-      const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
-      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
-    });
-  // Always offer the known tabs even with nothing in the window — an empty
-  // "Observability analysis" tab is the honest report that the analyst has not
-  // run, and is exactly what a "latest brief" view hid for eleven days (D56).
-  for (const k of ORDER) if (!kinds.includes(k)) kinds.push(k);
-  if (!obs.briefKind || !kinds.includes(obs.briefKind)) obs.briefKind = kinds[0];
-  const active = obs.briefKind;
-  const mine = briefs.filter(b => (b.kind || "observability") === active);
-  const meta = kindMeta(active);
+
+  if (!briefs.length) return `
+  <div class="flow">
+    ${running}
+    <div class="desc"><span class="stat">No <b>${esc(meta.label.toLowerCase())}</b> briefs in the last 7 days.
+      ${esc(meta.emptyHint)} <br>See <b>Details</b> for where this brief type comes from.</span></div>
+  </div>`;
 
   return `
   <div class="flow">
-    <h3>Analysis briefs
-      ${mine.length ? `<span class="obs-updated" style="float:right">last updated ${fmtWhen(mine[0].created_at)}</span>` : ""}</h3>
-    <div class="tabs" style="margin:2px 0 10px">
-      ${kinds.map(k => {
-        const n = briefs.filter(b => (b.kind || "observability") === k).length;
-        return `<button class="tab ${k === active ? "on" : ""}" onclick="setBriefKind('${esc(k)}')">
-          ${esc(kindMeta(k).label)}${n ? ` <span class="stat">${n}</span>` : ""}</button>`;
-      }).join("")}
-    </div>
     ${running}
     <div class="desc"><span class="stat">${meta.blurb}
-      <br>Rolling <b>7 days</b>${mine.length ? ` · ${mine.length} brief${mine.length > 1 ? "s" : ""}, newest open` : ""}.
-      Every kind is stored in <code>lab.obs_briefs</code> and separated by <code>kind</code>; each tab shows only its own.</span></div>
-    ${mine.length ? mine.map((b, i) => `
+      <br>Rolling <b>7 days</b> · ${briefs.length} brief${briefs.length > 1 ? "s" : ""}, newest open.</span></div>
+    ${briefs.map((b, i) => `
       <details ${i === 0 ? "open" : ""} style="margin:8px 0">
         <summary style="cursor:pointer; font-size:12.5px; padding:4px 0">
           ${esc(b.brief_date)} · ${b.queries_run ?? "?"} queries · ${fmtWhen(b.created_at)}${
             i === 0 ? ' <span class="stat">— latest</span>' : ""}
         </summary>
         <div class="obs-card brief-md" style="margin:6px 0">${mdToHtml(b.brief_md)}</div>
-      </details>`).join("")
-    : `<div class="desc"><span class="stat">No <b>${esc(meta.label.toLowerCase())}</b> briefs in the last 7 days.
-        ${active === "observability"
-          ? "Hit <b>Analyze</b> in the sidebar to run the analyst now — it is a paused deployment, so it only runs on demand."
-          : "The sentinel is a weekly scheduled deployment; see plan/09 L5.7 for whether it is enabled."}</span></div>`}
+      </details>`).join("")}
   </div>`;
 }
 
-window.setBriefKind = k => { obs.briefKind = k; renderMain(true); };
+// Provenance, one entry per brief kind. `details` is markdown so the D-chips
+// and plan/ paths linkify themselves — the same mechanism every other rendered
+// doc in the console uses.
+const BRIEF_META = {
+  observability: {
+    label: "Observability analysis",
+    blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
+         + "experiment telemetry across all six platforms.",
+    emptyHint: "The analyst is a PAUSED deployment, so it only runs when you hit Analyze in the sidebar.",
+    details: `### Where this brief comes from
+
+The **observability analyst** (D23) is a Claude **Managed Agent**, provisioned as a
+scheduled deployment that is currently **paused** — so it produces a brief only when
+you press **Analyze**, never on a clock. Every scheduled and long-running process in
+the lab is inventoried in plan/09-deployment-map.md, level L5.7.
+
+**How it reads the data.** It does not hold a database credential. It queries through
+the **obs MCP server** (\`a2alab-obs-mcp\`, a Lambda fronted by API Gateway), which
+exposes read-only SQL over the \`lab.*\` schema plus a \`save_brief\` tool. The agent
+decides what to ask; the server decides what is answerable. That split is the point of
+D23 — the model gets analytical freedom without the lab handing an agent write access
+to its own store.
+
+**What it analyses.** The harvested execution logs in \`lab.obs_sessions\` and
+\`lab.obs_events\` — sessions, turns, tool calls, token usage and errors pulled from
+all six platforms by the harvest below. It is the LAB's telemetry: what the experiments
+did, not what building the lab cost.
+
+**Where the brief lands.** \`lab.obs_briefs\` on Aurora Postgres with
+\`kind='observability'\` — the same table the cost sentinel writes to, separated by
+that column (D56). This tab shows only its own kind.
+
+**Read it with:** plan/05-observability.md — the honest matrix of what each platform
+actually lets the lab pull, which bounds what any brief can say.`,
+  },
+  cost: {
+    label: "Cost analysis",
+    blurb: "The weekly <b>build-cost</b> read from the <b>cost sentinel</b> — what building this lab "
+         + "consumed, in the units each vendor bills.",
+    emptyHint: "The sentinel is a weekly scheduled deployment and is currently paused.",
+    details: `### Where this brief comes from
+
+The **cost sentinel** (WS12/D44) is a Claude **Managed Agent** on a weekly schedule —
+Mondays 07:00 America/New_York — created **paused**, so check plan/09-deployment-map.md
+L5.7 for whether it is actually enabled before trusting the cadence.
+
+**What it analyses, and what it does NOT.** It reads the **coding-agent telemetry**
+(WS9): the tokens and modelled cost of the agents that BUILT this lab, harvested from
+CloudWatch into the \`coding\` platform rows. That is a different question from the
+Observability Analysis tab, which is about the experiments the lab RUNS.
+
+**The caveat that travels with every number it reports:** \`claude_code.cost.usage\`
+is a **client-side estimate at list price, not an invoice**. On a subscription or
+credit plan a swing here is a USAGE swing and may never be a billing swing. D44 is
+about reporting consumption in the units the vendor actually bills rather than
+collapsing everything into one "tokens" number.
+
+**How it reads, and where it writes.** Identically to the observability analyst — SQL
+through the obs MCP server, brief saved to \`lab.obs_briefs\` with \`kind='cost'\`.
+Same table, same tool, different question.`,
+  },
+};
+
+function obsBriefDetailsHtml(kind) {
+  const meta = BRIEF_META[kind];
+  if (!meta) return `<div class="flow"><div class="desc"><span class="stat">No description for this brief kind yet.</span></div></div>`;
+  return `<div class="flow"><div class="obs-card brief-md">${mdToHtml(meta.details)}</div></div>`;
+}
+
+// What the dashboard is showing, and how the data got there.
+function obsDashboardDetailsHtml() {
+  const md = `### What this dashboard shows
+
+Per-platform **sessions**, **events**, **token totals** and the **last harvest status**
+for every platform the lab talks to — read from \`lab.obs_sessions\`,
+\`lab.obs_events\` and \`lab.obs_harvest\` on Aurora Postgres.
+
+Postgres is the **source of truth** (D49). Until 2026-07-28 the console read a local
+SQLite file while the hosted harvest filled Aurora, so the dashboard showed the
+laptop's copy and the two drifted apart with nothing failing.
+
+### How the harvest works
+
+A Lambda, \`a2alab-obs-harvest\`, fired by **EventBridge Scheduler** every **6 hours**
+(the schedule is in EventBridge *Scheduler*, not *Rules* — \`aws events list-rules\`
+shows nothing for it, which reads misleadingly like no schedule exists). It pulls from
+six sources and upserts into the tables above:
+
+- **Salesforce Agentforce** — SOQL over the Session Tracing DMOs
+- **Anthropic Managed Agents** — sessions and per-session events
+- **OpenAI** — stored responses, fetched by id (there is no list API)
+- **Google Agent Engine** — Cloud Logging entries and Cloud Monitoring meters
+- **Microsoft Foundry** — KQL over App Insights \`gen_ai\` spans
+- **coding** — CloudWatch metrics for the agents that built the lab (WS9)
+
+The **Harvest** button fires that same Lambda asynchronously and polls for the
+timestamps to move (D54). It does not sweep in the web app: a full six-platform sweep
+runs past the load balancer's 120s idle timeout, and the browser used to receive the
+ALB's HTML error page and report it as a JSON parse error.
+
+### What limits any of this
+
+plan/05-observability.md holds the honest matrix — what each platform's API actually
+exposes. Two examples that shape everything above: OpenAI has **no list-executions
+API**, so its rows exist only for responses the lab recorded an id for; and Agent
+Engine has **no session read API** at all on the preview A2A surface, so its honest
+shape is one session per deployed engine with log entries as events.`;
+  return `<div class="flow"><div class="obs-card brief-md">${mdToHtml(md)}</div></div>`;
+}
 
 // "last updated" stamp: absolute local time + relative age.
 function fmtWhen(value) {
@@ -2330,8 +2427,9 @@ function obsTabsHtml() {
   <div class="tabbar">
     <h2>Observability</h2>
     <div class="tabs">
-      <button class="tab ${obs.tab !== "brief" ? "on" : ""}" onclick="setObsTab('dashboard')">Dashboard</button>
-      <button class="tab ${obs.tab === "brief" ? "on" : ""}" onclick="setObsTab('brief')">Observability brief</button>
+      ${OBS_TABS.map(([id, label]) => `
+        <button class="tab ${(obs.tab || "dashboard") === id ? "on" : ""}"
+          onclick="setObsTab('${id}')">${label}</button>`).join("")}
     </div>
   </div>`;
 }
@@ -2352,11 +2450,12 @@ window.runAnalysis = async ev => {
     const data = await r.json();
     if (!data.ok) { obsMsg("Analysis failed to start: " + (data.error || "unknown"), true); return; }
     const who = `Claude Managed Agent '${data.agent_name || "Observability Analyst"}'`;
-    obsMsg(`${who} is running — the brief appears in the Analysis brief tab in a few minutes.`);
+    obsMsg(`${who} is running — the brief appears in the Observability Analysis tab in a few minutes.`);
     obs.analysisRunning = true;
     obs.analysisAgent = who;
     renderObsSide();
-    obs.tab = "brief";
+    obs.tab = "observability";
+    obs.sub = "main";
     if (!view || view.type !== "obs") obsSummaryNav();
     else renderMain(true);
     // Watch for the brief every 30s, give up after 20 minutes.
@@ -5329,7 +5428,7 @@ function renderMain(force) {
   }
 
   if (view.type === "obs") {
-    mainKey = `obs:${view.platform || "*"}:${view.session || ""}:${obs.tab || "dashboard"}`;
+    mainKey = `obs:${view.platform || "*"}:${view.session || ""}:${obs.tab || "dashboard"}:${obs.sub || "main"}`;
     if (view.session) {
       el.innerHTML = obsCrumbsHtml() + obsSessionDetailHtml();
     } else if (view.platform) {
@@ -5338,9 +5437,15 @@ function renderMain(force) {
       // First-run: explain the pipeline instead of an empty dashboard.
       el.innerHTML = obsCrumbsHtml() + obsPipelineHtml(false);
     } else {
-      el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + (obs.tab === "brief"
-        ? obsBriefsHtml()
-        : obsPipelineHtml(true) + obsDashboardHtml() + obsSessionsHtml(null));
+      const tab = obs.tab || "dashboard";
+      const kind = OBS_TAB_KIND[tab];
+      const details = obs.sub === "details";
+      el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + obsSubTabsHtml() + (
+        kind
+          ? (details ? obsBriefDetailsHtml(kind) : obsBriefsHtml(kind))
+          : (details
+              ? obsDashboardDetailsHtml()
+              : obsPipelineHtml(true) + obsDashboardHtml() + obsSessionsHtml(null)));
     }
     return;
   }
