@@ -1788,6 +1788,112 @@ real weeks behind it.
 
 ---
 
+## WS15 — Jira as the delivery record (raised 2026-07-29)
+
+**The requirement, in the operator's words:** manage tasks and workstreams in
+Jira going forward, and *retroactively* represent the build so far so the project
+can be shown as delivered work rather than only as a repository.
+
+Two jobs, and they want different treatment. **Forward** is ordinary backlog
+management. **Backward** is a reconstruction, and a reconstruction of a
+three-week build has one failure mode worth naming up front: inventing process
+that never happened.
+
+### The recommendation that differs from the ask
+
+The ask floated *"sprints for each workstream"*. That is a category error worth
+declining: a **sprint is a time box**, a **workstream is a scope box**. Bucketing
+WS1–WS14 into fourteen "sprints" would produce a board that looks like Scrum and
+describes nothing — WS2 and WS8 overlapped, WS12 spanned two weeks, and several
+workstreams were a single afternoon.
+
+Two honest options instead, and the choice depends on what the board is *for*:
+
+| | Kanban, epics = workstreams | Scrum with the REAL calendar |
+|---|---|---|
+| Shape | one board, 14 epics, no sprints | 3 sprints from actual week boundaries |
+| Shows | breadth and structure | breadth, structure **and pace** |
+| Cost to build | lower | one extra decision per issue (which week) |
+| Honest? | yes | yes — the dates are in git |
+
+**Recommended: Scrum with real week boundaries.** The repository already knows
+them — 186 commits across 17 working days, 2026-07-09 to 2026-07-29 — so the
+sprints are measured rather than invented, and the pace is the most interesting
+thing about the build:
+
+- **Sprint 1 · 2026-07-09 → 07-17** — foundations: the two seams, loopback, the
+  Salesforce path, the first platform pair
+- **Sprint 2 · 2026-07-18 → 07-24** — breadth: the remaining platform pairs,
+  observability, the hosted store, fan-out
+- **Sprint 3 · 2026-07-25 → 07-29** — hardening and hosting: identity, the cost
+  sentinel, WS11–WS14, the console rework
+
+If that is more scaffolding than wanted, fall back to Kanban with the same epics
+and skip sprints entirely. **Do not** create fourteen one-workstream sprints.
+
+### The mapping
+
+| Jira | This repo | Notes |
+|---|---|---|
+| **Epic** | one per workstream, `WS1`–`WS15` | the workstream's own title becomes the epic summary |
+| **Story / Task** | one per numbered item in a workstream's work-items table | these already read as deliverables |
+| **Sub-task** | only where an item genuinely split | do not manufacture depth |
+| **Label** | `adr-D<n>` | an ADR is a DECISION, not a task — link it, never convert it |
+| **Link → repo** | commit or ADR permalink in the issue | the lab's rule that every claim travels with a source, applied to the board |
+| **Done reason** | the ADR or the measured result | "done" with no evidence is the thing this project does not do |
+
+**ADRs stay documentation.** 58 of them; turning each into a ticket would triple
+the board and lose the distinction the lab cares about — a decision is not a unit
+of work. They become labels and links.
+
+### What the operator does in Jira (before hookup)
+
+1. **Create the project.** Team-managed is enough; nothing here needs
+   company-managed schemes. Template: **Scrum** if taking the recommendation,
+   **Kanban** otherwise. Note the **project key** (e.g. `A2A`) — every issue id
+   derives from it.
+2. **Enable the Epic issue type** if the template did not (team-managed Scrum
+   includes it).
+3. **Create an API token** — id.atlassian.com → Security → API tokens. It is a
+   credential: it goes in `.env` and Secrets Manager like every other one (D39),
+   never in the repo.
+4. **Decide the sprint question** above, and say which.
+5. Hand over three values: **site URL** (`https://<you>.atlassian.net`),
+   **project key**, **account email** for the token.
+
+### What happens once it is connected
+
+| # | Item | State |
+|---|---|---|
+| 1 | Confirm Jira reachability and the project's issue types before creating anything | — |
+| 2 | Create 15 epics from `plan/07-workstreams.md` | — |
+| 3 | Create stories from the work-item tables, with their real state (`done` / open) | — |
+| 4 | Attach `adr-D<n>` labels and repo links so each closed item carries its evidence | — |
+| 5 | Assign issues to the three measured sprints, and close sprints 1–2 | — |
+| 6 | Record the two open operator actions (WS14 items 4 and 5) as real open tickets | — |
+| 7 | Add a `plan/11-delivery.md` mapping epic → workstream, so the board and the plan cannot drift | — |
+
+**Do NOT** create issues before item 1 confirms the schema. A team-managed
+project with the wrong template silently lacks Epics, and the repair is
+per-issue.
+
+### Exit criteria
+
+Every workstream is an epic, every work item is an issue in the state the repo
+says it is in, and each closed issue names its evidence. New work starts as a
+Jira issue rather than a line in `plan/07-workstreams.md` — with the plan
+remaining the place decisions and reasoning live, because a ticket is a unit of
+work and an ADR is a unit of thinking, and this project has been better for
+keeping those apart.
+
+**The honesty constraint applies to the board too.** The retroactive import
+should not show a tidier process than happened: several workstreams were raised,
+partly built, and revised days later (WS7 folded into WS13; the analyst's
+`always_allow` fix sat un-deployed for days). Where the repo records that, the
+issue should say so rather than reading as a clean single pass.
+
+---
+
 ## WS14 — Zero laptop dependency: host the credential collector (raised 2026-07-29)
 
 **The standing requirement, in the operator's words:** *"zero laptop dependency
