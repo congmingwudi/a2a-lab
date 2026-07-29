@@ -1416,3 +1416,31 @@ def test_every_hosted_remap_points_at_a_real_target():
         for src, dst in mapping.items():
             assert src in registry.targets, f"{mode}: unknown source target {src}"
             assert dst in registry.targets, f"{mode}: unknown destination target {dst}"
+
+
+def test_the_observability_panel_asks_for_observability_briefs(tmp_path, monkeypatch):
+    """D56. Two agents write to lab.obs_briefs — the observability analyst and
+    the WS12 cost sentinel — separated only by `kind`. /api/cost-brief always
+    filtered; /api/obs/briefs never did, so it returned whatever was newest and
+    the Observability section rendered a build-COST brief. It read as the
+    analyst having changed subject to coding telemetry, when in fact its own
+    last brief was eleven days old and it was paused.
+    """
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    asked = {}
+
+    class FakeStore:
+        def list_briefs(self, limit=20, kind=None):
+            asked["kind"] = kind
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("observability.pg.PgClient.configured", classmethod(lambda cls: True))
+    monkeypatch.setattr("observability.pg.PgObsStore", lambda *a, **k: FakeStore())
+    app = make_app(tmp_path / "traces", monkeypatch)
+    TestClient(app).get("/api/obs/briefs", headers={"X-Lab-Token": "sekrit"})
+    assert asked["kind"] == "observability", (
+        "the observability panel must not show the cost sentinel's briefs"
+    )

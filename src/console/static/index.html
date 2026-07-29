@@ -2183,18 +2183,25 @@ function obsBriefsHtml() {
       this tab updates when the brief lands (usually a few minutes).</span></div>` : "";
   if (!briefs.length) return `
   <div class="flow">
-    <h3>Analysis brief</h3>
-    ${running || `<div class="desc"><span class="stat">No briefs yet — hit <b>Analyze</b> in the sidebar and the
-      Claude-managed analyst will query the store and save its findings here.</span></div>`}
+    <h3>Observability analysis brief</h3>
+    ${running || `<div class="desc"><span class="stat">No observability briefs yet — hit <b>Analyze</b> in the
+      sidebar and the Claude-managed analyst will query the harvested store and save its findings here.
+      <br>This is <b>not</b> the weekly build-cost brief: two agents write to the same table and the
+      <b>Cost</b> section carries the sentinel's (WS12/D44).</span></div>`}
   </div>`;
   const latest = briefs[0];
   return `
   <div class="flow">
-    <h3>Analysis brief — ${esc(latest.brief_date)}
+    <h3>Observability analysis brief — ${esc(latest.brief_date)}
       <span class="obs-updated" style="float:right">last updated ${fmtWhen(latest.created_at)}</span></h3>
     ${running}
-    <div class="desc"><span class="stat">Curated by the Claude-managed analyst agent over the harvested store
-      (${latest.queries_run ?? "?"} queries${latest.session_id ? " · session " + esc(latest.session_id.slice(-8)) : ""}).</span></div>
+    <div class="desc"><span class="stat">What the <b>observability analyst</b> found in the harvested platform
+      logs — the lab's own experiment telemetry
+      (${latest.queries_run ?? "?"} queries${latest.session_id ? " · session " + esc(latest.session_id.slice(-8)) : ""}).
+      <br>Two agents write to <code>lab.obs_briefs</code> and are separated by <code>kind</code>: this panel shows
+      only <code>observability</code>. The weekly <b>build-cost</b> brief is the cost sentinel's (WS12/D44) and
+      lives in the Cost section — until 2026-07-29 this panel showed whichever was newest, which is how a
+      cost brief appeared here talking about coding-agent telemetry.</span></div>
     <div class="obs-card brief-md">${mdToHtml(latest.brief_md)}</div>
     ${briefs.length > 1 ? `
     <h3 style="margin-top:18px">Past briefs</h3>
@@ -2229,7 +2236,7 @@ function obsTabsHtml() {
     <h2>Observability</h2>
     <div class="tabs">
       <button class="tab ${obs.tab !== "brief" ? "on" : ""}" onclick="setObsTab('dashboard')">Dashboard</button>
-      <button class="tab ${obs.tab === "brief" ? "on" : ""}" onclick="setObsTab('brief')">Analysis brief</button>
+      <button class="tab ${obs.tab === "brief" ? "on" : ""}" onclick="setObsTab('brief')">Observability brief</button>
     </div>
   </div>`;
 }

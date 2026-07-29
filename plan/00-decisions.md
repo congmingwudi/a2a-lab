@@ -1833,3 +1833,48 @@ comparison.
 and wrong from the moment a better option existed. Nothing re-examines a
 workaround when the thing it worked around goes away — so when a capability
 lands, the compensations made in its absence are part of the change.
+
+## 2026-07-29 — D56: One table, two authors, and the reader must say which one it wants
+
+**Context.** The operator read the Observability section's analysis brief and
+asked why it only discussed **coding-agent telemetry** and nothing about the
+lab's own experiments. It was not the observability analyst's brief at all. It
+was the **cost sentinel's**, and build cost is exactly its subject.
+
+`lab.obs_briefs` is deliberately one table with a `kind` discriminator — WS12
+settled that rather than adding a second table and a second migration. The cost
+endpoint (`/api/cost-brief`) filtered on `kind='cost'` from the start.
+`/api/obs/briefs` called `list_briefs()` with **no kind at all**, so it returned
+whatever was newest across both authors. The moment the sentinel wrote a brief,
+the Observability panel started showing it.
+
+**Two failures compounded, and the second is the one worth remembering.**
+
+1. The panel rendered another agent's work under its own heading.
+2. **It hid the real state.** The observability analyst's last brief was
+   **2026-07-18** — eleven days earlier — because the analyst is a *paused*
+   deployment with **no cron**, run only on demand. An empty panel would have
+   said so. A panel showing somebody else's fresh brief said the opposite.
+
+**Decision.**
+
+1. `/api/obs/briefs` asks for `kind='observability'`, importing the constant
+   from `observability.pg` rather than restating the string.
+2. **Both panels name their author and their subject in the header**, and each
+   says the other exists. When two producers share a store, a heading that says
+   only "Analysis brief" is ambiguous by construction — the reader cannot tell
+   whether they are seeing the wrong brief or the right one saying something
+   surprising.
+3. A test pins the filter.
+
+**The wider point, which is why this got its own decision.** A shared table with
+a discriminator is a good design and the lab keeps it. What it costs is that
+**every reader must be explicit** — an unfiltered read is not a neutral default
+but a silent choice to show whatever arrived last. That failure mode is
+invisible while only one producer is writing, and appears the day the second
+one does, in a place nobody was looking at that moment.
+
+Recorded alongside `plan/09-deployment-map.md` **L5.7**, the inventory of
+scheduled and long-running processes, which exists because this is the second
+time in two days that something's *state* — paused, unscheduled, or quietly not
+running — was invisible until a person asked a direct question about its output.

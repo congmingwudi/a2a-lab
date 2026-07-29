@@ -12,7 +12,7 @@ behind API Gateway. Two components, same account, opposite hosting decisions —
 which is correct, and confusing, unless the reason is written down next to the
 picture.
 
-**How to read it.** Eight levels, each a diagram plus what it is and why it is
+**How to read it.** Nine levels, each a diagram plus what it is and why it is
 that way. L0 is the whole estate on one screen. L6 maps repo files to deployed
 artifacts. Read down until you have the detail you need, then stop.
 
@@ -23,6 +23,7 @@ artifacts. Read down until you have the detail you need, then stop.
 - **L4** — identity: who authenticates as what, and which way federation runs
 - **L5** — observability: five interiors, one store
 - **L5.5** — DNS: the four hostnames, and what each one is for
+- **L5.7** — scheduled and long-running processes (the async inventory)
 - **L6** — code → deployment: which file becomes which running thing
 
 **What this is written from.** The deploy scripts in this repo and the measured
@@ -548,6 +549,73 @@ That is not a deployment fault and no front door fixes it — with nothing runni
 locally there is no cost to dropping the proxy to look. Verify from inside AWS,
 or against the ALB's own hostname with a `Host:` header, which is how every
 cutover in this file was checked.
+
+---
+
+## L5.7 — Scheduled and long-running processes (the async inventory)
+
+**Why this exists.** Everything else in this file is request-shaped: something
+calls, something answers. The processes below are the ones **nobody calls** —
+they fire on a clock, poll in a loop, or run for minutes after the request that
+started them has returned. They are the easiest things in the estate to forget,
+the hardest to notice when they stop, and they spend money while nobody is
+watching. This is the one place they are all listed.
+
+```mermaid
+flowchart LR
+  subgraph CLK["Clocks"]
+    EBS["EventBridge Scheduler<br/>rate(6 hours) UTC"]
+    ANT["Anthropic scheduled<br/>deployments (cron)"]
+  end
+  subgraph LOOP["Always-on loops"]
+    BW["a2alab-briefs<br/>poll every 60s"]
+  end
+  subgraph WORK["What they drive"]
+    HARV["Lambda a2alab-obs-harvest<br/>6 platforms -> Aurora"]
+    BRIEF["Brief agent session<br/>-> Salesforce record"]
+    ANLY["Obs analyst -> lab.obs_briefs"]
+    COST["Cost sentinel -> lab.obs_briefs"]
+  end
+  EBS --> HARV
+  ANT --> BRIEF
+  ANT --> ANLY
+  ANT --> COST
+  BW -->|"services the stalled tool call"| BRIEF
+```
+
+| # | Process | Where it runs | Cadence | State (2026-07-29) | What it writes |
+|---|---|---|---|---|---|
+| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — all six platforms |
+| 2 | **Account brief agent** (D16) | Anthropic scheduled deployment | `0 6 * * *`, America/Denver | **active** | an `A2ALab_Account_Brief__c` in Salesforce, via a host-side tool |
+| 3 | **Brief watcher** (D52) | ECS service `a2alab-briefs` | poll loop, `A2ALAB_BRIEF_POLL_S` = 60s | **running 1/1** | services #2's stalled tool call; `lab.lab_state` serviced-set |
+| 4 | **Observability analyst** (D23) | Anthropic scheduled deployment | **no cron — on demand only** | **paused** | `lab.obs_briefs` with `kind='observability'` |
+| 5 | **Cost sentinel** (WS12/D44) | Anthropic scheduled deployment | `0 7 * * 1`, America/New_York | **paused** | `lab.obs_briefs` with `kind='cost'` |
+
+**Always-on but request-shaped**, listed so the inventory is complete: the four
+ECS services (`a2alab-bridge`, `-console`, `-faces`, `-briefs`) all run 1/1.
+Only `-briefs` does work with no caller.
+
+**Three things this table is for, each of which it has already caught:**
+
+- **The harvest schedule is in EventBridge *Scheduler*, not EventBridge
+  *Rules*.** They are different services with different APIs, and
+  `aws events list-rules` returns nothing for it — which reads exactly like "no
+  schedule exists". If you go looking, `aws scheduler list-schedules`.
+- **Two of the five are paused**, and one of those has no cron at all. The
+  observability analyst (#4) had not produced a brief since **2026-07-18**,
+  eleven days, and nothing surfaced that: the console's brief panel showed the
+  newest brief of *any* kind, so the cost sentinel's build-cost brief appeared
+  in the Observability section and looked like the analyst had changed subject
+  (D56).
+- **#2 and #3 are one mechanism split across two clouds.** The Anthropic cron
+  fires a session that then *stalls* awaiting a host-side Salesforce write; the
+  ECS watcher is the half that finishes it. Neither is useful alone, and
+  reading either row on its own gives the wrong picture of what runs.
+
+**When adding a scheduled or long-running process, add a row here.** The test
+of whether something belongs is not "is it a cron" — it is **"if this stopped,
+how would anyone find out?"** Every row above answers that with "they would
+not", which is the reason to write them down.
 
 ---
 

@@ -2511,7 +2511,7 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/obs/briefs")
     async def obs_briefs():
-        from observability.pg import PgClient, PgObsStore
+        from observability.pg import BRIEF_OBSERVABILITY, PgClient, PgObsStore
 
         if not PgClient.configured():
             return {"briefs": [], "error": "hosted store not configured (A2ALAB_PG_*)"}
@@ -2519,7 +2519,15 @@ def create_console_app(registry: Registry | None = None):
         def run():
             store = PgObsStore()
             try:
-                return store.list_briefs()
+                # Filtered by kind (D56). Two different agents write to
+                # lab.obs_briefs — the observability analyst and the WS12 cost
+                # sentinel — and this endpoint asked for neither, so it
+                # returned whatever was newest. The Observability section
+                # ended up rendering a build-COST brief and looking like the
+                # analyst had suddenly started talking about coding telemetry.
+                # Its sibling at /api/cost-brief always filtered; this one
+                # never did.
+                return store.list_briefs(kind=BRIEF_OBSERVABILITY)
             finally:
                 store.close()
 
