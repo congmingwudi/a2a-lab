@@ -320,6 +320,13 @@
               margin: 0 0 14px; letter-spacing: .2px; }
   .hero-body { color: var(--hero-body); font-size: 14.5px; line-height: 1.65; max-width: 640px; margin: 0 0 22px;
                text-wrap: balance; }
+  /* The lab's own claim about itself, so it is the first thing a visitor reads
+     rather than something the Lab Guide has to be asked for. Set apart from the
+     body copy — a left rule and slightly larger type — because it is the
+     standard everything below is offering to be held to. */
+  .hero-ethos { color: var(--hero-body); font-size: 15px; line-height: 1.6; max-width: 660px;
+                margin: 0 0 24px; padding-left: 14px; border-left: 2px solid var(--hero-sub); }
+  .hero-ethos b { color: #fff; letter-spacing: .01em; }
   .hero-ctas { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .hero-cta { color: #eaf4ff; font-family: var(--font-head); font-weight: 600; font-size: 13.5px;
               background: linear-gradient(135deg, #092e5e 0%, #0f386b 50%, #1a4a86 100%);
@@ -5036,6 +5043,10 @@ function landingHtml() {
           direction runs over REST, MCP, and the A2A protocol — the same scenario, protocols
           compared side by side, with every hop's raw wire payload recorded so you can see
           exactly what each protocol puts on the wire.</p>
+        <p class="hero-ethos">The lab's ethos is <b>honest status</b>: it calls out what works
+          natively, what works via a bridge or shim it hosts, and what is blocked or beta. Every
+          claim travels with a source — an ADR id, a trace id, a measured number — so a reader
+          can verify it.</p>
         <div class="hero-ctas">
           ${live.length ? `<button class="hero-cta" onclick="openExperiment('scenario', '${esc(live[0].name)}')">${labUser && labUser.role === "viewer" ? "Explore the experiments →" : "Run your first experiment →"}</button>` : ""}
           <button class="hero-link" onclick="browseCells()">${labUser && labUser.role === "viewer" ? "or browse the protocol calls" : "or make a single protocol call"}</button>
