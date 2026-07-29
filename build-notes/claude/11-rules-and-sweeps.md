@@ -56,6 +56,21 @@ That change invalidated, in one commit:
 origin of this note: the change was correct and the pictures were not, and
 nothing in the process would have noticed.
 
+**And it happened twice.** This note originally described that diagram as
+"invalidated" — accurately — while the diagram itself was still shipping the old
+claim, because describing drift is not the same act as fixing it. The operator
+found the second instance too, in a *different* panel: the Coding Agents
+Telemetry Details carried a comparison table asserting that credential
+collection was "impossible" to schedule "because it reads the operator's own SSO
+session". One change had left the same false claim in three places — a mermaid
+diagram, a prose paragraph, and a table in an unrelated section that happened to
+use the collector as a foil.
+
+That third instance is the strongest argument for the sweep. The rule's grep
+finds a component's name where you expect it. It does not find the place where
+your component was used as a *comparison* in someone else's explanation, and
+that is exactly the copy nobody thinks to re-read.
+
 ## The rule (prevention)
 
 Added to `CLAUDE.md`:

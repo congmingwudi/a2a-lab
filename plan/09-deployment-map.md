@@ -283,7 +283,7 @@ flowchart TB
   G2A --> AWSID
 
   subgraph OPS["Operational agents — not experiments"]
-    EXP["expiry_report.py<br/>collector: AWS, Entra, GCP, ACM<br/>MEASURED dates only"]
+    EXP["expiry_report.py<br/>collector: AWS, Entra, GCP, ACM<br/>in the 6h harvest Lambda (WS14)"]
     CANA["credential analyst<br/>one Claude API call · ad-hoc<br/>judgment, never arithmetic"]
     EXP --> CANA
   end
@@ -350,9 +350,15 @@ Two related rules make that safe rather than merely convenient:
 
 Every credential in the estate expires, and the dangerous ones expire quietly.
 `scripts/expiry_report.py` queries each provider for the date it already knows —
-the AWS SSO session, the CloudWatch metrics key from IAM, the Entra app secret,
-GCP service-account keys, and the Cloudflare origin certificate imported into
-ACM for Path A's Full (strict) hop. Anything no API will answer for (Salesforce
+the CloudWatch metrics key from IAM, the Entra app secret, GCP service-account
+keys, and the Cloudflare origin certificate imported into ACM for Path A's Full
+(strict) hop. It runs **inside the 6-hourly harvest Lambda** as of WS14,
+authenticating as service identities rather than anyone's login, and publishes to
+`lab.lab_state` for the console to read. The operator's own SSO session is
+deliberately **not** among the credentials it reports: once the lab was fully
+hosted that became a deploy-time credential on one machine, and listing it beside
+credentials whose expiry would take the LAB down made a personal login look like
+production risk. Anything no API will answer for (Salesforce
 ECA secrets, the tunnel credential) is **declared** in
 `config/credentials.yaml` and labelled as such, so an intention never reads as a
 measurement.
@@ -586,10 +592,10 @@ flowchart LR
 | # | Process | Where it runs | Cadence | State (2026-07-29) | What it writes |
 |---|---|---|---|---|---|
 | 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — all six platforms |
-| 2 | **Account brief agent** (D16) | Anthropic scheduled deployment | `0 6 * * *`, America/Denver | **active** | an `A2ALab_Account_Brief__c` in Salesforce, via a host-side tool |
+| 2 | **Account brief agent** (D16) | Scheduled Claude Managed Agent | `0 6 * * *`, America/Denver | **active** | an `A2ALab_Account_Brief__c` in Salesforce, via a host-side tool |
 | 3 | **Brief watcher** (D52) | ECS service `a2alab-briefs` | poll loop, `A2ALAB_BRIEF_POLL_S` = 60s | **running 1/1** | services #2's stalled tool call; `lab.lab_state` serviced-set |
-| 4 | **Observability analyst** (D23) | Anthropic scheduled deployment | **no cron — on demand only** | **paused** | `lab.obs_briefs` with `kind='observability'` |
-| 5 | **Cost sentinel** (WS12/D44) | Anthropic scheduled deployment | `0 7 * * 1`, America/New_York | **paused** | `lab.obs_briefs` with `kind='cost'` |
+| 4 | **Observability analyst** (D23) | Scheduled Claude Managed Agent | **no cron — on demand only** | **paused** | `lab.obs_briefs` with `kind='observability'` |
+| 5 | **Cost sentinel** (WS12/D44) | Scheduled Claude Managed Agent | `0 7 * * 1`, America/New_York | **paused** | `lab.obs_briefs` with `kind='cost'` |
 
 **Always-on but request-shaped**, listed so the inventory is complete: the four
 ECS services (`a2alab-bridge`, `-console`, `-faces`, `-briefs`) all run 1/1.

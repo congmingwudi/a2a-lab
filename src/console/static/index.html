@@ -3797,32 +3797,29 @@ function buildDetailsHtml() {
          target="_blank" rel="noopener">${esc(s.agent_id)}</a>`
     : `<span class="hint">not provisioned</span>`;
   return `
-    <div class="hint" style="margin:10px 0 16px">How the weekly cost brief is produced, and why
-    this one is a scheduled Managed Agent when the credential analyst (D22) was deliberately
-    demoted to a single API call. The workstream is WS12 in plan/07-workstreams.md; where it
-    sits in the estate is plan/09-deployment-map.md.</div>
+    <div class="hint" style="margin:10px 0 16px">How the weekly build-cost brief is produced —
+    what is measured, by what, and what the numbers do and do not mean. The workstream is WS12 in
+    plan/07-workstreams.md; where it sits in the estate is plan/09-deployment-map.md.</div>
 
-    <h3>Why an agent here, and not there</h3>
-    <p class="hint">Three tests. The credential analyst failed all three, so it became one
-    <code>messages.create</code> call. The cost sentinel passes all three, which is the entire
-    argument for the heavier shape — not that agents are better, but that this workload needs
-    what an agent provides.</p>
+    <h3>Why this one is a scheduled agent</h3>
+    <p class="hint">The cost sentinel needs the three things the Managed Agents abstraction
+    provides, which is the argument for the heavier shape — not that agents are better, but that
+    this workload uses what an agent is for (D44).</p>
     <div class="tbl-card"><div class="tbl-scroll">
     <table class="obs-table">
-      <thead><tr><th>test</th><th>credential analyst</th><th>cost sentinel</th></tr></thead>
+      <thead><tr><th>what it needs</th><th>why the sentinel needs it</th></tr></thead>
       <tbody>
         <tr><td><b>Tools</b></td>
-            <td>none — the whole report fits in one prompt</td>
-            <td>yes — "which repo drove the delta" is SQL against the obs store,
-                which already has a hosted MCP server (D23)</td></tr>
+            <td>"which repo drove the delta" is SQL against the observability store, reached
+                through the hosted obs MCP server (D23) — the agent holds no database
+                credential</td></tr>
         <tr><td><b>Schedule</b></td>
-            <td>impossible — collection reads the operator's own SSO session,
-                <code>az</code> login and gcloud ADC, so it only runs on one laptop</td>
-            <td>yes — collection is already hosted: <code>coding_source.py</code> runs in the
-                6-hourly harvest Lambda against CloudWatch. No laptop in the path</td></tr>
+            <td>a weekly read only means something on a cadence; collection is already hosted,
+                with <code>coding_source.py</code> running in the 6-hourly harvest Lambda against
+                CloudWatch</td></tr>
         <tr><td><b>State</b></td>
-            <td>none — a point-in-time reading</td>
-            <td>yes — week-over-week needs history, and the store has it</td></tr>
+            <td>week-over-week needs history, and the store keeps it — each brief is written to
+                <code>lab.obs_briefs</code> with <code>kind='cost'</code></td></tr>
       </tbody></table></div></div>
 
     <h3>The pipeline</h3>
@@ -4158,10 +4155,10 @@ function renderCredsSide() {
 }
 
 const CRED_AGENT_DIAGRAM = `flowchart LR
-  subgraph LOCAL["This machine — the only place collection can happen"]
-    SESS["operator sessions<br/>AWS SSO · az · gcloud ADC"]
+  subgraph HOSTED["Harvest Lambda — every 6h, no laptop (WS14)"]
+    IDS["service identities<br/>Lambda role · GCP key · Entra SP<br/>from Secrets Manager"]
     COL["expiry_report.py<br/>deterministic collector"]
-    SESS --> COL
+    IDS --> COL
   end
 
   subgraph PROV["Asked for dates they already know"]
@@ -4177,7 +4174,7 @@ const CRED_AGENT_DIAGRAM = `flowchart LR
   COL --> P4
   COL --> P5
 
-  REP[("expiry.json<br/>measured dates")]
+  REP[("lab.lab_state<br/>measured dates — read by the console")]
   P1 --> REP
   P2 --> REP
   P3 --> REP
@@ -4255,11 +4252,22 @@ function credsDetailsHtml() {
     <div class="arch-figure" id="credfig"><span class="hint">Rendering…</span></div>
 
     <div class="arch-prose">
-      <h4>Why the collector runs here and not in the cloud</h4>
-      <p>Reading these dates needs this machine's own sessions — the AWS SSO token, the
-      <code>az</code> login, <code>gcloud</code> ADC. That single dependency decides everything
-      else on this page: it is why the analysis is <b>ad-hoc</b>, why there is no schedule, and
-      why nothing happens unless you press Analyze.</p>
+      <h4>Where the collection runs</h4>
+      <p>In the <b>6-hourly harvest Lambda</b> (WS14). It authenticates as service identities —
+      the Lambda's own role for AWS IAM and ACM, the GCP service-account key and the Entra
+      principal from Secrets Manager — so the snapshot refreshes with nobody running anything.
+      The collector shelled out to the <code>aws</code>, <code>az</code> and <code>gcloud</code>
+      CLIs until 2026-07-29, which is why it could only ever run on one laptop; it now uses SDKs
+      and REST, and the same file runs in both places.</p>
+      <p><code>uv run python scripts/expiry_report.py --write</code> still works from a checkout
+      and publishes to the same store — useful when you want a reading now rather than at the
+      next sweep.</p>
+      <p><b>Two rows still need a grant</b> before they can be measured from the hosted run, and
+      each says so in the report rather than going quiet: <b>Entra</b> needs
+      <code>Application.Read.All</code> with admin consent, and the harvest <b>GCP</b> service
+      account needs <code>iam.serviceAccounts.list</code>. Locally the Entra row still resolves
+      through an <code>az</code> CLI fallback, so a laptop reading can show one more credential
+      than the hosted one — that difference is exactly those grants.</p>
 
       <h4>Why one API call, and not a Managed Agent</h4>
       <p>This was built both ways. The first version was a Claude Managed Agent and it worked —
