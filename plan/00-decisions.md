@@ -1936,3 +1936,53 @@ template exists so that adding a section means being asked, structurally,
 peer tabs for its things, a Details pane per tab, and an empty state that says
 why. Recorded in CLAUDE.md as the rule to follow rather than a thing to
 rediscover.
+
+---
+
+## 2026-07-29 — D58: The board is generated from the plan, one way
+
+**Decision.** The Jira board (project `A2A`) is **generated** from
+`plan/07-workstreams.md` by `scripts/jira_sync.py`, in one direction only. The
+plan stays the source of truth for scope; `plan/00-decisions.md` stays the source
+of truth for reasoning; Jira is a delivery *view*. Nothing reads Jira back into
+the repo, and `plan/11-delivery.md` records the mapping.
+
+**Why one way.** Two-way sync sounds like the generous option and is the
+expensive one: it makes a status editable in a place the repo cannot see, and
+the console renders the plan, not the board. A workstream marked done in Jira
+and nowhere else would show as done to a person looking at the board and open to
+everyone looking at the lab — which is the drift this project already spends a
+CLAUDE.md rule and a sweep workflow trying to prevent. One direction means the
+board can be wrong only by being stale, and the fix for stale is re-running the
+importer.
+
+**What the importer refuses to do**, because each refusal was a real temptation:
+
+- **No issue per ADR.** There are 58 of them and a decision is not a unit of
+  work. They ride as `adr-D<n>` labels, so a closed story still names the
+  decision that justified it.
+- **No sprints.** A sprint is a time box, a workstream is a scope box, and
+  fourteen one-workstream sprints would describe a cadence that never existed.
+- **No stories invented from prose.** The plan records work in two shapes — a
+  work-items table (WS13–15) and a statused numbered line (WS1–WS12) — and
+  narrative sections are left alone. Eight workstreams therefore import as epics
+  with no stories, several of which shipped. Splitting their prose into tickets
+  would manufacture granularity the work never had.
+- **No epic closed by reading English.** An epic closes only when it has stories
+  and all of them are done. "Everything that does not need AWS is done" (WS9)
+  and "PROVISIONED … exit criteria are not met yet" (WS12) both contain the word
+  *done*, and neither means finished. Shipped-but-narrative workstreams stay
+  open, which is the safe direction to be wrong in: an open epic carrying its
+  verbatim status invites a read, a wrongly-closed one buries what is left.
+
+**Credential.** A user API token, not the organization admin key that was tried
+first — the admin key authenticates to the org admin API rather than Jira's
+issue API, and administering an Atlassian organization is far more authority
+than writing issues needs. The board records what one person did, so it is
+authored as that person (D39: one human login, everything else a service
+identity).
+
+**Result 2026-07-29.** 15 epics, 46 stories, 40 closed. The genuinely open work
+is one lab item (WS1.5) and the two operator actions in WS14 that need a human
+with Entra directory-admin and GCP project-IAM rights — on the board precisely
+so they stop being invisible.

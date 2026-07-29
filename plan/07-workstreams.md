@@ -1816,27 +1816,23 @@ Two honest options instead, and the choice depends on what the board is *for*:
 | Cost to build | lower | one extra decision per issue (which week) |
 | Honest? | yes | yes — the dates are in git |
 
-**Recommended: Scrum with real week boundaries.** The repository already knows
-them — 186 commits across 17 working days, 2026-07-09 to 2026-07-29 — so the
-sprints are measured rather than invented, and the pace is the most interesting
-thing about the build:
+Scrum with real week boundaries was recommended here first — the repository knows
+them (186 commits across 17 working days, 2026-07-09 to 2026-07-29), so the
+sprints would have been measured rather than invented, and pace is the most
+interesting thing about the build.
 
-- **Sprint 1 · 2026-07-09 → 07-17** — foundations: the two seams, loopback, the
-  Salesforce path, the first platform pair
-- **Sprint 2 · 2026-07-18 → 07-24** — breadth: the remaining platform pairs,
-  observability, the hosted store, fan-out
-- **Sprint 3 · 2026-07-25 → 07-29** — hardening and hosting: identity, the cost
-  sentinel, WS11–WS14, the console rework
-
-If that is more scaffolding than wanted, fall back to Kanban with the same epics
-and skip sprints entirely. **Do not** create fourteen one-workstream sprints.
+**Decided 2026-07-29: Kanban, no sprints** (operator's call — a solo project has
+no sprint ceremony to hold, and nobody is planning capacity against it). The pace
+story does not need Jira to tell it: git has the dates and WS9's build telemetry
+has the cost. Recorded as D58. **Do not** create fourteen one-workstream sprints
+under any option.
 
 ### The mapping
 
 | Jira | This repo | Notes |
 |---|---|---|
 | **Epic** | one per workstream, `WS1`–`WS15` | the workstream's own title becomes the epic summary |
-| **Story / Task** | one per numbered item in a workstream's work-items table | these already read as deliverables |
+| **Story / Task** | one per numbered work item — a work-items table row (WS13–15) or a `✅`/`⏳` numbered status line (WS1–WS12) | these already read as deliverables; the narrative sections are left alone, because prose turned into stories invents a granularity the work never had |
 | **Sub-task** | only where an item genuinely split | do not manufacture depth |
 | **Label** | `adr-D<n>` | an ADR is a DECISION, not a task — link it, never convert it |
 | **Link → repo** | commit or ADR permalink in the issue | the lab's rule that every claim travels with a source, applied to the board |
@@ -1883,13 +1879,13 @@ of work. They become labels and links.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Confirm Jira reachability and the project's issue types before creating anything | — |
-| 2 | Create 15 epics from `plan/07-workstreams.md` | — |
-| 3 | Create stories from the work-item tables, with their real state (`done` / open) | — |
-| 4 | Attach `adr-D<n>` labels and repo links so each closed item carries its evidence | — |
-| 5 | Assign issues to the three measured sprints, and close sprints 1–2 | — |
-| 6 | Record the two open operator actions (WS14 items 4 and 5) as real open tickets | — |
-| 7 | Add a `plan/11-delivery.md` mapping epic → workstream, so the board and the plan cannot drift | — |
+| 1 | Confirm Jira reachability and the project's issue types before creating anything | **done 2026-07-29** — project `A2A` created (team-managed); Epic/Story both expose `parent`, so epic linking needs no custom field |
+| 2 | Create 15 epics from `plan/07-workstreams.md` | **done 2026-07-29** — `scripts/jira_sync.py`, idempotent, dry-run by default |
+| 3 | Create stories from the work-item tables, with their real state (`done` / open) | **done 2026-07-29** — 46 stories, 40 closed |
+| 4 | Attach `adr-D<n>` labels and repo links so each closed item carries its evidence | **done 2026-07-29** — 30 distinct ADR labels; repo links existence-checked before they are written |
+| 5 | Import from the plan's TWO item shapes — work-item tables (WS13–15) and statused numbered lines (WS1–WS12) — and import nothing from the narrative sections rather than inventing items for them | **done 2026-07-29** — 8 workstreams import as childless epics, on purpose |
+| 6 | Record the two open operator actions (WS14 items 4 and 5) as real open tickets | **done 2026-07-29** — open on the board, not buried in a plan table |
+| 7 | Add a `plan/11-delivery.md` mapping epic → workstream, so the board and the plan cannot drift | **done 2026-07-29** (D58) |
 
 **Do NOT** create issues before item 1 confirms the schema. A team-managed
 project with the wrong template silently lacks Epics, and the repair is
@@ -2150,7 +2146,7 @@ Path A. That property is why the work is safe to do incrementally.
 | 2 | Nine local protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | **done 2026-07-28** (D51) — one Fargate service, addressed by path |
 | 3 | **Hosted watcher** — servicing Managed Agents custom tool calls | **done 2026-07-28** (D52) — an ECS service reusing the faces image, not the assumed EventBridge Lambda |
 | 4 | Widen `modes:` in `config/targets.yaml` as each face lands | **done 2026-07-28** — nine `*-hosted` twins, nine mode mappings |
-| 5 | Re-scope `cloudflared` to local development | decided, no work |
+| 5 | Re-scope `cloudflared` to local development | **done 2026-07-28** — decided, no work needed: the tunnel stays as the local dev path |
 | 6 | **`PgObsStore` read side** — the Observability section is empty when hosted | **done 2026-07-28** (D49) |
 
 ### What the first run of item 1 actually found (2026-07-28)
