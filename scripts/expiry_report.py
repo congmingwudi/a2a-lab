@@ -124,8 +124,21 @@ def _entry(name, kind, expires, source, detail="", error="") -> dict:
 
 
 def aws_sso_session() -> list[dict]:
-    """The operator's own SSO session. Expires daily, and its expiry is the one
-    that silently turns every other check into 'error'."""
+    """The operator's own SSO session — NO LONGER REPORTED (WS13).
+
+    Kept because it is still the thing that turns every other check in this
+    script into "error" when it lapses, and a future caller may want to say so
+    at the top of a run. It is deliberately out of `collect()`.
+
+    Why it left the report: since the lab went fully hosted, this session is a
+    **deploy-time** credential on one laptop. It expires daily, it is renewed by
+    typing `aws sso login`, and nothing in the running stack depends on it —
+    the hosted seams authenticate as their own service identities out of
+    Secrets Manager (D39). Listing it beside credentials whose expiry would take
+    the LAB down made a personal login look like production risk, and put a
+    permanent amber row in a panel whose job is to show what actually needs
+    rotating.
+    """
     latest = None
     for path in glob.glob(os.path.expanduser("~/.aws/sso/cache/*.json")):
         try:
@@ -371,7 +384,9 @@ def declared(path: Path) -> list[dict]:
 
 def collect() -> dict:
     entries: list[dict] = []
-    entries += aws_sso_session()
+    # aws_sso_session() is deliberately NOT collected — see its docstring. It is
+    # a deploy-time credential on the operator's machine, not something the
+    # hosted lab depends on.
     entries += aws_service_credentials(os.environ.get("A2ALAB_CW_METRICS_USER"))
     entries += azure_app_secret(os.environ.get("AZURE_CLIENT_ID"))
     entries += gcp_service_account_keys(os.environ.get("GOOGLE_CLOUD_PROJECT"))

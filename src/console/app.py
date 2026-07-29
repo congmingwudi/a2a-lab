@@ -1880,6 +1880,7 @@ def create_console_app(registry: Registry | None = None):
     # Its presence is what makes the Harvest button asynchronous — unset on a
     # laptop, where the sweep runs in-process because nothing is timing it out.
     HARVEST_FUNCTION_ENV = "A2ALAB_HARVEST_FUNCTION"
+    DEFAULT_HARVEST_FUNCTION = "a2alab-obs-harvest"
 
     # One string, two consumers (the telemetry payload and the cost sentinel's
     # brief panel). It is the caveat that has to travel with every rendering of
@@ -2466,7 +2467,15 @@ def create_console_app(registry: Registry | None = None):
         # credentials the console container does not: the GCP service-account
         # key ADK needs, the Entra principal for Foundry, the CloudWatch grants
         # for coding. ADK failed here for exactly that reason.
-        function = os.environ.get(HARVEST_FUNCTION_ENV)
+        # Defaults to the real function rather than requiring the variable, so
+        # the button behaves the same on a laptop as it does hosted. The
+        # in-process sweep below is NOT a working fallback and never was: it
+        # writes, and .env points A2ALAB_PG_SECRET_ARN at the READER secret
+        # (right for console reads), so every source raised "cannot execute
+        # INSERT in a read-only transaction" and the endpoint 500'd. It also
+        # lacks the GCP key ADK needs and omits Foundry entirely. Set
+        # A2ALAB_HARVEST_FUNCTION="" to force it anyway.
+        function = os.environ.get(HARVEST_FUNCTION_ENV, DEFAULT_HARVEST_FUNCTION)
         if function:
             started_at = time.time()
 
@@ -2500,13 +2509,23 @@ def create_console_app(registry: Registry | None = None):
         # behaviour on a laptop, where there is no load balancer in the way.
         def run():
             store = _obs_store()
+            out = []
             try:
-                return [sources[name]().harvest(store).__dict__ for name in wanted]
+                for name in wanted:
+                    # Per source: one platform's credentials failing is a
+                    # result about that platform, not a 500 for the request.
+                    try:
+                        out.append(sources[name]().harvest(store).__dict__)
+                    except Exception as exc:  # noqa: BLE001
+                        out.append(
+                            {"platform": name, "status": "error", "detail": f"{type(exc).__name__}: {exc}"}
+                        )
             finally:
                 store.close()
+            return out
 
         results = await asyncio.get_event_loop().run_in_executor(None, run)
-        return {"ok": True, "results": results}
+        return {"ok": all(r.get("status") != "error" for r in results), "results": results}
 
     # ---- Hosted analyst (D23): briefs feed + ad-hoc analysis runs ---------
     # The analyst is a paused scheduled deployment on the Claude platform;

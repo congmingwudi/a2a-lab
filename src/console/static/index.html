@@ -2320,106 +2320,110 @@ const BRIEF_META = {
     blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
          + "experiment telemetry across all six platforms.",
     emptyHint: "The analyst is a PAUSED deployment, so it only runs when you hit Analyze in the sidebar.",
-    details: `### Where this brief comes from
+    diagram: () => OBS_ANALYST_DIAGRAM,
+    details: `### What writes this brief
 
-The **observability analyst** (D23) is a Claude **Managed Agent**, provisioned as a
-scheduled deployment that is currently **paused** — so it produces a brief only when
-you press **Analyze**, never on a clock. Every scheduled and long-running process in
-the lab is inventoried in plan/09-deployment-map.md, level L5.7.
+The **observability analyst** is a Claude **Managed Agent** (D23) — an agent Anthropic hosts and runs,
+provisioned as a scheduled deployment that is **paused**, so it produces a brief only when you press
+**Analyze**. Every scheduled and long-running process in the lab is listed in
+plan/09-deployment-map.md level L5.7.
 
-**How it reads the data.** It does not hold a database credential. It queries through
-the **obs MCP server** (\`a2alab-obs-mcp\`, a Lambda fronted by API Gateway), which
-exposes read-only SQL over the \`lab.*\` schema plus a \`save_brief\` tool. The agent
-decides what to ask; the server decides what is answerable. That split is the point of
-D23 — the model gets analytical freedom without the lab handing an agent write access
-to its own store.
+### How it reaches the data
 
-**What it analyses.** The harvested execution logs in \`lab.obs_sessions\` and
-\`lab.obs_events\` — sessions, turns, tool calls, token usage and errors pulled from
-all six platforms by the harvest below. It is the LAB's telemetry: what the experiments
-did, not what building the lab cost.
+It holds no database credential. It queries through the **obs MCP server** — a Lambda behind API Gateway
+that exposes read-only SQL over the \`lab.*\` schema plus one \`save_brief\` tool. The agent decides what
+to ask; the server decides what is answerable. That split is the point: the model gets analytical freedom
+without the lab handing an agent write access to its own store.
 
-**Where the brief lands.** \`lab.obs_briefs\` on Aurora Postgres with
-\`kind='observability'\` — the same table the cost sentinel writes to, separated by
-that column (D56). This tab shows only its own kind.
+The agent's MCP toolset is configured **always_allow**. An unattended run has no client to confirm a
+permission prompt, so a tool evaluated as "ask" stalls the session indefinitely rather than failing.
 
-**Read it with:** plan/05-observability.md — the honest matrix of what each platform
-actually lets the lab pull, which bounds what any brief can say.`,
+### What it analyses, and where the brief lands
+
+The harvested execution logs in \`lab.obs_sessions\` and \`lab.obs_events\` — sessions, turns, tool calls,
+token usage and errors from all six platforms. This is the telemetry of what the **experiments** did.
+
+Briefs are written to \`lab.obs_briefs\` with \`kind='observability'\`. The cost sentinel writes to the same
+table with a different kind; each tab shows only its own.
+
+### Watching a run
+
+The **Analyze** button reports the session id, and a run is visible in the platform's own session view.
+Its tool calls and thinking events are also harvested back into this store on the next sweep — the analyst
+appears in the \`claude\` platform rows like any other agent the lab runs.`,
   },
   cost: {
     label: "Cost analysis",
     blurb: "The weekly <b>build-cost</b> read from the <b>cost sentinel</b> — what building this lab "
          + "consumed, in the units each vendor bills.",
     emptyHint: "The sentinel is a weekly scheduled deployment and is currently paused.",
-    details: `### Where this brief comes from
+    diagram: () => COST_SENTINEL_DIAGRAM,
+    details: `### What writes this brief
 
-The **cost sentinel** (WS12/D44) is a Claude **Managed Agent** on a weekly schedule —
-Mondays 07:00 America/New_York — created **paused**, so check plan/09-deployment-map.md
-L5.7 for whether it is actually enabled before trusting the cadence.
+The **cost sentinel** (WS12/D44) is a Claude **Managed Agent** on a weekly schedule — Mondays 07:00
+America/New_York. It is currently **paused**; plan/09-deployment-map.md level L5.7 is the inventory that
+says which scheduled processes are actually enabled.
 
-**What it analyses, and what it does NOT.** It reads the **coding-agent telemetry**
-(WS9): the tokens and modelled cost of the agents that BUILT this lab, harvested from
-CloudWatch into the \`coding\` platform rows. That is a different question from the
-Observability Analysis tab, which is about the experiments the lab RUNS.
+It reads and writes exactly as the observability analyst does: read-only SQL through the obs MCP server,
+brief saved to \`lab.obs_briefs\` with \`kind='cost'\`. Same table, same tool, different question.
 
-**The caveat that travels with every number it reports:** \`claude_code.cost.usage\`
-is a **client-side estimate at list price, not an invoice**. On a subscription or
-credit plan a swing here is a USAGE swing and may never be a billing swing. D44 is
-about reporting consumption in the units the vendor actually bills rather than
-collapsing everything into one "tokens" number.
+### What it measures
 
-**How it reads, and where it writes.** Identically to the observability analyst — SQL
-through the obs MCP server, brief saved to \`lab.obs_briefs\` with \`kind='cost'\`.
-Same table, same tool, different question.`,
+The **coding-agent telemetry** (WS9): the tokens and modelled cost of the agents that BUILD this lab —
+Claude Code and Codex — exported over OTLP into CloudWatch and harvested into the \`coding\` platform rows.
+That is a different subject from the Observability Analysis tab, which is about the experiments the lab
+**runs**.
+
+### The caveat that travels with every number
+
+\`claude_code.cost.usage\` is a **client-side estimate at list price, not an invoice**. On a subscription
+or credit plan a swing here is a **usage** swing and may never be a billing swing. D44 is about reporting
+consumption in the units each vendor actually bills — tokens, allocated compute, requests — rather than
+collapsing them into one number that means nothing across platforms.`,
   },
 };
+
 
 function obsBriefDetailsHtml(kind) {
   const meta = BRIEF_META[kind];
   if (!meta) return `<div class="flow"><div class="desc"><span class="stat">No description for this brief kind yet.</span></div></div>`;
-  return `<div class="flow">${mdToHtml(meta.details)}</div>`;
+  return `<div class="flow">
+    <h3>How this brief is produced</h3>
+    <div class="archsvg-wrap" id="obsBriefFig" style="margin:6px 0 18px"></div>
+    ${mdToHtml(meta.details)}
+  </div>`;
 }
 
 // What the dashboard is showing, and how the data got there.
 function obsDashboardDetailsHtml() {
   const md = `### What this dashboard shows
 
-Per-platform **sessions**, **events**, **token totals** and the **last harvest status**
-for every platform the lab talks to — read from \`lab.obs_sessions\`,
-\`lab.obs_events\` and \`lab.obs_harvest\` on Aurora Postgres.
+Per-platform **sessions**, **events**, **token totals** and the **last harvest status** for every
+platform the lab talks to. It reads \`lab.obs_sessions\`, \`lab.obs_events\` and \`lab.obs_harvest\`
+on Aurora Postgres, which is the source of truth for everything on this page (D49).
 
-Postgres is the **source of truth** (D49). Until 2026-07-28 the console read a local
-SQLite file while the hosted harvest filled Aurora, so the dashboard showed the
-laptop's copy and the two drifted apart with nothing failing.
+### What the harvest pulls, per platform
 
-### How the harvest works
-
-A Lambda, \`a2alab-obs-harvest\`, fired by **EventBridge Scheduler** every **6 hours**
-(the schedule is in EventBridge *Scheduler*, not *Rules* — \`aws events list-rules\`
-shows nothing for it, which reads misleadingly like no schedule exists). It pulls from
-six sources and upserts into the tables above:
-
-- **Salesforce Agentforce** — SOQL over the Session Tracing DMOs
-- **Anthropic Managed Agents** — sessions and per-session events
-- **OpenAI** — stored responses, fetched by id (there is no list API)
+- **Salesforce Agentforce** — SOQL over the Session Tracing DMOs: sessions, turns, planner and action steps
+- **Anthropic Managed Agents** — sessions plus full per-session event streams
+- **OpenAI** — stored responses, fetched by id (there is no list-executions API)
 - **Google Agent Engine** — Cloud Logging entries and Cloud Monitoring meters
 - **Microsoft Foundry** — KQL over App Insights \`gen_ai\` spans
-- **coding** — CloudWatch metrics for the agents that built the lab (WS9)
+- **coding** — CloudWatch metrics for the agents that build the lab (WS9), surfaced in its own section
 
-The **Harvest** button fires that same Lambda asynchronously and polls for the
-timestamps to move (D54). It does not sweep in the web app: a full six-platform sweep
-runs past the load balancer's 120s idle timeout, and the browser used to receive the
-ALB's HTML error page and report it as a JSON parse error.
+### What limits what you see here
 
-### What limits any of this
+plan/05-observability.md holds the honest matrix of what each platform's API actually exposes, and two
+entries shape this dashboard more than the rest. **OpenAI** has no list-executions API, so its rows exist
+only for responses the lab captured an id for at emit time. **Agent Engine** has no session read API on the
+preview A2A surface at all, so its honest shape is one session per deployed engine with log entries as
+events, rather than one session per turn.
 
-plan/05-observability.md holds the honest matrix — what each platform's API actually
-exposes. Two examples that shape everything above: OpenAI has **no list-executions
-API**, so its rows exist only for responses the lab recorded an id for; and Agent
-Engine has **no session read API** at all on the preview A2A surface, so its honest
-shape is one session per deployed engine with log entries as events.`;
+The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
+six-platform sweep runs longer than a browser request may stay open.`;
   return `<div class="flow">${mdToHtml(md)}</div>`;
 }
+
 
 // "last updated" stamp: absolute local time + relative age.
 function fmtWhen(value) {
@@ -2728,12 +2732,13 @@ function obsPipelineHtml(hasData) {
       platform's execution logs, then <b>Analyze</b> to have the analyst agent write its first brief.</span></div>
     ${diagram}
   </div>`;
+  // No <details> wrapper: this now renders INSIDE the Details tab, which is
+  // already the place you go for "how does this work". A disclosure inside a
+  // disclosure is a click that buys nothing.
   return `
   <div class="flow">
-    <details>
-      <summary style="cursor:pointer; font-size:12px; color:var(--muted)">How observability works here — the pipeline</summary>
-      ${diagram}
-    </details>
+    <h3>How observability works here</h3>
+    ${diagram}
   </div>`;
 }
 
@@ -3515,6 +3520,32 @@ function buildHtml() {
 
 // The sentinel's pipeline, D22 split made visible: everything below the store
 // is deterministic and hosted, the agent sits above it and only interprets.
+// What the observability analyst actually does, for its Details pane. Same
+// shape as the sentinel's below: the agent never touches the database.
+const OBS_ANALYST_DIAGRAM = `flowchart TB
+  subgraph PLAT["Agent platforms — their own interior records"]
+    AF["Agentforce"]
+    CL["Claude Managed Agents"]
+    OA["OpenAI"]
+    GG["Agent Engine"]
+    FD["Foundry"]
+  end
+  HARV["Harvest Lambda<br/>every 6h, deterministic — no LLM"]
+  PG[("Aurora, lab schema<br/>obs_sessions · obs_events · obs_harvest")]
+  MCP["obs MCP server<br/>Lambda — read-only SQL + save_brief"]
+  AG["Observability analyst<br/>Claude Managed Agent (paused, on demand)"]
+  BR[("lab.obs_briefs<br/>kind = observability")]
+  AF --> HARV
+  CL --> HARV
+  OA --> HARV
+  GG --> HARV
+  FD --> HARV
+  HARV --> PG
+  PG --> MCP
+  MCP <-->|"the agent asks, the server answers"| AG
+  AG -->|"save_brief"| BR
+  BR --> UI["Console — Observability Analysis"]`;
+
 const COST_SENTINEL_DIAGRAM = `flowchart TB
   subgraph LOCAL["Coding agents — any checkout, any machine"]
     CC["Claude Code<br/>OTLP exporter"]
@@ -3536,6 +3567,27 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
   end
   PG <--> MCP
   PG --> UI["Console — Coding Agents Telemetry"]`;
+
+// Render a mermaid source into an element, or hand over the source. Same
+// honesty rule as every other diagram here: say what broke, and still give you
+// the text you can paste elsewhere.
+async function renderMermaidInto(elId, src, svgId) {
+  const fig = document.getElementById(elId);
+  if (!fig || !src) return;
+  try {
+    const mermaid = await ensureMermaid();
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    mermaid.initialize({
+      startOnLoad: false, theme: dark ? "dark" : "default",
+      securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
+    });
+    const { svg } = await mermaid.render(svgId || (elId + "-svg"), src);
+    fig.innerHTML = svg;
+  } catch (e) {
+    fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
+      + `<pre>${esc(src)}</pre>`;
+  }
+}
 
 async function renderCostDiagram() {
   const fig = document.getElementById("costfig");
@@ -5507,6 +5559,12 @@ function renderMain(force) {
             : obsDashboardHtml() + obsSessionsHtml(null));
       el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + obsSubTabsHtml()
         + `<div class="tabpanel">${pane}</div>`;
+      // The Details pane carries an architecture figure; mermaid renders after
+      // the markup is in the DOM.
+      if (kind && details) {
+        const meta = BRIEF_META[kind];
+        if (meta && meta.diagram) renderMermaidInto("obsBriefFig", meta.diagram(), `obsfig-${kind}`);
+      }
     }
     return;
   }

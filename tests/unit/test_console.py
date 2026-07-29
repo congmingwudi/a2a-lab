@@ -887,6 +887,9 @@ def test_coding_harvest_is_reachable_by_name_but_not_in_the_sweep(tmp_path, monk
     monkeypatch.setattr(salesforce_source, "SalesforceSource", fake_source("salesforce"))
     monkeypatch.setattr(openai_source, "OpenAISource", fake_source("openai"))
     monkeypatch.setattr(adk_source, "AdkSource", fake_source("adk"))
+    # This test is about the in-process source MAP, so force that path: the
+    # endpoint now defaults to firing the harvest Lambda (D54).
+    monkeypatch.setenv("A2ALAB_HARVEST_FUNCTION", "")
     trace_dir = tmp_path / "traces"
     trace_dir.mkdir()
     client = TestClient(make_app(trace_dir, monkeypatch, FakeRegistry()))
@@ -1346,7 +1349,10 @@ def test_local_harvest_still_runs_in_process(tmp_path, monkeypatch):
     """No Lambda configured means a laptop, where nothing is timing the request
     out — running it here keeps the per-platform outcomes in the response."""
     monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
-    monkeypatch.delenv("A2ALAB_HARVEST_FUNCTION", raising=False)
+    # Empty, not absent: the endpoint now DEFAULTS to firing the Lambda so the
+    # button behaves the same on a laptop as hosted (the in-process sweep wrote
+    # with a read-only credential and 500'd). Forcing it is opt-in.
+    monkeypatch.setenv("A2ALAB_HARVEST_FUNCTION", "")
 
     class FakeSource:
         def __init__(self, *a, **k):
