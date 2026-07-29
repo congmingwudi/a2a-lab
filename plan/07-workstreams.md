@@ -1857,9 +1857,27 @@ of work. They become labels and links.
 3. **Create an API token** — id.atlassian.com → Security → API tokens. It is a
    credential: it goes in `.env` and Secrets Manager like every other one (D39),
    never in the repo.
+
+   **Take the classic, unscoped token.** Atlassian now offers scoped tokens too,
+   but they force every call to `https://api.atlassian.com/ex/jira/{cloudId}`
+   instead of the site domain, and the scope list is the **granular** set
+   (`write:issue:jira`, `read:issue-type:jira`, `read:field:jira`, …) rather
+   than the classic `read:jira-work` / `write:jira-work` pair that Atlassian's
+   OAuth and Forge docs describe — a real trap, since searching for scope names
+   lands on the wrong list. Least privilege argues for scoping, and it is
+   normally the right call (D39/F6); here the token's owner is the only user of
+   the one project it touches, so the containment is nominal and the extra
+   indirection is not.
 4. **Decide the sprint question** above, and say which.
-5. Hand over three values: **site URL** (`https://<you>.atlassian.net`),
-   **project key**, **account email** for the token.
+5. Hand over **two** values: the **account email** and the **token**.
+
+   Not the site URL or the project key — those are discoverable and guessing
+   them is how a config file acquires a wrong value that looks right. The
+   `home.atlassian.com/o/<org>/s/<uuid>/…` URL the console shows is the new
+   unified home, not an API host; the `s/` segment is the cloudId.
+   `GET https://api.atlassian.com/oauth/token/accessible-resources` returns the
+   real site URL and cloudId, and `GET /rest/api/3/project/search` returns the
+   project key. Both get confirmed back before anything is created.
 
 ### What happens once it is connected
 
