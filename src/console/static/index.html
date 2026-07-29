@@ -420,6 +420,11 @@
   /* Run All failures: a list you can act on. The summary used to be one line
      of text that truncated the error, so the only way to find out what broke
      was to run it again — each row opens that experiment instead. */
+  /* An inline disclosure for a summary line — keeps the strip to one line
+     until someone asks. */
+  .linkish { background: none; border: none; padding: 0 2px; font: inherit; font-size: 11.5px;
+             color: var(--a2a, #6aa); text-decoration: underline; cursor: pointer; }
+  .obs-pending { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
   .runall-fails { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
   .runall-fail { display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%;
                  background: var(--card2); border: 1px solid var(--border); border-left: 3px solid var(--err, #c66);
@@ -2224,6 +2229,16 @@ function obsMsg(text, isErr) {
   el.style.color = isErr ? "var(--err)" : "";
 }
 
+// Same strip, but the caller supplies markup — for a one-line summary with a
+// disclosure behind it. Callers escape their own interpolations.
+function obsMsgHtml(html, isErr) {
+  const el = document.getElementById("obsMsg");
+  if (!el) return;
+  el.style.display = html ? "" : "none";
+  el.innerHTML = html || "";
+  el.style.color = isErr ? "var(--err)" : "";
+}
+
 async function loadObs() {
   try {
     const [sr, lr] = await Promise.all([fetch(apiUrl("/api/obs/summary")), fetch(apiUrl("/api/obs/sessions"))]);
@@ -2625,41 +2640,43 @@ async function readJson(r, what) {
 
 async function pollHarvest(startedAt) {
   // Watch lab.obs_harvest for platforms whose last_harvest_at moves past the
-  // moment we fired. Each lands independently, so the panel fills in as they
-  // finish — which is also the honest picture of a six-platform sweep.
+  // moment we fired. Each lands independently, so the panel fills in as they go.
   //
-  // EXPECTED comes from the platforms the store already knows about, not a
-  // hardcoded count. The first version waited for a literal 6 and, when one
-  // platform's timestamp did not advance inside the window, announced that the
-  // harvest had "stopped reporting" — a phrase that means nothing, about a
-  // sweep whose status chips all said ok. If it cannot name what is missing it
-  // has no business raising an alarm.
+  // TIMING IS THE WHOLE DIFFICULTY. A sweep takes minutes and platforms land
+  // minutes apart, so "nothing new for a moment" does NOT mean finished — an
+  // earlier version settled after 20s and announced four platforms missing
+  // while the harvest was still working. Settle only after a long quiet, and
+  // treat "not yet" as pending rather than as a fault.
   const EVERY_MS = 5000;
-  const SETTLE_POLLS = 4;      // ~20s with nothing new = the sweep is done
-  const DEADLINE_S = 900;
+  const SETTLE_MS = 150000;   // 2.5 min with nothing new = the sweep is over
+  const DEADLINE_S = 660;     // just past the harvest Lambda's own 600s timeout
   const expected = new Set(Object.keys((obs.summary && obs.summary.platforms) || {}));
   const t0 = Date.now();
   const landed = new Set();
-  let quiet = 0;
+  let lastChange = Date.now();
 
-  const report = (done) => {
-    const missing = [...expected].filter(p => !landed.has(p)).sort();
+  const finish = () => {
     const secs = Math.round((Date.now() - t0) / 1000);
-    if (!missing.length) {
-      obsMsg(`Done — ${landed.size} platform${landed.size === 1 ? "" : "s"} refreshed in ${secs}s.`);
+    const took = secs < 90 ? `${secs}s` : `${Math.floor(secs / 60)}m${String(secs % 60).padStart(2, "0")}s`;
+    const pending = [...expected].filter(p => !landed.has(p)).sort();
+    if (!pending.length) {
+      obsMsg(`Done — ${landed.size} platform${landed.size === 1 ? "" : "s"} refreshed in ${took}.`);
       return;
     }
-    // Name them, and say what their own status line claims, so the reader can
-    // tell "still working" from "quietly broken" without leaving the page.
+    // The chips beside each platform already carry its status, so do not repeat
+    // it here. One line, and the names behind a disclosure. Red only if a
+    // platform actually reports an error — "did not refresh this run" is not
+    // one, and colouring it red taught the reader to distrust the colour.
     const plats = (obs.summary && obs.summary.platforms) || {};
-    const detail = missing.map(p => {
-      const h = (plats[p] || {}).harvest || {};
-      return `${p} (last: ${h.status || "unknown"}${h.at ? ", " + fmtWhen(h.at) : ""})`;
-    }).join(" · ");
-    obsMsg(`${landed.size} of ${expected.size} platforms refreshed in ${secs}s. `
-      + `No new data from: ${detail}. `
-      + (done ? "Their existing rows are unchanged — open Details for what each source needs."
-              : "Still running; this panel keeps updating."), true);
+    const broken = pending.filter(p => ((plats[p] || {}).harvest || {}).status === "error");
+    obsMsgHtml(
+      `<span class="stat">${landed.size} of ${expected.size} refreshed</span> in ${took} · `
+      + `${pending.length} unchanged `
+      + `<button class="linkish" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">which?</button>`
+      + `<span hidden class="obs-pending">${esc(pending.join(", "))}`
+      + ` — these kept their previous rows. Their status chips show what each one last reported;`
+      + ` Details explains what each source needs.</span>`,
+      broken.length > 0);
   };
 
   obsMsg(`Harvest running — ${expected.size} platforms, each appears as it lands.`);
@@ -2674,20 +2691,20 @@ async function pollHarvest(startedAt) {
     for (const [name, p] of Object.entries(plats)) {
       const at = p.harvest && p.harvest.at;
       if (at && at > startedAt) landed.add(name);
-      expected.add(name);   // a platform harvested for the first time counts too
+      expected.add(name);
     }
-    quiet = landed.size > before ? 0 : quiet + 1;
+    if (landed.size > before) lastChange = Date.now();
 
     if (landed.size) {
       const secs = Math.round((Date.now() - t0) / 1000);
-      obsMsg(`Harvest running — ${landed.size}/${expected.size} refreshed `
-        + `(${[...landed].sort().join(", ")}) · ${secs}s`);
+      obsMsg(`Harvest running — ${landed.size}/${expected.size} refreshed · ${secs}s`);
     }
-    if (landed.size >= expected.size) return report(true);
-    if (landed.size && quiet >= SETTLE_POLLS) return report(true);
-    if ((Date.now() - t0) / 1000 > DEADLINE_S) return report(false);
+    if (landed.size >= expected.size) return finish();
+    if (Date.now() - lastChange > SETTLE_MS) return finish();
+    if ((Date.now() - t0) / 1000 > DEADLINE_S) return finish();
   }
 }
+
 
 
 function obsEventClass(t) {
