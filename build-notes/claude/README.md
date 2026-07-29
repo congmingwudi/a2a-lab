@@ -55,6 +55,7 @@ when overstated into product claims.
 | [08-coding-agent-telemetry.md](08-coding-agent-telemetry.md) | Claude Code OTel → CloudWatch, the per-project / per-repo attribution that is *not* built in, two silent-failure modes worth showing a customer — and the Codex path still open as an acceptance item |
 | [09-secrets-and-environment-identity.md](09-secrets-and-environment-identity.md) | Environment identity as configuration: no account or project id anywhere in a public repo, a test that enforces it, `.env` in Secrets Manager, an account guard every deploy sources, the twenty other secret files the store never covered (chezmoi/age, D45), the agent's own memory as the third and least recoverable round — and the credential agent we built and then removed |
 | [10-consumption-and-list-price.md](10-consumption-and-list-price.md) | Answering "how much will this cost?" for a metered service: units-per-unit-of-work vs price-per-unit, the four billed token buckets, and the 36x under-report this lab shipped by treating `input_tokens` as the input |
+| [11-rules-and-sweeps.md](11-rules-and-sweeps.md) | Documentation drift as an engineering control: a CLAUDE.md rule for prevention, a multi-agent sweep for detection, and why they stayed separate from each other and from the existing audits |
 | [screenshots/](screenshots/README.md) | Terminal screenshots captured at critical decision points — Claude as a thought partner |
 
 ## Recommended presentation arc

@@ -23,6 +23,12 @@ project skills):
 
 Both are run before demos or before publishing anything from the lab.
 
+A third, `.claude/workflows/architecture-sweep.js`, was added later for a
+different failure mode — diagrams and console copy describing a system that has
+since moved. It follows the same three-phase shape; why it is a separate sweep
+rather than an extension of these two is the subject of
+[11-rules-and-sweeps.md](11-rules-and-sweeps.md).
+
 ## The pattern: Discover → Audit → Verify
 
 Each workflow is a small JavaScript orchestration script (not TypeScript, no
