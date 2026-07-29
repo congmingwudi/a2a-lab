@@ -1788,6 +1788,151 @@ real weeks behind it.
 
 ---
 
+## WS14 — Zero laptop dependency: host the credential collector (raised 2026-07-29)
+
+**The standing requirement, in the operator's words:** *"zero laptop dependency
+is the goal"* — the lab and everything the console exposes should depend on the
+laptop only when pushing builds into the hosted environments.
+
+WS13 got the **runtime** there. One thing still runs on the operator's machine
+and feeds the console: `scripts/expiry_report.py`, whose snapshot the
+Credentials Expiry panel renders. It has to be run by hand, so the panel is only
+as current as the last time somebody remembered. That is now visible — the panel
+dates its snapshot and flags it past 24h (D56-era work) — but a date on a stale
+number is a mitigation, not a fix.
+
+### Why it is still local, precisely
+
+Every collector shells out to a **CLI**, and those CLIs read the operator's own
+logins:
+
+| Reads | Today | Hosted equivalent |
+|---|---|---|
+| AWS IAM service credential age | `aws iam list-service-specific-credentials` | boto3 + `iam:ListServiceSpecificCredentials` on the task role |
+| AWS ACM certificate expiry | `aws acm list-certificates` / `describe-certificate` | boto3 + `acm:ListCertificates`, `acm:DescribeCertificate` |
+| GCP service-account key age | `gcloud iam service-accounts keys list` | google-auth + IAM REST, using the SA key already in the harvest secret |
+| Entra app secret expiry | `az ad app credential list` | Microsoft Graph `/applications` — **blocked, see below** |
+| Declared rotations | `config/credentials.yaml` | already a file in the image |
+
+### The one that does not move without you
+
+**Microsoft Entra requires an admin consent the service principal does not
+have.** Measured 2026-07-29: a client-credentials token for the lab's SP calling
+Graph `/applications?$filter=appId eq '<id>'` returns
+
+```
+403 Authorization_RequestDenied — Insufficient privileges to complete the operation.
+```
+
+Reading application objects needs the **`Application.Read.All`** Graph
+*application* permission, granted and admin-consented on the lab's app
+registration. That is a portal action only the directory's admin can take, and
+it is the one manual step this workstream cannot remove.
+
+Until it is granted, the hosted collector reports that row as *"cannot tell you"*
+with the reason — which is the honest state and the same convention every other
+collector already follows for an unreachable provider.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Rewrite the AWS, GCP and Entra collectors against SDKs/REST so one code path runs locally and hosted | **done 2026-07-29** |
+| 2 | Add an `expiry` step to the harvest Lambda — it already runs every 6h with the service identities, so no new schedule and no new function | **done** — verified publishing at 17:55 UTC |
+| 3 | Grant `iam:ListServiceSpecificCredentials`, `acm:ListCertificates`, `acm:DescribeCertificate` to `a2alab-obs-lambda` | **done** |
+| 4 | Entra: grant `Application.Read.All` + admin consent | **operator action — still open** |
+| 5 | GCP: the harvest service account cannot list service accounts | **operator action — found by doing it** |
+| 6 | Keep `expiry_report.py --write` working from a laptop — the `az` CLI path survives as a local fallback | **done** |
+
+**Measured after the first hosted run: 11 of 13 credentials.** The two that did
+not resolve are permission grants, not code, and each reports its own reason in
+the panel rather than going quiet:
+
+- **Entra** — `Graph 403 Authorization_RequestDenied`. Needs
+  **`Application.Read.All`** (Graph *application* permission) with admin consent
+  on the lab's app registration. Locally this row still resolves through the
+  `az` CLI fallback, so the laptop shows 13 and the hosted snapshot shows 11 —
+  the difference is exactly this grant.
+- **GCP** — `could not list service accounts (HTTPError)`. The harvest service
+  account authenticates fine (it reads Cloud Logging and Monitoring for the ADK
+  platform) but has no IAM read: listing service accounts and their keys needs
+  **`roles/iam.serviceAccountViewer`** on the project, or a custom role with
+  `iam.serviceAccounts.list` + `iam.serviceAccountKeys.list`.
+
+Neither blocks the workstream's point — the snapshot now refreshes every 6 hours
+with nobody running anything, which was the dependency to remove.
+
+### Exit criteria
+
+The Credentials Expiry panel shows a snapshot **no older than 6 hours** without
+anyone having run anything, and its staleness flag stays off on its own. The
+AWS SSO row does not return: it is a deploy-time credential, and this workstream
+is the argument for why that distinction matters.
+
+---
+
+## Operations backlog (raised 2026-07-28, after full hosting)
+
+Not a workstream — operational debt found while running the hosted lab. Each
+item has a written-down workaround in `plan/10-operations.md`, so nothing here
+blocks use; they are the "this should be one command" list.
+
+1. **A rotate script for the per-seam secrets — NOT STARTED.** Rotating a
+   console password today is: edit `.env`, `env_sync.py push`, then re-run
+   `deploy/console/deploy_console.sh --skip-build`. The redeploy is not about
+   where the value is *read* — it is because the per-seam secret
+   (`a2alab/runtime/console`) is **built by the deploy script**, from a
+   `keys = [...]` list that lives inside that script. `env_sync push` updates
+   `a2alab/env/dev`, which no container reads.
+
+   The fix is a script that rewrites the per-seam secrets from `.env` — no
+   image, no task definition, no service update. The obstacle is that those key
+   lists live in four separate shell scripts (bridge, console, faces, briefs)
+   and would move to one place both they and the rotate script read.
+
+   Pairs with a **TTL re-read in `interop/secret_env.py`**: today
+   `load_secret_env()` runs once per process (`_loaded`, `setdefault`), so even
+   a refreshed secret needs a restart. A short cache on values checked per
+   request would let a rotation take effect on its own. With the rotate script
+   alone, rotating is push + rotate + restart; with both, push + rotate.
+
+   **Do NOT solve this by pointing the console at `a2alab/env/dev`.** That
+   secret holds every credential in the lab — the GCP service-account key, the
+   Aurora master secret. The per-seam secrets exist to scope what a compromised
+   container can read (D39/F1). Related and worth doing in the same change: the
+   console task role currently grants `secretsmanager:GetSecretValue` on
+   `a2alab/*`, which already includes `env/dev` — tighten it to its own secret.
+
+2. **Run All steals the view — FIXED 2026-07-28.** Every turn wrote the global
+   `selected` and re-rendered the main pane, so a background run dragged the
+   screen back to itself and the console read as locked while an experiment
+   ran. Nothing was locked. Runs now update their own `chat.selected` and the
+   sidebar chip, and only touch the view when their experiment is on screen.
+
+---
+
+## Canvas template rollout (raised 2026-07-29, D57)
+
+The console canvas template is settled (D57) and two of the seven canvases
+follow it. The rest predate it and are **not broken** — they are simply missing
+the Details pane that says where their content comes from, which is the half a
+visitor needs to read a claim rather than take it on trust.
+
+| Canvas | State |
+|---|---|
+| `experiment` | **conforms** — `Run \| Details` since WS6 |
+| `obs` | **conforms** — `Dashboard \| Observability Analysis \| Cost Analysis`, each with Details (D57) |
+| `insights` | Details pane not started — should explain: `config/insights.yaml` is the source, `review: required` gates sign-off, sign-offs live in `lab.lab_state` (D50), export regenerates `plan/08-insights.md` |
+| `build` | Details pane not started — should explain WS9: CloudWatch PromQL, the four billing buckets (D44), and that the cost is a modelled client-side estimate at list price |
+| `creds` | Details pane not started — should explain: the collector runs on the operator's own sessions, publishes to `lab.lab_state`, and the console only READS it (WS13) |
+| `arch` | Details pane not started — arguably exempt: the canvas IS the explanation. Decide rather than default |
+| `trace` | Details pane not started — should explain the wire capture: raw bytes, the ASGI wiretap for MCP/A2A, the D27 rider as the correlation channel that survived every hop |
+
+Not urgent, and deliberately not done in one sweep — each pane is worth writing
+properly, with real refs, when that area is next touched.
+
+---
+
 ## Console and exhibit backlog (raised 2026-07-26, after the hosted bridge)
 
 Not a workstream — UI and presentation debt to clear before the demo.
@@ -1877,11 +2022,79 @@ Path A. That property is why the work is safe to do incrementally.
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Console on Fargate** behind the bridge ALB | `deploy/console/deploy_console.sh` + Dockerfile **written, NOT run** |
-| 2 | Nine local protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | not started |
-| 3 | **Hosted watcher** — EventBridge Lambda servicing Managed Agents custom tool calls | not started (was WS7 item 3) |
-| 4 | Widen `modes:` in `config/targets.yaml` as each face lands | not started |
+| 1 | **Console on Fargate** behind the bridge ALB | **deployed and serving 2026-07-28**, DNS not yet cut over |
+| 2 | Nine local protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | **done 2026-07-28** (D51) — one Fargate service, addressed by path |
+| 3 | **Hosted watcher** — servicing Managed Agents custom tool calls | **done 2026-07-28** (D52) — an ECS service reusing the faces image, not the assumed EventBridge Lambda |
+| 4 | Widen `modes:` in `config/targets.yaml` as each face lands | **done 2026-07-28** — nine `*-hosted` twins, nine mode mappings |
 | 5 | Re-scope `cloudflared` to local development | decided, no work |
+| 6 | **`PgObsStore` read side** — the Observability section is empty when hosted | **done 2026-07-28** (D49) |
+
+### What the first run of item 1 actually found (2026-07-28)
+
+The script ran clean end to end on its first execution — image, secret, roles,
+target group, listener rule, stable service, `/healthz` 200 through the ALB. It
+was also, at that moment, **serving every `/api` surface unauthenticated**. The
+full account is D48; the short version is that three gaps composed, and a
+healthy container shows none of them:
+
+- The console never loaded its runtime secret, so `A2ALAB_TOKEN` was unset and
+  `TokenAuthMiddleware` fell open. Fixed by loading the secret and **failing
+  closed** when a hosted container has no token.
+- `A2ALAB_PG_SECRET_ARN` was never shipped, because the env derivation only
+  matches string literals and `pg.py` reads it through a module constant. Four
+  Aurora-backed surfaces returned empty on a healthy console.
+- `SF_CLIENT_ID_OBS`, `SF_CLIENT_SECRET_OBS` and `A2ALAB_FANOUT_MCP_TOKEN` sat
+  in cleartext on the task definition. **The same exposure is still live on the
+  bridge** — `deploy_bridge.sh` has the same enumerated exclusion list and has
+  not been fixed.
+
+Verified after the fix: unauthenticated and wrong-token requests both 401,
+valid token 200, `/healthz` still open, doc chips 200 (the image carries the
+prose), briefs reading from Aurora, and Path A unaffected throughout.
+
+`/api/traces` returning `[]` is **not** a defect — the console's remote window
+is 6h (`_REMOTE_WINDOW_S`) and the newest hop was 9.9h old.
+
+### Item 6 — Postgres is now the only observability store (done, D49)
+
+The section was empty hosted because `_obs_store()` returned the **SQLite-only**
+`ObsStore()` unconditionally, while `A2ALAB_OBS_STORE=postgres` was honoured
+only by `scripts/obs_harvest.py` — and was commented out in `.env`. So the
+*local* harvest filled `traces/lab.db` (382 sessions), the *hosted* harvest
+filled Aurora (479), and the console read the first. It was never empty on a
+laptop, so nothing looked wrong; hosting it removed the local file and made the
+divergence visible.
+
+Closed by making Postgres the source of truth for storage, dashboard and the
+Managed Agent's analysis briefs, with **one** selector
+(`observability.make_obs_store()`) that both the console and the harvest call.
+`PgObsStore` gained the six read methods it never had. Two of them had to be
+written around the RDS Data API's **1 MB result cap**: rider extraction moved
+into SQL (the matching payloads total 3.6 MB) and `list_events` pages itself
+(one session's events measured 2.43 MB).
+
+**Verified hosted 2026-07-28:** 5 platforms, 200 sessions, 35 caller riders, 29
+lab-trace riders, build telemetry enabled — all read from Aurora, with
+unauthenticated requests still 401.
+
+### Two things the same session found by accident
+
+- **A live console bug, not a test artifact.** `.env` carried
+  `AGENTCORE_CONSOLE_URL=` and `AGENT_ENGINE_CONSOLE_URL=` with *empty* values,
+  and the code read them as `os.environ.get(var, default)` — where an empty
+  string is a present key and beats the default. Both component rows rendered
+  "not yet available" in the running console, which is precisely what
+  `test_every_component_has_a_console_url` exists to prevent. The test could not
+  see it because the suite does not load `.env` and `run_local.sh` does. Now
+  routed through `_env_url()`, with a regression test that sets the vars empty.
+- **The unit suite could read and write hosted Aurora.** With `A2ALAB_PG_*`
+  exported, `/api/expiry` returned the *real* credential report instead of the
+  temp file two tests had just written — so the suite failed only for developers
+  who had sourced `.env`. `tests/conftest.py` already cleared `A2ALAB_TOKEN`,
+  `BRIDGE_TOKEN` and `A2ALAB_MODE` for exactly this reason; the database group
+  was simply never added. `A2ALAB_TRACE_SINK` is cleared with it, because
+  `postgres` there would have the unit suite writing hop rows into the hosted
+  store.
 
 **Item 1 is written and unrun.** The script is modelled line-for-line on
 `deploy/bridge/deploy_bridge.sh`, including its two hard-won details: env vars

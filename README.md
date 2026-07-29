@@ -115,9 +115,13 @@ route, D30), and **Microsoft Foundry ↔ Agentforce** — plus the async
   record (long-text `Brief__c` on the Account, the Data 360 vector-search
   corpus that grounds the Agentforce agent's answers and sales plays, M10),
   a logged activity, and an in-app alert, all credited to the Claude
-  managed agent. Provision once with `scripts/setup_brief_agent.py`;
-  `python -m briefs --watch` (part of run_local.sh) services cron-fired
-  sessions.
+  managed agent. Provision once with `scripts/setup_brief_agent.py`.
+  The cron-fired sessions STALL awaiting the host-side tool result, so
+  something must be watching: `python -m briefs --watch`, hosted on
+  Fargate since 2026-07-28 (`deploy/briefs/deploy_briefs.sh`, WS13 item
+  3). It was the last runtime dependency on the operator's laptop.
+  Nothing is lost while it is down — sessions idle and are picked up on
+  the next poll.
 
 ## Fan-out orchestration — one task, three platforms, two orchestrators (WS8)
 
@@ -750,5 +754,42 @@ uv run python scripts/matrix.py    # run every runnable protocol cell
 open http://localhost:8200         # lab console
 uv run python scripts/sf_smoke.py  # Agentforce go/no-go (needs SF_* in .env)
 ```
+
+## Where it actually runs (WS13)
+
+**The lab no longer needs the laptop at runtime.** `run_local.sh` above is a
+development convenience, not the deployment — as of 2026-07-28 every runtime
+component is hosted, and the laptop is a *deploy-time* credential only. Hosting
+does not remove the AWS login and should not: you authenticate to push changes,
+and once deployed nothing needs a live session for the lab to keep working.
+
+| Component | Where | Deployed by |
+|---|---|---|
+| Path A bridge | ECS Fargate + ALB | `deploy/bridge/deploy_bridge.sh` |
+| Lab console | ECS Fargate, host-header rule on the same ALB | `deploy/console/deploy_console.sh` |
+| The eleven protocol faces | ECS Fargate, **one process**, addressed by path | `deploy/faces/deploy_faces.sh` |
+| Claude + OpenAI SDK agents | Bedrock AgentCore (IAM data plane, no URL) | `deploy/agentcore/deploy.sh` |
+| Agentforce A2A shim, fan-out MCP, obs harvest + obs MCP | Lambda | `deploy/shim/`, `deploy/fanout/`, `deploy/obs/` |
+| ADK agents | Vertex AI Agent Engine | `deploy/adk/deploy_adk.py` |
+| Foundry agents | Azure AI Foundry | `deploy/foundry/provision_foundry.py` |
+
+Three hostnames — the bridge, the console and the faces — are CNAMEs at the
+**same** ALB, which terminates TLS with one wildcard origin certificate. A new
+face costs a listener rule and a target group, not a load balancer. The
+`cloudflared` tunnel still runs, re-scoped to local development.
+
+`A2ALAB_MODE=hosted` swaps every `localhost` target for its hosted twin, so the
+same console, the same adapters and the same protocol comparison run either way
+— which is the point: a face that behaved differently hosted would make the
+comparison meaningless.
+
+**What the map is:** [plan/09-deployment-map.md](plan/09-deployment-map.md) —
+what is deployed, where, and why there, including the four DNS records (L5.5)
+and the file→deployment table (L6). The console's Architecture section renders
+it live.
+
+**Running it once deployed:** [plan/10-operations.md](plan/10-operations.md) — rotating the console passwords
+and the JWT keypair, which deploys need a rebuild and which do not, moving the
+brief watcher, and the ordered list to work down when the console looks broken.
 
 Milestone status and next steps: see plan/00-decisions.md and plan/02-matrix.md.

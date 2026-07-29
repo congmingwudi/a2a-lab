@@ -56,4 +56,47 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
     store = PgObsStore()
     results = [sources[name]().harvest(store).__dict__ for name in wanted]
     ok = all(r["status"] != "error" for r in results)
-    return {"ok": ok, "results": results}
+
+    # WS14: refresh the credential expiry snapshot on the same schedule. It is
+    # not a "platform", so it is not in `sources` and never appears in the
+    # coverage panel — it is a second, unrelated artifact that happens to need
+    # exactly the identities this function already holds (prepare() above put
+    # the GCP key on disk and the Entra app's secret in the environment), plus
+    # IAM and ACM through this Lambda's own role.
+    #
+    # It ran only on the operator's laptop until now, so the console's
+    # Credentials panel was as current as the last time somebody remembered to
+    # run a script. Skipped when asked for one platform: `{"platform": "adk"}`
+    # means a targeted harvest, not a full sweep.
+    expiry = None
+    if asked is None:
+        try:
+            expiry = _refresh_expiry(store)
+        except Exception as exc:  # noqa: BLE001 - never fail the harvest for this
+            expiry = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {"ok": ok, "results": results, "expiry": expiry}
+
+
+def _refresh_expiry(store) -> dict:
+    """Collect credential expiries and publish them to lab.lab_state.
+
+    Imports the collector from scripts/ — it is the SAME code the operator runs
+    locally, deliberately, so the hosted snapshot and a hand-run one cannot
+    disagree about what is tracked.
+    """
+    import sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[2]
+    for candidate in (root / "scripts", _Path("/var/task/scripts"), _Path("scripts")):
+        if candidate.exists() and str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
+    import expiry_report
+
+    from observability.pg import STATE_EXPIRY
+
+    report = expiry_report.collect()
+    store.put_state(STATE_EXPIRY, report)
+    creds = report.get("credentials") or []
+    bad = [c for c in creds if c.get("status") in ("error", "expired")]
+    return {"ok": not bad, "credentials": len(creds), "problems": [c["name"] for c in bad]}

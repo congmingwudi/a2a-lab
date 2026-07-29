@@ -133,3 +133,42 @@ def test_link_urls_match_their_kind():
     for entry in doc["files"]:
         expected = "/tree/" if entry["kind"] == "dir" else "/blob/"
         assert expected in entry["url"], entry
+
+
+def test_a_decimal_level_is_a_level_not_an_appendix():
+    """L5.5 (DNS) was inserted between the observability level and the
+    code→deployment table. That table is referred to as "L6" in CLAUDE.md and
+    in the console's own copy, so renumbering to make room would have broken
+    references outside this file.
+
+    Without the decimal in the pattern the section is silently DEMOTED to an
+    appendix — the page still renders and the Architecture section just quietly
+    loses a level, which is the kind of failure nobody reports.
+    """
+    from console.architecture import parse
+
+    doc = parse(
+        "# Map\n\nintro\n\n"
+        "## L5 — Observability\n\nfive interiors\n\n"
+        "## L5.5 — DNS: the four hostnames\n\nfour CNAMEs\n\n"
+        "## L6 — Code to deployment\n\nthe table\n\n"
+        "## Checking reality\n\ncommands\n"
+    )
+    assert [level["id"] for level in doc["levels"]] == ["L5", "L5.5", "L6"]
+    assert doc["levels"][1]["title"] == "DNS: the four hostnames"
+    # and the appendix after it is still an appendix
+    assert [s["title"] for s in doc["sections"]] == ["Checking reality"]
+
+
+def test_the_real_map_carries_the_dns_level():
+    """Every public entrance is a hand-made Cloudflare record — the one part of
+    the estate no script creates. If the level goes missing, the four hostnames
+    have no home in the plan."""
+    from console.architecture import load
+
+    doc = load()
+    dns = [level for level in doc["levels"] if level["id"] == "L5.5"]
+    assert dns, f"no L5.5 in {[level['id'] for level in doc['levels']]}"
+    body = dns[0]["prose"]
+    for host in ("bridge-lab", "console-lab", "faces-lab"):
+        assert host in body, f"{host} not recorded in the DNS level"

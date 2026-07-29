@@ -127,6 +127,17 @@ DDL: list[str] = [
 # Keys used in lab.lab_state. Named here so a typo is an ImportError rather
 # than a silently empty read.
 STATE_EXPIRY = "expiry"
+# Insight sign-offs (D38). They lived only in config/insight_reviews.yaml,
+# which is baked into the console image — so a sign-off made in the HOSTED
+# console was written to a container filesystem and lost on the next restart.
+# An approval is a named human act; losing one silently is the worst possible
+# failure for it. The file remains the local store and the diffable artifact.
+STATE_INSIGHT_REVIEWS = "insight_reviews"
+# Which scheduled brief sessions the watcher has already serviced (WS13 item
+# 3). Hosted, this is what stops a container restart re-delivering every
+# brief still listed in recent deployment runs — duplicate
+# A2ALab_Account_Brief__c records in a production org.
+STATE_BRIEF_SESSIONS = "brief_serviced_sessions"
 
 # The brief kinds that share lab.obs_briefs. Unknown values are accepted on
 # write (a future analyst should not need a schema change) but the console
@@ -290,6 +301,21 @@ class PgClient:
             self._conn = None
 
 
+# Postgres ARE equivalents of the Python rider regexes in store.py (D49). Kept
+# beside each other deliberately: they must match the same text, and the reason
+# there are two is the Data API size cap documented on _riders(), not a fork.
+#   store.CALLER_RIDER_RE     = r"caller-agent:\\?n?\s*([\w-]+)"
+#   store.LAB_TRACE_RIDER_RE  = r"lab-trace:\\?n?\s*([0-9a-fA-F-]{8,})"
+CALLER_RIDER_SQL = r"caller-agent:\\?n?\s*([\w-]+)"
+LAB_TRACE_RIDER_SQL = r"lab-trace:\\?n?\s*([0-9a-fA-F-]{8,})"
+
+# The RDS Data API refuses any result over 1 MB. Harvested `raw_json` is capped
+# at 100_000 chars per row at write time (_clip_json), and one session's events
+# measured 2.43 MB in total — so a whole session cannot be fetched in one
+# statement and list_events pages itself.
+_DATA_API_RESULT_BUDGET = 900_000
+
+
 class PgObsStore:
     """Postgres twin of the sqlite ObsStore's write surface — the four
     methods the harvest sources call (duck-typed, so sources are unchanged).
@@ -426,16 +452,38 @@ class PgObsStore:
             },
         )
 
-    def list_briefs(self, limit: int = 20, kind: str | None = None) -> list[dict[str, Any]]:
+    def list_briefs(
+        self, limit: int = 20, kind: str | None = None, days: int | None = None
+    ) -> list[dict[str, Any]]:
         """Newest first. `kind=None` returns every kind — which is what the
-        analyst's own feed wants when it asks "what have I written before"."""
-        where = "WHERE kind = :kind" if kind else ""
+        analyst's own feed wants when it asks "what have I written before".
+
+        `days` bounds the window by `created_at`, for the console's rolling
+        view. It is deliberately separate from `limit`: a quiet week should
+        show few briefs rather than backfilling older ones to reach a count,
+        because "nothing was written this week" is exactly the state the panel
+        needs to be able to express (D56).
+        """
+        clauses = []
+        params: dict[str, Any] = {"limit": limit}
+        if kind:
+            clauses.append("kind = :kind")
+            params["kind"] = kind
+        if days:
+            # NOT make_interval(days => :days): the Data API sends the value as
+            # bigint and make_interval takes int, so Postgres rejects it with
+            # "function make_interval(days => bigint) does not exist" — a type
+            # error that reads like a missing function. Multiplying an interval
+            # takes any numeric.
+            clauses.append("created_at >= now() - (:days * INTERVAL '1 day')")
+            params["days"] = days
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         return self.client.execute(
             f"""SELECT id, CAST(brief_date AS text) AS brief_date, session_id,
                        queries_run, brief_md, kind,
                        CAST(created_at AS text) AS created_at
                 FROM {SCHEMA}.obs_briefs {where} ORDER BY id DESC LIMIT :limit""",
-            {"limit": limit, **({"kind": kind} if kind else {})},
+            params,
         )
 
     # ---- lab_state: operator artifacts a hosted console must not read from
@@ -471,6 +519,151 @@ class PgObsStore:
         if isinstance(payload, dict):
             payload = {**payload, "stored_at": rows[0]["updated_at"]}
         return payload
+
+    # ---- reads (WS13 item 6 / D49) ----------------------------------------
+    # Until 2026-07-28 the console's `_obs_store()` returned the sqlite
+    # ObsStore unconditionally, so the Observability section rendered whatever
+    # the LOCAL harvest had written to traces/lab.db while the hosted harvest
+    # Lambda filled Aurora. Two stores drifting apart, invisibly, because the
+    # laptop always had a lab.db to show. Hosting the console made it obvious:
+    # a container has no lab.db at all, so the section was simply empty.
+    #
+    # The SQL below is a direct translation of the sqlite twin's, with two
+    # differences forced by Postgres: jsonb columns need `::text` to come back
+    # as strings, and a LIKE against jsonb has to cast first. The rider regexes
+    # and the usage rollup are imported rather than copied.
+
+    def summary(self) -> dict[str, Any]:
+        from observability.store import accumulate_usage
+
+        out: dict[str, Any] = {"platforms": {}}
+        for row in self.client.execute(
+            f"SELECT platform, COUNT(*) AS sessions FROM {SCHEMA}.obs_sessions GROUP BY platform"
+        ):
+            out["platforms"].setdefault(row["platform"], {})["sessions"] = row["sessions"]
+        for row in self.client.execute(
+            f"SELECT platform, COUNT(*) AS events FROM {SCHEMA}.obs_events GROUP BY platform"
+        ):
+            out["platforms"].setdefault(row["platform"], {})["events"] = row["events"]
+        for row in self.client.execute(
+            f"SELECT platform, last_harvest_at, status, detail FROM {SCHEMA}.obs_harvest"
+        ):
+            out["platforms"].setdefault(row["platform"], {})["harvest"] = {
+                "at": row["last_harvest_at"],
+                "status": row["status"],
+                "detail": row["detail"],
+            }
+        for row in self.client.execute(
+            f"""SELECT platform, usage_json::text AS usage_json
+                FROM {SCHEMA}.obs_sessions WHERE usage_json IS NOT NULL"""
+        ):
+            accumulate_usage(out["platforms"], row["platform"], row["usage_json"])
+        return out
+
+    def list_sessions(self, platform: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        q = f"""SELECT s.platform, s.native_id, s.lab_session_id, s.title, s.status,
+                       s.created_at, s.updated_at, s.usage_json::text AS usage_json,
+                       s.harvested_at,
+                       (SELECT COUNT(*) FROM {SCHEMA}.obs_events e
+                         WHERE e.platform = s.platform
+                           AND e.native_session_id = s.native_id) AS event_count,
+                       (SELECT COUNT(DISTINCT t.trace_id) FROM {SCHEMA}.trace_events t
+                         WHERE t.platform_ref = s.native_id) AS lab_trace_count
+                FROM {SCHEMA}.obs_sessions s"""
+        params: dict[str, Any] = {"limit": limit}
+        if platform:
+            q += " WHERE s.platform = :platform"
+            params["platform"] = platform
+        # COALESCE, matching sqlite: created_at is nullable, and in Postgres a
+        # NULL sorts FIRST under DESC — the nulls would push real sessions off
+        # the end of the LIMIT.
+        q += " ORDER BY COALESCE(s.created_at, '') DESC LIMIT :limit"
+        return [dict(r) for r in self.client.execute(q, params)]
+
+    def list_events(self, platform: str, native_session_id: str) -> list[dict[str, Any]]:
+        """One session's harvested events, PAGED to fit the Data API's 1 MB cap.
+
+        A busy session's raw payloads run to megabytes (2.43 MB measured), so a
+        single SELECT fails with UnsupportedResultException — and it fails on
+        exactly the sessions worth looking at. The page size is derived from the
+        widest row in this session rather than guessed, because the rows vary by
+        two orders of magnitude between platforms.
+        """
+        args = {"platform": platform, "sid": native_session_id}
+        widest = self.client.execute(
+            f"""SELECT COALESCE(MAX(LENGTH(raw_json::text)), 0) AS mx
+                FROM {SCHEMA}.obs_events
+                WHERE platform = :platform AND native_session_id = :sid""",
+            args,
+        )
+        per_page = max(1, _DATA_API_RESULT_BUDGET // max(1, int(widest[0]["mx"] or 1)))
+
+        out: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            rows = self.client.execute(
+                f"""SELECT platform, native_session_id, event_id, event_type,
+                           processed_at, summary, usage_json::text AS usage_json,
+                           raw_json::text AS raw_json, harvested_at
+                    FROM {SCHEMA}.obs_events
+                    WHERE platform = :platform AND native_session_id = :sid
+                    ORDER BY COALESCE(processed_at, ''), event_id
+                    LIMIT :limit OFFSET :offset""",
+                {**args, "limit": per_page, "offset": offset},
+            )
+            out.extend(dict(r) for r in rows)
+            if len(rows) < per_page:
+                return out
+            offset += per_page
+
+    def _riders(self, needle: str, sql_pattern: str) -> dict[str, str]:
+        """(platform:native_id) -> rider value extracted from harvested events.
+
+        The D27 rider is text INSIDE the platform's own recorded payload, so
+        this is a text-level join: it survives hops where no header or metadata
+        field does, which is the whole reason it exists.
+
+        The extraction runs in SQL, unlike the sqlite twin which scans in
+        Python. Not a style choice — the RDS Data API caps a result at **1 MB**
+        and the matching `raw_json` payloads total ~3.6 MB, so pulling them
+        back to regex locally fails outright with UnsupportedResultException.
+        `substring(... from ...)` returns the first capture group, so only the
+        short rider value crosses the wire and the result is one small row per
+        session.
+
+        MIN() rather than "whichever row came first": the sqlite version takes
+        an arbitrary matching event, so this is at worst equally arbitrary and
+        at best deterministic.
+        """
+        return {
+            f"{r['platform']}:{r['native_session_id']}": r["rider"]
+            for r in self.client.execute(
+                f"""SELECT platform, native_session_id,
+                           MIN(substring(raw_json::text from :pattern)) AS rider
+                    FROM {SCHEMA}.obs_events
+                    WHERE raw_json::text LIKE :needle
+                      AND substring(raw_json::text from :pattern) IS NOT NULL
+                    GROUP BY platform, native_session_id""",
+                {"needle": f"%{needle}%", "pattern": sql_pattern},
+            )
+            if r.get("rider")
+        }
+
+    def session_callers(self) -> dict[str, str]:
+        return self._riders("caller-agent", CALLER_RIDER_SQL)
+
+    def session_lab_traces(self) -> dict[str, str]:
+        return self._riders("lab-trace", LAB_TRACE_RIDER_SQL)
+
+    def lab_traces_for(self, native_id: str) -> list[str]:
+        return [
+            r["trace_id"]
+            for r in self.client.execute(
+                f"SELECT DISTINCT trace_id FROM {SCHEMA}.trace_events "
+                "WHERE platform_ref = :native_id",
+                {"native_id": native_id},
+            )
+        ]
 
     def close(self) -> None:
         self.client.close()

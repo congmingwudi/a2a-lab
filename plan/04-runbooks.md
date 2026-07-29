@@ -272,6 +272,16 @@ they fan out many subagents, so they cost real tokens):
   numbers must trace to plan/03-results.md or a dated ADR, observed claims
   to plan/*.md, refs to docs that discuss the topic; problems are
   adversarially verified.
+- **architecture-sweep** — one agent per architectural assertion (a diagram, a
+  console Details pane, a plan paragraph saying where something runs), checked
+  against the deploy scripts and live cloud state. Its failure mode is DRIFT
+  after a change that was itself correct: a component that has been hosted still
+  drawn as local, a manual step that now runs on a schedule. Deliberately NOT
+  part of matrix-honesty-sweep — that one audits protocol CLAIMS against
+  recorded runs, this audits PICTURES against infrastructure, and a sweep with
+  two evidence bases produces findings nobody knows how to act on. Run it after
+  anything moves host; the CLAUDE.md rule is what stops the drift in the first
+  place, and this catches what the rule missed.
 
 Both are read-only (report, don't edit) and best run before demos or
 publishing. Headless subagents can't do interactive auth, so keep deploys

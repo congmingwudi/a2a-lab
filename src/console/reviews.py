@@ -7,6 +7,13 @@ approver, timestamp, comment — in `config/insight_reviews.yaml`, beside the
 claims it governs, where it is diffable and reviewable like everything else
 in plan/.
 
+**Where it is actually stored depends on where the console runs (D50).** On a
+laptop the file above is the store. Hosted, Aurora's `lab.lab_state` is, because
+the file is a layer of the container image: a sign-off written there is lost on
+the next restart, with no error. The file is still written when it can be, so
+the repo keeps its diffable copy; `scripts/insight_reviews_sync.py` moves the
+record in either direction.
+
 The record pins the CONTENT it approved: a hash over headline, evidence,
 advisory, status and refs. Edit an approved insight and its approval goes
 `stale` rather than silently carrying over — an approval is of words, not of
@@ -69,7 +76,47 @@ def _path(path: str | Path | None) -> Path:
     return Path(path) if path is not None else REVIEWS_PATH
 
 
+def _hosted_store():
+    """The Aurora key/value store, or None when this is a laptop (D50).
+
+    A sign-off is a named human act, and the hosted console writes to a
+    container filesystem that does not survive a restart — so the approvals
+    Ryan made in the deployed console would have disappeared with no error and
+    no trace. `lab.lab_state` is the same table the expiry report already
+    publishes to, chosen for the same reason: these are whole documents
+    produced by the app and read back verbatim.
+
+    Returns None whenever Postgres is not configured, which keeps a fresh
+    checkout, the unit suite and offline work on the file alone.
+    """
+    try:
+        from observability.pg import PgClient, PgObsStore
+
+        if not PgClient.configured():
+            return None
+        return PgObsStore()
+    except Exception:  # noqa: BLE001 - no AWS, no boto3, no cluster: use the file
+        return None
+
+
 def load_reviews(path: str | Path | None = None) -> dict[str, dict]:
+    # An explicit path means "this file, nothing else" — tests and the sync
+    # script depend on that, and a caller naming a file must never be silently
+    # answered from Aurora.
+    if path is None:
+        store = _hosted_store()
+        if store is not None:
+            try:
+                from observability.pg import STATE_INSIGHT_REVIEWS
+
+                payload = store.get_state(STATE_INSIGHT_REVIEWS)
+                if payload:
+                    return payload.get("reviews") or {}
+                return {}
+            except Exception:  # noqa: BLE001 - fall through to the file
+                pass
+            finally:
+                store.close()
     p = _path(path)
     if not p.exists():  # no sign-offs yet — everything reads as pending
         return {}
@@ -78,7 +125,31 @@ def load_reviews(path: str | Path | None = None) -> dict[str, dict]:
 
 
 def save_reviews(reviews: dict[str, dict], path: str | Path | None = None) -> None:
-    p = _path(path)
+    if path is None:
+        store = _hosted_store()
+        if store is not None:
+            from observability.pg import STATE_INSIGHT_REVIEWS
+
+            try:
+                # Deliberately NOT wrapped in a swallow-everything: a sign-off
+                # that silently failed to persist is the bug this exists to
+                # fix, so a broken store must surface as a 500 in the console
+                # rather than a green tick over nothing.
+                store.put_state(STATE_INSIGHT_REVIEWS, {"reviews": reviews})
+            finally:
+                store.close()
+            # The repo file stays the diffable artifact, but only where it is
+            # writable and real — in the container it is a layer of the image,
+            # so a failure here must not lose the decision already stored.
+            try:
+                _write_file(reviews, REVIEWS_PATH)
+            except OSError:
+                pass
+            return
+    _write_file(reviews, _path(path))
+
+
+def _write_file(reviews: dict[str, dict], p: Path) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     body = yaml.safe_dump({"reviews": reviews}, sort_keys=True, allow_unicode=True, width=88)
     p.write_text(_HEADER + body)

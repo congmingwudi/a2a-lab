@@ -1,3 +1,5 @@
+import pytest
+
 import importlib
 import json
 from pathlib import Path
@@ -885,6 +887,9 @@ def test_coding_harvest_is_reachable_by_name_but_not_in_the_sweep(tmp_path, monk
     monkeypatch.setattr(salesforce_source, "SalesforceSource", fake_source("salesforce"))
     monkeypatch.setattr(openai_source, "OpenAISource", fake_source("openai"))
     monkeypatch.setattr(adk_source, "AdkSource", fake_source("adk"))
+    # This test is about the in-process source MAP, so force that path: the
+    # endpoint now defaults to firing the harvest Lambda (D54).
+    monkeypatch.setenv("A2ALAB_HARVEST_FUNCTION", "")
     trace_dir = tmp_path / "traces"
     trace_dir.mkdir()
     client = TestClient(make_app(trace_dir, monkeypatch, FakeRegistry()))
@@ -1139,3 +1144,315 @@ def test_healthz_is_open_and_says_nothing_useful(tmp_path, monkeypatch):
     resp = TestClient(app).get("/healthz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "healthy", "app": "console"}
+
+
+def test_hosted_console_refuses_to_start_without_a_token(monkeypatch):
+    """The hosted console must fail CLOSED when its token never arrives.
+
+    Found by deploying it (2026-07-28, WS13 item 1). `deploy_console.sh` wrote
+    the runtime secret and passed `A2ALAB_RUNTIME_SECRET_ARN`, but the console —
+    unlike the bridge — never called `load_secret_env_and_log`, so `A2ALAB_TOKEN`
+    was unset in the container. `TokenAuthMiddleware` treats an absent expected
+    token as "auth is off" (correct on a laptop, where `.env` is the only source
+    and needing AWS to run locally would be worse). Behind a public ALB it meant
+    every /api surface answered 200 to an unauthenticated caller, and a
+    deliberately wrong bearer token was accepted too.
+
+    The middleware's open-when-unset behaviour is deliberately left alone; what
+    changes is that a container which believes it is hosted refuses to serve
+    with authentication disabled.
+    """
+    import console.app as console_app
+
+    monkeypatch.setattr(console_app, "create_console_app", lambda *a, **k: object())
+    monkeypatch.setattr("interop.secret_env.load_secret_env_and_log", lambda source: None)
+    # main() calls load_dotenv(), and this repo HAS a .env carrying a token —
+    # so without stubbing it the guard cannot be observed here even though it
+    # fires in the container, which has no .env at all.
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+    monkeypatch.setenv("A2ALAB_RUNTIME_SECRET_ARN", "arn:aws:secretsmanager:us-east-1:x:secret:y")
+    monkeypatch.delenv("A2ALAB_TOKEN", raising=False)
+    monkeypatch.setattr("sys.argv", ["console"])
+
+    with pytest.raises(SystemExit) as exc:
+        console_app.main()
+    assert "A2ALAB_TOKEN" in str(exc.value)
+
+
+def test_local_console_still_starts_without_a_token(monkeypatch):
+    """The guard must not break local development, which is the reason the
+    middleware fails open in the first place: no runtime secret ARN means a
+    laptop reading `.env`, and it must not need AWS to run."""
+    import console.app as console_app
+
+    started = {}
+    monkeypatch.setattr(console_app, "create_console_app", lambda *a, **k: object())
+    monkeypatch.setattr("interop.secret_env.load_secret_env_and_log", lambda source: None)
+    monkeypatch.setattr("uvicorn.run", lambda app, **kw: started.update(kw))
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+    monkeypatch.delenv("A2ALAB_RUNTIME_SECRET_ARN", raising=False)
+    monkeypatch.delenv("A2ALAB_TOKEN", raising=False)
+    monkeypatch.setattr("sys.argv", ["console"])
+
+    console_app.main()
+    assert started["port"] == 8200
+
+
+def test_empty_console_url_env_falls_back_to_the_default(tmp_path, monkeypatch):
+    """An empty override means "I have nothing better", not "show no link".
+
+    `.env` carried `AGENTCORE_CONSOLE_URL=` and `AGENT_ENGINE_CONSOLE_URL=`
+    with empty values, and the code read them with `os.environ.get(var,
+    default)` — where an empty string is a PRESENT key and beats the default.
+    Both rows rendered "not yet available" in the running console for as long
+    as that was true. test_every_component_has_a_console_url could not catch it
+    because the suite does not load `.env` and `run_local.sh` does.
+    """
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("AGENTCORE_CONSOLE_URL", "")
+    monkeypatch.setenv("AGENT_ENGINE_CONSOLE_URL", "")
+    monkeypatch.setenv("FOUNDRY_CONSOLE_URL", "")
+    monkeypatch.setenv("OPENAI_CONSOLE_URL", "")
+    monkeypatch.setenv("CLAUDE_AGENT_CONSOLE_URL", "")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    data = TestClient(app).get("/api/scenarios", headers={"X-Lab-Token": "sekrit"}).json()
+    missing = [
+        (s["name"], c["title"])
+        for s in data["scenarios"]
+        for c in s.get("components") or []
+        if not c.get("url")
+    ]
+    assert missing == [], f"empty env var blanked a console link: {missing}"
+
+
+def test_sign_offs_persist_to_the_hosted_store_when_configured(monkeypatch, tmp_path):
+    """D50: the hosted console's filesystem is a layer of the container image,
+    so a sign-off written there vanishes on the next restart with no error —
+    the worst failure mode for a named human decision. Aurora is the store when
+    it is configured."""
+    from console import reviews
+
+    saved = {}
+
+    class FakeStore:
+        def get_state(self, key):
+            return saved.get(key)
+
+        def put_state(self, key, payload):
+            saved[key] = payload
+
+        def close(self):
+            saved["closed"] = True
+
+    monkeypatch.setattr(reviews, "_hosted_store", lambda: FakeStore())
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+
+    entry = reviews.record(
+        {"id": "a2a-async-at-heart", "headline": "h", "status": "measured"},
+        "approved",
+        user={"sub": "ryan", "name": "Ryan Cox"},
+        comment="checked against the run",
+    )
+    assert entry["by"] == "ryan"
+    assert saved["insight_reviews"]["reviews"]["a2a-async-at-heart"]["state"] == "approved"
+    # and it reads back from the store, not the file
+    assert reviews.load_reviews()["a2a-async-at-heart"]["name"] == "Ryan Cox"
+
+
+def test_sign_offs_still_use_the_file_with_no_hosted_store(monkeypatch, tmp_path):
+    """A fresh checkout, the unit suite and offline work must not need Aurora."""
+    from console import reviews
+
+    monkeypatch.setattr(reviews, "_hosted_store", lambda: None)
+    path = tmp_path / "insight_reviews.yaml"
+    reviews.record(
+        {"id": "managed-vs-self-hosted", "headline": "h"},
+        "approved",
+        user={"sub": "ryan"},
+        path=path,
+    )
+    assert path.exists()
+    assert reviews.load_reviews(path)["managed-vs-self-hosted"]["state"] == "approved"
+
+
+def test_an_explicit_path_is_never_answered_from_the_store(monkeypatch, tmp_path):
+    """scripts/insight_reviews_sync.py compares the two copies, so a caller
+    naming a file must get that file — otherwise `diff` compares the store
+    with itself and always reports 'in sync'."""
+    from console import reviews
+
+    class LoudStore:
+        def get_state(self, key):
+            raise AssertionError("explicit path must not consult the store")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(reviews, "_hosted_store", lambda: LoudStore())
+    path = tmp_path / "insight_reviews.yaml"
+    path.write_text("reviews:\n  x:\n    state: approved\n")
+    assert reviews.load_reviews(path)["x"]["state"] == "approved"
+
+
+def test_a_failing_store_does_not_report_a_silent_success(monkeypatch, tmp_path):
+    """The whole point is that a lost sign-off must not look like a saved one."""
+    from console import reviews
+
+    class BrokenStore:
+        def get_state(self, key):
+            return None
+
+        def put_state(self, key, payload):
+            raise RuntimeError("aurora is asleep")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(reviews, "_hosted_store", lambda: BrokenStore())
+    monkeypatch.setattr(reviews, "REVIEWS_PATH", tmp_path / "insight_reviews.yaml")
+    with pytest.raises(RuntimeError, match="aurora is asleep"):
+        reviews.record({"id": "x", "headline": "h"}, "approved", user={"sub": "ryan"})
+
+
+def test_hosted_harvest_fires_the_lambda_and_returns_at_once(tmp_path, monkeypatch):
+    """A full six-platform sweep runs past two minutes. The ALB's idle timeout
+    is 120s and Cloudflare's proxy limit is lower, so a synchronous harvest
+    cannot finish through the front door whatever we configure — the browser
+    got the load balancer's HTML 504 and reported
+    `SyntaxError: Unexpected token '<'` (D54).
+
+    Delegating also fixes what the in-process sweep could not do at all: the
+    Lambda covers six platforms to this endpoint's four, and holds the GCP key
+    and Entra principal the console container does not.
+    """
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_HARVEST_FUNCTION", "a2alab-obs-harvest")
+    invoked = {}
+
+    class FakeLambda:
+        def invoke(self, **kw):
+            invoked.update(kw)
+            return {"StatusCode": 202}
+
+    monkeypatch.setattr("boto3.client", lambda *a, **k: FakeLambda())
+    app = make_app(tmp_path / "traces", monkeypatch)
+    resp = TestClient(app).post("/api/obs/harvest", headers={"X-Lab-Token": "sekrit"})
+    body = resp.json()
+    assert body["ok"] is True and body["async"] is True
+    assert body["started_at"] > 0  # the poll contract
+    assert invoked["FunctionName"] == "a2alab-obs-harvest"
+    assert invoked["InvocationType"] == "Event"  # fire-and-forget, not RequestResponse
+
+
+def test_local_harvest_still_runs_in_process(tmp_path, monkeypatch):
+    """No Lambda configured means a laptop, where nothing is timing the request
+    out — running it here keeps the per-platform outcomes in the response."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    # Empty, not absent: the endpoint now DEFAULTS to firing the Lambda so the
+    # button behaves the same on a laptop as hosted (the in-process sweep wrote
+    # with a read-only credential and 500'd). Forcing it is opt-in.
+    monkeypatch.setenv("A2ALAB_HARVEST_FUNCTION", "")
+
+    class FakeSource:
+        def __init__(self, *a, **k):
+            pass
+
+        def harvest(self, store):
+            return SimpleNamespace(__dict__={"platform": "claude", "status": "ok", "detail": ""})
+
+    import console.app as console_app
+
+    app = make_app(tmp_path / "traces", monkeypatch)
+    monkeypatch.setattr("observability.anthropic_source.AnthropicSource", FakeSource)
+    resp = TestClient(app).post(
+        "/api/obs/harvest?platform=claude", headers={"X-Lab-Token": "sekrit"}
+    )
+    assert resp.json().get("async") is None  # synchronous path
+    assert console_app is not None
+
+
+def test_an_unstartable_harvest_reports_rather_than_pretending(tmp_path, monkeypatch):
+    """The old failure told the user 'Harvest failed: SyntaxError'. A refusal to
+    start must say so in words the panel can render."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_HARVEST_FUNCTION", "a2alab-obs-harvest")
+
+    def boom(*a, **k):
+        raise RuntimeError("AccessDeniedException: lambda:InvokeFunction")
+
+    monkeypatch.setattr("boto3.client", boom)
+    app = make_app(tmp_path / "traces", monkeypatch)
+    body = TestClient(app).post("/api/obs/harvest", headers={"X-Lab-Token": "sekrit"}).json()
+    assert body["ok"] is False
+    assert "lambda:InvokeFunction" in body["error"]
+
+
+def test_hosted_mode_keeps_the_managed_and_self_hosted_cells_distinct():
+    """D55. `claude-to-agentforce` targets claude-rest and is titled "Claude
+    Managed Agent"; `claude-aws-to-agentforce` targets claude-agentcore, the
+    SELF-HOSTED SDK twin. The pair exists to compare the two.
+
+    Hosted mode used to remap claude-rest → claude-agentcore, so both ran the
+    same backend and the comparison silently compared nothing. Proven from a
+    trace hop before the fix: claude-rest resolved to
+    `claude-agentcore (agentcore-http)` reporting `"backend": "sdk"`.
+    """
+    from interop.registry import Registry
+
+    registry = Registry.load()
+    hosted = registry.modes.get("hosted", {})
+    assert hosted.get("claude-rest") != "claude-agentcore", (
+        "hosted mode must not send the Managed Agent cell to the self-hosted runtime"
+    )
+    assert hosted.get("openai-rest") != "openai-agentcore"
+    # and the two cells must still resolve somewhere DIFFERENT from each other
+    assert hosted.get("claude-rest", "claude-rest") != hosted.get(
+        "claude-agentcore", "claude-agentcore"
+    )
+
+
+def test_every_hosted_remap_points_at_a_real_target():
+    """A mode entry naming a target that does not exist fails at request time
+    with an unknown-target KeyError, long after the typo."""
+    from interop.registry import Registry
+
+    registry = Registry.load()
+    for mode, mapping in registry.modes.items():
+        for src, dst in mapping.items():
+            assert src in registry.targets, f"{mode}: unknown source target {src}"
+            assert dst in registry.targets, f"{mode}: unknown destination target {dst}"
+
+
+def test_the_briefs_endpoint_returns_every_kind_within_the_window(tmp_path, monkeypatch):
+    """D56. Two agents write to lab.obs_briefs — the observability analyst and
+    the WS12 cost sentinel — separated only by `kind`. /api/cost-brief always
+    filtered; /api/obs/briefs never did, so it returned whatever was newest and
+    the Observability section rendered a build-COST brief. It read as the
+    analyst having changed subject to coding telemetry, when in fact its own
+    last brief was eleven days old and it was paused.
+    """
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    asked = {}
+
+    class FakeStore:
+        def list_briefs(self, limit=20, kind=None, days=None):
+            asked.update(kind=kind, days=days)
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("observability.pg.PgClient.configured", classmethod(lambda cls: True))
+    monkeypatch.setattr("observability.pg.PgObsStore", lambda *a, **k: FakeStore())
+    app = make_app(tmp_path / "traces", monkeypatch)
+    TestClient(app).get("/api/obs/briefs", headers={"X-Lab-Token": "sekrit"})
+    # It asks for EVERY kind in the window and the console splits them into
+    # one sub-tab per kind, so a future analysis agent gets a tab with no
+    # server change. What must not return is the old behaviour: an unfiltered
+    # list under ONE heading, where the cost sentinel's brief appeared in the
+    # Observability section and read as the analyst changing subject.
+    assert asked["kind"] is None
+    # and it asks for a WINDOW, so a week with no analyst run looks empty
+    # rather than showing an eleven-day-old brief as if it were current.
+    assert asked["days"] == 7

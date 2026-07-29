@@ -200,10 +200,22 @@
            border: 1px solid color-mix(in srgb, var(--hero-link) 38%, transparent);
            cursor: pointer; vertical-align: baseline; }
   .dchip:hover { color: var(--fg-hi); border-color: var(--hero-link); }
-  .dpopover { position: fixed; z-index: 60; width: min(560px, calc(100vw - 24px));
-              max-height: min(65vh, 560px); overflow: auto; background: var(--card);
+  /* Wide enough to read the underlying doc, not just glance at it. These
+     popovers render real plan/ prose — ADR bodies run to several paragraphs
+     and plan/05's capability matrix is six columns — and at 560px that was a
+     column of about eight words. The fixed-position code clamps left to the
+     viewport, so a wider box cannot push itself off-screen. */
+  .dpopover { position: fixed; z-index: 60; width: min(920px, calc(100vw - 48px));
+              max-height: min(78vh, 760px); overflow: auto; background: var(--card);
               border: 1px solid var(--border-hi); border-radius: 12px; padding: 4px 18px 12px;
               box-shadow: 0 14px 40px var(--shadow-lg); font-size: 13px; line-height: 1.55; }
+  /* A wide markdown table scrolls inside its own box rather than stretching
+     the popover past the clamp — the honest matrix is the case that needs it. */
+  .dpopover table { display: block; overflow-x: auto; max-width: 100%;
+                    border-collapse: collapse; margin: 8px 0 12px; font-size: 12px; }
+  .dpopover th, .dpopover td { border: 1px solid var(--border); padding: 5px 9px;
+                               text-align: left; vertical-align: top; }
+  .dpopover th { background: var(--code); color: var(--fg-hi); white-space: nowrap; }
   .dpopover h4, .dpopover h5, .dpopover h6 { margin: 12px 0 6px; font-size: 13px; color: var(--fg-hi); }
   .dpopover code { background: var(--code); border: 1px solid var(--border);
                    padding: 1px 5px; border-radius: 5px; font-size: 12px; }
@@ -308,6 +320,13 @@
               margin: 0 0 14px; letter-spacing: .2px; }
   .hero-body { color: var(--hero-body); font-size: 14.5px; line-height: 1.65; max-width: 640px; margin: 0 0 22px;
                text-wrap: balance; }
+  /* The lab's own claim about itself, so it is the first thing a visitor reads
+     rather than something the Lab Guide has to be asked for. Set apart from the
+     body copy — a left rule and slightly larger type — because it is the
+     standard everything below is offering to be held to. */
+  .hero-ethos { color: var(--hero-body); font-size: 15px; line-height: 1.6; max-width: 660px;
+                margin: 0 0 24px; padding-left: 14px; border-left: 2px solid var(--hero-sub); }
+  .hero-ethos b { color: #fff; letter-spacing: .01em; }
   .hero-ctas { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .hero-cta { color: #eaf4ff; font-family: var(--font-head); font-weight: 600; font-size: 13.5px;
               background: linear-gradient(135deg, #092e5e 0%, #0f386b 50%, #1a4a86 100%);
@@ -395,6 +414,32 @@
          border-radius: 999px; padding: 3px 12px; font-size: 11.5px; font-weight: 600; }
   .tab:hover { color: var(--fg); border-color: var(--border-hi); }
   .tab.on { color: var(--fg); background: var(--card2); border-color: var(--border-hi); }
+  /* A tab selects a CANVAS, not a filter (D57). The panel gives the selected
+     tab a surface of its own so "Details" reads as somewhere you went, rather
+     than extra text appended under the thing you were already looking at. */
+  .tabpanel { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+              padding: 16px 20px 8px; margin: 0 0 16px; }
+  .tabpanel > .flow:first-child > h3:first-child { margin-top: 0; }
+  .tabpanel .arch-prose, .tabpanel p { line-height: 1.6; }
+  .tabpanel h3 { margin: 16px 0 6px; font-size: 13.5px; color: var(--fg-hi); }
+  .tabpanel table { display: block; overflow-x: auto; max-width: 100%; }
+
+  /* Run All failures: a list you can act on. The summary used to be one line
+     of text that truncated the error, so the only way to find out what broke
+     was to run it again — each row opens that experiment instead. */
+  /* An inline disclosure for a summary line — keeps the strip to one line
+     until someone asks. */
+  .linkish { background: none; border: none; padding: 0 2px; font: inherit; font-size: 11.5px;
+             color: var(--a2a, #6aa); text-decoration: underline; cursor: pointer; }
+  .obs-pending { display: block; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+  .runall-fails { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
+  .runall-fail { display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%;
+                 background: var(--card2); border: 1px solid var(--border); border-left: 3px solid var(--err, #c66);
+                 border-radius: 8px; padding: 7px 10px; cursor: pointer; }
+  .runall-fail:hover { border-color: var(--border-hi); }
+  .rf-name { font-size: 11.5px; font-weight: 600; color: var(--fg); }
+  .rf-err { font-size: 11px; color: var(--muted); font-family: var(--font-mono);
+            overflow-wrap: anywhere; line-height: 1.45; }
 
   /* chat (Run tab) */
   .chat { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
@@ -1002,7 +1047,7 @@
   </div>
   <div class="user-wrap" style="position:relative">
     <button class="guide-btn" id="userBtn" onclick="toggleUserPanel(event)"
-      title="Sign in as a lab user — runs carry your identity (WS6)">👤 Sign in</button>
+      title="Sign in as a lab user — experiments carry your identity (WS6)">👤 Sign in</button>
     <div id="userPanel" class="warm-panel user-panel" style="display:none" onclick="event.stopPropagation()"></div>
   </div>
   <button class="guide-btn" id="guideBtn" onclick="toggleGuide()"
@@ -1224,7 +1269,7 @@ window.toggleUserPanel = async ev => {
   let users = [];
   try { users = (await (await fetch(apiUrl("/api/users"))).json()).users || []; }
   catch (e) { /* directory unavailable — panel just shows sign-out */ }
-  panel.innerHTML = `<h3>Lab users <span class="hint" style="text-transform:none;letter-spacing:0">runs carry your identity</span>
+  panel.innerHTML = `<h3>Lab users <span class="hint" style="text-transform:none;letter-spacing:0">&mdash; experiments carry your identity</span>
       <button class="x" onclick="document.getElementById('userPanel').style.display='none'">✕</button></h3>`
     + users.map(u => `
       <div class="warm-row" style="cursor:pointer" onclick="gdPickUser('${esc(u.username)}', '${esc(u.name)}')">
@@ -1265,18 +1310,56 @@ window.labSignIn = async () => {
     localStorage.setItem("a2a-user-jwt", d.token);
     localStorage.setItem("a2a-user", JSON.stringify(d.user));
     labUser = d.user;
-    // Reload so every panel refetches with the new credential — the
-    // signed-out page loaded nothing but the shell.
-    window.location.reload();
+    // Refetch in place rather than reloading the page. The signed-out shell
+    // loads nothing but the public surface, so SOMETHING has to re-request it
+    // with the new credential — this used to be window.location.reload(), and
+    // signing in appeared to do nothing at all until you refreshed by hand.
+    // Doing it here also keeps the console on whatever the user was looking
+    // at, instead of throwing them back to the landing page.
+    document.getElementById("userPanel").style.display = "none";
+    document.getElementById("userPwInput").value = "";
+    pendingUser = null;
+    renderUserBtn();
+    // Reveal the Control Panel gear, the Lab Guide button and the drawer
+    // handle, all of which the signed-out pass hid. Without this the console
+    // comes up signed in with no way to reach anything.
+    applyAuthGating();
+    await signedInRefresh();
     return;
   } catch (e) { alert("Sign-in failed: " + e.message); }
   renderUserBtn();
 };
 
+// Everything the signed-out page could not fetch. Kept in one place so sign-in
+// and first paint cannot drift apart — a panel added to boot and not to this
+// list is a panel that stays empty until the user reloads.
+async function signedInRefresh() {
+  await Promise.allSettled([
+    loadLaunchers(),      // scenarios + targets (the experiment nav)
+    loadDecisions(),      // the D-chip corpus
+    refreshTraces(),      // trace list, now that /api/traces answers
+    loadObs(),            // observability summary + sessions
+    loadInsights(),
+    loadWarmup(),
+    loadConfig(),
+  ]);
+  // Deliberately NOT connectStream(). The loop started at boot never exits —
+  // on 401 it drops the dead credential, slows to a poll and reconnects by
+  // itself once a sign-in lands (see its own comment). Starting a second one
+  // here would leave two readers on the same tail, and every hop would arrive
+  // twice.
+  renderSidebar();
+  renderMain();
+}
+
 window.labSignOut = () => {
   localStorage.removeItem("a2a-user-jwt");
   localStorage.removeItem("a2a-user");
   labUser = null;
+  // Reload is right HERE and wrong on sign-in: signing out should drop every
+  // panel that was fetched with a credential, and the landing page is what a
+  // signed-out visitor gets anyway. Nothing is left on screen that the new
+  // state should not show.
   window.location.reload();
 };
 
@@ -1292,26 +1375,49 @@ function requireSignIn() {
   return false;
 }
 
+// Gating is SYMMETRIC — it sets both states rather than only hiding.
+//
+// It used to only hide, which was correct while it ran once on a fresh DOM at
+// boot. Signing in without a page reload made that assumption visible: the
+// Control Panel gear, the Lab Guide button and the drawer handle stayed hidden
+// from the signed-out pass, so the console came up signed in with no way to
+// reach anything until the user refreshed by hand.
+//
+// The rule to keep: any function that both a first paint and a later state
+// change call must restore as explicitly as it removes.
 function applyAuthGating() {
+  const show = (id, on) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? "" : "none";
+  };
+  const handle = document.querySelector(".side-handle");
+  const main = document.querySelector("main");
+
   if (!labUser) {
-    document.getElementById("guideBtn").style.display = "none";
-    document.getElementById("gearBtn").style.display = "none";
-    const handle = document.querySelector(".side-handle");
+    show("guideBtn", false);
+    show("gearBtn", false);
     if (handle) handle.style.display = "none";
-    document.querySelector("main").classList.add("side-closed");
+    main.classList.add("side-closed");
     return;
   }
-  if (labUser.role === "viewer") {
-    // Viewer (D36 role model): everything read-only; execution surfaces
-    // are hidden here and 403'd server-side.
-    document.getElementById("gearBtn").style.display = "none";
-    for (const id of ["harvestBtn", "analyzeBtn", "buildHarvestBtn"]) {
-      const el = document.getElementById(id);
-      if (el) el.style.display = "none";
-    }
-    const runAll = document.getElementById("runAllBtn");
-    if (runAll) runAll.parentElement.style.display = "none";
-  }
+
+  // Viewer (D36 role model): everything read-only; execution surfaces are
+  // hidden here and 403'd server-side. Operators get the lot.
+  const operator = labUser.role !== "viewer";
+  show("guideBtn", true);
+  show("gearBtn", operator);
+  if (handle) handle.style.display = "";
+  for (const id of ["harvestBtn", "analyzeBtn", "buildHarvestBtn"]) show(id, operator);
+  const runAll = document.getElementById("runAllBtn");
+  if (runAll) runAll.parentElement.style.display = operator ? "" : "none";
+
+  // Restore the drawer to the operator's own preference. The signed-out branch
+  // force-closes it, so without this a sign-in leaves it shut even for someone
+  // who had it open — and the boot-time restore already ran, before there was
+  // a user.
+  let saved = null;
+  try { saved = localStorage.getItem("a2a-side-open"); } catch (e) { /* ignore */ }
+  if (saved === "1") main.classList.remove("side-closed");
 }
 
 const newTraceId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "")
@@ -1347,14 +1453,21 @@ function tableRows(lines, start) {
   };
 }
 
-// opts.joinLines: treat a paragraph's source newlines as SOFT wraps and join
-// with a space, which is what markdown means. Default stays <br> because the
-// console's other caller is agent output, where a model's line breaks are
-// usually deliberate. A hard-wrapped DOCUMENT (plan/*.md wraps at ~78 chars)
-// rendered the default way gets a forced break every 78 characters — text that
-// re-wraps into a ragged column and reads like a terminal, not a page.
+// Newlines inside a paragraph are SOFT WRAPS and join with a space — which is
+// what markdown means, and now the default.
+//
+// It used to default to <br>, on the reasoning that agent output has deliberate
+// line breaks. That was the wrong default for the console, where almost every
+// text surface renders a hard-wrapped DOCUMENT: plan/*.md wraps at ~78 chars,
+// so every D-chip popover, every Details pane and every architecture level got
+// a forced break every 78 characters and re-wrapped into a ragged column that
+// ignored the width of its container. Correct markdown, and correct typography,
+// is to let the paragraph fill its box.
+//
+// opts.hardBreaks keeps the old behaviour for the two CHAT surfaces, where a
+// model may lay something out on purpose and the container is narrow anyway.
 function mdToHtml(src, opts) {
-  const joiner = opts && opts.joinLines ? " " : "<br>";
+  const joiner = opts && opts.hardBreaks ? "<br>" : " ";
   const lines = esc(src).split(/\r?\n/);
   const out = [];
   let list = null, code = false, para = [];
@@ -2123,6 +2236,16 @@ function obsMsg(text, isErr) {
   el.style.color = isErr ? "var(--err)" : "";
 }
 
+// Same strip, but the caller supplies markup — for a one-line summary with a
+// disclosure behind it. Callers escape their own interpolations.
+function obsMsgHtml(html, isErr) {
+  const el = document.getElementById("obsMsg");
+  if (!el) return;
+  el.style.display = html ? "" : "none";
+  el.innerHTML = html || "";
+  el.style.color = isErr ? "var(--err)" : "";
+}
+
 async function loadObs() {
   try {
     const [sr, lr] = await Promise.all([fetch(apiUrl("/api/obs/summary")), fetch(apiUrl("/api/obs/sessions"))]);
@@ -2152,47 +2275,193 @@ async function loadBriefs() {
       obs.analysisRunning = false;
       renderObsSide();
       if (obs.briefWatch) { clearInterval(obs.briefWatch); obs.briefWatch = null; }
-      obs.tab = "brief";
+      obs.tab = "observability";
+      obs.sub = "main";
       obsMsg("");
     }
     if (view && view.type === "obs" && !view.session) renderMain(true);
   } catch { /* hosted store not configured — the brief tab explains itself */ }
 }
 
+// The Observability canvas, one entry per top tab. Analysis briefs sit BESIDE
+// the dashboard rather than inside it: they are separate readings of the same
+// store, written by different agents, and burying one under the other is what
+// let a cost brief masquerade as the analyst's (D56).
+const OBS_TABS = [
+  ["dashboard", "Dashboard"],
+  ["observability", "Observability Analysis"],
+  ["cost", "Cost Analysis"],
+];
+// Brief kinds keyed by tab id — `null` for the dashboard, which reads the
+// harvested tables rather than lab.obs_briefs.
+const OBS_TAB_KIND = { dashboard: null, observability: "observability", cost: "cost" };
+
 window.setObsTab = t => {
   obs.tab = t;
+  obs.sub = "main";   // a new tab opens on its content, never on its Details
   renderMain(true);
 };
 
-function obsBriefsHtml() {
-  const briefs = obs.briefs || [];
-  const running = obs.analysisRunning ? `
-    <div class="desc"><span class="stat">${esc(obs.analysisAgent || "The analyst agent")} is running —
-      this tab updates when the brief lands (usually a few minutes).</span></div>` : "";
-  if (!briefs.length) return `
-  <div class="flow">
-    <h3>Analysis brief</h3>
-    ${running || `<div class="desc"><span class="stat">No briefs yet — hit <b>Analyze</b> in the sidebar and the
-      Claude-managed analyst will query the store and save its findings here.</span></div>`}
-  </div>`;
-  const latest = briefs[0];
-  return `
-  <div class="flow">
-    <h3>Analysis brief — ${esc(latest.brief_date)}
-      <span class="obs-updated" style="float:right">last updated ${fmtWhen(latest.created_at)}</span></h3>
-    ${running}
-    <div class="desc"><span class="stat">Curated by the Claude-managed analyst agent over the harvested store
-      (${latest.queries_run ?? "?"} queries${latest.session_id ? " · session " + esc(latest.session_id.slice(-8)) : ""}).</span></div>
-    <div class="obs-card brief-md">${mdToHtml(latest.brief_md)}</div>
-    ${briefs.length > 1 ? `
-    <h3 style="margin-top:18px">Past briefs</h3>
-    ${briefs.slice(1).map(b => `
-      <details>
-        <summary style="cursor:pointer; font-size:12.5px; padding:4px 0">${esc(b.brief_date)} · ${b.queries_run ?? "?"} queries · ${fmtWhen(b.created_at)}</summary>
-        <div class="obs-card brief-md" style="margin:6px 0">${mdToHtml(b.brief_md)}</div>
-      </details>`).join("")}` : ""}
+// Every tab carries a Details pane, the same shape experiments use: the canvas
+// shows the thing, Details explains where the thing came from.
+window.setObsSub = s => { obs.sub = s; renderMain(true); };
+
+function obsSubTabsHtml() {
+  const sub = obs.sub === "details" ? "details" : "main";
+  const main = (OBS_TABS.find(([id]) => id === (obs.tab || "dashboard")) || [, "Dashboard"])[1];
+  return `<div class="tabs" style="margin:10px 0 4px">
+    <button class="tab ${sub === "main" ? "on" : ""}" onclick="setObsSub('main')">${esc(main)}</button>
+    <button class="tab ${sub === "details" ? "on" : ""}" onclick="setObsSub('details')">Details</button>
   </div>`;
 }
+
+function obsBriefsHtml(kind) {
+  const briefs = (obs.briefs || []).filter(b => (b.kind || "observability") === kind);
+  const meta = BRIEF_META[kind] || { label: kind, who: "An analysis agent" };
+  const running = obs.analysisRunning && kind === "observability" ? `
+    <div class="desc"><span class="stat">${esc(obs.analysisAgent || "The analyst agent")} is running —
+      this tab updates when the brief lands (usually a few minutes).</span></div>` : "";
+
+  if (!briefs.length) return `
+  <div class="flow">
+    ${running}
+    <div class="desc"><span class="stat">No <b>${esc(meta.label.toLowerCase())}</b> briefs in the last 7 days.
+      ${esc(meta.emptyHint)} <br>See <b>Details</b> for where this brief type comes from.</span></div>
+  </div>`;
+
+  return `
+  <div class="flow">
+    ${running}
+    <div class="desc"><span class="stat">${meta.blurb}
+      <br>Rolling <b>7 days</b> · ${briefs.length} brief${briefs.length > 1 ? "s" : ""}, newest open.</span></div>
+    ${briefs.map((b, i) => `
+      <details ${i === 0 ? "open" : ""} style="margin:8px 0">
+        <summary style="cursor:pointer; font-size:12.5px; padding:4px 0">
+          ${esc(b.brief_date)} · ${b.queries_run ?? "?"} queries · ${fmtWhen(b.created_at)}${
+            i === 0 ? ' <span class="stat">— latest</span>' : ""}
+        </summary>
+        <div class="obs-card brief-md" style="margin:6px 0">${mdToHtml(b.brief_md)}</div>
+      </details>`).join("")}
+  </div>`;
+}
+
+// Provenance, one entry per brief kind. `details` is markdown so the D-chips
+// and plan/ paths linkify themselves — the same mechanism every other rendered
+// doc in the console uses.
+const BRIEF_META = {
+  observability: {
+    label: "Observability analysis",
+    blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
+         + "experiment telemetry across all six platforms.",
+    emptyHint: "The analyst is a PAUSED deployment, so it only runs when you hit Analyze in the sidebar.",
+    diagram: () => OBS_ANALYST_DIAGRAM,
+    details: `### What writes this brief
+
+The **observability analyst** is a Claude **Managed Agent** (D23) — an agent Anthropic hosts and runs,
+provisioned as a scheduled deployment that is **paused**, so it produces a brief only when you press
+**Analyze**. Every scheduled and long-running process in the lab is listed in
+plan/09-deployment-map.md level L5.7.
+
+### How it reaches the data
+
+It holds no database credential. It queries through the **obs MCP server** — a Lambda behind API Gateway
+that exposes read-only SQL over the \`lab.*\` schema plus one \`save_brief\` tool. The agent decides what
+to ask; the server decides what is answerable. That split is the point: the model gets analytical freedom
+without the lab handing an agent write access to its own store.
+
+The agent's MCP toolset is configured **always_allow**. An unattended run has no client to confirm a
+permission prompt, so a tool evaluated as "ask" stalls the session indefinitely rather than failing.
+
+### What it analyses, and where the brief lands
+
+The harvested execution logs in \`lab.obs_sessions\` and \`lab.obs_events\` — sessions, turns, tool calls,
+token usage and errors from all six platforms. This is the telemetry of what the **experiments** did.
+
+Briefs are written to \`lab.obs_briefs\` with \`kind='observability'\`. The cost sentinel writes to the same
+table with a different kind; each tab shows only its own.
+
+### Watching a run
+
+The **Analyze** button reports the session id, and a run is visible in the platform's own session view.
+Its tool calls and thinking events are also harvested back into this store on the next sweep — the analyst
+appears in the \`claude\` platform rows like any other agent the lab runs.`,
+  },
+  cost: {
+    label: "Cost analysis",
+    blurb: "The weekly <b>build-cost</b> read from the <b>cost sentinel</b> — what building this lab "
+         + "consumed, in the units each vendor bills.",
+    emptyHint: "The sentinel is a weekly scheduled deployment and is currently paused.",
+    diagram: () => COST_SENTINEL_DIAGRAM,
+    details: `### What writes this brief
+
+The **cost sentinel** (WS12/D44) is a Claude **Managed Agent** on a weekly schedule — Mondays 07:00
+America/New_York. It is currently **paused**; plan/09-deployment-map.md level L5.7 is the inventory that
+says which scheduled processes are actually enabled.
+
+It reads and writes exactly as the observability analyst does: read-only SQL through the obs MCP server,
+brief saved to \`lab.obs_briefs\` with \`kind='cost'\`. Same table, same tool, different question.
+
+### What it measures
+
+The **coding-agent telemetry** (WS9): the tokens and modelled cost of the agents that BUILD this lab —
+Claude Code and Codex — exported over OTLP into CloudWatch and harvested into the \`coding\` platform rows.
+That is a different subject from the Observability Analysis tab, which is about the experiments the lab
+**runs**.
+
+### The caveat that travels with every number
+
+\`claude_code.cost.usage\` is a **client-side estimate at list price, not an invoice**. On a subscription
+or credit plan a swing here is a **usage** swing and may never be a billing swing. D44 is about reporting
+consumption in the units each vendor actually bills — tokens, allocated compute, requests — rather than
+collapsing them into one number that means nothing across platforms.`,
+  },
+};
+
+
+function obsBriefDetailsHtml(kind) {
+  const meta = BRIEF_META[kind];
+  if (!meta) return `<div class="flow"><div class="desc"><span class="stat">No description for this brief kind yet.</span></div></div>`;
+  return `<div class="flow">
+    <h3>How this brief is produced</h3>
+    <div class="archsvg-wrap" id="obsBriefFig" style="margin:6px 0 18px"></div>
+    ${mdToHtml(meta.details)}
+  </div>`;
+}
+
+// What the dashboard is showing, and how the data got there.
+function obsDashboardDetailsHtml() {
+  const md = `### What this dashboard shows
+
+Per-platform **sessions**, **events**, **token totals** and the **last harvest status** for every
+platform the lab talks to. It reads \`lab.obs_sessions\`, \`lab.obs_events\` and \`lab.obs_harvest\`
+on Aurora Postgres, which is the source of truth for everything on this page (D49).
+
+### What the harvest pulls, per platform
+
+- **Salesforce Agentforce** — SOQL over the Session Tracing DMOs: sessions, turns, planner and action steps
+- **Anthropic Managed Agents** — sessions plus full per-session event streams
+- **OpenAI** — stored responses, fetched by id (there is no list-executions API)
+- **Google Agent Engine** — Cloud Logging entries and Cloud Monitoring meters
+- **Microsoft Foundry** — KQL over App Insights \`gen_ai\` spans
+- **coding** — CloudWatch metrics for the agents that build the lab (WS9), surfaced in its own section
+
+### What limits what you see here
+
+plan/05-observability.md holds the honest matrix of what each platform's API actually exposes, and two
+entries shape this dashboard more than the rest. **OpenAI** has no list-executions API, so its rows exist
+only for responses the lab captured an id for at emit time. **Agent Engine** has no session read API on the
+preview A2A surface at all, so its honest shape is one session per deployed engine with log entries as
+events, rather than one session per turn.
+
+The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
+six-platform sweep runs longer than a browser request may stay open.`;
+  return `<div class="flow">
+    <h3>The architecture behind it</h3>
+    <div class="archsvg-wrap" id="obsDashFig" style="margin:6px 0 18px"></div>
+    ${mdToHtml(md)}
+  </div>`;
+}
+
 
 // "last updated" stamp: absolute local time + relative age.
 function fmtWhen(value) {
@@ -2216,8 +2485,9 @@ function obsTabsHtml() {
   <div class="tabbar">
     <h2>Observability</h2>
     <div class="tabs">
-      <button class="tab ${obs.tab !== "brief" ? "on" : ""}" onclick="setObsTab('dashboard')">Dashboard</button>
-      <button class="tab ${obs.tab === "brief" ? "on" : ""}" onclick="setObsTab('brief')">Analysis brief</button>
+      ${OBS_TABS.map(([id, label]) => `
+        <button class="tab ${(obs.tab || "dashboard") === id ? "on" : ""}"
+          onclick="setObsTab('${id}')">${label}</button>`).join("")}
     </div>
   </div>`;
 }
@@ -2238,11 +2508,12 @@ window.runAnalysis = async ev => {
     const data = await r.json();
     if (!data.ok) { obsMsg("Analysis failed to start: " + (data.error || "unknown"), true); return; }
     const who = `Claude Managed Agent '${data.agent_name || "Observability Analyst"}'`;
-    obsMsg(`${who} is running — the brief appears in the Analysis brief tab in a few minutes.`);
+    obsMsg(`${who} is running — the brief appears in the Observability Analysis tab in a few minutes.`);
     obs.analysisRunning = true;
     obs.analysisAgent = who;
     renderObsSide();
-    obs.tab = "brief";
+    obs.tab = "observability";
+    obs.sub = "main";
     if (!view || view.type !== "obs") obsSummaryNav();
     else renderMain(true);
     // Watch for the brief every 30s, give up after 20 minutes.
@@ -2323,8 +2594,15 @@ window.harvestObs = async ev => {
       obsMsg("Console server predates the Observability API — restart scripts/run_local.sh.", true);
       return;
     }
-    const data = await r.json();
+    const data = await readJson(r, "Harvest failed");
     if (!data.ok) { obsMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
+    // Hosted: the server fired the harvest Lambda and returned immediately
+    // (D54). A full sweep outlives the load balancer's 120s idle timeout, so
+    // awaiting the result is not an option the front door offers — the browser
+    // used to get the ALB's HTML 504 and report it as
+    // "SyntaxError: Unexpected token '<'". Watch the store instead.
+    if (data.async) { await pollHarvest(data.started_at); return; }
+    // Local: it ran in-process, so the outcomes came back with the response.
     // Per-platform outcomes live in the status chips — the message only
     // carries what the chips can't: an all-clear or what failed.
     const failed = data.results.filter(x => x.status !== "ok" && x.status !== "blocked");
@@ -2343,6 +2621,98 @@ window.harvestObs = async ev => {
     renderObsSide();
   }
 };
+
+// Watch lab.obs_harvest for platforms whose last_harvest_at is newer than the
+// moment we fired. Each one lands independently, so the panel fills in as they
+// finish rather than all at once — which is also the honest picture of what a
+// six-platform sweep is doing.
+// Read a JSON response, or explain what actually answered.
+//
+// When something upstream replies instead of the app — the load balancer's 504
+// page, a proxy's 500, a Cloudflare error — the body is HTML or plain text and
+// `r.json()` throws `SyntaxError: Unexpected token '<'`. That message names the
+// first character of the intruder and nothing else, and it has now been
+// reported twice as if the harvest itself were broken (D54). Show the status
+// and a scrap of what came back instead.
+async function readJson(r, what) {
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const snippet = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+    throw new Error(`${what}: HTTP ${r.status}${r.statusText ? " " + r.statusText : ""}`
+      + (snippet ? ` — ${snippet}` : "") + " (that is not the app answering)");
+  }
+}
+
+async function pollHarvest(startedAt) {
+  // Watch lab.obs_harvest for platforms whose last_harvest_at moves past the
+  // moment we fired. Each lands independently, so the panel fills in as they go.
+  //
+  // TIMING IS THE WHOLE DIFFICULTY. A sweep takes minutes and platforms land
+  // minutes apart, so "nothing new for a moment" does NOT mean finished — an
+  // earlier version settled after 20s and announced four platforms missing
+  // while the harvest was still working. Settle only after a long quiet, and
+  // treat "not yet" as pending rather than as a fault.
+  const EVERY_MS = 5000;
+  const SETTLE_MS = 150000;   // 2.5 min with nothing new = the sweep is over
+  const DEADLINE_S = 660;     // just past the harvest Lambda's own 600s timeout
+  const expected = new Set(Object.keys((obs.summary && obs.summary.platforms) || {}));
+  const t0 = Date.now();
+  const landed = new Set();
+  let lastChange = Date.now();
+
+  const finish = () => {
+    const secs = Math.round((Date.now() - t0) / 1000);
+    const took = secs < 90 ? `${secs}s` : `${Math.floor(secs / 60)}m${String(secs % 60).padStart(2, "0")}s`;
+    const pending = [...expected].filter(p => !landed.has(p)).sort();
+    if (!pending.length) {
+      obsMsg(`Done — ${landed.size} platform${landed.size === 1 ? "" : "s"} refreshed in ${took}.`);
+      return;
+    }
+    // The chips beside each platform already carry its status, so do not repeat
+    // it here. One line, and the names behind a disclosure. Red only if a
+    // platform actually reports an error — "did not refresh this run" is not
+    // one, and colouring it red taught the reader to distrust the colour.
+    const plats = (obs.summary && obs.summary.platforms) || {};
+    const broken = pending.filter(p => ((plats[p] || {}).harvest || {}).status === "error");
+    obsMsgHtml(
+      `<span class="stat">${landed.size} of ${expected.size} refreshed</span> in ${took} · `
+      + `${pending.length} unchanged `
+      + `<button class="linkish" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">which?</button>`
+      + `<span hidden class="obs-pending">${esc(pending.join(", "))}`
+      + ` — these kept their previous rows. Their status chips show what each one last reported;`
+      + ` Details explains what each source needs.</span>`,
+      broken.length > 0);
+  };
+
+  obsMsg(`Harvest running — ${expected.size} platforms, each appears as it lands.`);
+  for (;;) {
+    await new Promise(r => setTimeout(r, EVERY_MS));
+    await loadObs();
+    renderObsSide();
+    if (!view || view.type === "obs") renderMain(true);
+
+    const before = landed.size;
+    const plats = (obs.summary && obs.summary.platforms) || {};
+    for (const [name, p] of Object.entries(plats)) {
+      const at = p.harvest && p.harvest.at;
+      if (at && at > startedAt) landed.add(name);
+      expected.add(name);
+    }
+    if (landed.size > before) lastChange = Date.now();
+
+    if (landed.size) {
+      const secs = Math.round((Date.now() - t0) / 1000);
+      obsMsg(`Harvest running — ${landed.size}/${expected.size} refreshed · ${secs}s`);
+    }
+    if (landed.size >= expected.size) return finish();
+    if (Date.now() - lastChange > SETTLE_MS) return finish();
+    if ((Date.now() - t0) / 1000 > DEADLINE_S) return finish();
+  }
+}
+
+
 
 function obsEventClass(t) {
   if (!t) return "";
@@ -2430,12 +2800,13 @@ function obsPipelineHtml(hasData) {
       platform's execution logs, then <b>Analyze</b> to have the analyst agent write its first brief.</span></div>
     ${diagram}
   </div>`;
+  // No <details> wrapper: this now renders INSIDE the Details tab, which is
+  // already the place you go for "how does this work". A disclosure inside a
+  // disclosure is a click that buys nothing.
   return `
   <div class="flow">
-    <details>
-      <summary style="cursor:pointer; font-size:12px; color:var(--muted)">How observability works here — the pipeline</summary>
-      ${diagram}
-    </details>
+    <h3>How observability works here</h3>
+    ${diagram}
   </div>`;
 }
 
@@ -2909,8 +3280,30 @@ window.harvestBuild = async ev => {
       buildMsg("Console server predates the coding harvest — restart scripts/run_local.sh.", true);
       return;
     }
-    const data = await r.json();
+    const data = await readJson(r, "Harvest failed");
     if (!data.ok) { buildMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
+    // Hosted, the server fires the harvest Lambda and returns at once (D54) —
+    // there are no per-platform results to read. Reading data.results[0] off an
+    // async reply gave `undefined: no coding metrics returned`, a failure
+    // message for a harvest that was running perfectly well.
+    if (data.async) {
+      buildMsg("Harvest running in the background — this panel updates when the coding feed lands.");
+      const t0 = Date.now();
+      for (;;) {
+        await new Promise(res => setTimeout(res, 5000));
+        await loadBuildTelemetry();
+        buildNav();
+        const at = buildData && buildData.harvest && buildData.harvest.at;
+        if (at && at > data.started_at) {
+          buildMsg("Done — " + ((buildData.harvest && buildData.harvest.detail) || "coding telemetry harvested."));
+          return;
+        }
+        if (Date.now() - t0 > 600000) {
+          buildMsg("The coding feed has not reported in 10 minutes — check the harvest function's logs.", true);
+          return;
+        }
+      }
+    }
     const res = (data.results || [])[0] || {};
     buildMsg(res.status === "ok"
       ? "Done — " + (res.detail || `${res.sessions || 0} tool-day(s) harvested.`)
@@ -3195,6 +3588,72 @@ function buildHtml() {
 
 // The sentinel's pipeline, D22 split made visible: everything below the store
 // is deterministic and hosted, the agent sits above it and only interprets.
+// What the DASHBOARD is reading, and how the data got there. Deliberately
+// names the store and the identity boundary — the two things a number on a tile
+// cannot tell you by itself.
+const OBS_HARVEST_DIAGRAM = `flowchart TB
+  subgraph SRC["Each platform's own interior record"]
+    AF["Agentforce<br/>Data Cloud session-tracing DMOs (SOQL)"]
+    CL["Claude Managed Agents<br/>sessions + per-session events"]
+    OA["OpenAI<br/>stored responses, by id only"]
+    GG["Vertex AI Agent Engine<br/>Cloud Logging + Monitoring meters"]
+    FD["Microsoft Foundry<br/>App Insights gen_ai spans (KQL)"]
+    CD["Coding agents<br/>CloudWatch OTLP metrics (WS9)"]
+  end
+
+  SCHED["EventBridge Scheduler<br/>rate(6 hours)"]
+  HARV["Lambda a2alab-obs-harvest<br/>deterministic pulls — no LLM in the loop<br/>credentials from Secrets Manager"]
+
+  subgraph AUR["Aurora Postgres — lab schema (the source of truth)"]
+    S[("obs_sessions")]
+    E[("obs_events")]
+    H[("obs_harvest<br/>per-platform status + timestamp")]
+    T[("trace_events<br/>the lab's own wire hops")]
+  end
+
+  UI["Console — Observability Dashboard<br/>sessions · events · tokens · harvest status"]
+
+  SCHED --> HARV
+  AF --> HARV
+  CL --> HARV
+  OA --> HARV
+  GG --> HARV
+  FD --> HARV
+  CD --> HARV
+  HARV --> S
+  HARV --> E
+  HARV --> H
+  S --> UI
+  E --> UI
+  H --> UI
+  T -.->|"platform_ref join"| S`;
+
+// What the observability analyst actually does, for its Details pane. Same
+// shape as the sentinel's below: the agent never touches the database.
+const OBS_ANALYST_DIAGRAM = `flowchart TB
+  subgraph PLAT["Agent platforms — their own interior records"]
+    AF["Agentforce"]
+    CL["Claude Managed Agents"]
+    OA["OpenAI"]
+    GG["Agent Engine"]
+    FD["Foundry"]
+  end
+  HARV["Harvest Lambda<br/>every 6h, deterministic — no LLM"]
+  PG[("Aurora, lab schema<br/>obs_sessions · obs_events · obs_harvest")]
+  MCP["obs MCP server<br/>Lambda — read-only SQL + save_brief"]
+  AG["Observability analyst<br/>Claude Managed Agent (paused, on demand)"]
+  BR[("lab.obs_briefs<br/>kind = observability")]
+  AF --> HARV
+  CL --> HARV
+  OA --> HARV
+  GG --> HARV
+  FD --> HARV
+  HARV --> PG
+  PG --> MCP
+  MCP <-->|"the agent asks, the server answers"| AG
+  AG -->|"save_brief"| BR
+  BR --> UI["Console — Observability Analysis"]`;
+
 const COST_SENTINEL_DIAGRAM = `flowchart TB
   subgraph LOCAL["Coding agents — any checkout, any machine"]
     CC["Claude Code<br/>OTLP exporter"]
@@ -3216,6 +3675,27 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
   end
   PG <--> MCP
   PG --> UI["Console — Coding Agents Telemetry"]`;
+
+// Render a mermaid source into an element, or hand over the source. Same
+// honesty rule as every other diagram here: say what broke, and still give you
+// the text you can paste elsewhere.
+async function renderMermaidInto(elId, src, svgId) {
+  const fig = document.getElementById(elId);
+  if (!fig || !src) return;
+  try {
+    const mermaid = await ensureMermaid();
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    mermaid.initialize({
+      startOnLoad: false, theme: dark ? "dark" : "default",
+      securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
+    });
+    const { svg } = await mermaid.render(svgId || (elId + "-svg"), src);
+    fig.innerHTML = svg;
+  } catch (e) {
+    fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
+      + `<pre>${esc(src)}</pre>`;
+  }
+}
 
 async function renderCostDiagram() {
   const fig = document.getElementById("costfig");
@@ -3263,7 +3743,7 @@ function costBriefHtml() {
     costBrief.cron ? `cron '${costBrief.cron}' ${costBrief.timezone || ""}`.trim() : null,
   ].filter(Boolean).join(" · ");
   const body = briefs.length
-    ? `<div class="cred-brief">${mdToHtml(briefs[0].brief_md, { joinLines: true })}</div>
+    ? `<div class="cred-brief">${mdToHtml(briefs[0].brief_md)}</div>
        <div class="hint" style="margin-top:8px">
          ${esc(briefs[0].brief_date)} · ${briefs[0].queries_run ?? "?"} queries ·
          session <code>${esc(briefs[0].session_id || "—")}</code>
@@ -3324,32 +3804,29 @@ function buildDetailsHtml() {
          target="_blank" rel="noopener">${esc(s.agent_id)}</a>`
     : `<span class="hint">not provisioned</span>`;
   return `
-    <div class="hint" style="margin:10px 0 16px">How the weekly cost brief is produced, and why
-    this one is a scheduled Managed Agent when the credential analyst (D22) was deliberately
-    demoted to a single API call. The workstream is WS12 in plan/07-workstreams.md; where it
-    sits in the estate is plan/09-deployment-map.md.</div>
+    <div class="hint" style="margin:10px 0 16px">How the weekly build-cost brief is produced —
+    what is measured, by what, and what the numbers do and do not mean. The workstream is WS12 in
+    plan/07-workstreams.md; where it sits in the estate is plan/09-deployment-map.md.</div>
 
-    <h3>Why an agent here, and not there</h3>
-    <p class="hint">Three tests. The credential analyst failed all three, so it became one
-    <code>messages.create</code> call. The cost sentinel passes all three, which is the entire
-    argument for the heavier shape — not that agents are better, but that this workload needs
-    what an agent provides.</p>
+    <h3>Why this one is a scheduled agent</h3>
+    <p class="hint">The cost sentinel needs the three things the Managed Agents abstraction
+    provides, which is the argument for the heavier shape — not that agents are better, but that
+    this workload uses what an agent is for (D44).</p>
     <div class="tbl-card"><div class="tbl-scroll">
     <table class="obs-table">
-      <thead><tr><th>test</th><th>credential analyst</th><th>cost sentinel</th></tr></thead>
+      <thead><tr><th>what it needs</th><th>why the sentinel needs it</th></tr></thead>
       <tbody>
         <tr><td><b>Tools</b></td>
-            <td>none — the whole report fits in one prompt</td>
-            <td>yes — "which repo drove the delta" is SQL against the obs store,
-                which already has a hosted MCP server (D23)</td></tr>
+            <td>"which repo drove the delta" is SQL against the observability store, reached
+                through the hosted obs MCP server (D23) — the agent holds no database
+                credential</td></tr>
         <tr><td><b>Schedule</b></td>
-            <td>impossible — collection reads the operator's own SSO session,
-                <code>az</code> login and gcloud ADC, so it only runs on one laptop</td>
-            <td>yes — collection is already hosted: <code>coding_source.py</code> runs in the
-                6-hourly harvest Lambda against CloudWatch. No laptop in the path</td></tr>
+            <td>a weekly read only means something on a cadence; collection is already hosted,
+                with <code>coding_source.py</code> running in the 6-hourly harvest Lambda against
+                CloudWatch</td></tr>
         <tr><td><b>State</b></td>
-            <td>none — a point-in-time reading</td>
-            <td>yes — week-over-week needs history, and the store has it</td></tr>
+            <td>week-over-week needs history, and the store keeps it — each brief is written to
+                <code>lab.obs_briefs</code> with <code>kind='cost'</code></td></tr>
       </tbody></table></div></div>
 
     <h3>The pipeline</h3>
@@ -3510,7 +3987,7 @@ function archHtml() {
     ${repoCallout}
     ${view && view.level
       ? `<p class="hint"><a href="#" onclick="archNav(event);return false">← all levels</a></p>`
-      : `<div class="arch-prose" style="margin:8px 0 20px">${mdToHtml(archData.intro || "", { joinLines: true })}</div>`}`;
+      : `<div class="arch-prose" style="margin:8px 0 20px">${mdToHtml(archData.intro || "")}</div>`}`;
 
   const body = shown.map(l => `
     <section class="arch-level" id="arch-${esc(l.id)}">
@@ -3524,7 +4001,7 @@ function archHtml() {
       </div>
       ${l.mermaid ? `<div class="arch-figure" id="archfig-${esc(l.id)}"
         data-level="${esc(l.id)}"><span class="hint">Rendering…</span></div>` : ""}
-      <div class="arch-prose">${mdToHtml(l.prose || "", { joinLines: true })}</div>
+      <div class="arch-prose">${mdToHtml(l.prose || "")}</div>
     </section>`).join("");
 
   // The appendices ("Checking reality", "Why not") only make sense with the
@@ -3532,7 +4009,7 @@ function archHtml() {
   const tail = (view && view.level) ? "" : (archData.sections || []).map(s => `
     <section class="arch-level">
       <h3>${esc(s.title)}</h3>
-      <div class="arch-prose">${mdToHtml(s.body || "", { joinLines: true })}</div>
+      <div class="arch-prose">${mdToHtml(s.body || "")}</div>
     </section>`).join("");
 
   return head + body + tail +
@@ -3628,7 +4105,7 @@ function credBriefHtml() {
     .filter(Boolean).join(" · ");
   return `<h3>Analysis
       <span class="obs-updated" style="float:right">${esc(meta)}</span></h3>
-    <div class="cred-brief">${mdToHtml(credBrief.brief, { joinLines: true })}</div>`;
+    <div class="cred-brief">${mdToHtml(credBrief.brief)}</div>`;
 }
 
 window.runCredentialAnalyst = async () => {
@@ -3685,10 +4162,10 @@ function renderCredsSide() {
 }
 
 const CRED_AGENT_DIAGRAM = `flowchart LR
-  subgraph LOCAL["This machine — the only place collection can happen"]
-    SESS["operator sessions<br/>AWS SSO · az · gcloud ADC"]
+  subgraph HOSTED["Harvest Lambda — every 6h, no laptop (WS14)"]
+    IDS["service identities<br/>Lambda role · GCP key · Entra SP<br/>from Secrets Manager"]
     COL["expiry_report.py<br/>deterministic collector"]
-    SESS --> COL
+    IDS --> COL
   end
 
   subgraph PROV["Asked for dates they already know"]
@@ -3704,7 +4181,7 @@ const CRED_AGENT_DIAGRAM = `flowchart LR
   COL --> P4
   COL --> P5
 
-  REP[("expiry.json<br/>measured dates")]
+  REP[("lab.lab_state<br/>measured dates — read by the console")]
   P1 --> REP
   P2 --> REP
   P3 --> REP
@@ -3782,11 +4259,22 @@ function credsDetailsHtml() {
     <div class="arch-figure" id="credfig"><span class="hint">Rendering…</span></div>
 
     <div class="arch-prose">
-      <h4>Why the collector runs here and not in the cloud</h4>
-      <p>Reading these dates needs this machine's own sessions — the AWS SSO token, the
-      <code>az</code> login, <code>gcloud</code> ADC. That single dependency decides everything
-      else on this page: it is why the analysis is <b>ad-hoc</b>, why there is no schedule, and
-      why nothing happens unless you press Analyze.</p>
+      <h4>Where the collection runs</h4>
+      <p>In the <b>6-hourly harvest Lambda</b> (WS14). It authenticates as service identities —
+      the Lambda's own role for AWS IAM and ACM, the GCP service-account key and the Entra
+      principal from Secrets Manager — so the snapshot refreshes with nobody running anything.
+      The collector shelled out to the <code>aws</code>, <code>az</code> and <code>gcloud</code>
+      CLIs until 2026-07-29, which is why it could only ever run on one laptop; it now uses SDKs
+      and REST, and the same file runs in both places.</p>
+      <p><code>uv run python scripts/expiry_report.py --write</code> still works from a checkout
+      and publishes to the same store — useful when you want a reading now rather than at the
+      next sweep.</p>
+      <p><b>Two rows still need a grant</b> before they can be measured from the hosted run, and
+      each says so in the report rather than going quiet: <b>Entra</b> needs
+      <code>Application.Read.All</code> with admin consent, and the harvest <b>GCP</b> service
+      account needs <code>iam.serviceAccounts.list</code>. Locally the Entra row still resolves
+      through an <code>az</code> CLI fallback, so a laptop reading can show one more credential
+      than the hosted one — that difference is exactly those grants.</p>
 
       <h4>Why one API call, and not a Managed Agent</h4>
       <p>This was built both ways. The first version was a Claude Managed Agent and it worked —
@@ -3883,15 +4371,25 @@ function credsReportHtml() {
 
 function credsHtml() {
   if (!expiryData) return `<div class="empty">Sign in as an operator to see credential expiry.</div>`;
-  const stamp = credBrief
-    ? `last analysed ${fmtWhen(credBrief.generated_at)}`
-    : "never analysed — run one";
+  // TWO timestamps, and the snapshot's is the one that changes what the
+  // numbers MEAN. The countdowns are computed from a report the operator
+  // generated on their own machine (it needs their AWS/az/gcloud sessions), so
+  // a snapshot taken a week ago is a week wrong — and until this was shown, a
+  // stale one looked exactly like a fresh one. The analyst's stamp says when
+  // the prose was written; this says when the facts were true.
+  const snapAt = expiryData.generated_at || expiryData.stored_at;
+  const ageH = snapAt ? (Date.now() - new Date(String(snapAt).replace(" ", "T")).getTime()) / 3.6e6 : null;
+  const stale = ageH != null && ageH > 24;
+  const stamp = (snapAt
+      ? `snapshot ${fmtWhen(snapAt)}${stale ? " — STALE, re-run expiry_report.py --write" : ""}`
+      : "no snapshot — run scripts/expiry_report.py --write")
+    + (credBrief ? ` · analysed ${fmtWhen(credBrief.generated_at)}` : "");
   // Same tabbar the experiment views use: title left, tabs top-right, Run
   // first. This is an operational surface, so it should navigate like one.
   return `
     <div class="tabbar">
       <h2>Credentials Expiry Analysis</h2>
-      <span class="obs-updated">${esc(stamp)}</span>
+      <span class="obs-updated" ${stale ? 'style="color:var(--warn,#c96)"' : ""}>${esc(stamp)}</span>
       <div class="tabs">
         <button class="tab ${credsTab === "run" ? "on" : ""}" onclick="setCredsTab('run')">Run</button>
         <button class="tab ${credsTab === "details" ? "on" : ""}" onclick="setCredsTab('details')">Details</button>
@@ -3920,7 +4418,7 @@ window.archPresenterNotes = () => {
         <h3>Presenter notes</h3>
         <button type="button" class="dgclose" title="Close (Esc)" aria-label="Close">×</button>
       </header>
-      <div class="dgbody arch-prose">${mdToHtml(archData.presenter, { joinLines: true })}</div>
+      <div class="dgbody arch-prose">${mdToHtml(archData.presenter)}</div>
     </div>`;
   mask.addEventListener("click", ev => { if (ev.target === mask) closeDiagram(); });
   mask.querySelector(".dgclose").addEventListener("click", closeDiagram);
@@ -4545,6 +5043,10 @@ function landingHtml() {
           direction runs over REST, MCP, and the A2A protocol — the same scenario, protocols
           compared side by side, with every hop's raw wire payload recorded so you can see
           exactly what each protocol puts on the wire.</p>
+        <p class="hero-ethos">The lab's ethos is <b>honest status</b>: it calls out what works
+          natively, what works via a bridge or shim it hosts, and what is blocked or beta. Every
+          claim travels with a source — an ADR id, a trace id, a measured number — so a reader
+          can verify it.</p>
         <div class="hero-ctas">
           ${live.length ? `<button class="hero-cta" onclick="openExperiment('scenario', '${esc(live[0].name)}')">${labUser && labUser.role === "viewer" ? "Explore the experiments →" : "Run your first experiment →"}</button>` : ""}
           <button class="hero-link" onclick="browseCells()">${labUser && labUser.role === "viewer" ? "or browse the protocol calls" : "or make a single protocol call"}</button>
@@ -4778,11 +5280,19 @@ function chatTurnsHtml(chat) {
       return `<div class="turn agent running">agents are talking…</div>`;
     }
     const err = !!turn.error;
-    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text)}</div>`}
+    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text, { hardBreaks: true })}</div>`}
       <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}${
         turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}${
         turn.af_route === "direct" ? ` · <span class="badge a2a" title="This turn's external-research leg went straight from Apex to Vertex AI Agent Engine's native A2A endpoint — no lab bridge, untraced by design">direct a2a</span>` : ""}</span></div>`;
   }).join("");
+}
+
+// Is the experiment that owns this turn the one currently on screen? Runs are
+// backgroundable — Run All fires a dozen — so anything that writes shared UI
+// state (the global `selected`, the main pane) has to ask first.
+function isViewingExperiment(kind, name) {
+  return !!view && view.type === "experiment"
+    && expKey(view.kind, view.name) === expKey(kind, name);
 }
 
 async function sendTurn(kind, name, message) {
@@ -4795,11 +5305,21 @@ async function sendTurn(kind, name, message) {
   chat.turns.push({ role: "user", text: message, trace_id });
   chat.turns.push({ role: "running" });
   runState[key] = { state: "running" };
-  selected = trace_id;
   chat.selected = trace_id;
+  // A run belongs to its experiment, not to the screen. `selected` is the
+  // GLOBAL trace the main pane shows, so writing it unconditionally meant any
+  // background turn — every step of Run All — dragged the view back to itself:
+  // you could navigate away and were pulled back a few seconds later, which
+  // read as "the console is locked while an experiment runs". Nothing was
+  // locked; the view was being stolen. Each experiment already remembers its
+  // own trace in `chat.selected`, so a run that is not on screen simply
+  // updates that and the sidebar chip, and openExperiment() restores it when
+  // you come back.
+  if (isViewingExperiment(kind, name)) selected = trace_id;
   turnWindows[trace_id] = { start: Date.now() / 1000 };
   traces.unshift({ trace_id, started: Date.now() / 1000, hops: [], protocols: [] });
-  renderSidebar(); renderMain();
+  renderSidebar();
+  if (isViewingExperiment(kind, name)) renderMain();
 
   const body = { trace_id, message, session_id: chat.session };
   if (kind === "scenario") {
@@ -4838,7 +5358,10 @@ async function sendTurn(kind, name, message) {
     runState[key] = { state: "fail", note: result.error || result.detail || "FAIL" };
   }
   chat.running = false;
-  renderSidebar(); renderMain();
+  renderSidebar();
+  // Same rule on the way out: a finished background run updates its chip and
+  // its own stored trace, and waits to be looked at.
+  if (isViewingExperiment(kind, name)) renderMain();
   // Backfill from disk: SSE is the live tail, but if the stream dropped
   // mid-run (console restart, laptop sleep) its missed events are gone for
   // good — the authoritative trace files are not.
@@ -4873,21 +5396,40 @@ window.runAllExperiments = async ev => {
   const skipped = scenarios.length - list.length;
   const msg = document.getElementById("runAllMsg");
   btn.disabled = true; msg.style.display = "";
+  // Open every group that has something in this run, so the whole board is
+  // visible while it works. A dozen experiments change state over several
+  // minutes and the chips are the only per-experiment progress there is —
+  // watching them from behind collapsed groups means watching nothing.
+  if (!openGroups) openGroups = new Set();
+  const running = new Set(list.map(s => s.group).filter(Boolean));
+  for (const id of running) openGroups.add(id);
+  document.getElementById("accExperiments").open = true;
+  ensureSideOpen();
+  renderScenarios();
   let pass = 0; const failures = [];
   const t0 = Date.now();
   for (let i = 0; i < list.length; i++) {
     const s = list[i];
-    msg.textContent = `${i + 1}/${list.length} · ${s.title || s.name}…`;
+    msg.innerHTML = `<span class="stat">${i + 1}/${list.length}</span> · ${esc(s.title || s.name)}…`;
     const key = expKey("scenario", s.name);
     if (!chats[key]) chats[key] = { session: "ui-chat-" + s.name + "-" + Date.now(), turns: [], running: false };
     const ok = await sendTurn("scenario", s.name, s.question || defaultQuestion);
-    if (ok) pass++; else failures.push(s.name);
+    if (ok) pass++;
+    // Keep the REASON, not just the name. A run-all that says "1 FAIL
+    // (supplier-disruption-adk)" makes you go and reproduce it to find out
+    // what happened; the error is already here.
+    else failures.push({ name: s.name, title: s.title || s.name,
+                         error: (runState[key] || {}).note || "FAIL" });
   }
   const secs = Math.round((Date.now() - t0) / 1000);
-  msg.textContent = `${pass} PASS · ${failures.length} FAIL`
-    + (failures.length ? ` (${failures.join(", ")})` : "")
-    + ` · ${secs}s`
-    + (skipped ? ` · ${skipped} skipped (async / upcoming / wrong mode)` : "");
+  msg.innerHTML = `<span class="stat">${pass} PASS · ${failures.length} FAIL</span> · ${secs}s`
+    + (skipped ? ` · ${skipped} skipped (async / upcoming / wrong mode)` : "")
+    + (failures.length ? `<div class="runall-fails">` + failures.map(f => `
+        <button class="runall-fail" onclick="openExperiment('scenario', '${esc(f.name)}')"
+          title="Open ${esc(f.title)} — its Run tab has the full error and the call path">
+          <span class="rf-name">${esc(f.title)}</span>
+          <span class="rf-err">${esc(String(f.error).replace(/\s+/g, " ").slice(0, 160))}</span>
+        </button>`).join("") + `</div>` : "");
   btn.disabled = false;
 };
 
@@ -5144,7 +5686,7 @@ function renderMain(force) {
   }
 
   if (view.type === "obs") {
-    mainKey = `obs:${view.platform || "*"}:${view.session || ""}:${obs.tab || "dashboard"}`;
+    mainKey = `obs:${view.platform || "*"}:${view.session || ""}:${obs.tab || "dashboard"}:${obs.sub || "main"}`;
     if (view.session) {
       el.innerHTML = obsCrumbsHtml() + obsSessionDetailHtml();
     } else if (view.platform) {
@@ -5153,9 +5695,33 @@ function renderMain(force) {
       // First-run: explain the pipeline instead of an empty dashboard.
       el.innerHTML = obsCrumbsHtml() + obsPipelineHtml(false);
     } else {
-      el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + (obs.tab === "brief"
-        ? obsBriefsHtml()
-        : obsPipelineHtml(true) + obsDashboardHtml() + obsSessionsHtml(null));
+      const tab = obs.tab || "dashboard";
+      const kind = OBS_TAB_KIND[tab];
+      const details = obs.sub === "details";
+      const pane = kind
+        ? (details ? obsBriefDetailsHtml(kind) : obsBriefsHtml(kind))
+        // "How observability works" belongs in Details — that is what Details
+        // is for. The dashboard tab shows the numbers; Details explains the
+        // pipeline that produced them.
+        : (details
+            // The high-level flow first — the four stages at a glance — then
+            // the architecture beneath it, then the prose. They answer
+            // different questions: what happens, what it runs on, what limits
+            // it. Additive on purpose.
+            ? obsPipelineHtml(true) + obsDashboardDetailsHtml()
+            : obsDashboardHtml() + obsSessionsHtml(null));
+      el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + obsSubTabsHtml()
+        + `<div class="tabpanel">${pane}</div>`;
+      // The Details pane carries an architecture figure; mermaid renders after
+      // the markup is in the DOM.
+      if (details) {
+        if (kind) {
+          const meta = BRIEF_META[kind];
+          if (meta && meta.diagram) renderMermaidInto("obsBriefFig", meta.diagram(), `obsfig-${kind}`);
+        } else {
+          renderMermaidInto("obsDashFig", OBS_HARVEST_DIAGRAM, "obsfig-dashboard");
+        }
+      }
     }
     return;
   }
@@ -5566,7 +6132,7 @@ function gdRender() {
     if (t.role === "tool") return `<div class="gd-tool">${esc(t.content)}</div>`;
     if (t.role === "user") return `<div class="gd-turn user">${esc(t.content)}</div>`;
     return `<div class="gd-turn guide ${t.error ? "err" : ""}">` +
-      (t.error ? esc(t.content) : `<div class="md">${mdToHtml(t.content || "…")}</div>`) + `</div>`;
+      (t.error ? esc(t.content) : `<div class="md">${mdToHtml(t.content || "…", { hardBreaks: true })}</div>`) + `</div>`;
   }).join("");
   chat.scrollTop = chat.scrollHeight;
   const sug = document.getElementById("gdSuggest");

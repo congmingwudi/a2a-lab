@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Host the lab console on ECS Fargate, behind the ALB the bridge already has
-# (WS13 item 1).
+# Host the nine protocol faces on ECS Fargate, behind the ALB the bridge and
+# console already share (WS13 item 2).
 #
-#   deploy/console/deploy_console.sh                # build, push, create-or-update
-#   deploy/console/deploy_console.sh --skip-build   # redeploy the current image
+# One service, one port, eleven mounted ASGI apps addressed by PATH
+# (https://<FACES_HOSTNAME>/<target-name>/...). See src/faces/__init__.py for
+# why that rather than nine services on nine hostnames.
+#
+#   deploy/faces/deploy_faces.sh                    # build, push, create-or-update
+#   deploy/faces/deploy_faces.sh --skip-build       # redeploy the current image
 #
 # ⚠️  NOT YET RUN. Written 2026-07-28 from the proven deploy/bridge script but
 # never executed — the first run needs a person watching. Its risky step is the
@@ -30,18 +34,18 @@ set -a; source .env; set +a
 source deploy/aws_preflight.sh
 
 REGION="${AWS_REGION:-us-east-1}"
-NAME=a2alab-console
+NAME=a2alab-faces
 CLUSTER=a2alab
 BRIDGE_NAME=a2alab-bridge             # whose ALB and cluster this joins
-TASK_ROLE=a2alab-console-task
-EXEC_ROLE=a2alab-console-exec
-CONTAINER_PORT=8200
+TASK_ROLE=a2alab-faces-task
+EXEC_ROLE=a2alab-faces-exec
+CONTAINER_PORT=8300
 # The hostname this face answers on. No fallback default: a ${VAR:-...} here
 # would route someone else's checkout at the author's hostname.
-HOSTNAME_="${CONSOLE_HOSTNAME:?set CONSOLE_HOSTNAME in .env - e.g. console-lab.example.com}"
+HOSTNAME_="${FACES_HOSTNAME:?set FACES_HOSTNAME in .env - e.g. faces-lab.example.com}"
 # Rule priority on the shared listener. Low numbers match first; the bridge is
 # the default action and has no rule, so any free priority works.
-RULE_PRIORITY="${CONSOLE_RULE_PRIORITY:-20}"
+RULE_PRIORITY="${FACES_RULE_PRIORITY:-30}"
 SKIP_BUILD="${1:-}"
 
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
@@ -53,7 +57,7 @@ if [ "$SKIP_BUILD" != "--skip-build" ]; then
     || aws ecr create-repository --repository-name "$NAME" --region "$REGION" >/dev/null
   aws ecr get-login-password --region "$REGION" \
     | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com" >/dev/null
-  docker build --platform linux/arm64 -f deploy/console/Dockerfile -t "$NAME" .
+  docker build --platform linux/arm64 -f deploy/faces/Dockerfile -t "$NAME" .
   docker tag "$NAME:latest" "$ECR:latest"
   docker push "$ECR:latest" >/dev/null
   echo "pushed $ECR:latest"
@@ -62,9 +66,9 @@ fi
 # ---- credentials -> Secrets Manager (D39/F1) --------------------------------
 # Same rule as every other hosted seam: secrets are fetched at container start
 # from one secret, never carried on the task definition.
-SECRET_NAME=a2alab/runtime/console
+SECRET_NAME=a2alab/runtime/faces
 SECRET_JSON=$(python3 - <<'PY'
-import json, os, pathlib
+import json, os
 keys = [
     "A2ALAB_TOKEN",          # the console's own service token
     "ANTHROPIC_API_KEY",     # the Lab Guide answers in-process
@@ -77,28 +81,8 @@ keys = [
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
-    # The persona passwords (D36). The is_secret() rule below keeps every
-    # *_PASSWORD off the task definition, which is right — but excluding a
-    # credential without RELOCATING it just deletes it. That is what happened
-    # on the first hardened deploy: the hosted console held no passwords at
-    # all and rejected every login with a correct-looking "wrong user or
-    # password".
-    "A2ALAB_OPERATOR_PASSWORD", "A2ALAB_VIEWER_PASSWORD",
 ]
-payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
-
-# The lab JWT keypair. The console ISSUES tokens (/api/login), so unlike a seam
-# that only verifies it must carry the signing half. Both live in .a2alab/ —
-# files no container has — and without them the container silently generates a
-# fresh keypair per task: login appears to work, and every session dies at the
-# next deploy because the key that signed it no longer exists.
-key_dir = pathlib.Path(os.environ.get("A2ALAB_JWT_DIR", ".a2alab"))
-for name, filename in (("A2ALAB_JWT_PRIVATE_KEY", "lab_jwt_private.pem"),
-                       ("A2ALAB_JWT_PUBLIC_KEY", "lab_jwt_public.pem")):
-    path = key_dir / filename
-    if path.exists():
-        payload[name] = path.read_text()
-print(json.dumps(payload))
+print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
 PY
 )
 aws secretsmanager describe-secret --region "$REGION" --secret-id "$SECRET_NAME" >/dev/null 2>&1 \
@@ -142,15 +126,9 @@ if [ -n "${A2ALAB_PG_CLUSTER_ARN:-}" ]; then
 fi
 # bedrock-agentcore:InvokeAgentRuntime — the Run buttons reach the hosted
 # Claude/OpenAI runtimes, which have an IAM data plane and no URL (D26).
-# lambda:InvokeFunction — the Harvest button fires the scheduled harvest
-# Lambda asynchronously rather than sweeping in-process (D54): a full sweep
-# outlives the ALB's 120s idle timeout, and that function already holds the
-# platform credentials this container does not.
-HARVEST_FN="${A2ALAB_HARVEST_FUNCTION:-a2alab-obs-harvest}"
 aws iam put-role-policy --role-name "$TASK_ROLE" --policy-name console-access \
   --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[
     $PG_STMTS
-    {\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"arn:aws:lambda:$REGION:$ACCOUNT:function:$HARVEST_FN\"},
     {\"Effect\":\"Allow\",\"Action\":\"bedrock-agentcore:InvokeAgentRuntime\",\"Resource\":\"*\"}
   ]}"
 
@@ -271,11 +249,9 @@ env = {k: os.environ[k] for k in sorted(referenced)
 env["A2ALAB_RUNTIME_SECRET_ARN"] = os.environ["A2ALAB_RUNTIME_SECRET_ARN"]
 env["AWS_REGION"] = os.environ["DEPLOY_REGION"]
 # Hosted console: no traces/ directory, no .a2alab. Aurora is the only source.
+env["A2ALAB_FACES_BASE"] = f"https://{os.environ['FACES_HOSTNAME']}"
 env["A2ALAB_TRACE_SINK"] = "postgres"
 env["A2ALAB_OBS_STORE"] = "postgres"
-# Presence of this is what makes the Harvest button asynchronous (D54). Unset
-# on a laptop, where the sweep runs in-process because nothing times it out.
-env["A2ALAB_HARVEST_FUNCTION"] = os.environ.get("A2ALAB_HARVEST_FUNCTION", "a2alab-obs-harvest")
 # Aurora, set EXPLICITLY — the scan above cannot see these. observability/pg.py
 # reads them as os.environ.get(SECRET_ARN_ENV), i.e. through a module constant,
 # and the regex only matches a string literal inside the call. The first run
@@ -288,13 +264,9 @@ env["A2ALAB_HARVEST_FUNCTION"] = os.environ.get("A2ALAB_HARVEST_FUNCTION", "a2al
 # A2ALAB_TRACE_SINK=postgres, PostgresSink INSERTs through PgClient.from_env(),
 # which reads A2ALAB_PG_SECRET_ARN. Handing it the lab_reader ARN would leave
 # the console reading fine and failing every trace write.
-# AWS -> GCP federation for the Agent Engine targets the Run buttons reach
-# (deploy/console/gcp_federation.sh). Renamed from the CONSOLE-scoped names on
-# the way in: the generic pair in .env would put the LAPTOP into federation
-# mode, where there is no AWS role to present.
-if os.environ.get("A2ALAB_CONSOLE_GCP_AUDIENCE"):
-    env["A2ALAB_GCP_WORKLOAD_AUDIENCE"] = os.environ["A2ALAB_CONSOLE_GCP_AUDIENCE"]
-    env["A2ALAB_GCP_IMPERSONATE_SA"] = os.environ["A2ALAB_CONSOLE_GCP_SA"]
+# No GCP federation here, unlike the console: these faces consult Agentforce
+# (both shims, and the Claude adapter's ask_agentforce tool). Nothing in them
+# calls Agent Engine, so there is no Google identity to present.
 
 # The Managed Agents ids, set EXPLICITLY — the third instance of the D48 blind
 # spot. managed_backend.py reads them as os.environ.get(AGENT_ID_ENV), through

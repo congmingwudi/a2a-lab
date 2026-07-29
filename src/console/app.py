@@ -563,6 +563,22 @@ def _shots(*slugs: str) -> dict:
     }
 
 
+def _env_url(var: str, default: str) -> str:
+    """A component's deep link: the env override, or the working default.
+
+    `os.environ.get(var, default)` is wrong here, and was wrong in the running
+    console for as long as `.env` carried `AGENTCORE_CONSOLE_URL=` and
+    `AGENT_ENGINE_CONSOLE_URL=` with empty values: an empty string is a present
+    key, so it BEAT the default and both rows rendered "not yet available" —
+    the exact failure `test_every_component_has_a_console_url` exists to
+    prevent. The test could not see it because tests do not load `.env` and
+    `run_local.sh` does.
+
+    An empty override means "I have nothing better", not "show no link".
+    """
+    return os.environ.get(var) or default
+
+
 def public_components(comps: list[dict], signed_in: bool) -> list[dict]:
     """Component rows with the deep links removed for anonymous callers.
 
@@ -597,7 +613,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "kind": "claude",
                 "note": "Agent + environment configuration (model, prompt, the "
                 "ask_agentforce custom tool) in the Claude platform console.",
-                "url": os.environ.get(
+                "url": _env_url(
                     "CLAUDE_AGENT_CONSOLE_URL",
                     "https://platform.claude.com/workspaces/default/agents",
                 ),
@@ -632,7 +648,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 # There is no OpenAI-hosted agent object to link to; the runs are
                 # the asset. platform.openai.com/traces is the URL the Agents SDK
                 # tracing docs publish (openai.github.io/openai-agents-python/tracing).
-                "url": os.environ.get("OPENAI_CONSOLE_URL", "https://platform.openai.com/traces"),
+                "url": _env_url("OPENAI_CONSOLE_URL", "https://platform.openai.com/traces"),
                 **_shots("openai-agentcore"),
             }
         )
@@ -647,7 +663,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 # Microsoft documents the portal only as its root (ai.azure.com); the
                 # per-project deep link carries ids the docs do not specify a format
                 # for, so it is env-supplied — paste the URL the portal shows.
-                "url": os.environ.get("FOUNDRY_CONSOLE_URL", "https://ai.azure.com"),
+                "url": _env_url("FOUNDRY_CONSOLE_URL", "https://ai.azure.com"),
                 **_shots("foundry-agent"),
             }
         )
@@ -659,7 +675,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "kind": "adk",
                 "note": "WS2: the ADK/Gemini agent deployed with native A2A serving "
                 "(deploy/adk/deploy_adk.py); scale-to-zero on a personal GCP project.",
-                "url": os.environ.get(
+                "url": _env_url(
                     "AGENT_ENGINE_CONSOLE_URL",
                     "https://console.cloud.google.com/vertex-ai/agents/agent-engines"
                     + (f"?project={project}" if project else ""),
@@ -675,7 +691,7 @@ def components_for(tags: set[str]) -> list[dict]:
                 "note": "D26: the self-hosted Agent SDK containers deployed to Bedrock "
                 "AgentCore Runtime (IAM-only data plane, no public HTTP endpoint) — "
                 "deploy/agentcore/deploy.sh builds and pushes them.",
-                "url": os.environ.get(
+                "url": _env_url(
                     "AGENTCORE_CONSOLE_URL",
                     "https://us-east-1.console.aws.amazon.com/bedrock-agentcore/home"
                     "?region=us-east-1#/agent-runtimes",
@@ -1833,15 +1849,38 @@ def create_console_app(registry: Registry | None = None):
     # same pull as scripts/obs_harvest.py.
 
     def _obs_store():
-        from observability import ObsStore
+        """Aurora when it is configured; sqlite only as the local fallback (D49).
 
-        return ObsStore()
+        This used to return `ObsStore()` unconditionally — sqlite, always. The
+        hosted harvest Lambda writes Aurora and the local `obs_harvest.py`
+        writes `traces/lab.db`, so the console rendered the local copy while
+        the authoritative one filled up unseen. Nothing failed; the numbers
+        were just quietly the wrong ones, and a container (no lab.db at all)
+        showed an empty section.
+
+        `A2ALAB_OBS_STORE=sqlite` still forces the local store, for working on
+        a harvested snapshot offline.
+        """
+        from observability import make_obs_store
+
+        return make_obs_store()
 
     # The honest capability matrix (plan/05-observability.md) — rendered
     # live in the coverage panel next to what was actually harvested.
     # WS9. The obs store's platform key for coding-agent telemetry — filtered
     # out of the Observability coverage panel and rendered in its own section.
     BUILD_TELEMETRY_PLATFORM = "coding"
+
+    # The rolling window the briefs tab shows. Deliberately a window and not a
+    # count: an empty week must LOOK empty. The analyst was paused for eleven
+    # days and a "latest brief" view hid that behind a stale document (D56).
+    BRIEF_WINDOW_DAYS = 7
+
+    # Set by deploy/console/deploy_console.sh to the scheduled harvest Lambda.
+    # Its presence is what makes the Harvest button asynchronous — unset on a
+    # laptop, where the sweep runs in-process because nothing is timing it out.
+    HARVEST_FUNCTION_ENV = "A2ALAB_HARVEST_FUNCTION"
+    DEFAULT_HARVEST_FUNCTION = "a2alab-obs-harvest"
 
     # One string, two consumers (the telemetry payload and the cost sentinel's
     # brief panel). It is the caveat that has to travel with every rendering of
@@ -2412,15 +2451,81 @@ def create_console_app(registry: Registry | None = None):
         if any(w not in sources for w in wanted):
             return {"ok": False, "error": f"unknown platform '{platform}'"}
 
+        # Hosted: hand the work to the Lambda that already does it on a
+        # schedule, and return immediately (D54).
+        #
+        # A full sweep takes over two minutes. The ALB's idle timeout is 120s
+        # and Cloudflare's proxy limit is lower still, so a synchronous harvest
+        # could not finish through the front door whatever we set: the browser
+        # got the load balancer's HTML 504 and reported it as
+        # `SyntaxError: Unexpected token '<'`. Raising a timeout would only
+        # move the ceiling to one we do not control.
+        #
+        # Delegating also fixes two things the in-process sweep got wrong. The
+        # Lambda harvests SIX platforms (this dict has four — foundry was never
+        # in it, despite the comment above saying five), and it holds the
+        # credentials the console container does not: the GCP service-account
+        # key ADK needs, the Entra principal for Foundry, the CloudWatch grants
+        # for coding. ADK failed here for exactly that reason.
+        # Defaults to the real function rather than requiring the variable, so
+        # the button behaves the same on a laptop as it does hosted. The
+        # in-process sweep below is NOT a working fallback and never was: it
+        # writes, and .env points A2ALAB_PG_SECRET_ARN at the READER secret
+        # (right for console reads), so every source raised "cannot execute
+        # INSERT in a read-only transaction" and the endpoint 500'd. It also
+        # lacks the GCP key ADK needs and omits Foundry entirely. Set
+        # A2ALAB_HARVEST_FUNCTION="" to force it anyway.
+        function = os.environ.get(HARVEST_FUNCTION_ENV, DEFAULT_HARVEST_FUNCTION)
+        if function:
+            started_at = time.time()
+
+            def fire():
+                import boto3
+
+                payload = {"platform": platform} if platform else {}
+                boto3.client(
+                    "lambda", region_name=os.environ.get("AWS_REGION", "us-east-1")
+                ).invoke(
+                    FunctionName=function,
+                    InvocationType="Event",  # fire-and-forget; the result lands in Aurora
+                    Payload=json.dumps(payload).encode(),
+                )
+
+            try:
+                await asyncio.get_event_loop().run_in_executor(None, fire)
+            except Exception as exc:  # noqa: BLE001 - surfaced, not swallowed
+                return {"ok": False, "error": f"could not start the harvest: {exc}"}
+            # `started_at` is the poll contract: the client watches
+            # lab.obs_harvest for a last_harvest_at newer than this.
+            return {
+                "ok": True,
+                "async": True,
+                "started_at": started_at,
+                "platforms": None if platform is None else [platform],
+                "note": "harvest running in the background — this panel updates as each platform lands",
+            }
+
+        # Local: no Lambda configured, so run it here. Still the right
+        # behaviour on a laptop, where there is no load balancer in the way.
         def run():
             store = _obs_store()
+            out = []
             try:
-                return [sources[name]().harvest(store).__dict__ for name in wanted]
+                for name in wanted:
+                    # Per source: one platform's credentials failing is a
+                    # result about that platform, not a 500 for the request.
+                    try:
+                        out.append(sources[name]().harvest(store).__dict__)
+                    except Exception as exc:  # noqa: BLE001
+                        out.append(
+                            {"platform": name, "status": "error", "detail": f"{type(exc).__name__}: {exc}"}
+                        )
             finally:
                 store.close()
+            return out
 
         results = await asyncio.get_event_loop().run_in_executor(None, run)
-        return {"ok": True, "results": results}
+        return {"ok": all(r.get("status") != "error" for r in results), "results": results}
 
     # ---- Hosted analyst (D23): briefs feed + ad-hoc analysis runs ---------
     # The analyst is a paused scheduled deployment on the Claude platform;
@@ -2438,7 +2543,18 @@ def create_console_app(registry: Registry | None = None):
         def run():
             store = PgObsStore()
             try:
-                return store.list_briefs()
+                # EVERY kind in the window, each row carrying its own `kind`
+                # (D56). The console renders one sub-tab per kind, so a new
+                # analysis agent appears as a new tab with no change here —
+                # which is the point: the table was always designed to take
+                # more authors, and the reader should not need editing each
+                # time one arrives.
+                #
+                # What must never come back is the old behaviour: an unfiltered
+                # list rendered under a single heading, where the cost
+                # sentinel's brief appeared in the Observability section and
+                # read as the analyst changing subject.
+                return store.list_briefs(days=BRIEF_WINDOW_DAYS, limit=60)
             finally:
                 store.close()
 
@@ -2614,7 +2730,28 @@ def main() -> None:
     import uvicorn
     from dotenv import load_dotenv
 
+    from interop.secret_env import load_secret_env_and_log
+
     load_dotenv()
+    # Hosted (WS13 item 1): credentials live in Secrets Manager, not on the task
+    # definition, and are loaded before create_console_app() reads os.environ —
+    # the registry expands ${VAR} at Registry.load(), so a late load produces
+    # empty endpoints. A no-op locally, where the ARN is unset and .env holds
+    # everything. The bridge has done this since WS7 item 7; the console was
+    # containerized without it, which is what the guard below caught.
+    load_secret_env_and_log("console")
+    # Fail CLOSED. TokenAuthMiddleware treats "no A2ALAB_TOKEN" as "auth is off"
+    # — correct on a laptop, catastrophic behind a public ALB. The first hosted
+    # deploy (2026-07-28) wrote the runtime secret, passed its ARN, and never
+    # loaded it: every /api surface answered 200 to an unauthenticated caller,
+    # and a deliberately wrong bearer token was accepted too. A missing token in
+    # a hosted container is a startup failure, not an open door.
+    if os.environ.get("A2ALAB_RUNTIME_SECRET_ARN") and not os.environ.get("A2ALAB_TOKEN"):
+        sys.exit(
+            "console: A2ALAB_RUNTIME_SECRET_ARN is set but A2ALAB_TOKEN is not — "
+            "refusing to start with authentication disabled. Check that the "
+            "runtime secret carries A2ALAB_TOKEN."
+        )
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8200)
     parser.add_argument("--host", default="0.0.0.0")

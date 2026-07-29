@@ -1460,3 +1460,479 @@ a scale-to-zero function does not. **The protocol dissolves the request ceiling;
 it does not conjure compute.** Same shape as D41's finding that where the tool
 runs decides who orchestrates — here, where the *task* runs decides whether
 asynchrony buys anything.
+
+## 2026-07-28 — D48: A hosted service that can serve without its credential must refuse to start
+
+**Context.** WS13 item 1 put the console on ECS Fargate behind the bridge's
+ALB. The deploy script was written 2026-07-28 from the proven
+`deploy/bridge/deploy_bridge.sh` and, per D46, was explicitly recorded as
+*written, NOT run*. It ran clean on the first attempt: image pushed, secret
+created, listener rule added, service stable, `/healthz` 200 through the ALB
+with a Host header. Every check the runbook asked for passed.
+
+The console was nonetheless serving **every** `/api` surface to an
+unauthenticated caller, and accepting a deliberately wrong bearer token.
+
+**Why the checks missed it.** Three independent gaps composed, and none of them
+is visible from a healthy container:
+
+1. `deploy_console.sh` wrote `a2alab/runtime/console` to Secrets Manager and
+   passed `A2ALAB_RUNTIME_SECRET_ARN` on the task definition — but the console,
+   unlike the bridge, never called `load_secret_env_and_log`. The secret was
+   created, shipped, and never read. A perfect D46 repeat in a new shape: the
+   artifact existed, the wiring did not.
+2. `TokenAuthMiddleware` treats an absent `A2ALAB_TOKEN` as *auth is off*. That
+   is right on a laptop — the alternative is making local development need AWS —
+   and catastrophic behind a public load balancer.
+3. Verification used a *valid* token and got 200. A valid token proves nothing
+   when the failure mode is that all tokens are accepted. **The test that finds
+   this is the negative one**, and it costs one extra curl.
+
+**Decision.**
+
+1. **Fail closed on the hosted path.** If `A2ALAB_RUNTIME_SECRET_ARN` is set
+   (the container's own statement that it is hosted) and `A2ALAB_TOKEN` is
+   still unset after the secret load, the console exits rather than serving.
+   The middleware's open-when-unset behaviour is deliberately left alone: the
+   fix belongs where "am I hosted?" is knowable, not in the shared middleware.
+   `tests/unit/test_console.py` asserts both halves — hosted-without-token
+   exits, local-without-token still starts.
+2. **Verify auth with the negative case.** A deploy is not verified until an
+   unauthenticated request and a wrong-credential request have both been shown
+   to fail. Recorded here because the positive test passed on a wide-open
+   console and read as success.
+3. **Env derivation cannot see through a constant.** The task-definition env is
+   derived by scanning `os.environ["LITERAL"]` in `src/`. `observability/pg.py`
+   reads `os.environ.get(SECRET_ARN_ENV)`, so `A2ALAB_PG_SECRET_ARN` was never
+   shipped and `PgClient.configured()` was False — `/api/obs/briefs` said so
+   outright while `/api/traces` just returned `[]`. Aurora vars are now set
+   explicitly, as `deploy_bridge.sh` already did. A heuristic that silently
+   under-collects needs a loud consumer, not more regex.
+4. **Secret-shaped names are excluded by rule, not by list.** The enumerated
+   exclusion predated `SF_CLIENT_ID_OBS`, `SF_CLIENT_SECRET_OBS` and
+   `A2ALAB_FANOUT_MCP_TOKEN`, so all three landed in cleartext on the task
+   definition — the exact exposure the runtime secret exists to prevent, and
+   the same defect is still live on the bridge (F1 follow-up). Now any
+   `SECRET|TOKEN|KEY|PASSWORD` variable is treated as sensitive unless it ends
+   `_ARN`, since an ARN names a secret rather than being one.
+
+**Consequence.** The first hosted run of a component is not a formality that
+confirms a written script; it is the first execution of code paths no test
+covers, and it should be scheduled as work. D46 said building is not
+deploying. This says deploying is not verifying.
+
+## 2026-07-28 — D49: One store for observability, and one place that chooses it
+
+**Context.** Asked why the hosted console's Observability section was empty, the
+honest answer was that it had never been reading the store the lab writes to.
+Two selectors existed with **opposite defaults**:
+
+- `scripts/obs_harvest.py` chose Postgres only when `A2ALAB_OBS_STORE=postgres`,
+  defaulting to sqlite. That variable was commented out in `.env`, so **local**
+  harvests filled `traces/lab.db`.
+- The hosted harvest Lambda sets it, so **its** harvests filled Aurora.
+- The console's `_obs_store()` returned `ObsStore()` — sqlite — unconditionally,
+  ignoring the variable entirely.
+
+So the dashboard rendered the laptop's copy (382 sessions) while the
+authoritative one filled up unseen (479 sessions), and the two drifted for as
+long as both harvests ran. Nothing errored. The numbers were simply the wrong
+ones, and no test could see it because the divergence lived in configuration.
+
+Hosting the console turned the silent version loud: a container has no
+`traces/lab.db`, so the section was empty rather than stale.
+
+**Decision.**
+
+1. **Postgres is the source of truth** for the observability section — storage,
+   the dashboard, and the analysis briefs the Managed Agent writes. `sqlite`
+   remains selectable (`A2ALAB_OBS_STORE=sqlite`) for working on a harvested
+   snapshot with no AWS session, and remains the fallback when Postgres is not
+   configured so a fresh checkout still runs.
+2. **One function chooses.** `observability.make_obs_store()` is the only
+   selector; the console and `obs_harvest.py` both call it. Two call sites with
+   two defaults is what caused this, and the fix is not "set the variable" —
+   it is having one place where the question is answered.
+3. **`PgObsStore` grew the read side it never had**: `summary`, `list_sessions`,
+   `list_events`, `session_callers`, `session_lab_traces`, `lab_traces_for`.
+   It had only ever implemented the harvest's write path plus briefs and state,
+   which is why `/api/obs/briefs` worked while everything beside it was empty —
+   that one endpoint reached for `PgObsStore` directly and bypassed the
+   selector.
+4. **Two of the six cannot be written the obvious way.** The RDS Data API
+   refuses any result over **1 MB**:
+   - the rider joins matched ~3.6 MB of `raw_json`, so extraction moved **into
+     SQL** (`substring(... from ...)`) and only the short captured value crosses
+     the wire. The Postgres and Python patterns are asserted equal by a test,
+     because two dialects of one rule is exactly the shape that drifts.
+   - one session's events measured **2.43 MB**, so `list_events` pages itself,
+     with the page size derived from the widest row in that session rather than
+     guessed — payload sizes differ by two orders of magnitude between
+     platforms.
+
+**Consequence.** The hosted console now reports 5 platforms, 200 sessions, 35
+caller riders and 29 lab-trace riders, all from Aurora. The general lesson is
+narrower than "use one store": a fallback that silently succeeds is worse than
+one that fails, because it produces a plausible answer from the wrong source.
+Both of this decision's fixes are really the same fix — make the choice once,
+and make the wrong choice impossible rather than merely unlikely.
+
+## 2026-07-28 — D50: A sign-off is durable or it is not a sign-off
+
+**Context.** Insight approvals were written to `config/insight_reviews.yaml`,
+beside the claims they govern, where they are diffable — the right home while
+the console ran on a laptop. Hosting it made that file a layer of the container
+image: a sign-off made in the deployed console was written to a filesystem that
+does not survive a restart, and it never reached the repo. No error, no trace,
+and three insights were sitting in `review: required` waiting to be approved.
+
+An approval is a named human act on a public claim (D38). Losing one silently is
+the worst available failure for it — worse than refusing to record it, because
+the reviewer believes the job is done.
+
+**Decision.** `lab.lab_state` is the store when Aurora is configured; the file
+remains the store on a laptop and the diffable artifact in the repo.
+`scripts/insight_reviews_sync.py pull|push|diff` moves the record between them —
+`pull` after signing off, then commit.
+
+Two details that are the point rather than incidental:
+
+1. **The store write is not wrapped in a swallow-everything.** Every other
+   Aurora read in the console soft-fails to a local source, correctly. A write
+   must not: a green tick over an unsaved approval is the exact bug this exists
+   to fix, so a broken store surfaces as a 500.
+2. **An explicit path is never answered from the store.** The sync script
+   compares the two copies; if a caller naming a file got the store's answer,
+   `diff` would compare the store with itself and always report "in sync".
+
+## 2026-07-28 — D51: Eleven faces, one process, addressed by path
+
+**Context.** Nine cells in `config/targets.yaml` pointed at `localhost:80xx` —
+Claude and OpenAI's MCP/A2A servers, the Lab Guide's three, both Agentforce
+shims. Inside a container `localhost` is the container, so every one failed from
+the hosted console and the lab still needed `run_local.sh` on a laptop to
+exercise a protocol comparison. This was the last runtime dependency on the
+operator's machine, and the operator's requirement was that there be none.
+
+**Decision.**
+
+1. **One process, not nine services.** Every face is an ASGI app that
+   `interop.adapter.build_app()` already returns without running a server, so
+   nine Fargate tasks (~$80/month) would have bought nothing over one. It also
+   sidesteps ECS's limit of **five target groups per service**, which nine
+   separately-addressed faces would have hit — a constraint that would have
+   forced two services purely to satisfy the addressing scheme.
+2. **Paths, not nine hostnames.** Host-based routing is what the console uses
+   and would have worked. But each hostname is a DNS record a person creates by
+   hand, so it is nine records and nine listener rules against one of each, for
+   no behavioural difference. The faces answer at
+   `https://<faces host>/<target-name>/...`, and the mount prefix IS the target
+   name so a failing cell maps to a URL without a lookup table.
+3. **The hosted twins are the same objects.** Same adapters, same `build_app`,
+   same auth middleware — only the address differs. A face that behaved
+   differently hosted would make the protocol comparison meaningless, and the
+   comparison is the lab's subject.
+
+**What the work actually cost, which was not the mounting.** Starlette's `Mount`
+does **not** run a mounted app's lifespan, and FastMCP starts its
+streamable-HTTP session manager there. Every MCP face resolved its route
+perfectly and then answered `RuntimeError: Task group is not initialized`. The
+parent app now enters each sub-app's lifespan explicitly, reaching through two
+of our own ASGI middlewares to find the object that owns it. The lesson
+generalises past MCP: **mounting an ASGI app moves its routes, not its
+startup** — and the failure appears only on a real call, never on a route check.
+
+The A2A cards needed the same kind of care for the opposite reason: they
+advertise an *absolute* URL that a client calls back, and a mounted app cannot
+infer its own prefix. They are told their public origin through the same
+variable `targets.yaml` expands, so the address advertised and the address
+clients are sent to cannot drift.
+
+## 2026-07-28 — D52: The watcher is a loop, so it is a service — not the Lambda the plan assumed
+
+**Context.** WS13 item 3 was written as "hosted watcher — EventBridge Lambda
+servicing Managed Agents custom tool calls". It was the last runtime dependency
+on the operator's laptop: Anthropic's cron fires a brief session autonomously,
+the session then **stalls** awaiting the result of a host-side
+`save_account_brief` tool (Salesforce credentials never enter the managed
+sandbox, D16/D27), and something has to be watching to service it. That
+something was `python -m briefs --watch` inside `scripts/run_local.sh`.
+
+**Decision — a small ECS service, reusing the faces image.** The plan's shape
+was assumed before anyone looked at the work. Three things argued against the
+Lambda:
+
+1. **The work is a poll loop**, not an event. EventBridge would have imposed a
+   schedule on something whose natural form is `while True: poll; sleep`.
+2. **It would have needed a third zip** carrying the Anthropic SDK, httpx and
+   the Salesforce client — another bundle to build, ship and keep in step,
+   which is precisely what D46 is about. The faces image already contains this
+   code and every dependency it needs.
+3. **It serves nothing**, so it needs no ALB, no target group, no listener rule
+   and no ingress at all — a security group with egress only. ~$4/month at 0.25
+   vCPU.
+
+So the watcher is the faces image with a different command. Recorded because
+the plan's guess survived unexamined into three documents, and the cost of
+following it would have been a whole packaging path built to satisfy a word.
+
+**The two file dependencies that actually made it laptop-bound**, neither of
+which the plan mentioned:
+
+- `.a2alab/brief.json` — the provisioned ids. Configuration rather than secrets,
+  so the environment now supplies them and wins over the file.
+- `.a2alab/brief_state.json` — **the set of sessions already serviced**. This is
+  the one that matters. In a container it dies with the task, and the next poll
+  re-delivers every brief still listed in recent deployment runs: duplicate
+  `A2ALab_Account_Brief__c` records in a **production org**. It now lives in
+  `lab.lab_state` (D50's table), and the write is deliberately not soft-failed —
+  a lost write means a double delivery, so it must surface.
+
+**Verified on first run:** the hosted watcher loaded four credentials from
+Secrets Manager, attached to deployment `depl_01C6…`, and immediately picked up
+a scheduled session that had been idling with no watcher — which is also the
+proof of the design's forgiveness: nothing is lost while it is down.
+
+## 2026-07-28 — D53: Excluding a credential is not relocating it, and the issuer holds the key
+
+**Context.** The hosted console rejected every login with "wrong user or
+password", for both personas, using the passwords in `.env`. Two independent
+faults, and the second was hidden behind the first.
+
+**Fault 1 — the passwords were deleted, not moved.** D48 replaced the deploy
+scripts' enumerated secret-exclusion list with a rule: any
+`SECRET|TOKEN|KEY|PASSWORD` variable is kept off the task definition. That is
+right, and it correctly caught `A2ALAB_OPERATOR_PASSWORD` and
+`A2ALAB_VIEWER_PASSWORD` — which no previous list had named. But the *other*
+half of the pattern is the secret's `keys = [...]` list, and it was not widened
+to match. A credential excluded from the plain environment and added to nothing
+simply ceases to exist. The container held no passwords, and
+`identity.authenticate` compared the supplied one against `""`.
+
+**Fault 2 — the issuer had no signing key.** `identity.py` had an env route for
+the **public** half of the lab JWT keypair and none for the private, on an
+explicit and reasonable premise: *containers have no keypair and must never hold
+the signing key*. That premise holds for a seam that only **verifies** a token.
+It does not hold for the console, which **issues** them at `/api/login`.
+
+With no private key in the environment, `_private_key()` fell through to
+`ensure_keypair()`, which generated a fresh RSA pair into the container's own
+ephemeral filesystem. The container then signed with that key and verified
+against the configured public one. The observable behaviour is the worst
+available: **login succeeds and returns a token**, and every subsequent request
+401s, with `InvalidSignatureError` swallowed two layers down by a deliberate
+never-raise in the auth middleware.
+
+**Decision.**
+
+1. **Both halves of the keypair travel in the runtime secret**, and
+   `_private_key()` reads `A2ALAB_JWT_PRIVATE_KEY` first. The rule is now: a
+   seam that only verifies gets the public half; **an issuer gets both**.
+2. **A pattern-based exclusion must be paired with the relocation.** Whenever
+   `is_secret()` starts catching a new variable, that variable belongs in the
+   secret's `keys` list in the same change. The two lists are one mechanism.
+3. **Failing closed on the credential is better than failing closed on the
+   request.** `ensure_keypair()` generating a key for a container is a silent
+   substitution of a wrong answer for a missing one. It is left in place for
+   local development, where it is correct and convenient, and the hosted path
+   now supplies the key explicitly.
+
+**Why it took three attempts to see.** Each fix was deployed with
+`--skip-build`, which rewrites the task definition and the secret but **not the
+image**. So the environment was right and the code reading it was a build old —
+including `PRIVATE_KEY_ENV`, which did not exist in the running image at all.
+The diagnosis only landed after running the deployed image locally and finding a
+`lab_jwt_private.pem` the container had written for itself. This is now a
+convention in CLAUDE.md and a row in plan/10-operations.md: **when a fix does not
+take effect, check the image before re-reading the code.**
+
+**Consequence.** `plan/10-operations.md` exists as of this decision — the
+procedures for rotating these credentials had no home, and the reason a rotation
+needs a redeploy (the per-seam secret is built by the deploy script, not by
+`env_sync`) is worth writing down next to the procedure rather than rediscovering.
+
+## 2026-07-29 — D54: The harvest button fires the Lambda that already does the harvest
+
+**Context.** The console's Harvest button reported
+`Harvest failed: SyntaxError: Unexpected token '<', "<!DOCTYPE "...`. That is
+not a harvest error — it is a browser parsing an HTML page as JSON. Measured
+against the load balancer directly: `POST /api/obs/harvest` returned **HTTP 504
+in 120.18s**, the ALB's own timeout page. A full sweep takes longer than the
+ALB's 120s idle timeout.
+
+Raising the timeout does not fix it. Cloudflare's proxy limit sits below the
+ALB's, so the ceiling would simply move to one the lab does not control, and the
+same failure would return as a 524. **A request that cannot finish inside the
+front door's budget is the wrong shape, not the wrong setting** — the same
+conclusion WS11/D47 reached about A2A.
+
+**Decision.** `/api/obs/harvest` invokes the **existing** `a2alab-obs-harvest`
+Lambda with `InvocationType: "Event"` and returns `started_at` immediately; the
+console polls `lab.obs_harvest` for a `last_harvest_at` newer than that. The
+in-process sweep stays for local development, where nothing is timing the
+request out.
+
+**Delegating fixed two faults nothing else had caught**, and they are the
+better argument than the timeout:
+
+1. **The console harvested four platforms; the Lambda harvests six.** Foundry
+   was never in the console's `sources` dict at all — despite the comment above
+   it saying "the five agent platforms". The button claimed "harvested from all
+   platforms" and never touched Foundry.
+2. **ADK could not work from the console at all.** It failed with
+   `DefaultCredentialsError`, because the GCP service-account key lives in the
+   harvest secret and is materialised by `observability.credentials.prepare()`
+   — which the Lambda calls and the console does not. The console container has
+   no Google identity for Cloud Logging, so that cell was never going to
+   succeed however long the request was allowed to run.
+
+**Consequence.** The button now does less work in the web app, not more: the
+console asks the component that owns the job to do it. The general rule is
+worth keeping — *when a hosted seam already performs a job on a schedule, a UI
+that wants it on demand should invoke that seam, not reimplement it in the
+request path.* The reimplementation had silently drifted to two-thirds of the
+platforms and one broken credential.
+
+## 2026-07-29 — D55: A mode remap must not change what an experiment IS
+
+**Context.** The operator asked whether the two Claude↔Agentforce experiments
+were still using the **Managed Agent**, or had quietly become the self-hosted
+AgentCore twin. They had.
+
+`config/targets.yaml` carried `modes.hosted: claude-rest → claude-agentcore`.
+That was correct when written: the protocol faces ran only on a laptop, so in
+hosted mode AgentCore was the *only* reachable Claude. Hosting the faces (D51)
+made it wrong the same day, and nothing failed — which is the problem.
+
+Proven from a trace hop rather than argued: `claude-rest` resolved to
+`claude-agentcore (agentcore-http)` and the response carried
+`"raw": {"backend": "sdk"}`. So `claude-to-agentforce` (titled *Claude Managed
+Agent → Agentforce*) and `claude-aws-to-agentforce` ran **the same backend**,
+while the entire purpose of the pair is to compare Managed Agents against
+self-hosted. The lab was showing two cells of one thing and calling it a
+comparison.
+
+**Decision.**
+
+1. **Hosted mode maps a face to its hosted TWIN, never to a different
+   implementation.** `claude-rest → claude-rest-hosted` and
+   `openai-rest → openai-rest-hosted`, both served by the faces container,
+   which runs `CLAUDE_BACKEND=managed`. The AgentCore cells keep their own
+   scenarios and their own names.
+2. **A mode entry may change an address. It may not change a backend, a
+   platform, or a protocol.** Those are what the experiment *is*; the mode
+   switch is about where it runs. A remap that crosses that line converts an
+   honest matrix into a false one silently, because every cell still passes.
+3. Two tests pin it: hosted mode may not send the Managed Agent cell to the
+   self-hosted runtime, and every remap must name targets that exist.
+
+**Verified after the fix:** `claude-rest` reports `backend=managed`,
+`claude-agentcore` reports `backend=sdk`.
+
+**The lesson is about timing, not YAML.** This remap was right for three weeks
+and wrong from the moment a better option existed. Nothing re-examines a
+workaround when the thing it worked around goes away — so when a capability
+lands, the compensations made in its absence are part of the change.
+
+## 2026-07-29 — D56: One table, two authors, and the reader must say which one it wants
+
+**Context.** The operator read the Observability section's analysis brief and
+asked why it only discussed **coding-agent telemetry** and nothing about the
+lab's own experiments. It was not the observability analyst's brief at all. It
+was the **cost sentinel's**, and build cost is exactly its subject.
+
+`lab.obs_briefs` is deliberately one table with a `kind` discriminator — WS12
+settled that rather than adding a second table and a second migration. The cost
+endpoint (`/api/cost-brief`) filtered on `kind='cost'` from the start.
+`/api/obs/briefs` called `list_briefs()` with **no kind at all**, so it returned
+whatever was newest across both authors. The moment the sentinel wrote a brief,
+the Observability panel started showing it.
+
+**Two failures compounded, and the second is the one worth remembering.**
+
+1. The panel rendered another agent's work under its own heading.
+2. **It hid the real state.** The observability analyst's last brief was
+   **2026-07-18** — eleven days earlier — because the analyst is a *paused*
+   deployment with **no cron**, run only on demand. An empty panel would have
+   said so. A panel showing somebody else's fresh brief said the opposite.
+
+**Decision.**
+
+1. `/api/obs/briefs` asks for `kind='observability'`, importing the constant
+   from `observability.pg` rather than restating the string.
+2. **Both panels name their author and their subject in the header**, and each
+   says the other exists. When two producers share a store, a heading that says
+   only "Analysis brief" is ambiguous by construction — the reader cannot tell
+   whether they are seeing the wrong brief or the right one saying something
+   surprising.
+3. A test pins the filter.
+
+**The wider point, which is why this got its own decision.** A shared table with
+a discriminator is a good design and the lab keeps it. What it costs is that
+**every reader must be explicit** — an unfiltered read is not a neutral default
+but a silent choice to show whatever arrived last. That failure mode is
+invisible while only one producer is writing, and appears the day the second
+one does, in a place nobody was looking at that moment.
+
+Recorded alongside `plan/09-deployment-map.md` **L5.7**, the inventory of
+scheduled and long-running processes, which exists because this is the second
+time in two days that something's *state* — paused, unscheduled, or quietly not
+running — was invisible until a person asked a direct question about its output.
+
+## 2026-07-29 — D57: The console canvas template — a thing, and what is behind it
+
+**Context.** The console had grown seven canvas types (`experiment`, `obs`,
+`insights`, `arch`, `build`, `creds`, `trace`) with two different ideas of
+structure. Experiments had it right — a **Run** tab showing the thing and a
+**Details** tab explaining the call path, the planned narrative and the real
+agent assets. Everywhere else, provenance was either missing or crammed into
+the same pane as the content.
+
+That is not a cosmetic problem. This lab's subject is *how these platforms
+actually behave*, and a panel that shows a number without saying where the
+number came from is the exact failure the honest matrix exists to prevent. Twice
+in two days a reader could not tell what they were looking at: a cost brief
+rendered under an observability heading (D56), and an empty dashboard that meant
+"paused agent" but looked like "no data".
+
+**Decision — every area of the console follows one template.**
+
+1. **Nav → canvas.** A section is reached from the Control Panel sidebar and
+   owns the main canvas. One `view.type` per section.
+2. **Top tabs name the THINGS in that section**, as peers. Observability is
+   `Dashboard | Observability Analysis | Cost Analysis` — not one "briefs" tab
+   with kinds nested inside it. If two things are produced by different
+   processes, they are peers, because nesting implies one is a facet of the
+   other and readers believe it.
+3. **Every tab carries a `Details` sub-tab**, the shape experiments already
+   used. The canvas shows **the thing**; Details answers **where the thing came
+   from**:
+   - what produces it (which agent, script, Lambda or schedule — by name),
+   - how it reads its inputs and with what identity,
+   - where the output is stored (table, column, bucket),
+   - what BOUNDS it — the limitation that stops it saying more,
+   - and the caveat that must travel with the numbers, if there is one.
+4. **Details is markdown**, so `linkifyDecisions` turns `D<n>` and `plan/*.md`
+   into chips for free. **Cite real refs** — the mechanism renders only
+   references that exist, and an explanation citing nothing produces no chips.
+5. **An empty state explains itself.** "No briefs in the last 7 days — the
+   analyst is a paused deployment, so it only runs when you press Analyze" is
+   information. A blank panel is a bug report waiting to be filed.
+6. **A tab opens on its content, never on its Details.** Switching tabs resets
+   the sub-tab; Details is a question the reader chooses to ask.
+7. **State is `view.type` + a per-section tab + a per-tab sub-tab**, and the
+   render cache key includes all three — or switching a sub-tab silently shows
+   the previous pane.
+
+**What this is really enforcing.** The lab publishes claims, and a console that
+shows results without provenance is asking to be trusted rather than read. The
+Details pane is where a visitor finds out that OpenAI has no list-executions
+API, that the cost figure is a client-side estimate at list price, that the
+analyst has been paused since the 18th. Those are the interesting facts. The
+template exists so that adding a section means being asked, structurally,
+"and where does this come from?"
+
+**Applies to new work.** A new area of the console starts as: one `view.type`,
+peer tabs for its things, a Details pane per tab, and an empty state that says
+why. Recorded in CLAUDE.md as the rule to follow rather than a thing to
+rediscover.

@@ -127,3 +127,47 @@ def test_authenticate_role_passwords(monkeypatch):
     monkeypatch.delenv("A2ALAB_VIEWER_PASSWORD")
     with pytest.raises(ValueError):  # unset password = login disabled
         identity.authenticate("vic", "view-pass", users=USERS)
+
+
+def test_the_signing_key_can_come_from_the_environment(monkeypatch, tmp_path):
+    """The hosted console ISSUES tokens (/api/login), so "containers must never
+    hold the signing key" — true of a seam that only verifies — cannot hold for
+    the issuer (WS13).
+
+    Without this route a container generates a FRESH keypair into its own
+    ephemeral filesystem on first use, which fails in a way that looks like
+    nothing: login succeeds, a token comes back, and every session dies at the
+    next deploy because the key that signed it no longer exists.
+    """
+    from interop import identity
+
+    # A real keypair, generated where nothing else can see it.
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path))
+    private_path, public_path = identity.ensure_keypair()
+    private_pem, public_pem = private_path.read_text(), public_path.read_text()
+
+    # Now point the key dir somewhere empty: only the env can supply the key.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(empty))
+    monkeypatch.setenv(identity.PRIVATE_KEY_ENV, private_pem)
+    monkeypatch.setenv(identity.PUBLIC_KEY_ENV, public_pem)
+
+    users = {"ryan": {"name": "Ryan Cox", "role": "operator"}}
+    token = identity.issue_token("ryan", users=users)
+    claims = identity.verify_token(token, public_pem=public_pem)
+    assert claims and claims["sub"] == "ryan"
+    # and the empty dir stayed empty — no keypair was silently generated
+    assert not list(empty.iterdir())
+
+
+def test_escaped_newlines_in_the_env_key_are_restored(monkeypatch, tmp_path):
+    """A PEM crosses Secrets Manager and a task definition as one line. The
+    public half already handled this; the private half must too, or the key
+    parses as garbage."""
+    from interop import identity
+
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path))
+    private_pem = identity.ensure_keypair()[0].read_text()
+    monkeypatch.setenv(identity.PRIVATE_KEY_ENV, private_pem.replace("\n", "\\n"))
+    assert identity._private_key() == private_pem

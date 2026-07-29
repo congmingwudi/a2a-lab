@@ -48,6 +48,15 @@ aws iam put-role-policy --role-name a2alab-obs-lambda --policy-name a2alab-obs-p
   --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudwatch:GetMetricData","cloudwatch:ListMetrics"],"Resource":"*"}]}'
 echo "ensured role policy a2alab-obs-promql (cloudwatch:GetMetricData + ListMetrics)"
 
+# WS14: the credential-expiry collector runs on this schedule too, and reads two
+# AWS providers that no other part of this function touches. Its own inline
+# policy for the same reason as above — put-role-policy replaces wholesale, and
+# a2alab-obs-access is shared with the MCP function.
+# Read-only and list-only: this job reports dates, it never rotates anything.
+aws iam put-role-policy --role-name a2alab-obs-lambda --policy-name a2alab-obs-expiry \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["iam:ListServiceSpecificCredentials","acm:ListCertificates","acm:DescribeCertificate"],"Resource":"*"}]}'
+echo "ensured role policy a2alab-obs-expiry (iam:ListServiceSpecificCredentials + acm read)"
+
 # ---- credentials -----------------------------------------------------------
 if [[ "$MODE" == "all" || "$MODE" == "--secret" ]]; then
   # Merge, never replace: the secret also carries ANTHROPIC_API_KEY /
