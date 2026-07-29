@@ -1014,7 +1014,7 @@
   </div>
   <div class="user-wrap" style="position:relative">
     <button class="guide-btn" id="userBtn" onclick="toggleUserPanel(event)"
-      title="Sign in as a lab user — runs carry your identity (WS6)">👤 Sign in</button>
+      title="Sign in as a lab user — experiments carry your identity (WS6)">👤 Sign in</button>
     <div id="userPanel" class="warm-panel user-panel" style="display:none" onclick="event.stopPropagation()"></div>
   </div>
   <button class="guide-btn" id="guideBtn" onclick="toggleGuide()"
@@ -1236,7 +1236,7 @@ window.toggleUserPanel = async ev => {
   let users = [];
   try { users = (await (await fetch(apiUrl("/api/users"))).json()).users || []; }
   catch (e) { /* directory unavailable — panel just shows sign-out */ }
-  panel.innerHTML = `<h3>Lab users <span class="hint" style="text-transform:none;letter-spacing:0">runs carry your identity</span>
+  panel.innerHTML = `<h3>Lab users <span class="hint" style="text-transform:none;letter-spacing:0">&mdash; experiments carry your identity</span>
       <button class="x" onclick="document.getElementById('userPanel').style.display='none'">✕</button></h3>`
     + users.map(u => `
       <div class="warm-row" style="cursor:pointer" onclick="gdPickUser('${esc(u.username)}', '${esc(u.name)}')">
@@ -1277,13 +1277,43 @@ window.labSignIn = async () => {
     localStorage.setItem("a2a-user-jwt", d.token);
     localStorage.setItem("a2a-user", JSON.stringify(d.user));
     labUser = d.user;
-    // Reload so every panel refetches with the new credential — the
-    // signed-out page loaded nothing but the shell.
-    window.location.reload();
+    // Refetch in place rather than reloading the page. The signed-out shell
+    // loads nothing but the public surface, so SOMETHING has to re-request it
+    // with the new credential — this used to be window.location.reload(), and
+    // signing in appeared to do nothing at all until you refreshed by hand.
+    // Doing it here also keeps the console on whatever the user was looking
+    // at, instead of throwing them back to the landing page.
+    document.getElementById("userPanel").style.display = "none";
+    document.getElementById("userPwInput").value = "";
+    pendingUser = null;
+    renderUserBtn();
+    await signedInRefresh();
     return;
   } catch (e) { alert("Sign-in failed: " + e.message); }
   renderUserBtn();
 };
+
+// Everything the signed-out page could not fetch. Kept in one place so sign-in
+// and first paint cannot drift apart — a panel added to boot and not to this
+// list is a panel that stays empty until the user reloads.
+async function signedInRefresh() {
+  await Promise.allSettled([
+    loadLaunchers(),      // scenarios + targets (the experiment nav)
+    loadDecisions(),      // the D-chip corpus
+    refreshTraces(),      // trace list, now that /api/traces answers
+    loadObs(),            // observability summary + sessions
+    loadInsights(),
+    loadWarmup(),
+    loadConfig(),
+  ]);
+  // Deliberately NOT connectStream(). The loop started at boot never exits —
+  // on 401 it drops the dead credential, slows to a poll and reconnects by
+  // itself once a sign-in lands (see its own comment). Starting a second one
+  // here would leave two readers on the same tail, and every hop would arrive
+  // twice.
+  renderSidebar();
+  renderMain();
+}
 
 window.labSignOut = () => {
   localStorage.removeItem("a2a-user-jwt");
