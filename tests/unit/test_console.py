@@ -956,7 +956,16 @@ def test_architecture_endpoint_serves_the_deployment_map(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     data = TestClient(app).get("/api/architecture").json()
 
-    assert [x["id"] for x in data["levels"]][:2] == ["L0", "L1"]
+    ids = [x["id"] for x in data["levels"]]
+    # L0 opens the document; the rest may include decimal levels inserted
+    # between the originals (L0.5, L5.5, L5.7), so assert ORDER rather than a
+    # fixed pair — pinning ["L0", "L1"] failed the moment a level was added
+    # between them, which is a thing this doc is expected to do.
+    assert ids[0] == "L0"
+    assert len(ids) >= 5
+    assert ids == sorted(ids, key=lambda i: float(i[1:])), f"levels out of order: {ids}"
+    # Every level carries a diagram: the Architecture section is the pictures,
+    # and a level without one renders as a heading and a wall of prose.
     assert all(x["mermaid"] for x in data["levels"])
     assert data["path"].endswith("09-deployment-map.md")
 

@@ -12,11 +12,12 @@ behind API Gateway. Two components, same account, opposite hosting decisions —
 which is correct, and confusing, unless the reason is written down next to the
 picture.
 
-**How to read it.** Nine levels, each a diagram plus what it is and why it is
+**How to read it.** Ten levels, each a diagram plus what it is and why it is
 that way. L0 is the whole estate on one screen. L6 maps repo files to deployed
 artifacts. Read down until you have the detail you need, then stop.
 
-- **L0** — the estate: five homes, one lab
+- **L0** — the estate: the console drives five platforms across four clouds
+- **L0.5** — the same estate as a call graph: who reaches whom
 - **L1** — AWS: four hosting shapes, four different reasons
 - **L2** — Path A end to end: Salesforce reaches out
 - **L3** — Path B end to end: the platforms reach into Salesforce
@@ -118,10 +119,100 @@ into one place.
 **Why spread across four clouds at all.** Not for redundancy — because the
 subject *is* cross-platform interop. An agent on each vendor's own home turf is
 the experiment; running everything as containers in one cloud would test our
-containers, not the platforms. The levels below take this apart: L1 the four AWS
-hosting shapes and why each, L2 and L3 the two call paths end to end, L4
+containers, not the platforms. The levels below take this apart: L0.5 the same estate
+as a call graph, L1 the four AWS hosting shapes and why each, L2 and L3 the two call paths end to end, L4
 identity, L5 observability, L5.5 DNS, L5.7 the scheduled processes, L6 which
 file becomes which running thing.
+
+## L0.5 — The same estate as a call graph: who reaches whom
+
+L0 answers *what is where*. This answers *what talks to what* — the same
+components, drawn by the paths between them rather than by the boundaries around
+them. Both are worth having: the first is the one to open with, this is the one
+to point at when somebody asks how a request actually gets from Salesforce to a
+Google agent.
+
+```mermaid
+flowchart TB
+  subgraph SF["Salesforce production org"]
+    AF["Agentforce agents<br/>one twin per platform"]
+    APEX["Apex invocable<br/>A2ALabInvokeRemoteAgent"]
+  end
+
+  subgraph AWS["AWS — us-east-1<br/>the lab's runtime account"]
+    BRIDGE["Bridge<br/>ECS Fargate + ALB"]
+    RUNTIMES["Claude + OpenAI agents<br/>Bedrock AgentCore"]
+    SHIM["Agentforce A2A/MCP shim<br/>Lambda + API Gateway"]
+    FANOUT["Fan-out MCP server<br/>Lambda + API Gateway"]
+    OBS["Obs harvest + obs MCP<br/>Lambda + Aurora"]
+    CONSOLE["Lab console<br/>ECS Fargate, rule on the bridge ALB"]
+    FACES["Eleven protocol faces<br/>ECS Fargate, one process, by path"]
+    WATCH["Brief watcher<br/>ECS Fargate, no inbound path"]
+  end
+
+  subgraph GCP["GCP — us-central1"]
+    ADK["ADK agents on<br/>Vertex AI Agent Engine"]
+  end
+
+  subgraph AZ["Azure — eastus"]
+    FOUNDRY["Foundry prompt agents<br/>Agent Service"]
+  end
+
+  subgraph ANT["Anthropic platform"]
+    CMA["Managed Agents<br/>agent + scheduled deployment"]
+  end
+
+  subgraph LAP["The laptop — dev only"]
+    LOCAL["run_local.sh stack<br/>dev convenience only"]
+    TUNNEL["cloudflared tunnel"]
+  end
+
+  APEX -->|"HTTPS, Named Credential"| BRIDGE
+  BRIDGE --> RUNTIMES
+  BRIDGE --> ADK
+  BRIDGE --> FOUNDRY
+  BRIDGE --> AF
+  RUNTIMES -->|"consult"| SHIM
+  ADK -->|"consult"| SHIM
+  FOUNDRY -->|"consult"| SHIM
+  CMA -->|"MCP tools"| FANOUT
+  SHIM --> AF
+  FANOUT --> ADK
+  FANOUT --> FOUNDRY
+  FANOUT --> RUNTIMES
+  OBS -.->|"pull logs"| AF
+  OBS -.-> CMA
+  OBS -.-> ADK
+  OBS -.-> FOUNDRY
+  TUNNEL -.-> LOCAL
+```
+
+**What you are looking at.** Five places hold something the lab depends on, and
+one of them — the laptop — no longer holds anything on a live call path.
+
+**Read it by following one arrow.** Path A starts at the Apex invocable and ends
+wherever `config/targets.yaml` points the bridge that day, which is the whole
+argument for having a bridge: switching a platform or a protocol is a config
+edit, not a Salesforce redeploy. Path B is the return direction — each platform's
+agent consulting Agentforce through the hosted shim — and the fan-out server is
+the one-to-many case, where a single model turn reaches three clouds.
+
+**Why it is spread like this.** Not for redundancy; deliberately, because the
+lab's subject *is* cross-platform interop. An agent on each major platform, each
+in its vendor's own native home, is the experiment. The alternative — running
+everything as containers in one cloud — would test our containers, not the
+platforms.
+
+**The asymmetry the arrows make obvious:** AWS is not just a peer. Almost every
+line passes through something the lab itself hosts there — the bridge, the shim,
+the fan-out server, the observability store — while the other four clouds hold
+agents and nothing else.
+
+**The dotted lines are the harvest**, not a call path: the observability job
+pulling each platform's own record of what happened, on a schedule, in the
+opposite direction from the traffic.
+
+---
 
 ## L1 — AWS: four hosting shapes, four different reasons
 
