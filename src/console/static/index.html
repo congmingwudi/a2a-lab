@@ -2408,9 +2408,7 @@ function obsBriefDetailsHtml(kind) {
 
 // What the dashboard is showing, and how the data got there.
 function obsDashboardDetailsHtml() {
-  const md = `### How the data reaches this dashboard
-
-### What this dashboard shows
+  const md = `### What this dashboard shows
 
 Per-platform **sessions**, **events**, **token totals** and the **last harvest status** for every
 platform the lab talks to. It reads \`lab.obs_sessions\`, \`lab.obs_events\` and \`lab.obs_harvest\`
@@ -2436,9 +2434,9 @@ events, rather than one session per turn.
 The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
 six-platform sweep runs longer than a browser request may stay open.`;
   return `<div class="flow">
-    <h3>How the data reaches this dashboard</h3>
+    <h3>The architecture behind it</h3>
     <div class="archsvg-wrap" id="obsDashFig" style="margin:6px 0 18px"></div>
-    ${mdToHtml(md.replace("### How the data reaches this dashboard\n\n", ""))}
+    ${mdToHtml(md)}
   </div>`;
 }
 
@@ -5670,10 +5668,11 @@ function renderMain(force) {
         // is for. The dashboard tab shows the numbers; Details explains the
         // pipeline that produced them.
         : (details
-            // Just the diagram and the prose. obsPipelineHtml's stage boxes
-            // say the same thing a third time and still live in the first-run
-            // view, where they are the whole explanation.
-            ? obsDashboardDetailsHtml()
+            // The high-level flow first — the four stages at a glance — then
+            // the architecture beneath it, then the prose. They answer
+            // different questions: what happens, what it runs on, what limits
+            // it. Additive on purpose.
+            ? obsPipelineHtml(true) + obsDashboardDetailsHtml()
             : obsDashboardHtml() + obsSessionsHtml(null));
       el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + obsSubTabsHtml()
         + `<div class="tabpanel">${pane}</div>`;
