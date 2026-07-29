@@ -2181,37 +2181,71 @@ function obsBriefsHtml() {
   const running = obs.analysisRunning ? `
     <div class="desc"><span class="stat">${esc(obs.analysisAgent || "The analyst agent")} is running —
       this tab updates when the brief lands (usually a few minutes).</span></div>` : "";
-  if (!briefs.length) return `
-  <div class="flow">
-    <h3>Observability analysis brief</h3>
-    ${running || `<div class="desc"><span class="stat">No observability briefs yet — hit <b>Analyze</b> in the
-      sidebar and the Claude-managed analyst will query the harvested store and save its findings here.
-      <br>This is <b>not</b> the weekly build-cost brief: two agents write to the same table and the
-      <b>Cost</b> section carries the sentinel's (WS12/D44).</span></div>`}
-  </div>`;
-  const latest = briefs[0];
+  // One sub-tab per brief KIND, built from the data rather than a hardcoded
+  // list: lab.obs_briefs takes any number of authors and a new analysis agent
+  // should appear here as a new tab without editing this function. KIND_META
+  // supplies a human label and a blurb for the ones we know; anything else
+  // falls back to its raw kind, which is ugly but never wrong.
+  const KIND_META = {
+    observability: {
+      label: "Observability analysis",
+      blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
+           + "experiment telemetry across all six platforms.",
+    },
+    cost: {
+      label: "Cost sentinel",
+      blurb: "The weekly <b>build-cost</b> read (WS12/D44). Modelled cost at list price — a client-side "
+           + "estimate, not an invoice.",
+    },
+  };
+  const kindMeta = k => KIND_META[k] || { label: k, blurb: `Briefs of kind <code>${esc(k)}</code>.` };
+  // Known kinds first and in a stable order, then anything new, alphabetically.
+  const ORDER = Object.keys(KIND_META);
+  const kinds = [...new Set(briefs.map(b => b.kind || "observability"))]
+    .sort((a, b) => {
+      const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+    });
+  // Always offer the known tabs even with nothing in the window — an empty
+  // "Observability analysis" tab is the honest report that the analyst has not
+  // run, and is exactly what a "latest brief" view hid for eleven days (D56).
+  for (const k of ORDER) if (!kinds.includes(k)) kinds.push(k);
+  if (!obs.briefKind || !kinds.includes(obs.briefKind)) obs.briefKind = kinds[0];
+  const active = obs.briefKind;
+  const mine = briefs.filter(b => (b.kind || "observability") === active);
+  const meta = kindMeta(active);
+
   return `
   <div class="flow">
-    <h3>Observability analysis brief — ${esc(latest.brief_date)}
-      <span class="obs-updated" style="float:right">last updated ${fmtWhen(latest.created_at)}</span></h3>
+    <h3>Analysis briefs
+      ${mine.length ? `<span class="obs-updated" style="float:right">last updated ${fmtWhen(mine[0].created_at)}</span>` : ""}</h3>
+    <div class="tabs" style="margin:2px 0 10px">
+      ${kinds.map(k => {
+        const n = briefs.filter(b => (b.kind || "observability") === k).length;
+        return `<button class="tab ${k === active ? "on" : ""}" onclick="setBriefKind('${esc(k)}')">
+          ${esc(kindMeta(k).label)}${n ? ` <span class="stat">${n}</span>` : ""}</button>`;
+      }).join("")}
+    </div>
     ${running}
-    <div class="desc"><span class="stat">What the <b>observability analyst</b> found in the harvested platform
-      logs — the lab's own experiment telemetry
-      (${latest.queries_run ?? "?"} queries${latest.session_id ? " · session " + esc(latest.session_id.slice(-8)) : ""}).
-      <br>Two agents write to <code>lab.obs_briefs</code> and are separated by <code>kind</code>: this panel shows
-      only <code>observability</code>. The weekly <b>build-cost</b> brief is the cost sentinel's (WS12/D44) and
-      lives in the Cost section — until 2026-07-29 this panel showed whichever was newest, which is how a
-      cost brief appeared here talking about coding-agent telemetry.</span></div>
-    <div class="obs-card brief-md">${mdToHtml(latest.brief_md)}</div>
-    ${briefs.length > 1 ? `
-    <h3 style="margin-top:18px">Past briefs</h3>
-    ${briefs.slice(1).map(b => `
-      <details>
-        <summary style="cursor:pointer; font-size:12.5px; padding:4px 0">${esc(b.brief_date)} · ${b.queries_run ?? "?"} queries · ${fmtWhen(b.created_at)}</summary>
+    <div class="desc"><span class="stat">${meta.blurb}
+      <br>Rolling <b>7 days</b>${mine.length ? ` · ${mine.length} brief${mine.length > 1 ? "s" : ""}, newest open` : ""}.
+      Every kind is stored in <code>lab.obs_briefs</code> and separated by <code>kind</code>; each tab shows only its own.</span></div>
+    ${mine.length ? mine.map((b, i) => `
+      <details ${i === 0 ? "open" : ""} style="margin:8px 0">
+        <summary style="cursor:pointer; font-size:12.5px; padding:4px 0">
+          ${esc(b.brief_date)} · ${b.queries_run ?? "?"} queries · ${fmtWhen(b.created_at)}${
+            i === 0 ? ' <span class="stat">— latest</span>' : ""}
+        </summary>
         <div class="obs-card brief-md" style="margin:6px 0">${mdToHtml(b.brief_md)}</div>
-      </details>`).join("")}` : ""}
+      </details>`).join("")
+    : `<div class="desc"><span class="stat">No <b>${esc(meta.label.toLowerCase())}</b> briefs in the last 7 days.
+        ${active === "observability"
+          ? "Hit <b>Analyze</b> in the sidebar to run the analyst now — it is a paused deployment, so it only runs on demand."
+          : "The sentinel is a weekly scheduled deployment; see plan/09 L5.7 for whether it is enabled."}</span></div>`}
   </div>`;
 }
+
+window.setBriefKind = k => { obs.briefKind = k; renderMain(true); };
 
 // "last updated" stamp: absolute local time + relative age.
 function fmtWhen(value) {

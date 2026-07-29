@@ -1418,7 +1418,7 @@ def test_every_hosted_remap_points_at_a_real_target():
             assert dst in registry.targets, f"{mode}: unknown destination target {dst}"
 
 
-def test_the_observability_panel_asks_for_observability_briefs(tmp_path, monkeypatch):
+def test_the_briefs_endpoint_returns_every_kind_within_the_window(tmp_path, monkeypatch):
     """D56. Two agents write to lab.obs_briefs — the observability analyst and
     the WS12 cost sentinel — separated only by `kind`. /api/cost-brief always
     filtered; /api/obs/briefs never did, so it returned whatever was newest and
@@ -1430,8 +1430,8 @@ def test_the_observability_panel_asks_for_observability_briefs(tmp_path, monkeyp
     asked = {}
 
     class FakeStore:
-        def list_briefs(self, limit=20, kind=None):
-            asked["kind"] = kind
+        def list_briefs(self, limit=20, kind=None, days=None):
+            asked.update(kind=kind, days=days)
             return []
 
         def close(self):
@@ -1441,6 +1441,12 @@ def test_the_observability_panel_asks_for_observability_briefs(tmp_path, monkeyp
     monkeypatch.setattr("observability.pg.PgObsStore", lambda *a, **k: FakeStore())
     app = make_app(tmp_path / "traces", monkeypatch)
     TestClient(app).get("/api/obs/briefs", headers={"X-Lab-Token": "sekrit"})
-    assert asked["kind"] == "observability", (
-        "the observability panel must not show the cost sentinel's briefs"
-    )
+    # It asks for EVERY kind in the window and the console splits them into
+    # one sub-tab per kind, so a future analysis agent gets a tab with no
+    # server change. What must not return is the old behaviour: an unfiltered
+    # list under ONE heading, where the cost sentinel's brief appeared in the
+    # Observability section and read as the analyst changing subject.
+    assert asked["kind"] is None
+    # and it asks for a WINDOW, so a week with no analyst run looks empty
+    # rather than showing an eleven-day-old brief as if it were current.
+    assert asked["days"] == 7

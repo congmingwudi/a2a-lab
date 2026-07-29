@@ -225,3 +225,28 @@ def test_store_selection_falls_back_when_postgres_is_not_configured(monkeypatch,
     store = make_obs_store()
     assert isinstance(store, ObsStore)
     store.close()
+
+
+def test_list_briefs_windows_by_days_without_backfilling():
+    """The console shows a rolling 7 days (D56). `days` is separate from
+    `limit` on purpose: a quiet week must show FEW briefs rather than reaching
+    back for older ones to fill a count — "nothing was written this week" is
+    the state the panel most needs to be able to say, and the one a
+    latest-brief view hid for eleven days."""
+    store = PgObsStore(client=FakePg({"FROM lab.obs_briefs": []}))
+    store.list_briefs(kind="observability", days=7)
+    sql, params = store.client.calls[0]
+    assert "kind = :kind" in sql
+    assert "created_at >= now() - (:days * INTERVAL '1 day')" in sql
+    assert params["days"] == 7 and params["kind"] == "observability"
+
+
+def test_list_briefs_without_a_window_is_unbounded_by_date():
+    """The analyst's own feed asks "what have I written before" and wants
+    history, not this week."""
+    store = PgObsStore(client=FakePg({"FROM lab.obs_briefs": []}))
+    store.list_briefs()
+    sql, params = store.client.calls[0]
+    assert "make_interval" not in sql
+    assert "WHERE" not in sql
+    assert "days" not in params

@@ -1871,6 +1871,11 @@ def create_console_app(registry: Registry | None = None):
     # out of the Observability coverage panel and rendered in its own section.
     BUILD_TELEMETRY_PLATFORM = "coding"
 
+    # The rolling window the briefs tab shows. Deliberately a window and not a
+    # count: an empty week must LOOK empty. The analyst was paused for eleven
+    # days and a "latest brief" view hid that behind a stale document (D56).
+    BRIEF_WINDOW_DAYS = 7
+
     # Set by deploy/console/deploy_console.sh to the scheduled harvest Lambda.
     # Its presence is what makes the Harvest button asynchronous — unset on a
     # laptop, where the sweep runs in-process because nothing is timing it out.
@@ -2511,7 +2516,7 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/obs/briefs")
     async def obs_briefs():
-        from observability.pg import BRIEF_OBSERVABILITY, PgClient, PgObsStore
+        from observability.pg import PgClient, PgObsStore
 
         if not PgClient.configured():
             return {"briefs": [], "error": "hosted store not configured (A2ALAB_PG_*)"}
@@ -2519,15 +2524,18 @@ def create_console_app(registry: Registry | None = None):
         def run():
             store = PgObsStore()
             try:
-                # Filtered by kind (D56). Two different agents write to
-                # lab.obs_briefs — the observability analyst and the WS12 cost
-                # sentinel — and this endpoint asked for neither, so it
-                # returned whatever was newest. The Observability section
-                # ended up rendering a build-COST brief and looking like the
-                # analyst had suddenly started talking about coding telemetry.
-                # Its sibling at /api/cost-brief always filtered; this one
-                # never did.
-                return store.list_briefs(kind=BRIEF_OBSERVABILITY)
+                # EVERY kind in the window, each row carrying its own `kind`
+                # (D56). The console renders one sub-tab per kind, so a new
+                # analysis agent appears as a new tab with no change here —
+                # which is the point: the table was always designed to take
+                # more authors, and the reader should not need editing each
+                # time one arrives.
+                #
+                # What must never come back is the old behaviour: an unfiltered
+                # list rendered under a single heading, where the cost
+                # sentinel's brief appeared in the Observability section and
+                # read as the analyst changing subject.
+                return store.list_briefs(days=BRIEF_WINDOW_DAYS, limit=60)
             finally:
                 store.close()
 

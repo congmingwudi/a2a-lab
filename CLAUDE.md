@@ -18,7 +18,14 @@ uv run pytest tests/unit/test_bridge.py -k name    # one test
 uv run pytest -m live                # tests needing real credentials (marker: live)
 uv run ruff check . && uv run ruff format .        # lint / format (line-length 100)
 
-scripts/run_local.sh                 # full local stack (Claude servers, shims, bridge, console)
+scripts/run_console.sh               # the console ALONE against the hosted lab — the
+                                     # default dev loop since WS13. A2ALAB_MODE=hosted makes
+                                     # it resolve every target to its hosted twin, so nothing
+                                     # else needs to run here. Publishing is separate and
+                                     # deliberate: deploy/console/deploy_console.sh
+scripts/run_local.sh                 # full local stack (11 faces, bridge, console). Needed
+                                     # only when changing an ADAPTER rather than the console;
+                                     # twelve of its thirteen processes are hosted now
 uv run python scripts/matrix.py      # run every runnable protocol cell → appends plan/03-results.md
 uv run python scripts/sf_smoke.py    # Agentforce go/no-go (needs SF_* in .env)
 uv run python scripts/identity_preflight.py  # prove every caller identity can still do its job (D37/F6)

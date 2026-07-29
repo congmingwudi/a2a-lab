@@ -15,6 +15,7 @@ either performed or discovered on 2026-07-28, when the lab moved off the laptop
 - [Deploy a code change vs a config change](#deploy-a-code-change-vs-a-config-change)
 - [Move the brief watcher between hosts](#move-the-brief-watcher-between-hosts)
 - [Sign off an insight, and keep the repo copy](#sign-off-an-insight-and-keep-the-repo-copy)
+- [Iterate on the console without deploying](#iterate-on-the-console-without-deploying)
 - [When the console looks broken](#when-the-console-looks-broken)
 - [Why credentials are read at container start, not per request](#why-credentials-are-read-at-container-start-not-per-request)
 
@@ -180,6 +181,52 @@ git add config/insight_reviews.yaml && git commit
 
 `push` migrates the other way (hand-edits, or sign-offs made before D50);
 `diff` changes nothing and shows what differs.
+
+---
+
+## Iterate on the console without deploying
+
+The console is the only component you change often, and since WS13 it is also
+the only one worth running locally.
+
+```sh
+scripts/run_console.sh          # console alone -> http://localhost:8200
+```
+
+**Why the console alone is a complete environment.** `.env` carries
+`A2ALAB_MODE=hosted`, so a locally-running console resolves every target to its
+**hosted twin**: Run buttons reach the real Fargate faces and the real AgentCore
+runtimes, Observability reads the real Aurora store, the Lab Guide answers from
+the repo prose on disk. Nothing else needs to be running on the laptop, and
+nothing you do locally touches the deployed console.
+
+**`scripts/run_local.sh` is no longer the default.** It starts thirteen
+processes — eleven protocol faces, the bridge, the console — and twelve of them
+are now hosted. Reach for it when you are changing an **adapter** rather than
+the console (`src/platforms/**`, `src/interop/servers/**`, the delegation guard)
+and want to exercise it before deploying, because those are the faces' own code
+and only that script runs them here.
+
+**Publishing is a separate, deliberate step:**
+
+| You changed | Command |
+|---|---|
+| `src/console/**` (incl. `index.html`), `config/**`, a Dockerfile | `deploy/console/deploy_console.sh` |
+| only an env var or a credential | `deploy/console/deploy_console.sh --skip-build` |
+
+`--skip-build` on a code change ships the **old image** — the env is right and
+the code reading it is stale, which reads as a code bug. See the table above.
+
+**Two local-vs-hosted differences worth knowing**, both deliberate:
+
+- **The Harvest button sweeps in-process locally** and fires the Lambda when
+  hosted (D54). The local sweep covers four platforms and cannot do ADK at all
+  (no GCP key on the laptop's console), so treat a local harvest as a smoke
+  test of the UI, not of the harvest. Export `A2ALAB_HARVEST_FUNCTION` before
+  the script if you want to exercise the hosted path.
+- **Trace writes go to local `traces/` jsonl**, while reads merge local files
+  *and* Aurora — so a locally-fired run appears immediately and hosted runs
+  appear alongside it. A dev run does not pollute the hosted trace store.
 
 ---
 

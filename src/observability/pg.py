@@ -452,16 +452,38 @@ class PgObsStore:
             },
         )
 
-    def list_briefs(self, limit: int = 20, kind: str | None = None) -> list[dict[str, Any]]:
+    def list_briefs(
+        self, limit: int = 20, kind: str | None = None, days: int | None = None
+    ) -> list[dict[str, Any]]:
         """Newest first. `kind=None` returns every kind — which is what the
-        analyst's own feed wants when it asks "what have I written before"."""
-        where = "WHERE kind = :kind" if kind else ""
+        analyst's own feed wants when it asks "what have I written before".
+
+        `days` bounds the window by `created_at`, for the console's rolling
+        view. It is deliberately separate from `limit`: a quiet week should
+        show few briefs rather than backfilling older ones to reach a count,
+        because "nothing was written this week" is exactly the state the panel
+        needs to be able to express (D56).
+        """
+        clauses = []
+        params: dict[str, Any] = {"limit": limit}
+        if kind:
+            clauses.append("kind = :kind")
+            params["kind"] = kind
+        if days:
+            # NOT make_interval(days => :days): the Data API sends the value as
+            # bigint and make_interval takes int, so Postgres rejects it with
+            # "function make_interval(days => bigint) does not exist" — a type
+            # error that reads like a missing function. Multiplying an interval
+            # takes any numeric.
+            clauses.append("created_at >= now() - (:days * INTERVAL '1 day')")
+            params["days"] = days
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         return self.client.execute(
             f"""SELECT id, CAST(brief_date AS text) AS brief_date, session_id,
                        queries_run, brief_md, kind,
                        CAST(created_at AS text) AS created_at
                 FROM {SCHEMA}.obs_briefs {where} ORDER BY id DESC LIMIT :limit""",
-            {"limit": limit, **({"kind": kind} if kind else {})},
+            params,
         )
 
     # ---- lab_state: operator artifacts a hosted console must not read from
