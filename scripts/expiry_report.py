@@ -172,34 +172,35 @@ def aws_sso_session() -> list[dict]:
 
 
 def aws_service_credentials(user: str | None) -> list[dict]:
-    """CloudWatch metrics API key — the WS9 telemetry path's only credential."""
+    """CloudWatch metrics API key — the WS9 telemetry path's only credential.
+
+    boto3 rather than the `aws` CLI (WS14): the CLI reads whatever session the
+    machine happens to hold, which is exactly the laptop dependency this
+    workstream removes. boto3 resolves the ambient chain instead — the operator's
+    SSO session locally, the task or Lambda role when hosted — so one code path
+    serves both.
+    """
     if not user:
         return []
-    raw = _run(
-        [
-            "aws",
-            "iam",
-            "list-service-specific-credentials",
-            "--user-name",
-            user,
-            "--region",
-            os.environ.get("AWS_REGION", "us-east-1"),
-            "--output",
-            "json",
-        ]
-    )
-    if raw is None:
+    try:
+        import boto3
+
+        iam = boto3.client("iam", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        creds = iam.list_service_specific_credentials(UserName=user).get(
+            "ServiceSpecificCredentials", []
+        )
+    except Exception as exc:  # noqa: BLE001 - unreachable provider is a finding
         return [
             _entry(
                 f"IAM service credential ({user})",
                 "api-key",
                 None,
                 "measured",
-                error="could not query IAM (session expired, or no permission)",
+                error=f"could not query IAM ({type(exc).__name__})",
             )
         ]
     out = []
-    for cred in json.loads(raw).get("ServiceSpecificCredentials", []):
+    for cred in creds:
         out.append(
             _entry(
                 f"{cred.get('ServiceName', 'service')} key — {user}",
@@ -221,91 +222,182 @@ def aws_service_credentials(user: str | None) -> list[dict]:
     ]
 
 
-def azure_app_secret(client_id: str | None) -> list[dict]:
-    """Entra service principal secret — the Foundry path's credential."""
-    if not client_id:
-        return []
+def _azure_via_cli(client_id: str) -> list[dict] | None:
+    """The old `az ad app credential list` path, kept as a LOCAL fallback.
+
+    Returns None when the CLI is unavailable or unauthenticated — which is
+    always the case in a container, and is how the hosted report knows to
+    surface the Graph permission it actually needs (WS14).
+    """
     raw = _run(["az", "ad", "app", "credential", "list", "--id", client_id, "-o", "json"])
     if raw is None:
+        return None
+    try:
+        creds = json.loads(raw)
+    except ValueError:
+        return None
+    return [
+        _entry(
+            "Entra app secret",
+            "secret",
+            _parse(c.get("endDateTime")),
+            "measured",
+            "rotate in Entra -> App registrations -> Certificates & secrets",
+        )
+        for c in creds
+    ] or None
+
+
+def azure_app_secret(client_id: str | None) -> list[dict]:
+    """The Entra app registration's client secret — the Foundry caller's only
+    credential, and the one with a real expiry rather than a 15-year one.
+
+    Microsoft Graph over a client-credentials token rather than the `az` CLI
+    (WS14), so this runs hosted as well as locally. It needs the
+    **Application.Read.All** Graph APPLICATION permission, admin-consented on
+    the lab's app registration — reading an application object is a directory
+    read, and a service principal has none by default. Without it Graph answers
+    403 Authorization_RequestDenied, and this reports that rather than pretending
+    the secret is fine.
+    """
+    if not client_id:
+        return []
+    tenant = os.environ.get("AZURE_TENANT_ID")
+    secret = os.environ.get("AZURE_CLIENT_SECRET")
+    if not (tenant and secret):
         return [
             _entry(
-                "Entra app secret",
-                "client-secret",
-                None,
-                "measured",
-                error="could not query Entra (az not signed in, or no directory read)",
+                "Entra app secret", "secret", None, "measured",
+                error="AZURE_TENANT_ID / AZURE_CLIENT_SECRET not set",
             )
         ]
-    out = []
-    for cred in json.loads(raw):
-        out.append(
-            _entry(
-                f"Entra app secret{' — ' + cred['displayName'] if cred.get('displayName') else ''}",
-                "client-secret",
-                _parse(cred.get("endDateTime")),
-                "measured",
-                "rotate in Entra → App registrations → Certificates & secrets",
-            )
+    import json as _json
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    try:
+        body = urllib.parse.urlencode({
+            "client_id": client_id, "client_secret": secret,
+            "scope": "https://graph.microsoft.com/.default",
+            "grant_type": "client_credentials",
+        }).encode()
+        token = _json.load(urllib.request.urlopen(urllib.request.Request(
+            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data=body
+        ), timeout=25))["access_token"]
+
+        url = "https://graph.microsoft.com/v1.0/applications?" + urllib.parse.urlencode({
+            "$filter": f"appId eq '{client_id}'",
+            "$select": "displayName,passwordCredentials",
+        })
+        apps = _json.load(urllib.request.urlopen(urllib.request.Request(
+            url, headers={"Authorization": "Bearer " + token}
+        ), timeout=25)).get("value") or []
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = (_json.loads(exc.read()).get("error") or {}).get("code", "")
+        except Exception:  # noqa: BLE001
+            pass
+        # Graph refused. On a laptop the operator's own `az` login can still
+        # answer, so fall back rather than losing a row that used to work —
+        # the CLI is absent in a container, where the honest error is the point.
+        fallback = _azure_via_cli(client_id)
+        if fallback is not None:
+            return fallback
+        hint = (
+            " — grant Application.Read.All (Graph application permission) with admin "
+            "consent on this app registration, and it works hosted too"
+            if exc.code == 403 or detail == "Authorization_RequestDenied"
+            else ""
         )
-    return out
+        return [
+            _entry("Entra app secret", "secret", None, "measured",
+                   error=f"Graph {exc.code} {detail}{hint}")
+        ]
+    except Exception as exc:  # noqa: BLE001
+        return [
+            _entry("Entra app secret", "secret", None, "measured",
+                   error=f"could not query Graph ({type(exc).__name__})")
+        ]
+
+    out = []
+    for app in apps:
+        for cred in app.get("passwordCredentials") or []:
+            label = cred.get("displayName") or (cred.get("keyId") or "")[:8]
+            out.append(
+                _entry(
+                    f"Entra app secret{' — ' + label if label else ''}",
+                    "secret",
+                    _parse(cred.get("endDateTime")),
+                    "measured",
+                    "rotate in Entra -> App registrations -> Certificates & secrets",
+                )
+            )
+    return out or [
+        _entry("Entra app secret", "secret", None, "measured",
+               error="no password credentials on this app registration")
+    ]
 
 
 def gcp_service_account_keys(project: str | None) -> list[dict]:
     """User-managed SA keys. Google-managed keys rotate themselves and are
-    excluded — listing them as 'expiring' would be noise, not signal."""
+    excluded — listing them as 'expiring' would be noise, not signal.
+
+    The IAM REST API over google-auth rather than the `gcloud` CLI (WS14). ADC
+    resolves the operator's login locally and the service-account key that
+    `observability.credentials.prepare()` materialises when hosted, so the same
+    code runs in both places.
+    """
     if not project:
         return []
-    accounts = _run(
-        [
-            "gcloud",
-            "iam",
-            "service-accounts",
-            "list",
-            "--project",
-            project,
-            "--format",
-            "value(email)",
+    try:
+        import google.auth
+        from google.auth.transport.requests import AuthorizedSession
+
+        creds, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        session = AuthorizedSession(creds)
+        listing = session.get(
+            f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts", timeout=25
+        )
+        listing.raise_for_status()
+        emails = [
+            a.get("email", "")
+            for a in (listing.json().get("accounts") or [])
+            if a.get("email", "").startswith("a2alab")
         ]
-    )
-    if accounts is None:
+    except Exception as exc:  # noqa: BLE001
         return [
             _entry(
                 "GCP service-account keys",
                 "key",
                 None,
                 "measured",
-                error="could not list service accounts (gcloud not authenticated)",
+                error=f"could not list service accounts ({type(exc).__name__})",
             )
         ]
+
     out = []
-    for email in [a for a in accounts.split() if a.startswith("a2alab")]:
-        raw = _run(
-            [
-                "gcloud",
-                "iam",
-                "service-accounts",
-                "keys",
-                "list",
-                "--iam-account",
-                email,
-                "--managed-by",
-                "user",
-                "--format",
-                "value(name,validBeforeTime)",
-            ]
-        )
-        if not raw:
+    for email in emails:
+        try:
+            r = session.get(
+                f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{email}/keys",
+                params={"keyTypes": "USER_MANAGED"},
+                timeout=25,
+            )
+            r.raise_for_status()
+            keys = r.json().get("keys") or []
+        except Exception:  # noqa: BLE001 - one account failing is not all of them
             continue
-        for line in raw.strip().splitlines():
-            parts = line.split()
-            if len(parts) < 2:
-                continue
-            key_id = parts[0].rsplit("/", 1)[-1][:8]
+        for key in keys:
+            key_id = (key.get("name") or "").rsplit("/", 1)[-1][:8]
             out.append(
                 _entry(
                     f"GCP key {key_id} — {email.split('@')[0]}",
                     "key",
-                    _parse(parts[1]),
+                    _parse(key.get("validBeforeTime")),
                     "measured",
                     "rotate with 'gcloud iam service-accounts keys create'",
                 )
@@ -322,34 +414,40 @@ def acm_certificates() -> list[dict]:
     nobody is tracking is one whose expiry will be discovered by Salesforce
     failing a callout.
     """
-    raw = _run(
-        [
-            "aws",
-            "acm",
-            "list-certificates",
-            "--region",
-            os.environ.get("AWS_REGION", "us-east-1"),
-            "--output",
-            "json",
-        ]
-    )
-    if raw is None:
+    try:
+        import boto3
+
+        acm = boto3.client("acm", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        summaries = acm.list_certificates().get("CertificateSummaryList", [])
+    except Exception as exc:  # noqa: BLE001
         return [
             _entry(
                 "ACM certificates",
                 "certificate",
                 None,
                 "measured",
-                error="could not list ACM certificates (session expired, or no permission)",
+                error=f"could not list ACM certificates ({type(exc).__name__})",
             )
         ]
     out = []
-    for cert in json.loads(raw).get("CertificateSummaryList", []):
+    for cert in summaries:
+        # NotAfter is on the summary for imported certs; fall back to a describe
+        # for any that omit it rather than reporting a blank expiry.
+        not_after = cert.get("NotAfter")
+        if not_after is None and cert.get("CertificateArn"):
+            try:
+                not_after = (
+                    acm.describe_certificate(CertificateArn=cert["CertificateArn"])
+                    .get("Certificate", {})
+                    .get("NotAfter")
+                )
+            except Exception:  # noqa: BLE001
+                not_after = None
         out.append(
             _entry(
                 f"TLS cert — {cert.get('DomainName', '?')}",
                 "certificate",
-                _parse(cert.get("NotAfter")),
+                _parse(not_after),
                 "measured",
                 "imported into ACM for the ALB; re-issue in Cloudflare "
                 "(SSL/TLS -> Origin Server) and re-import",

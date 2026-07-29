@@ -1788,6 +1788,89 @@ real weeks behind it.
 
 ---
 
+## WS14 — Zero laptop dependency: host the credential collector (raised 2026-07-29)
+
+**The standing requirement, in the operator's words:** *"zero laptop dependency
+is the goal"* — the lab and everything the console exposes should depend on the
+laptop only when pushing builds into the hosted environments.
+
+WS13 got the **runtime** there. One thing still runs on the operator's machine
+and feeds the console: `scripts/expiry_report.py`, whose snapshot the
+Credentials Expiry panel renders. It has to be run by hand, so the panel is only
+as current as the last time somebody remembered. That is now visible — the panel
+dates its snapshot and flags it past 24h (D56-era work) — but a date on a stale
+number is a mitigation, not a fix.
+
+### Why it is still local, precisely
+
+Every collector shells out to a **CLI**, and those CLIs read the operator's own
+logins:
+
+| Reads | Today | Hosted equivalent |
+|---|---|---|
+| AWS IAM service credential age | `aws iam list-service-specific-credentials` | boto3 + `iam:ListServiceSpecificCredentials` on the task role |
+| AWS ACM certificate expiry | `aws acm list-certificates` / `describe-certificate` | boto3 + `acm:ListCertificates`, `acm:DescribeCertificate` |
+| GCP service-account key age | `gcloud iam service-accounts keys list` | google-auth + IAM REST, using the SA key already in the harvest secret |
+| Entra app secret expiry | `az ad app credential list` | Microsoft Graph `/applications` — **blocked, see below** |
+| Declared rotations | `config/credentials.yaml` | already a file in the image |
+
+### The one that does not move without you
+
+**Microsoft Entra requires an admin consent the service principal does not
+have.** Measured 2026-07-29: a client-credentials token for the lab's SP calling
+Graph `/applications?$filter=appId eq '<id>'` returns
+
+```
+403 Authorization_RequestDenied — Insufficient privileges to complete the operation.
+```
+
+Reading application objects needs the **`Application.Read.All`** Graph
+*application* permission, granted and admin-consented on the lab's app
+registration. That is a portal action only the directory's admin can take, and
+it is the one manual step this workstream cannot remove.
+
+Until it is granted, the hosted collector reports that row as *"cannot tell you"*
+with the reason — which is the honest state and the same convention every other
+collector already follows for an unreachable provider.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Rewrite the AWS, GCP and Entra collectors against SDKs/REST so one code path runs locally and hosted | **done 2026-07-29** |
+| 2 | Add an `expiry` step to the harvest Lambda — it already runs every 6h with the service identities, so no new schedule and no new function | **done** — verified publishing at 17:55 UTC |
+| 3 | Grant `iam:ListServiceSpecificCredentials`, `acm:ListCertificates`, `acm:DescribeCertificate` to `a2alab-obs-lambda` | **done** |
+| 4 | Entra: grant `Application.Read.All` + admin consent | **operator action — still open** |
+| 5 | GCP: the harvest service account cannot list service accounts | **operator action — found by doing it** |
+| 6 | Keep `expiry_report.py --write` working from a laptop — the `az` CLI path survives as a local fallback | **done** |
+
+**Measured after the first hosted run: 11 of 13 credentials.** The two that did
+not resolve are permission grants, not code, and each reports its own reason in
+the panel rather than going quiet:
+
+- **Entra** — `Graph 403 Authorization_RequestDenied`. Needs
+  **`Application.Read.All`** (Graph *application* permission) with admin consent
+  on the lab's app registration. Locally this row still resolves through the
+  `az` CLI fallback, so the laptop shows 13 and the hosted snapshot shows 11 —
+  the difference is exactly this grant.
+- **GCP** — `could not list service accounts (HTTPError)`. The harvest service
+  account authenticates fine (it reads Cloud Logging and Monitoring for the ADK
+  platform) but has no IAM read: listing service accounts and their keys needs
+  **`roles/iam.serviceAccountViewer`** on the project, or a custom role with
+  `iam.serviceAccounts.list` + `iam.serviceAccountKeys.list`.
+
+Neither blocks the workstream's point — the snapshot now refreshes every 6 hours
+with nobody running anything, which was the dependency to remove.
+
+### Exit criteria
+
+The Credentials Expiry panel shows a snapshot **no older than 6 hours** without
+anyone having run anything, and its staleness flag stays off on its own. The
+AWS SSO row does not return: it is a deploy-time credential, and this workstream
+is the argument for why that distinction matters.
+
+---
+
 ## Operations backlog (raised 2026-07-28, after full hosting)
 
 Not a workstream — operational debt found while running the hosted lab. Each

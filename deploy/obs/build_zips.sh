@@ -49,6 +49,20 @@ mkdir -p "$DIST/harvest/interop"
 # the first time this bundle was rebuilt after cloud_auth was introduced.
 cp src/interop/trace.py src/interop/cloud_auth.py "$DIST/harvest/interop/"
 echo '"""packaging shim (deploy/obs/build_zips.sh)"""' > "$DIST/harvest/interop/__init__.py"
+
+# WS14: the credential-expiry collector runs on this same schedule, so the
+# console's Credentials panel refreshes without anyone running a script. It is
+# the SAME file the operator runs locally — shipped rather than reimplemented,
+# so a hosted snapshot and a hand-run one cannot disagree about what is tracked.
+# config/credentials.yaml travels with it: the declared rotations are part of
+# the report and there is no API to read them from.
+mkdir -p "$DIST/harvest/scripts" "$DIST/harvest/config"
+cp scripts/expiry_report.py "$DIST/harvest/scripts/"
+cp config/credentials.yaml "$DIST/harvest/config/" 2>/dev/null || true
+# PyYAML for the declared block, boto3 is already in the Lambda runtime.
+uv pip install --target "$DIST/harvest" \
+  --python-platform aarch64-manylinux2014 --python-version 3.12 \
+  --only-binary :all: pyyaml python-dotenv -q
 (cd "$DIST/harvest" && zip -qr ../a2alab-obs-harvest.zip . -x '*__pycache__*')
 
 ls -lh "$DIST"/*.zip
