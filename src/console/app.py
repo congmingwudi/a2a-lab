@@ -3026,10 +3026,29 @@ def create_console_app(registry: Registry | None = None):
     async def obs_analysis_run():
         import time as _time
 
-        state_file = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "obs_analyst.json"
-        if not state_file.exists():
-            return {"ok": False, "error": "analyst not provisioned — scripts/setup_obs_analyst.py"}
-        state = json.loads(state_file.read_text())
+        # State override for hosts with no .a2alab/ (D48): the analyst ids live
+        # in obs_analyst.json, a file no container has — same gap as the fan-out
+        # orchestrator and jira_sync. Read the whole-JSON env first, then the
+        # file. Every early return is a JSON body, never an uncaught raise: a
+        # SystemExit or a json.loads error escaping here becomes a plaintext 500
+        # that the browser fails to JSON.parse ("Unexpected token 'I'...").
+        raw = os.environ.get("A2ALAB_OBS_ANALYST_STATE")
+        if raw:
+            try:
+                state = json.loads(raw)
+            except ValueError as exc:
+                return {"ok": False, "error": f"analyst state env is not valid JSON: {exc}"}
+        else:
+            state_file = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / "obs_analyst.json"
+            if not state_file.exists():
+                return {
+                    "ok": False,
+                    "error": "analyst not provisioned — scripts/setup_obs_analyst.py",
+                }
+            try:
+                state = json.loads(state_file.read_text())
+            except (ValueError, OSError) as exc:
+                return {"ok": False, "error": f"cannot read analyst state: {exc}"}
         if state.get("mode") != "hosted" or not state.get("deployment_id"):
             return {"ok": False, "error": "analyst is not in hosted mode (D23)"}
 
@@ -3063,6 +3082,16 @@ def create_console_app(registry: Registry | None = None):
     COST_SENTINEL_STATE = "cost_sentinel.json"
 
     def _cost_sentinel_state() -> dict | None:
+        # Env override for hosts with no .a2alab/ (D48), same as the obs analyst
+        # and the fan-out orchestrator — the sentinel's ids live in
+        # cost_sentinel.json, which no container has. deploy_console.sh injects
+        # A2ALAB_COST_SENTINEL_STATE as whole JSON.
+        raw = os.environ.get("A2ALAB_COST_SENTINEL_STATE")
+        if raw:
+            try:
+                return json.loads(raw)
+            except ValueError:
+                return None
         path = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab")) / COST_SENTINEL_STATE
         if not path.exists():
             return None
