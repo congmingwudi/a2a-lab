@@ -5,6 +5,13 @@ The lab's scope lives in `plan/07-workstreams.md` and its reasoning in
 documents and the **A2A** Jira board, so the board can be a delivery view
 without quietly becoming a second source of truth (WS15, D58).
 
+**A note on the word, because the UI and the API disagree.** Atlassian's current
+Jira UI calls the container a **space**; the REST API and JQL still call it a
+`project` — `/rest/api/3/project`, `project = A2A`. So `JIRA_PROJECT_KEY` and
+every `project =` clause below are correct as written and are not stale
+terminology. Where this file talks about clicking something, it is a space;
+where it talks about a field or a query, it is a project.
+
 The board is generated, not maintained by hand:
 
 ```sh

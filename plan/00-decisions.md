@@ -1941,7 +1941,9 @@ rediscover.
 
 ## 2026-07-29 — D58: The board is generated from the plan, one way
 
-**Decision.** The Jira board (project `A2A`) is **generated** from
+**Decision.** The Jira board (`A2A` — a **space** in the current UI, still a
+`project` in the REST API and JQL, which is why `JIRA_PROJECT_KEY` reads the way
+it does) is **generated** from
 `plan/07-workstreams.md` by `scripts/jira_sync.py`, in one direction only. The
 plan stays the source of truth for scope; `plan/00-decisions.md` stays the source
 of truth for reasoning; Jira is a delivery *view*. Nothing reads Jira back into

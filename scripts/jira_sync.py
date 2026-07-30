@@ -37,6 +37,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from dotenv import load_dotenv  # noqa: E402
 
 PLAN = Path("plan/07-workstreams.md")
+# Jira's UI calls this container a SPACE now; the REST API and JQL still call it
+# a `project` (/rest/api/3/project, `project = A2A`). The name here follows the
+# API, so it is not stale — but a reader coming from the UI will be looking for
+# the other word.
 PROJECT = os.environ.get("JIRA_PROJECT_KEY", "A2A")
 
 # "## WS13 — Full hosting: take the laptop off the runtime path (raised 2026-07-28)"
@@ -288,7 +292,7 @@ def main() -> int:
     plan = parse_plan()
     n_items = sum(len(w["items"]) for w in plan)
     print(f"{'APPLY' if apply else 'DRY RUN'} — {len(plan)} workstreams, {n_items} work items")
-    print(f"project {PROJECT} on {os.environ['JIRA_SITE_URL']}\n")
+    print(f"space {PROJECT} on {os.environ['JIRA_SITE_URL']}\n")
 
     created = []
     for w in plan:

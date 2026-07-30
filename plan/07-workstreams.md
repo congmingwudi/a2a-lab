@@ -1879,7 +1879,7 @@ of work. They become labels and links.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Confirm Jira reachability and the project's issue types before creating anything | **done 2026-07-29** — project `A2A` created (team-managed); Epic/Story both expose `parent`, so epic linking needs no custom field |
+| 1 | Confirm Jira reachability and the space's issue types before creating anything | **done 2026-07-29** — space `A2A` created (team-managed; the API still calls it a `project`); Epic/Story both expose `parent`, so epic linking needs no custom field |
 | 2 | Create 15 epics from `plan/07-workstreams.md` | **done 2026-07-29** — `scripts/jira_sync.py`, idempotent, dry-run by default |
 | 3 | Create stories from the work-item tables, with their real state (`done` / open) | **done 2026-07-29** — 46 stories, 40 closed |
 | 4 | Attach `adr-D<n>` labels and repo links so each closed item carries its evidence | **done 2026-07-29** — 30 distinct ADR labels; repo links existence-checked before they are written |
