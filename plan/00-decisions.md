@@ -1274,6 +1274,21 @@ assumes. `input_tokens` meant something different from "input" and cost this
 project a 36x error that no test, log or alert would ever have raised. Written
 up for presentation in `build-notes/claude/10-consumption-and-list-price.md`.
 
+**Addendum, 2026-07-30 — moved from weekly-paused to daily-running.** The
+shipped cadence was weekly (`0 7 * * 1`) and paused, so in practice no brief ever
+fired on the schedule and the console's newest cost brief was the 2026-07-28
+manual one — which read as "not provisioned" to a demo viewer even though the
+deployment was healthy. It is now **daily** (`0 7 * * *`, America/New_York) and
+**resumed**. The trade-off is explicit: one billed session per day rather than
+one per week. That is accepted because the point of the panel is a *fresh* read
+each morning, and the sentinel's own rules make a quiet day a two-line brief, so
+most firings are cheap. The schedule was changed in place via
+`deployments.update` (no recreate — the deployment id, vault and run history are
+preserved) and the agent prompt was revised to lead with day-over-day rather than
+week-over-week (agent v2). Pause/Resume and an ad-hoc Run now live as buttons in
+the console's Coding Agents Telemetry section, reading the deployment's live
+status so the control reflects reality rather than the local state file.
+
 ---
 
 ## 2026-07-27 — D45: The credential store covered one file; the other twenty needed a different answer
@@ -1988,3 +2003,110 @@ identity).
 is one lab item (WS1.5) and the two operator actions in WS14 that need a human
 with Entra directory-admin and GCP project-IAM rights — on the board precisely
 so they stop being invisible.
+
+## 2026-07-30 — D59: Collect the coding agent's logs for behaviour, not content
+
+**Decision.** Extend the WS9 coding-agent telemetry from metrics to the OTLP
+**logs** signal (and later the beta **traces** signal), exported to the same
+telemetry CloudWatch account the metrics already reach (a separate account from
+the lab's hosting, pinned by `AWS_PROFILE` in `.env`; never named here, D39), and
+derive a second class of
+insight from them — edit-acceptance rate, tool mix, per-request latency,
+reliability, prompt cadence — that the eight aggregate metrics cannot express.
+The whole path runs with every content flag **off**: `OTEL_LOG_USER_PROMPTS`,
+`OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT`, `OTEL_LOG_RAW_API_BODIES` and
+`OTEL_LOG_ASSISTANT_RESPONSES` all stay unset. This is WS16.
+
+**Why the metrics are not enough.** The metrics answer *how much, by whom, on
+what* (D44 made the four token buckets honest). They cannot answer *what the
+collaboration looked like* — how often the human accepted the agent's edits,
+which tools and MCP servers actually did the work, how each model's latency
+*felt*, what failed and retried. Those live only in the per-event log stream,
+and the single most valuable of them — **edit-acceptance rate**, from the
+`claude_code.tool_decision` event's `decision` attribute — is not derivable from
+any aggregate the metrics expose. "The lab measuring its own construction" (WS9)
+is a cost story today; the logs make it a behaviour story.
+
+**Why content-off is a stronger posture than redaction, not a weaker one.** The
+temptation was to store prompts and tool content in CloudWatch for private
+retrieval and merely decline to *surface* them. Verified against the Claude Code
+monitoring docs, that trade-off is unnecessary: the content flags default to off,
+and off means the text is **never emitted** — not emitted-then-masked. The event
+still carries `prompt_length`, `tool_name`, `decision`, `duration_ms`, the token
+counts and `status_code`; it omits the prompt text, file contents, tool
+arguments and raw API bodies. **Every insight above is computed from metadata
+that ships regardless of the flags**, so the insight set and the content question
+are fully independent — the dashboard is complete with nothing sensitive ever
+leaving the laptop. CloudWatch Logs *can* mask matched patterns on ingest, but
+that is field-masking after the content already crossed the wire, audited users
+can unmask it, and it only fires on patterns you predicted. Source-side omission
+has nothing to unmask because nothing was sent. Chosen: store none.
+
+**The consequence is that the publish/store division stops being a discipline and
+becomes structural.** WS9 keeps a rule that the console shows derived aggregates
+and never raw platform payloads. With content-off there is no raw content
+*anywhere* in this pipeline — not in CloudWatch, not in `traces/lab.db`, not in
+the console — so the harvest ETL cannot leak what was never transmitted. The
+division is enforced by the absence of the data, not by remembering to withhold
+it.
+
+**Shape follows the existing two layers, and the split is the point.** The
+metrics reader (`src/observability/coding_source.py`, D54's harvest Lambda) reads
+aggregates back over PromQL and lands them in `lab.db`; the logs reader is its
+sibling — deterministic ETL that reads events, computes the aggregates, and
+writes **only aggregates** to new tables. The interpretation layer (the obs
+analyst D22/D23, the cost sentinel D44/WS12) stays optional and on top: the
+dashboard tiles are computed in the ETL and need no agent, and a behavioural
+brief ("edit-acceptance fell on Bash edits this week") is the analyst reading
+those tables, added last. The metrics/analyst division of D22 holds unchanged.
+
+**What is not yet proven, and gates the build.** Two facts are unverified and
+WS16's Phase 0 is a hard gate on them, in the spirit this subsystem was burned by
+twice already (the metrics reader that used `ListMetrics` and found nothing; the
+Codex path that exported to the wrong signal for days): (1) the CloudWatch OTLP
+**logs** ingestion endpoint, where the data lands, and the read-back API — I
+could confirm the Claude Code event schema against the docs but not the AWS logs
+endpoint; and (2) whether the existing metrics bearer token
+(`a2alab/telemetry/cw-metrics-api-key`) authenticates logs at all. The build note
+established a metrics token is metrics-only (its "failure #2"), and
+`otelHeadersHelper` returns **one** header set for every OTLP signal — so if logs
+needs a separate credential, one helper cannot serve both without putting a
+static per-signal token on disk, which D39 forbids. Nothing is configured or
+coded until a real POST-then-query round-trip against the telemetry account
+answers both. **Traces**
+(the `claude_code.llm_request` span's `ttft_ms`, the only home for
+time-to-first-token, and the `interaction` turn tree) are a separate signal
+behind the `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA` flag and are sequenced after
+logs for the same one-signal-at-a-time reason.
+
+## 2026-07-30 — D60: The DevOps project view renders from the repo and only links out to Jira
+
+**Decision.** The console gains a **DevOps** category. Under it sit the
+coding-agent telemetry (WS9/WS16) and a new *This A2A Lab Project* section that
+surfaces the delivery process — how workstreams and ADRs are authored locally and
+generated into the Jira board. That section renders from the **plan and repo**
+(`plan/07-workstreams.md`, `plan/00-decisions.md`, `plan/11-delivery.md`,
+`build-notes/**` via `/api/docs`) and **only links out to the Jira space; it
+never reads the board back into the console.** This is WS17.
+
+**Why, and why it is D58 restated rather than a new idea.** D58 made the board a
+one-way delivery *view* generated from the plan, because a status editable in a
+place the repo cannot see is drift the console would then render as truth. A
+console panel that queried live Jira would reintroduce exactly that: the console
+renders the plan, so a board state that disagreed with the plan would put two
+different answers in front of one viewer. Rendering the project section from the
+same source `jira_sync.py` reads — the plan — means the console, the board and
+the importer cannot disagree, because they derive from one file. The Jira link is
+a launch point for a human, not a data feed.
+
+**What this refuses, matching D58's list.** No read-back of issue status, no
+live counts pulled from the Jira API, no "sync from Jira" button. The board
+counts the section shows are computed from the plan the same way the importer
+computes them; if they look stale, the fix is re-running `jira_sync.py`, not
+teaching the console to read Jira. The one thing that crosses to Atlassian is a
+hyperlink built from `JIRA_SITE_URL`.
+
+**Shape.** Both sections follow the canvas template (D57): a thing with a
+`Details` sub-tab that names its source docs and states the one-way rule, so a
+viewer clicking Details learns that the project view is generated from the repo
+and why nothing reads the board back.

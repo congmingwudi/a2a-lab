@@ -1,15 +1,17 @@
-"""Drive the weekly cost sentinel (WS12) from the shell.
+"""Drive the daily cost sentinel (WS12) from the shell.
 
     uv run python scripts/cost_sentinel.py run      # fire one brief now
     uv run python scripts/cost_sentinel.py status   # deployment + recent runs
     uv run python scripts/cost_sentinel.py latest   # print the newest cost brief
     uv run python scripts/cost_sentinel.py reconcile # link briefs -> billed sessions
-    uv run python scripts/cost_sentinel.py pause    # suppress the weekly cron
-    uv run python scripts/cost_sentinel.py resume   # enable the weekly cron
+    uv run python scripts/cost_sentinel.py pause    # suppress the daily cron
+    uv run python scripts/cost_sentinel.py resume   # enable the daily cron
 
-The deployment is created PAUSED (setup_cost_sentinel.py); `run` works while
-paused — that is the documented way to test a schedule without waiting for it.
-The console's Coding Agents Telemetry section has the same Run button.
+The deployment ships PAUSED (setup_cost_sentinel.py); `run` works whether or not
+the cron is running — that is the documented way to fire one without waiting for
+the schedule. It was moved to a DAILY schedule and resumed on 2026-07-30 so the
+console surfaces a fresh brief each morning (D44 note). The console's Coding
+Agents Telemetry section has the same Run button plus a Pause/Resume toggle.
 
 Sibling of scripts/obs_analysis.py, deliberately: same deployment shape, same
 MCP server, same briefs table. The only thing that differs is `kind='cost'` on
@@ -198,7 +200,7 @@ def cmd_reconcile(client, state) -> None:
 
 def cmd_pause(client, state) -> None:
     client.beta.deployments.pause(state["deployment_id"])
-    print("paused — the weekly cron will not fire. Manual `run` still works.")
+    print("paused — the daily cron will not fire. Manual `run` still works.")
 
 
 def cmd_resume(client, state) -> None:

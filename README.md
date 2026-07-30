@@ -454,7 +454,7 @@ a 36x understatement that raised no error and looked entirely plausible. The
 section now shows four tiles and a composition bar, and the reason they are
 separate travels in the API payload.
 
-Above the tables sits the **cost sentinel** (WS12) — a weekly scheduled Managed
+Above the tables sits the **cost sentinel** (WS12) — a daily scheduled Managed
 Agent that reads this store through the obs MCP server and explains what
 *moved*, since the tables already report what it *was*. It is the counter-example
 to the credential analyst, which was deliberately demoted to a plain API call:

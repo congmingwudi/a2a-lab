@@ -569,9 +569,9 @@ flowchart LR
 
 ### An LLM asked to relay an error paraphrases it — give failures a path out that does not pass through a model
 
-*Status: measured · refs: D27, D40, plan/03-results.md*
+*Status: measured · refs: D40, D41, plan/03-results.md*
 
-**What the lab showed:** MEASURED 2026-07-26. The ADK orchestrator's partial-failure contract works exactly as designed: each business-unit agent is instructed to pass a "[leg unavailable: ...]" marker through verbatim, and the synthesiser reports it as a gap rather than inventing an answer. It faithfully did so — and rendered "InvalidConfigError ... CA bundle" as "a technical error accessing its tools". Both statements are true; only one is actionable, and it was not the one that reached a human. Three debugging cycles were spent on paraphrases before the leg markers were also printed to container stdout, at which point the raw AccessDenied named the caller's own OIDC claims and the fix was one line. Contrast the host-side variant, where the marker is produced by CODE and cannot be reworded.
+**What the lab showed:** MEASURED 2026-07-26. The ADK orchestrator's partial-failure contract works exactly as designed: each business-unit agent is instructed to pass a "[leg unavailable: ...]" marker through verbatim, and the synthesiser reports it as a gap rather than inventing an answer. It faithfully did so — and rendered "InvalidConfigError ... CA bundle" as "a technical error accessing its tools". Both statements are true; only one is actionable, and it was not the one that reached a human. The paraphrase is what the human saw until the leg markers were also printed to container stdout, at which point the raw AccessDenied named the caller's own OIDC claims and the fix was one line. Contrast the host-side variant, where the marker is produced by CODE and cannot be reworded.
 
 **Advisor take:** Any error you intend to debug from needs a route to your logs that skips the model. Structured relay through an agent is fine for the USER-facing summary and useless as telemetry — the paraphrase is lossy in exactly the direction that matters, dropping identifiers and keeping sentiment. This is also the sharpest argument for host-side tool execution: a contract enforced in code cannot be talked out of, whereas a declared graph buys ordering guarantees but still relies on three models relaying text faithfully.
 
@@ -590,6 +590,39 @@ flowchart LR
 **What the lab showed:** The Anthropic API bills prompt tokens in three separate categories — uncached input, cache reads, and cache writes — and `input_tokens` is only the UNCACHED REMAINDER, not the prompt. The lab's own harvest had stored all four buckets since WS9 (src/observability/coding_source.py writes input / output / cacheRead / cacheCreation); the console's /api/build-telemetry endpoint returned two of them. MEASURED on one harvested Claude Code day 2026-07-27: the dashboard rendered 120,000 "input tokens" for a day that had actually processed 4,420,000 prompt tokens — a 36x understatement, on precisely the workload shape (long agent sessions, heavy prompt caching) that the section exists to measure. Nothing errored, no test failed, and the number looked entirely plausible. The buckets also do not bill alike — a cache read costs roughly a tenth of uncached input and a cache write 1.25x (5-minute TTL) or 2x (1-hour) — so they cannot be summed into one "tokens" figure and multiplied by a rate at all. Fixed with four tiles, a composition bar, and a note that travels in the API payload so no consumer can render the numbers without the reason they are separate.
 
 **Advisor take:** When you report consumption for a metered service, report it in the units the vendor BILLS, and check that each field means what its name implies before it reaches a dashboard — a wrong-but-plausible number raises no alert and can survive indefinitely. Then separate the two factors that multiply into cost, because only one of them is yours: units per unit of work is an engineering property (measurable, reproducible, improvable with caching and model choice, and it survives a price change), while price per unit is a contract (promotions, agreements, timing). Quoting their product commits you to something you do not control; quoting them separately makes both answerable. Say plainly where your own figure is soft — a client-side estimate at list price is not an invoice, and on a subscription it is not money that changed hands. The transferable artifact is not the dollar total but the DENOMINATOR: per-repo, per-model, per-tool attribution derived from your own telemetry rather than any vendor's billing export, which is the one thing no vendor gives you across vendors.
+
+### A coding agent's telemetry is privacy-preserving by DEFAULT, not by redaction — the behavioural signal is metadata, and content-off costs it nothing
+
+*Status: measured · refs: D59, build-notes/claude/08-coding-agent-telemetry.md, src/observability/coding_logs_source.py, scripts/claude_otel.sh, plan/07-workstreams.md*
+
+**What the lab showed:** Claude Code emits per-event OTLP logs — one record per tool call, per API request, per prompt — and the natural fear is that measuring behaviour means shipping prompts and file contents. MEASURED 2026-07-30, it does not: every field the five insight families need ships regardless of the content flags, which default OFF and were kept off. Edit-acceptance comes from `claude_code.tool_decision` (a decision enum and its source); tool mix, MCP usefulness and per-tool latency from `claude_code.tool_result` (`tool_name`, `mcp_server_scope`, `success`, `duration_ms`); per-request latency from `claude_code.api_request` (`model`, `duration_ms`); reliability from `api_error` / `api_refusal` (`status_code`, `attempt`); and prompt cadence from `claude_code.user_prompt` (`prompt_length` — a character COUNT, never the text). Content-off is not a degraded mode; there is nothing in the pipeline to leak because the sensitive fields (`OTEL_LOG_USER_PROMPTS`, the `OTEL_LOG_TOOL_*` flags) are never turned on. The path was also the third confirmation that signal, endpoint and credential are one unit: the CloudWatch METRICS bearer token 403s against logs.<region>/v1/logs, so logs need their own logs.amazonaws.com service credential, a pre-provisioned log group with bearer auth, two undocumented x-aws-log-* headers, and a manually created stream — proven by an OTLP/JSON POST returning 200 and a SigV4 FilterLogEvents read-back matching a unique marker. Read-back, unusually, is the easy half: boto3's logs client signs FilterLogEvents natively, so unlike the PromQL metrics path there is no hand-rolled signer and no read secret.
+
+**Advisor take:** When a stakeholder asks whether measuring agent behaviour means surveilling the developer, the honest and usually correct answer is that the useful signal is metadata: whether an edit was kept, which tool ran, how long a call took, how many prompts came and how long they were — none of which is the content. Turn the content flags OFF and keep them off, and state the posture structurally (no prompt, file or tool-argument text is emitted, stored or shown) rather than promising to redact something you chose never to collect. Two engineering riders travel with it. First, store durations and lengths as SUMMABLE fixed-edge histograms, not raw samples or per-day percentiles — a window p90 is then the p90 of the summed buckets, which is exact, where averaging daily percentiles is not; report the bucket's upper edge and say so, an honest over-estimate beats a fabricated point value. Second, telemetry is not retroactive and it is per-tool: only turns run through the opt-in launch wrapper are measured, and a second agent's log schema does not carry over — assume you re-earn the signal for each tool.
+
+**Behavioural logs, content off** — Every field the five insight families read is metadata that ships whether or not the content flags are set — so turning them off costs no insight and leaves nothing sensitive in the pipeline to leak.
+
+```mermaid
+flowchart TB
+    subgraph EV["Claude Code OTLP log events"]
+        D["tool_decision<br/>decision · source"]
+        R["tool_result<br/>tool_name · mcp_server_scope<br/>success · duration_ms"]
+        Q["api_request<br/>model · duration_ms · tokens"]
+        E["api_error / api_refusal<br/>status_code · attempt"]
+        P["user_prompt<br/>prompt_length (a COUNT)"]
+    end
+
+    FLAGS["Content flags<br/>OTEL_LOG_USER_PROMPTS<br/>OTEL_LOG_TOOL_*<br/>default OFF — kept off"]
+    FLAGS -. "never enabled:<br/>no prompt / file / arg TEXT" .-> EV
+
+    D --> M["Metadata only"]
+    R --> M
+    Q --> M
+    E --> M
+    P --> M
+
+    M --> AGG["coding_logs_source.py<br/>summable fixed-edge histograms<br/>aggregates only, one row per day"]
+    AGG --> I["Five insight families:<br/>edit-acceptance · tool mix + MCP + latency<br/>request latency · reliability · prompt cadence"]
+```
 
 ## Method
 

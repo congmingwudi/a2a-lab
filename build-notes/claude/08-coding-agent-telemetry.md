@@ -385,7 +385,98 @@ Four bugs, then, in one path: wrong exporter, wrong endpoint, uninterpolated
 credential, and invented metric names. Every one of them silent, and three of
 them documented as working before anyone queried the destination.
 
-## 5. Why this matters to a customer
+## 5. The second signal: behavioural logs (WS16)
+
+Metrics answer *what the build cost*. They cannot answer *what it looked
+like* — how often the human kept the agent's proposed edit, which tools did the
+work and how fast, how reliable the model calls were, how the prompts came.
+That is a second signal: Claude Code's per-event **OTLP logs**, one record per
+tool call, per API request, and per prompt. This section is the configuration
+that makes them arrive, and it is §3's rule — signal, endpoint, and credential
+are one unit — proven a third time, deliberately this time.
+
+### The events, and why content-off does not cost the insight
+
+Six event names carry the behavioural signal:
+`claude_code.tool_decision` (a decision — accept/reject — and its source),
+`claude_code.tool_result` (`tool_name`, `mcp_server_scope`, `success`,
+`duration_ms`), `claude_code.api_request` (`model`, `duration_ms`, and the four
+token buckets), `claude_code.api_error` / `claude_code.api_refusal`
+(`status_code`, `attempt`), and `claude_code.user_prompt` (`prompt_length`).
+
+The load-bearing fact: **every field the lab reads ships whether or not the
+content flags are set.** The content flags (`OTEL_LOG_USER_PROMPTS`,
+`OTEL_LOG_TOOL_*`) default OFF and, kept off, mean no prompt text, no file
+content, and no tool arguments are ever emitted — but `prompt_length` is a
+character *count*, `decision` is an enum, `duration_ms` is a number. So all five
+insight families are computed from metadata alone. Content-off is not a
+degraded mode here; it is the design. There is nothing in the pipeline to leak
+because the sensitive fields are never turned on.
+
+### The logs endpoint needs its own everything
+
+The trap §4 fell into against Codex, re-run on purpose to confirm the boundary:
+a CloudWatch **metrics** bearer token `403`s against the logs endpoint. Proven
+2026-07-30. Logs are a separate service (`logs.amazonaws.com` vs
+`cloudwatch`), and a service-specific credential is scoped to exactly one
+service. So the logs path needs:
+
+- its **own** `logs.amazonaws.com` service-specific credential (a second token,
+  not the metrics one);
+- a **pre-provisioned log group** with bearer auth enabled — the endpoint will
+  not create it on first write;
+- two **undocumented request headers**, `x-aws-log-group` and
+  `x-aws-log-stream`, naming the destination; and
+- a **log stream** that exists — the provisioner creates the group but not the
+  stream, so the launch wrapper creates it (idempotently).
+
+`scripts/setup_cw_logs_otlp.py --apply` mints the credential, creates the group,
+and stores the token in Secrets Manager (D39 — never on disk). It runs once.
+
+### Why a launch wrapper, not `settings.local.json`
+
+The metrics path uses `otelHeadersHelper`, which returns *one* header set for
+*all* signals. The logs signal needs a different bearer token and two extra
+headers, so it cannot ride the same helper. Rather than overload it, the logs
+config is injected by a launch wrapper, `scripts/claude_otel.sh`, mirroring the
+`scripts/codex_otel.sh` posture:
+
+```bash
+# fetch the LOGS token with the developer's AWS session (D39), then:
+export OTEL_LOGS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT="https://logs.<region>.amazonaws.com/v1/logs"
+export OTEL_EXPORTER_OTLP_LOGS_HEADERS="Authorization=Bearer $token,x-aws-log-group=$LOG_GROUP,x-aws-log-stream=$LOG_STREAM"
+exec claude "$@"      # no content flags set — metadata only
+```
+
+This makes behavioural logs **opt-in**: a plain `claude` still exports metrics
+(from `settings.local.json`) and no logs. The wrapper degrades the same way the
+helper does — if the token cannot be fetched it `exec`s plain `claude` rather
+than breaking the session. **Telemetry is not retroactive:** work done before
+the wrapper was used cannot be measured after the fact.
+
+### Read-back is the easy half, for once
+
+OTLP metrics land in a Prometheus store read over hand-rolled SigV4 PromQL
+(§2). OTLP logs land in an ordinary CloudWatch **log group**, read over SigV4
+`FilterLogEvents` — which boto3's `logs` client signs natively. So unlike the
+PromQL path there is no signer to write and **no read secret**: the read is
+signed with the harvest identity's own role, the same AWS auth D39 already
+established as the lab's one human login. `src/observability/coding_logs_source.py`
+is the reader; it parses each OTLP/JSON record (event name in
+`attributes["event.name"]`, verified live 2026-07-30) and folds durations and
+prompt lengths into **summable fixed-edge histograms** so a window p50/p90 is
+exact on the bucket grid — averaging per-day percentiles would not be. It stores
+aggregates only, one row per day, tagged `content_flags="off …"`.
+
+Acceptance test, passing 2026-07-30: an OTLP/JSON POST to the logs endpoint
+returned `200`; a SigV4 `FilterLogEvents` read-back matched a unique marker;
+and a harvest of a real session reported `100% edits kept · 1 day over 7d`. The
+signal is proven end to end, at the destination, the same way §2 insisted on.
+
+Source: [Claude Code monitoring — logs](https://code.claude.com/docs/en/monitoring-usage).
+
+## 6. Why this matters to a customer
 
 The three questions a platform team asks about coding-agent spend are "how
 much", "by whom", and "on what". The first two are built in. The third is a
@@ -461,7 +552,11 @@ configuration — it was whether anybody checked.**
 ---
 
 **In this repo:** `scripts/otel_headers.sh`, `scripts/codex_otel.sh`,
+`scripts/claude_otel.sh` (the WS16 logs launch wrapper),
+`scripts/setup_cw_logs_otlp.py` (provisions the logs credential + group),
 `.claude/settings.local.json` (gitignored), `src/observability/coding_source.py`
 (reads the metrics back via PromQL — OTLP metrics do **not** appear in
-`ListMetrics`), `src/console/app.py` → `BUILD_TELEMETRY_SETUP` (the steps,
-rendered in the console's Coding Agents Telemetry section).
+`ListMetrics`), `src/observability/coding_logs_source.py` (reads the behavioural
+logs back via SigV4 `FilterLogEvents`, aggregates only), `src/console/app.py` →
+`BUILD_TELEMETRY_SETUP` and `BUILD_BEHAVIOUR_SETUP` (the steps, rendered in the
+console's Coding Agents Telemetry section — Cost and Behaviour tabs, D57).

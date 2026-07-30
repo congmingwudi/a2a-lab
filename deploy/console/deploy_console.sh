@@ -306,6 +306,27 @@ for _var in ("CLAUDE_MANAGED_AGENT_ID", "CLAUDE_MANAGED_ENV_ID"):
     if os.environ.get(_var):
         env[_var] = os.environ[_var]
 
+# The WS8 fan-out orchestrator ids, same D48 blind spot again — the supplier-
+# disruption experiment's Run button drives a managed session, and cma.py reads
+# the agent/environment ids (and the MCP variant's system prompt + mcp_url) from
+# .a2alab/fanout_orchestrator.json / fanout_mcp_orchestrator.json, files no
+# container has. Without these the scenario 409s "no orchestrator provisioned".
+# These blobs are ids + a prompt, NOT secrets: the MCP bearer stays in the
+# Anthropic vault named by vault_id (and A2ALAB_FANOUT_MCP_TOKEN is already in
+# the secret), so they belong in plain env. cma.py reads them as whole-JSON env
+# overrides (A2ALAB_FANOUT_*_ORCH_STATE).
+_state_dir = pathlib.Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab"))
+for _env_name, _fname in (
+    ("A2ALAB_FANOUT_ORCH_STATE", "fanout_orchestrator.json"),
+    ("A2ALAB_FANOUT_MCP_ORCH_STATE", "fanout_mcp_orchestrator.json"),
+):
+    _p = _state_dir / _fname
+    if os.environ.get(_env_name):
+        env[_env_name] = os.environ[_env_name]
+    elif _p.exists():
+        # Reserialize to a single compact line — the file is pretty-printed.
+        env[_env_name] = json.dumps(json.loads(_p.read_text()))
+
 _cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
 _writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
 if _cluster and _writer:

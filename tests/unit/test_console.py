@@ -950,6 +950,16 @@ def test_cost_brief_run_is_operator_only(tmp_path, monkeypatch):
     assert TestClient(app).post("/api/cost-brief/run").status_code in (401, 403)
 
 
+def test_cost_brief_schedule_is_operator_only(tmp_path, monkeypatch):
+    """Resuming the schedule turns on recurring billed sessions — a spend
+    decision, gated exactly like the manual run rather than behind sign-in."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_STATE_DIR", str(tmp_path / "state"))
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    resp = TestClient(app).post("/api/cost-brief/schedule", json={"action": "resume"})
+    assert resp.status_code in (401, 403)
+
+
 def test_architecture_endpoint_serves_the_deployment_map(tmp_path, monkeypatch):
     """The console's Architecture section parses plan/09-deployment-map.md on
     every request — the doc is the source, the UI is the view."""

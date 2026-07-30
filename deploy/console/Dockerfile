@@ -33,6 +33,13 @@ RUN uv pip install "azure-identity>=1.25.3" "google-auth>=2.35"
 
 COPY src ./src
 COPY config ./config
+# scripts/jira_sync.py is imported at request time by /api/project (This A2A
+# Lab Project, WS17): the page counts workstreams with the SAME parser that
+# generates the Jira board, so the two cannot disagree (D58/D60). Without this
+# the endpoint 404s the module — "No module named 'jira_sync'" on an otherwise
+# healthy console. It reads plan/07-workstreams.md relative to /app (below) and
+# needs no extra deps beyond dotenv.
+COPY scripts ./scripts
 # The rendered corpus. Keep in step with the /api/docs whitelist in
 # src/console/app.py — a path the whitelist serves but the image lacks is a
 # chip that 404s, which CLAUDE.md calls out as worse than plain text.

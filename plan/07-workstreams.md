@@ -23,8 +23,9 @@ tools and the model schedules them; measured 3/3 units in a single turn) and
 **WS9 is shipped end to end** (both exporters live, per-repo and per-model
 attribution read back through the console, its own Harvest button). The
 **Console and exhibit backlog at the end of this file is cleared** (D42 settled
-the chip/mark tier rule). **WS12 is provisioned and has fired** (2026-07-27, paused, first scheduled
-firing 2026-08-03) — and provisioning it produced **D46**, after finding four
+the chip/mark tier rule). **WS12 is provisioned and running daily** (2026-07-27
+paused-weekly, moved to daily and resumed 2026-07-30 so the console shows a fresh
+brief each morning) — and provisioning it produced **D46**, after finding four
 ways an artifact can be built without ever being deployed. **WS11's client half
 is measured** (D47): the API Gateway ceiling is dissolved, and the per-platform
 table of who implements A2A's async half is in plan/03-results.md.
@@ -1640,11 +1641,16 @@ behaviour observed and written up.
 
 ## WS12 — Cost sentinel: a scheduled agent over the build-telemetry store (raised 2026-07-27)
 
-**Status: PROVISIONED 2026-07-27 (D44).** The agent, its own vault on the obs
-MCP server and the weekly deployment (`0 7 * * 1` America/New_York, next firing
-2026-08-03) exist and the deployment is **paused**, as designed. Exit criteria
-below are **not** met yet and cannot be for another week — see "What
-provisioning found" and "What the data supports" at the end of this section.
+**Status: PROVISIONED 2026-07-27 (D44); moved to DAILY and resumed 2026-07-30
+(D44 addendum).** The agent, its own vault on the obs MCP server and the
+deployment exist. The schedule was `0 7 * * 1` and paused as designed; it is now
+`0 7 * * *` (America/New_York) and **active**, changed in place via
+`deployments.update` and repointed to agent v2 whose prompt leads with
+day-over-day. This was done because the paused-weekly shape meant no scheduled
+brief ever fired, so the console's newest cost brief was the 2026-07-28 manual
+one and a demo viewer read the panel as "not provisioned". Pause/Resume/Run are
+now console buttons. The exit criteria below (a week-over-week read) still need
+more history to be met, but the daily brief and its day-over-day are live.
 
 **What provisioning found — three gaps between built and running, now D46.**
 Getting from code-complete to a working firing was not one setup script. The
@@ -1657,9 +1663,10 @@ hosted harvest both predated `coding_source.py` and lacked the CloudWatch PromQL
 grant, so **Aurora held zero coding rows** while the local console looked
 healthy. All four are fixed, and `scripts/pg_migrate.py` now owns DDL.
 
-**Goal.** A weekly briefing that answers the question nobody remembers to ask
-until the invoice arrives: *what did this lab cost this week, how does that
-compare to trend, and **why** did it move?*
+**Goal.** A daily briefing that answers the question nobody remembers to ask
+until the invoice arrives: *what did this lab cost yesterday, how does that
+compare to trend, and **why** did it move?* (Originally scoped weekly; moved to
+daily 2026-07-30 for a fresh console read each morning — D44 addendum.)
 
 **Why an agent, and why a scheduled one.** This passes the test the credential
 analyst failed. That analyst was built as a Managed Agent and demoted to a plain
@@ -1737,9 +1744,23 @@ above the measured tables, Details carries the why-an-agent table, the pipeline
 diagram and the provisioning facts. It reuses the obs MCP server rather than
 deploying a second one, and takes its own vault so revocation stays per-agent.
 
+**Moved to daily, resumed, and given console controls (2026-07-30).** The
+schedule was changed in place to `0 7 * * *` (America/New_York) and the
+deployment resumed — via `deployments.update`, so the deployment id, vault and
+run history are preserved rather than recreated — and repointed to a revised
+agent (v2) whose prompt and kickoff lead with day-over-day and treat the current
+in-progress day as not comparable. `scripts/cost_sentinel.py` grows no new
+verbs, but the console gains `/api/cost-brief/schedule` (operator-gated
+pause/resume, reading the deployment's live status back so the button reflects
+reality) alongside the existing `/api/cost-brief/run`, surfaced as **Pause /
+Resume** and **Brief now** buttons on the Run tab. The first daily-prompt firing
+(brief id 100) led with 07-29 vs 07-28 (‑32%, attributed to a token-mix
+collapse), correctly discounted the partial current day, and noted the trend was
+only five points — the day-over-day shape working as intended.
+
 **Exit criteria.** One scheduled firing produces a brief that correctly explains
 a cost movement the operator can independently verify from the by-day table —
-and one week where nothing notable happened produces a brief that says so in two
+and one day where nothing notable happened produces a brief that says so in two
 lines.
 
 **First firing, 2026-07-28 (manual, while paused).** The brief is in
@@ -1759,8 +1780,8 @@ available evidence that rule 1 is holding.
 had been null for every brief either analyst ever wrote, and it is structurally
 unfillable at the write site: `save_brief` takes it as a tool argument, and the
 Managed Agents runtime never tells the agent its own session id. Stamping it
-from `cost_sentinel.py run` would have covered manual firings only — the weekly
-cron has no local runner, which is the entire point of scheduling it. The id
+from `cost_sentinel.py run` would have covered manual firings only — the
+scheduled cron has no local runner, which is the entire point of scheduling it. The id
 lives on the deployment RUN, so the join happens after the fact:
 `cost_sentinel.py reconcile` matches each unlinked brief to the newest run
 starting at or before it within an hour, claiming each session at most once
@@ -2260,3 +2281,146 @@ experiment runnable from it end to end, the async brief firing without a local
 watcher, and `config/targets.yaml` showing no `localhost` target that lacks a
 hosted counterpart. The tunnel still runs for local development and nothing in
 the live path depends on it.
+
+---
+
+## WS16 — Behavioural telemetry: what building the lab looked like, not just cost (raised 2026-07-30, D59)
+
+**Status.** Phases 0–3 done 2026-07-30; Phases 4 (traces, beta) and 5
+(behavioural brief) not started and not gating. WS9 already reads Claude Code's
+eight aggregate metrics into the Coding Agents Telemetry section — cost, tokens,
+sessions, commits (D44 made the four token buckets honest). This workstream adds
+the OTLP **logs** signal to the same telemetry CloudWatch account the metrics
+already reach (a separate account from the lab's hosting, pinned by `AWS_PROFILE`
+in `.env`; never named here, D39) and derives a
+second class of insight the metrics cannot express: **edit-acceptance rate** (the
+star — how often the human kept the agent's proposed edits), tool mix and MCP
+usefulness, per-request latency, reliability/retries, and prompt cadence. It runs
+with every content flag **off**, so prompts, file contents and tool arguments are
+never emitted — the insights are all computed from metadata that ships regardless
+(D59). The console tiles land under the new DevOps category (WS17).
+
+**Phase 0 result — measured against the telemetry account, 2026-07-30.** A real
+round-trip answered both gate questions and confirmed the build note's "failure
+#2": the metrics bearer token returns **400** (authenticated, empty body) against
+`monitoring…/v1/metrics` but **403 "API Key … valid"** against
+`logs.us-east-1.amazonaws.com/v1/logs`. So the logs endpoint exists and is
+bearer-authenticated, but the metrics credential — scoped to service
+`cloudwatch.amazonaws.com` — does **not** cover it; logs needs its own
+service-specific credential for `logs.amazonaws.com` (+ IAM `logs:PutLogEvents`,
+`logs:CallWithBearerToken`). Two consequences that shape the build: (1) unlike
+metrics, logs require a **pre-provisioned log group with bearer auth enabled**
+(`aws logs put-bearer-token-authentication`), and read-back is **SigV4 via Logs
+Insights / FilterLogEvents**, not the PromQL `query_range` path — so the logs
+reader is a different client from `promql.py`; (2) `otelHeadersHelper` returns one
+header set for all OTLP signals, so the second, different token is a real
+collision resolved by a launch-wrapper injecting `OTEL_EXPORTER_OTLP_LOGS_HEADERS`
+at runtime (the D39 posture `scripts/codex_otel.sh` already uses). Traces use
+**SigV4** at `xray…/v1/traces` — a different auth model, deferred to Phase 4.
+
+**Round-trip proven end to end, 2026-07-30.** After minting a `logs.amazonaws.com`
+service-specific credential (`scripts/setup_cw_logs_otlp.py`), a real OTLP/JSON
+log record wrote with **200** and read back over SigV4 `FilterLogEvents` — write
+with a bearer token, read with SigV4, the same split the metrics path has. Two
+facts the AWS docs omit, both found by doing it: the logs endpoint **requires
+`x-aws-log-group` and `x-aws-log-stream` request headers** (absent them it 400s
+"headers cannot be null"), and while the provisioner creates the log *group*, the
+**stream is not auto-created** (400 "log stream does not exist" until it is).
+A third that eases the credential design: a service-specific credential key is
+**long-lived**, not a short-STS token — so a launch-time fetch is viable, and the
+`otelHeadersHelper` 29-minute re-fetch exists to pick up *rotations*, not because
+the token expires. First mint stored an empty token because the bearer secret is
+`ServiceCredentialSecret`, not `ServicePassword` (the empty SMTP field) — a
+one-shot value, so the fix was delete-and-re-mint; the script now refuses to
+store an empty token.
+
+**Why content-off costs nothing.** The five insight families are derived from
+`prompt_length`, `tool_name`, `decision`, `duration_ms`, the token counts and
+`status_code` — all emitted whether or not the content flags are set. So the
+dashboard is complete with nothing sensitive leaving the laptop, and the
+publish/store division becomes structural rather than a discipline: there is no
+raw content anywhere in the pipeline to leak (D59).
+
+### What each signal gives, verified against the Claude Code monitoring docs
+
+| Insight | Source event / span | Signal |
+|---|---|---|
+| Edit-acceptance rate | `claude_code.tool_decision` → `decision` (accept/reject), `source` | logs |
+| Tool mix, MCP usefulness, per-tool latency | `claude_code.tool_result` → `tool_name`, `mcp_server_scope`, `success`, `duration_ms` | logs |
+| Per-request latency + finer cost attribution | `claude_code.api_request` → `model`, `duration_ms`, four token buckets | logs |
+| Reliability / retries | `claude_code.api_error`, `claude_code.api_refusal` → `status_code`, `attempt` | logs |
+| Prompt cadence (no text) | `claude_code.user_prompt` → `prompt_length` | logs |
+| Time-to-first-token per model | `claude_code.llm_request` span → `ttft_ms` (nowhere in logs) | traces (beta) |
+| Turn-tree / conversation shape | `claude_code.interaction` span → sequence, duration | traces (beta) |
+
+Traces are gated behind `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` and sequenced
+after logs, for the same one-signal-at-a-time reason the metrics path followed.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Phase 0 — prove the CloudWatch OTLP logs endpoint and credential model at the destination | **done 2026-07-30** — round-trip against the telemetry account: logs endpoint is `logs.<region>/v1/logs` (bearer), needs its own `logs.amazonaws.com` credential (metrics token 403s), pre-provisioned log group, SigV4 read-back |
+| 2 | Phase 1 — enable the logs exporter via a launch wrapper, content flags off | **done 2026-07-30** — `scripts/claude_otel.sh` (opt-in wrapper, mirrors `codex_otel.sh`); proven at the destination: OTLP/JSON POST returned 200 and a SigV4 `FilterLogEvents` read-back matched a unique marker |
+| 3 | Phase 2 — logs harvest ETL sibling to `coding_source.py`, aggregates-only into the store | **done 2026-07-30** — `src/observability/coding_logs_source.py` (platform `coding-logs`, summable histograms, aggregates only); registered in `obs_harvest.py`, `lambda_handlers.py`, and the console Harvest button; 14 unit tests |
+| 4 | Phase 3 — console: five insight tiles in the Coding Agents Telemetry section plus a Details sub-tab | **done 2026-07-30** — Cost / Behaviour peer top tabs (D57), each with a Details sub-tab; `/api/build-behaviour` merges the window and computes the five families; Details names the reader, Lambda, tables, identity and bounds and cites D59 |
+| 5 | Phase 4 — traces (beta): the TTFT latency profile and the turn tree | **not started** (behind `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`; sequenced after logs) |
+| 6 | Phase 5 — behavioural brief interpreting the new aggregates | **not started** (extend the obs analyst / cost sentinel; optional, tiles do not need an agent) |
+| 7 | Docs: build note, insights entry, deployment map and diagrams for the new reader and tables | **done 2026-07-30** — `build-notes/claude/08-coding-agent-telemetry.md` §5, `config/insights.yaml` (`behaviour-survives-content-off`), `plan/09-deployment-map.md` (L5, L6, harvest grant), `config/diagrams.yaml` (`behaviour-signal-content-off`) |
+
+### Exit criteria
+
+The Coding Agents Telemetry section shows edit-acceptance rate, tool mix,
+per-request latency and reliability for Claude Code, computed from harvested log
+events and refreshed by the same Harvest button as the metrics — with a `Details`
+pane that states the content flags are off and why the insights survive it, and
+no raw prompt or tool content present in CloudWatch, `lab.db`, or the console.
+Traces (TTFT, turn tree) are a follow-on, not a gate on this.
+
+---
+
+## WS17 — A DevOps category in the console: how the lab is built and delivered (raised 2026-07-30, D60)
+
+**Status.** Done 2026-07-30 (items 1–5). The console's Control Panel groups sections by what they
+are *about* — platforms, protocols, observability. Two things the lab now
+produces are *about the build itself*, not about any agent platform: the
+coding-agent telemetry (WS9/WS16 — what building it cost and looked like) and the
+delivery process (WS15 — workstreams and ADRs authored locally, epics and stories
+generated into Jira one way). This workstream adds a **DevOps** category to the
+Control Panel nav and puts both under it, following the one-canvas template (D57)
+— each a thing with a `Details` sub-tab.
+
+**Two sections under the category.** *Coding Agents Telemetry* moves here
+unchanged (WS16's tiles then land inside it). A new *This A2A Lab Project* section
+surfaces the delivery process: the workstream/ADR authoring flow, the generated
+board with its epic/story counts, a **launch-out link** to the Jira space, and
+selected build-notes on how the lab was made.
+
+**The constraint that defines it (D60, extending D58).** The project section
+renders from the **plan and repo** — `plan/07-workstreams.md`,
+`plan/00-decisions.md`, `plan/11-delivery.md`, `build-notes/**` through the
+existing `/api/docs` path — and **only links out to Jira; it never reads the
+board back in.** D58 made the board a one-way delivery *view* generated from the
+plan; a console panel that pulled live Jira would reintroduce exactly the drift
+D58 removed (a status true in Jira and nowhere the repo can see). So the counts
+this section shows are computed the same way `jira_sync.py` computes them — from
+the plan — which is why the console and the board cannot disagree. The Jira link
+is a launch point, not a data source.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Add a DevOps category to the Control Panel nav and move Coding Agents Telemetry under it | **done 2026-07-30** — a `.cp-cat` labelled divider groups the two sections as peers in the flat accordion list |
+| 2 | Build the *This A2A Lab Project* section: workstream/ADR process, board counts from the plan, build-notes, per D57 | **done 2026-07-30** — `/api/project` imports `jira_sync.parse_plan` (same arithmetic as the board), console renders the process, counts and per-workstream list; Delivery / Details tabs |
+| 3 | Launch-out link to the Jira space from the section header | **done 2026-07-30** — link only, from `JIRA_SITE_URL`; empty state says the board is generated but not linked when unset; nothing reads the board back |
+| 4 | `Details` sub-tab naming the source docs, the one-way D58 rule, and why nothing reads Jira back | **done 2026-07-30** — cites D58, D60 and the plan docs (chips linkify), per D57 |
+| 5 | Docs: deployment-map/diagram touch if the nav structure is drawn; note the new category in the console backlog | **done 2026-07-30** — `plan/09-deployment-map.md` L5 exclusion prose names the DevOps category and the Cost/Behaviour tabs |
+
+### Exit criteria
+
+The Control Panel shows a DevOps category; Coding Agents Telemetry lives under it;
+and the *This A2A Lab Project* section renders the delivery process and current
+board counts from the plan with a working launch-out to Jira and a `Details` pane
+that states the render is one-way from the repo. No console request reads the
+Jira board.

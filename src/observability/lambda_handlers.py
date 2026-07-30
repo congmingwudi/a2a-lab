@@ -20,6 +20,7 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
 
     from observability.adk_source import AdkSource
     from observability.anthropic_source import AnthropicSource
+    from observability.coding_logs_source import CodingLogsSource
     from observability.coding_source import CodingSource
     from observability.foundry_source import FoundrySource
     from observability.openai_source import OpenAISource
@@ -38,6 +39,13 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         # and the grant was never applied at all). Owned by
         # deploy/obs/deploy_harvest.sh. No new secret (D39).
         "coding": CodingSource,
+        # WS16 behavioural telemetry — reads the OTLP log group over SigV4
+        # FilterLogEvents in this same account, so the Lambda's execution role
+        # needs logs:FilterLogEvents on /a2alab/coding-agents/otlp (owned by
+        # deploy/obs/deploy_harvest.sh). No new secret (D39): the read is
+        # signed with the Lambda's role, the ingest side (bearer token) is the
+        # developer's launch wrapper, not this function.
+        "coding-logs": CodingLogsSource,
         # adk reads Cloud Logging/Monitoring with a service-account key from the
         # secret (see _materialize_gcp_key); foundry reads App Insights with the
         # Entra SP already in the secret. Both were absent here until 2026-07-25,

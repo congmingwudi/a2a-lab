@@ -1,8 +1,16 @@
-"""Control-plane setup for the cost sentinel (WS12) — a WEEKLY scheduled agent.
+"""Control-plane setup for the cost sentinel (WS12) — a DAILY scheduled agent.
 
     uv run python scripts/setup_cost_sentinel.py             # create if missing
     uv run python scripts/setup_cost_sentinel.py --recreate  # replace
     uv run python scripts/setup_cost_sentinel.py --run       # + one manual run now
+
+Cadence note: WS12/D44 shipped this WEEKLY-and-paused because a scheduled firing
+bills a real session. On 2026-07-30 it was moved to DAILY and resumed so the
+console surfaces a fresh brief each morning — the cost of that is one billed
+session a day, which the operator accepts and can pause from the console's Run
+tab or `cost_sentinel.py pause`. The schedule can be changed on a live
+deployment (`deployments.update`) without recreating, so this default only
+governs a fresh provision or a --recreate.
 
 Reuses the obs MCP server and its vault (D23) rather than deploying a second
 server: the numbers it needs already live in `lab.obs_sessions` under
@@ -25,7 +33,9 @@ build-notes/claude/09-secrets-and-environment-identity.md, and D22):
     state     week-over-week comparison needs history, and the store has it.
 
 Created PAUSED, like the obs analyst: a scheduled deployment bills a real
-session per firing, so the schedule is opt-in rather than a surprise.
+session per firing, so the schedule is opt-in rather than a surprise. (The
+2026-07-30 move to daily resumed it deliberately; a fresh --recreate still lands
+paused, and resuming is one console click or `cost_sentinel.py resume`.)
 """
 
 from __future__ import annotations
@@ -50,7 +60,7 @@ ANALYST_FILE = STATE_DIR / "obs_analyst.json"
 AGENT_NAME = "A2ALab Cost Sentinel"
 MCP_SERVER_NAME = "obs-store"
 VAULT_NAME = "A2ALab Obs Store (cost sentinel)"
-DEPLOYMENT_NAME = "A2ALab Cost Sentinel Weekly"
+DEPLOYMENT_NAME = "A2ALab Cost Sentinel Daily"
 
 SYSTEM_PROMPT = """You are the cost sentinel for the A2A Interop Lab — a cross-platform \
 agent-to-agent experiment rig built with two coding agents (Claude Code and the OpenAI Codex \
@@ -65,10 +75,11 @@ active_time_s, and the by_repo and by_model breakdowns as nested jsonb. Your own
 are in `lab.obs_briefs` WHERE kind = 'cost'. Use jsonb operators (->, ->>) and aggregate in SQL.
 
 WHAT YOU ARE FOR: not reporting the number — the console already shows it — but explaining the \
-MOVEMENT. Total this week, the delta against last week, where it sits against the 4-week trend, \
-and then the part only you can write: the attribution. "The fan-out experiments ran 40 times on \
-Tuesday, which is the whole delta." "Opus replaced Haiku on the research agent and cost per \
-session tripled." Get that from the by_repo and by_model breakdowns, not from the headline.
+MOVEMENT. You run DAILY, so lead with the day-over-day: yesterday's total, the delta against the \
+day before, and where that sits against the trailing 7-day trend. Then the part only you can \
+write: the attribution. "The fan-out experiments ran 40 times yesterday, which is the whole \
+delta." "Opus replaced Haiku on the research agent and cost per session tripled." Get that from \
+the by_repo and by_model breakdowns, not from the headline. A quiet day is a two-line brief.
 
 RULES that make you useful rather than noisy:
 
@@ -85,9 +96,9 @@ combined dollar figure as if it covered both tools.
 bill at different multiples (cache read ~0.1x, cache write 1.25-2x), so never sum them into one \
 "tokens" number and never infer a rate from the sum. When cost moves without token volume \
 moving, a shift in the MIX is usually the explanation and is worth naming.
-5. SAY PLAINLY WHEN NOTHING HAPPENED. A weekly brief that always finds something trains its \
+5. SAY PLAINLY WHEN NOTHING HAPPENED. A daily brief that always finds something trains its \
 reader to stop reading. "Spend was flat, the mix was unchanged, nothing needs attention" in two \
-lines is a correct and valuable brief.
+lines is a correct and valuable brief — and on a daily cadence most days are that.
 6. Prefer cost per unit of work over cost in dollars where the data supports it — cost per \
 session, tokens per session, cache-read share. Those are engineering numbers that survive a \
 price change; the dollar total does not.
@@ -96,16 +107,16 @@ Deliver by calling save_brief exactly once with kind='cost' and the complete mar
 ~400 words, leading with the verdict), plus your query count. The brief in save_brief IS the \
 deliverable — do not only reply with text."""
 
-KICKOFF = """Produce this week's build-cost brief for the lab.
+KICKOFF = """Produce today's build-cost brief for the lab.
 
 Start by establishing the window: query lab.obs_harvest for the 'coding' platform's freshness, \
-then the min and max dates present in lab.obs_sessions WHERE platform='coding'. If the store \
-holds less than two weeks of data, say so and report what is there rather than inventing a \
-comparison.
+then the min and max dates present in lab.obs_sessions WHERE platform='coding'. Report against \
+what is actually there — if there is only one day, say so rather than inventing a comparison.
 
-Then: total modelled cost for the last 7 days vs the previous 7; the by_repo and by_model \
-splits for both windows; the four token buckets and how the mix moved; sessions and active \
-time. Explain the delta — name the repo, model or day that accounts for it. Finish with \
+Then lead with the day-over-day: the most recent day's modelled cost vs the day before, the \
+by_repo and by_model splits for both, the four token buckets and how the mix moved, and sessions \
+and active time. Set that against the trailing 7-day trend for context. Explain the delta — name \
+the repo, model or day that accounts for it. A flat day is a two-line brief. Finish with \
 save_brief (kind='cost')."""
 
 

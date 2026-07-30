@@ -216,6 +216,44 @@ def test_unknown_variant_is_rejected_at_construction():
         CmaOrchestrator(client=object(), state={}, variant="parallel")
 
 
+def test_missing_state_raises_a_catchable_error_not_systemexit(monkeypatch, tmp_path):
+    """A host with no .a2alab/ and no env override must fail with a type the
+    console can catch — SystemExit escaped /api/run as a plaintext 500 the
+    browser then tried to JSON.parse ("Unexpected token 'I', Internal S...")."""
+    import pytest
+
+    from orchestration import cma
+
+    monkeypatch.delenv(cma.STATE_ENV, raising=False)
+    monkeypatch.delenv(cma.MCP_STATE_ENV, raising=False)
+    monkeypatch.setattr(cma, "STATE_FILE", tmp_path / "absent.json")
+    monkeypatch.setattr(cma, "MCP_STATE_FILE", tmp_path / "absent_mcp.json")
+
+    with pytest.raises(cma.OrchestratorNotProvisioned):
+        cma.load_state()
+    with pytest.raises(cma.OrchestratorNotProvisioned):
+        cma.load_mcp_state()
+    # Not a SystemExit — that is the whole point of the distinct type.
+    assert not issubclass(cma.OrchestratorNotProvisioned, SystemExit)
+
+
+def test_env_override_carries_state_where_no_file_exists(monkeypatch, tmp_path):
+    """The container path: the ids ride the task-definition env as whole JSON,
+    exactly as CLAUDE_MANAGED_* do (deploy/console/deploy_console.sh)."""
+    from orchestration import cma
+
+    monkeypatch.setattr(cma, "STATE_FILE", tmp_path / "absent.json")
+    monkeypatch.setattr(cma, "MCP_STATE_FILE", tmp_path / "absent_mcp.json")
+    monkeypatch.setenv(cma.STATE_ENV, json.dumps({"agent_id": "agent_x", "environment_id": "env_x"}))
+    monkeypatch.setenv(
+        cma.MCP_STATE_ENV,
+        json.dumps({"agent_id": "agent_y", "environment_id": "env_y", "system": "s", "mcp_url": "u", "vault_id": "v"}),
+    )
+
+    assert cma.load_state()["agent_id"] == "agent_x"
+    assert cma.load_mcp_state()["mcp_url"] == "u"
+
+
 def test_call_path_distinguishes_parallel_from_serial():
     """The measurement WS7 item 4 exists to produce: did the model issue the
     units together, or walk them one at a time?"""

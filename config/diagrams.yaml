@@ -206,3 +206,31 @@ diagrams:
           L2 -.-> OBS
           L3 -.-> OBS
           C -.-> OBS
+
+  - id: behaviour-signal-content-off
+    title: "Behavioural logs, content off"
+    caption: >
+      Every field the five insight families read is metadata that ships whether or not the content flags are set — so turning them off costs no insight and leaves nothing sensitive in the pipeline to leak.
+    insights: [behaviour-survives-content-off]
+    readme: false
+    mermaid: |
+      flowchart TB
+          subgraph EV["Claude Code OTLP log events"]
+              D["tool_decision<br/>decision · source"]
+              R["tool_result<br/>tool_name · mcp_server_scope<br/>success · duration_ms"]
+              Q["api_request<br/>model · duration_ms · tokens"]
+              E["api_error / api_refusal<br/>status_code · attempt"]
+              P["user_prompt<br/>prompt_length (a COUNT)"]
+          end
+
+          FLAGS["Content flags<br/>OTEL_LOG_USER_PROMPTS<br/>OTEL_LOG_TOOL_*<br/>default OFF — kept off"]
+          FLAGS -. "never enabled:<br/>no prompt / file / arg TEXT" .-> EV
+
+          D --> M["Metadata only"]
+          R --> M
+          Q --> M
+          E --> M
+          P --> M
+
+          M --> AGG["coding_logs_source.py<br/>summable fixed-edge histograms<br/>aggregates only, one row per day"]
+          AGG --> I["Five insight families:<br/>edit-acceptance · tool mix + MCP + latency<br/>request latency · reliability · prompt cadence"]

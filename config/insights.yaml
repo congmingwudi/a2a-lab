@@ -2,10 +2,13 @@
 # console's Insights section and exported to markdown for presentations
 # (scripts/export_insights.py -> plan/08-insights.md).
 #
-# status legend (be honest — same ethos as the matrix):
-#   measured    backed by recorded lab runs / numbers in plan/03-results.md
-#   observed    seen and documented in the lab, not yet a measured table
-#   hypothesis  framed by the lab, measurement planned (say where)
+# status legend — an evidence ladder by WHAT BACKS THE CLAIM, not a workflow
+# (this key is mirrored in the console's Insights legend; keep them in step):
+#   measured    backed by recorded lab runs — a number you can point to
+#               (e.g. a latency in plan/03-results.md)
+#   observed    seen and documented in the lab, but not yet reduced to a number
+#               (the behaviour happened and was written down; nothing was timed)
+#   hypothesis  framed by the lab, measurement still planned (say where)
 #
 # Each entry: headline (the claim), evidence (what the lab showed),
 # advisory (the talking point you'd give a customer), refs (ADRs/docs).
@@ -971,11 +974,11 @@ insights:
       reports it as a gap rather than inventing an answer. It faithfully did
       so — and rendered "InvalidConfigError ... CA bundle" as "a technical error
       accessing its tools". Both statements are true; only one is actionable,
-      and it was not the one that reached a human. Three debugging cycles were
-      spent on paraphrases before the leg markers were also printed to container
-      stdout, at which point the raw AccessDenied named the caller's own OIDC
-      claims and the fix was one line. Contrast the host-side variant, where the
-      marker is produced by CODE and cannot be reworded.
+      and it was not the one that reached a human. The paraphrase is what the
+      human saw until the leg markers were also printed to container stdout, at
+      which point the raw AccessDenied named the caller's own OIDC claims and the
+      fix was one line. Contrast the host-side variant, where the marker is
+      produced by CODE and cannot be reworded.
     advisory: >-
       Any error you intend to debug from needs a route to your logs that skips
       the model. Structured relay through an agent is fine for the USER-facing
@@ -986,8 +989,8 @@ insights:
       ordering guarantees but still relies on three models relaying text
       faithfully.
     refs:
-      - D27
       - D40
+      - D41
       - plan/03-results.md
 
   - id: telemetry-config-is-not-evidence
@@ -1189,3 +1192,63 @@ insights:
       - D47
       - plan/03-results.md
       - plan/09-deployment-map.md
+
+  - id: behaviour-survives-content-off
+    category: Observability
+    # New 2026-07-30 from WS16 (D59): the behavioural log signal, enabled and
+    # proven at the destination with content flags OFF. Unreviewed — needs
+    # sign-off before the deck.
+    review: required
+    status: measured
+    headline: >-
+      A coding agent's telemetry is privacy-preserving by DEFAULT, not by
+      redaction — the behavioural signal is metadata, and content-off costs it
+      nothing
+    evidence: >-
+      Claude Code emits per-event OTLP logs — one record per tool call, per API
+      request, per prompt — and the natural fear is that measuring behaviour
+      means shipping prompts and file contents. MEASURED 2026-07-30, it does
+      not: every field the five insight families need ships regardless of the
+      content flags, which default OFF and were kept off. Edit-acceptance comes
+      from `claude_code.tool_decision` (a decision enum and its source);
+      tool mix, MCP usefulness and per-tool latency from
+      `claude_code.tool_result` (`tool_name`, `mcp_server_scope`, `success`,
+      `duration_ms`); per-request latency from `claude_code.api_request`
+      (`model`, `duration_ms`); reliability from `api_error` / `api_refusal`
+      (`status_code`, `attempt`); and prompt cadence from
+      `claude_code.user_prompt` (`prompt_length` — a character COUNT, never the
+      text). Content-off is not a degraded mode; there is nothing in the
+      pipeline to leak because the sensitive fields (`OTEL_LOG_USER_PROMPTS`,
+      the `OTEL_LOG_TOOL_*` flags) are never turned on. The path was also the
+      third confirmation that signal, endpoint and credential are one unit: the
+      CloudWatch METRICS bearer token 403s against logs.<region>/v1/logs, so
+      logs need their own logs.amazonaws.com service credential, a
+      pre-provisioned log group with bearer auth, two undocumented
+      x-aws-log-* headers, and a manually created stream — proven by an OTLP/JSON
+      POST returning 200 and a SigV4 FilterLogEvents read-back matching a unique
+      marker. Read-back, unusually, is the easy half: boto3's logs client signs
+      FilterLogEvents natively, so unlike the PromQL metrics path there is no
+      hand-rolled signer and no read secret.
+    advisory: >-
+      When a stakeholder asks whether measuring agent behaviour means
+      surveilling the developer, the honest and usually correct answer is that
+      the useful signal is metadata: whether an edit was kept, which tool ran,
+      how long a call took, how many prompts came and how long they were — none
+      of which is the content. Turn the content flags OFF and keep them off, and
+      state the posture structurally (no prompt, file or tool-argument text is
+      emitted, stored or shown) rather than promising to redact something you
+      chose never to collect. Two engineering riders travel with it. First,
+      store durations and lengths as SUMMABLE fixed-edge histograms, not raw
+      samples or per-day percentiles — a window p90 is then the p90 of the
+      summed buckets, which is exact, where averaging daily percentiles is not;
+      report the bucket's upper edge and say so, an honest over-estimate beats a
+      fabricated point value. Second, telemetry is not retroactive and it is
+      per-tool: only turns run through the opt-in launch wrapper are measured,
+      and a second agent's log schema does not carry over — assume you re-earn
+      the signal for each tool.
+    refs:
+      - D59
+      - build-notes/claude/08-coding-agent-telemetry.md
+      - src/observability/coding_logs_source.py
+      - scripts/claude_otel.sh
+      - plan/07-workstreams.md

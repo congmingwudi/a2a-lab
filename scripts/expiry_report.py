@@ -267,7 +267,10 @@ def azure_app_secret(client_id: str | None) -> list[dict]:
     if not (tenant and secret):
         return [
             _entry(
-                "Entra app secret", "secret", None, "measured",
+                "Entra app secret",
+                "secret",
+                None,
+                "measured",
                 error="AZURE_TENANT_ID / AZURE_CLIENT_SECRET not set",
             )
         ]
@@ -277,22 +280,38 @@ def azure_app_secret(client_id: str | None) -> list[dict]:
     import urllib.request
 
     try:
-        body = urllib.parse.urlencode({
-            "client_id": client_id, "client_secret": secret,
-            "scope": "https://graph.microsoft.com/.default",
-            "grant_type": "client_credentials",
-        }).encode()
-        token = _json.load(urllib.request.urlopen(urllib.request.Request(
-            f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data=body
-        ), timeout=25))["access_token"]
+        body = urllib.parse.urlencode(
+            {
+                "client_id": client_id,
+                "client_secret": secret,
+                "scope": "https://graph.microsoft.com/.default",
+                "grant_type": "client_credentials",
+            }
+        ).encode()
+        token = _json.load(
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token", data=body
+                ),
+                timeout=25,
+            )
+        )["access_token"]
 
-        url = "https://graph.microsoft.com/v1.0/applications?" + urllib.parse.urlencode({
-            "$filter": f"appId eq '{client_id}'",
-            "$select": "displayName,passwordCredentials",
-        })
-        apps = _json.load(urllib.request.urlopen(urllib.request.Request(
-            url, headers={"Authorization": "Bearer " + token}
-        ), timeout=25)).get("value") or []
+        url = "https://graph.microsoft.com/v1.0/applications?" + urllib.parse.urlencode(
+            {
+                "$filter": f"appId eq '{client_id}'",
+                "$select": "displayName,passwordCredentials",
+            }
+        )
+        apps = (
+            _json.load(
+                urllib.request.urlopen(
+                    urllib.request.Request(url, headers={"Authorization": "Bearer " + token}),
+                    timeout=25,
+                )
+            ).get("value")
+            or []
+        )
     except urllib.error.HTTPError as exc:
         detail = ""
         try:
@@ -312,13 +331,23 @@ def azure_app_secret(client_id: str | None) -> list[dict]:
             else ""
         )
         return [
-            _entry("Entra app secret", "secret", None, "measured",
-                   error=f"Graph {exc.code} {detail}{hint}")
+            _entry(
+                "Entra app secret",
+                "secret",
+                None,
+                "measured",
+                error=f"Graph {exc.code} {detail}{hint}",
+            )
         ]
     except Exception as exc:  # noqa: BLE001
         return [
-            _entry("Entra app secret", "secret", None, "measured",
-                   error=f"could not query Graph ({type(exc).__name__})")
+            _entry(
+                "Entra app secret",
+                "secret",
+                None,
+                "measured",
+                error=f"could not query Graph ({type(exc).__name__})",
+            )
         ]
 
     out = []
@@ -335,8 +364,13 @@ def azure_app_secret(client_id: str | None) -> list[dict]:
                 )
             )
     return out or [
-        _entry("Entra app secret", "secret", None, "measured",
-               error="no password credentials on this app registration")
+        _entry(
+            "Entra app secret",
+            "secret",
+            None,
+            "measured",
+            error="no password credentials on this app registration",
+        )
     ]
 
 
@@ -355,9 +389,7 @@ def gcp_service_account_keys(project: str | None) -> list[dict]:
         import google.auth
         from google.auth.transport.requests import AuthorizedSession
 
-        creds, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
         session = AuthorizedSession(creds)
         listing = session.get(
             f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts", timeout=25

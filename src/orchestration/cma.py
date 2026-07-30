@@ -39,24 +39,51 @@ from orchestration.runner import FanOutResult, dispatch
 STATE_DIR = Path(os.environ.get("A2ALAB_STATE_DIR", ".a2alab"))
 STATE_FILE = STATE_DIR / "fanout_orchestrator.json"
 MCP_STATE_FILE = STATE_DIR / "fanout_mcp_orchestrator.json"
+# Env overrides carrying the whole state JSON, for hosts with no .a2alab/ — the
+# same shape managed_backend.load_managed_ids() uses for CLAUDE_MANAGED_*, and
+# for the same reason: the ids (and the mcp variant's system prompt) live in a
+# file no container has, so the hosted console must be handed them explicitly.
+# The blobs are ids + a prompt, not secrets — the MCP bearer stays in the
+# Anthropic vault referenced by vault_id, never in this JSON — so they ride the
+# task definition's plain env, not the secret (deploy/console/deploy_console.sh).
+STATE_ENV = "A2ALAB_FANOUT_ORCH_STATE"
+MCP_STATE_ENV = "A2ALAB_FANOUT_MCP_ORCH_STATE"
 TOOL_NAME = "consult_business_units"
 MCP_SERVER_NAME = "business-units"
 
 
+class OrchestratorNotProvisioned(RuntimeError):
+    """No orchestrator state on this host — env override empty and no state file.
+
+    A distinct type, not SystemExit, so the console's /api/run can catch it and
+    answer with a 409 JSON body instead of letting it escape as a plaintext HTTP
+    500 that the browser then tries to JSON.parse (the "Unexpected token 'I',
+    Internal S..." the operator saw). CLI callers still get the message.
+    """
+
+
 def load_state() -> dict[str, Any]:
-    if not STATE_FILE.exists():
-        raise SystemExit(
-            "no orchestrator provisioned — run scripts/setup_fanout_orchestrator.py first"
-        )
-    return json.loads(STATE_FILE.read_text())
+    raw = os.environ.get(STATE_ENV)
+    if raw:
+        return json.loads(raw)
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    raise OrchestratorNotProvisioned(
+        "no orchestrator provisioned — run scripts/setup_fanout_orchestrator.py first "
+        f"(or set {STATE_ENV} on a host with no .a2alab/)"
+    )
 
 
 def load_mcp_state() -> dict[str, Any]:
-    if not MCP_STATE_FILE.exists():
-        raise SystemExit(
-            "no MCP variant provisioned — run scripts/setup_fanout_orchestrator.py --mcp first"
-        )
-    return json.loads(MCP_STATE_FILE.read_text())
+    raw = os.environ.get(MCP_STATE_ENV)
+    if raw:
+        return json.loads(raw)
+    if MCP_STATE_FILE.exists():
+        return json.loads(MCP_STATE_FILE.read_text())
+    raise OrchestratorNotProvisioned(
+        "no MCP variant provisioned — run scripts/setup_fanout_orchestrator.py --mcp first "
+        f"(or set {MCP_STATE_ENV} on a host with no .a2alab/)"
+    )
 
 
 @dataclass

@@ -48,6 +48,20 @@ aws iam put-role-policy --role-name a2alab-obs-lambda --policy-name a2alab-obs-p
   --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudwatch:GetMetricData","cloudwatch:ListMetrics"],"Resource":"*"}]}'
 echo "ensured role policy a2alab-obs-promql (cloudwatch:GetMetricData + ListMetrics)"
 
+# WS16: the behavioural log source (coding-logs) reads Claude Code's OTLP LOG
+# events back over SigV4 FilterLogEvents from a CloudWatch log group in this
+# account. Same silent-403 failure mode as the PromQL grant above — an
+# unauthorized read surfaces as the friendly "no claude_code.* events yet"
+# status, so empty and forbidden look identical. Scoped to the one log group
+# (and its :* log-stream children) rather than "*": the account id comes from
+# aws_preflight.sh, never a literal (CLAUDE.md). Its own inline policy for the
+# same wholesale-replace reason as the others.
+CW_LOGS_GROUP="${A2ALAB_CW_LOGS_GROUP:-/a2alab/coding-agents/otlp}"
+LOGS_ARN="arn:aws:logs:${REGION}:${AWS_ACCOUNT:?set by aws_preflight.sh}:log-group:${CW_LOGS_GROUP}"
+aws iam put-role-policy --role-name a2alab-obs-lambda --policy-name a2alab-obs-coding-logs \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"logs:FilterLogEvents\"],\"Resource\":[\"${LOGS_ARN}\",\"${LOGS_ARN}:*\"]}]}"
+echo "ensured role policy a2alab-obs-coding-logs (logs:FilterLogEvents on ${CW_LOGS_GROUP})"
+
 # WS14: the credential-expiry collector runs on this schedule too, and reads two
 # AWS providers that no other part of this function touches. Its own inline
 # policy for the same reason as above — put-role-policy replaces wholesale, and

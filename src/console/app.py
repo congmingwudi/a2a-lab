@@ -1053,6 +1053,106 @@ def create_console_app(registry: Registry | None = None):
             doc["presenter"] = ""
         return doc
 
+    @app.get("/api/project")
+    async def project():
+        """How the lab is built and delivered (WS17, D60).
+
+        Renders the delivery process from the PLAN and repo — never from Jira.
+        The board counts here are computed by the SAME code jira_sync.py runs
+        (scripts/jira_sync.parse_plan), so the console and the board cannot
+        disagree: both read plan/07-workstreams.md and count the same way. D58
+        made the board a one-way view generated from the plan; a panel that
+        pulled live Jira would reintroduce exactly the drift D58 removed (a
+        status true in Jira and nowhere the repo can see). The Jira link below
+        is a launch point, not a data source — nothing here reads the board.
+        """
+        import sys as _sys
+
+        scripts_dir = str(Path(__file__).resolve().parents[2] / "scripts")
+        if scripts_dir not in _sys.path:
+            _sys.path.insert(0, scripts_dir)
+        try:
+            import jira_sync
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"cannot load the plan parser: {type(exc).__name__}: {exc}"}
+
+        plan = jira_sync.parse_plan()
+        # Board arithmetic, computed the way jira_sync does (parse_items + the
+        # epic-closes-on-its-stories rule). Epics = workstreams; stories = the
+        # work items in each. A narrative-only workstream has an epic and no
+        # stories, and stays OPEN even when it shipped — the same safe-direction
+        # rule jira_sync applies, restated here so the counts match the board.
+        epics = len(plan)
+        epics_done = sum(1 for w in plan if w["done"])
+        stories = sum(len(w["items"]) for w in plan)
+        stories_done = sum(1 for w in plan for it in w["items"] if it["done"])
+        narrative = sum(1 for w in plan if not w["items"] and w["status"])
+        not_started = sum(1 for w in plan if not w["items"] and not w["status"])
+
+        workstreams = [
+            {
+                "ws": w["ws"],
+                "title": w["title"],
+                "done": w["done"],
+                "status": w["status"],
+                "adrs": w["adrs"],
+                "items_total": len(w["items"]),
+                "items_done": sum(1 for it in w["items"] if it["done"]),
+                "shape": (
+                    "stories" if w["items"] else "narrative" if w["status"] else "not-started"
+                ),
+                "items": [
+                    {"n": it["n"], "summary": it["summary"], "done": it["done"]}
+                    for it in w["items"]
+                ],
+            }
+            for w in plan
+        ]
+
+        site = os.environ.get("JIRA_SITE_URL", "").rstrip("/")
+        project_key = os.environ.get("JIRA_PROJECT_KEY", "A2A")
+        # Launch-out only. The board is browsed in Jira; the console never reads
+        # it back (D60). Empty when JIRA_SITE_URL is unset — the UI then says the
+        # board is generated but not linked, rather than showing a dead button.
+        jira_url = f"{site}/jira/software/projects/{project_key}/boards" if site else ""
+
+        return {
+            "counts": {
+                "epics": epics,
+                "epics_done": epics_done,
+                "stories": stories,
+                "stories_done": stories_done,
+                "narrative_epics": narrative,
+                "not_started_epics": not_started,
+            },
+            "workstreams": workstreams,
+            "jira": {"url": jira_url, "site": site, "project_key": project_key},
+            # The delivery process, cited so the D-chips and doc-chips linkify.
+            "process": (
+                "The lab is built in **workstreams** (WS1…), each an epic. Scope for a "
+                "workstream lives in `plan/07-workstreams.md` and the reasoning behind "
+                "every choice is an ADR in `plan/00-decisions.md` — 58 of them and "
+                "counting. Work items inside a workstream become stories; a workstream "
+                "the plan records only as narrative becomes an epic with no stories, "
+                "because turning prose into stories would invent a granularity the "
+                "work never had (D58).\n\n"
+                "The board is **generated one way** from the plan by "
+                "`scripts/jira_sync.py` and read as a delivery view in Jira. Nothing "
+                "reads it back: a status edited only in Jira is a status the plan and "
+                "the console never see (D58, D60). The counts on this page are computed "
+                "by the same parser `jira_sync.py` uses, so this page and the board "
+                "cannot disagree — they are the same arithmetic over the same file."
+            ),
+            "docs": [
+                {"path": "plan/07-workstreams.md", "label": "Workstreams — the scope, per WS"},
+                {"path": "plan/00-decisions.md", "label": "Decisions (ADRs) — the reasoning"},
+                {
+                    "path": "plan/11-delivery.md",
+                    "label": "Delivery record — how the board is generated",
+                },
+            ],
+        }
+
     @app.get("/api/expiry")
     async def expiry(request: Request):
         """Credential countdown for the operator (scripts/expiry_report.py).
@@ -1604,7 +1704,10 @@ def create_console_app(registry: Registry | None = None):
                 # situation to the plain research agent, which has no such tool
                 # and would answer the disruption itself: a brief that looks
                 # right and consulted nobody.
-                from orchestration.cma import CmaOrchestrator
+                from orchestration.cma import (
+                    CmaOrchestrator,
+                    OrchestratorNotProvisioned,
+                )
 
                 # Which topology to run. "tool" keeps the host-side fan-out
                 # (the control); "mcp" gives the model three remote MCP tools
@@ -1612,7 +1715,17 @@ def create_console_app(registry: Registry | None = None):
                 # because the interesting comparison is same-agent-same-prompt.
                 variant = "mcp" if body.get("variant") == "mcp" else "tool"
                 trace_id = body.get("trace_id") or new_trace_id()
-                result = await CmaOrchestrator(variant=variant).run(message, trace_id=trace_id)
+                try:
+                    orch = CmaOrchestrator(variant=variant)
+                except OrchestratorNotProvisioned as exc:
+                    # Same class as the jira_sync gap: a console feature reaching
+                    # for .a2alab/ state the hosted container doesn't carry. The
+                    # orchestrator ids live in a file no container has; without
+                    # the A2ALAB_FANOUT_ORCH_STATE env this host cannot run the
+                    # fan-out. Answer with JSON, not a plaintext 500 the browser
+                    # would fail to parse.
+                    raise HTTPException(status_code=409, detail=str(exc))
+                result = await orch.run(message, trace_id=trace_id)
                 fan = result.get("fanout")
                 if variant == "mcp":
                     # No host-side FanOutResult — the legs ran in the Lambda.
@@ -1892,6 +2005,10 @@ def create_console_app(registry: Registry | None = None):
     # WS9. The obs store's platform key for coding-agent telemetry — filtered
     # out of the Observability coverage panel and rendered in its own section.
     BUILD_TELEMETRY_PLATFORM = "coding"
+    # WS16. The sibling behavioural-logs signal (edit-acceptance, tool mix,
+    # latency, reliability, prompt cadence). Same section, same filtering: it
+    # is not an agent platform, so it never appears as a coverage column.
+    BUILD_LOGS_PLATFORM = "coding-logs"
 
     # The rolling window the briefs tab shows. Deliberately a window and not a
     # count: an empty week must LOOK empty. The analyst was paused for eleven
@@ -2060,6 +2177,58 @@ def create_console_app(registry: Registry | None = None):
         },
     ]
 
+    # WS16 behavioural-logs empty state. Distinct from the metrics setup above
+    # because the signal, endpoint, credential and read path all differ — and
+    # because behavioural logs are OPT-IN (a launch wrapper), so "nothing here
+    # yet" is usually "launched without the wrapper", not "nothing provisioned".
+    BUILD_BEHAVIOUR_SETUP = [
+        {
+            "step": "Provision the logs ingest path (once)",
+            "detail": (
+                "uv run python scripts/setup_cw_logs_otlp.py --apply. Logs do NOT "
+                "share the metrics credential: proven 2026-07-30, the metrics bearer "
+                "token 403s against logs.<region>/v1/logs because a service-specific "
+                "credential is scoped to one service (cloudwatch vs logs). The script "
+                "mints a logs.amazonaws.com credential, creates the log group with "
+                "bearer auth enabled, and stores the token in Secrets Manager (D39, "
+                "never on disk)."
+            ),
+        },
+        {
+            "step": "Launch Claude Code with the wrapper",
+            "detail": (
+                "scripts/claude_otel.sh — behavioural logs are opt-in, so a plain "
+                "`claude` exports metrics only. The wrapper fetches the logs token "
+                "with your AWS session, sets OTEL_LOGS_EXPORTER=otlp and the "
+                "signal-specific OTEL_EXPORTER_OTLP_LOGS_HEADERS (carrying the token "
+                "AND the two undocumented x-aws-log-group / x-aws-log-stream headers "
+                "the endpoint requires), and creates the log stream the provisioner "
+                "leaves uncreated. Metrics keep their own token via otelHeadersHelper."
+            ),
+        },
+        {
+            "step": "Content flags stay OFF — deliberately",
+            "detail": (
+                "The wrapper sets no OTEL_LOG_USER_PROMPTS / OTEL_LOG_TOOL_* flag, so "
+                "prompts, file contents and tool arguments are never emitted. Every "
+                "insight is computed from metadata that ships regardless — decision, "
+                "tool_name, duration_ms, status_code, prompt_length — so the "
+                "dashboard is complete with nothing sensitive leaving the laptop "
+                "(D59)."
+            ),
+        },
+        {
+            "step": "Harvest",
+            "detail": (
+                "uv run python scripts/obs_harvest.py coding-logs — or the Harvest "
+                "button in this section, or wait for the harvest Lambda. Read-back is "
+                "SigV4 FilterLogEvents over the log group (boto3 signs it natively), "
+                "a different path from the metrics' PromQL. Telemetry is not "
+                "retroactive: only turns run after the wrapper was first used appear."
+            ),
+        },
+    ]
+
     OBS_CAPABILITIES = {
         "claude": {
             "label": "Claude Managed Agents",
@@ -2143,6 +2312,7 @@ def create_console_app(registry: Registry | None = None):
         # logs the lab harvests. Claude Code is the tool that BUILT the lab;
         # listing it beside Agentforce would quietly imply otherwise.
         data["platforms"].pop(BUILD_TELEMETRY_PLATFORM, None)
+        data["platforms"].pop(BUILD_LOGS_PLATFORM, None)
         data["capabilities"] = OBS_CAPABILITIES
         return data
 
@@ -2405,6 +2575,261 @@ def create_console_app(registry: Registry | None = None):
             "setup": BUILD_TELEMETRY_SETUP,
         }
 
+    @app.get("/api/build-behaviour")
+    async def build_behaviour():
+        """What building the lab LOOKED like — behavioural telemetry (WS16, D59).
+
+        Sibling to /api/build-telemetry (which answers what it COST). Reads the
+        `coding-logs` aggregates the CodingLogsSource harvested from Claude
+        Code's OTLP log events, merges them across the window, and returns the
+        five insight families the tiles render: edit-acceptance, tool mix,
+        per-request latency, reliability and prompt cadence.
+
+        Content flags are off end to end, so there is no prompt, file or tool
+        content in the store to return — only the metadata aggregates.
+        """
+        from observability.coding_logs_source import (
+            DURATION_EDGES_MS,
+            PROMPT_LEN_EDGES,
+            percentile_from_hist,
+        )
+
+        store = _obs_store()
+        try:
+            sessions = store.list_sessions(BUILD_LOGS_PLATFORM)
+            summary = store.summary()
+        finally:
+            store.close()
+
+        # Merge every day's aggregate into one window rollup. Histograms sum
+        # elementwise (that is the whole reason they are histograms), so the
+        # window percentiles below are exact on the bucket grid.
+        accept = reject = 0
+        by_source: dict[str, dict[str, int]] = {}
+        tools: dict[str, dict] = {}
+        models: dict[str, dict] = {}
+        errors: dict[str, int] = {}
+        refusals = 0
+        retries: dict[str, int] = {}
+        prompt_count = 0
+        prompt_len_sum = 0
+        prompt_len_hist = [0] * (len(PROMPT_LEN_EDGES) + 1)
+        req_dur_hist = [0] * (len(DURATION_EDGES_MS) + 1)
+        req_dur_sum = 0.0
+        req_dur_n = 0
+        days: list[dict] = []
+
+        def _add_hist(dst: list[int], src) -> None:
+            for i, v in enumerate(src or []):
+                if i < len(dst):
+                    dst[i] += int(v or 0)
+
+        for row in sessions:
+            try:
+                raw = json.loads(row.get("raw_json") or "{}")
+            except (ValueError, TypeError):
+                raw = {}
+            agg = raw.get("aggregates") or {}
+            dec = agg.get("decisions") or {}
+            accept += int(dec.get("accept") or 0)
+            reject += int(dec.get("reject") or 0)
+            for src_name, sv in (dec.get("by_source") or {}).items():
+                b = by_source.setdefault(src_name, {"accept": 0, "reject": 0})
+                b["accept"] += int(sv.get("accept") or 0)
+                b["reject"] += int(sv.get("reject") or 0)
+            for name, tv in (agg.get("tools") or {}).items():
+                t = tools.setdefault(
+                    name,
+                    {
+                        "tool": name,
+                        "count": 0,
+                        "success": 0,
+                        "fail": 0,
+                        "mcp": False,
+                        "dur_hist": [0] * (len(DURATION_EDGES_MS) + 1),
+                        "dur_sum": 0.0,
+                        "dur_n": 0,
+                    },
+                )
+                t["count"] += int(tv.get("count") or 0)
+                t["success"] += int(tv.get("success") or 0)
+                t["fail"] += int(tv.get("fail") or 0)
+                t["mcp"] = t["mcp"] or bool(tv.get("mcp"))
+                _add_hist(t["dur_hist"], tv.get("dur_hist"))
+                t["dur_sum"] += float(tv.get("dur_sum") or 0)
+                t["dur_n"] += int(tv.get("dur_n") or 0)
+            for name, mv in (agg.get("models") or {}).items():
+                m = models.setdefault(
+                    name,
+                    {
+                        "model": name,
+                        "count": 0,
+                        "dur_hist": [0] * (len(DURATION_EDGES_MS) + 1),
+                        "dur_sum": 0.0,
+                        "dur_n": 0,
+                        "input": 0,
+                        "output": 0,
+                        "cache_read": 0,
+                        "cache_creation": 0,
+                    },
+                )
+                m["count"] += int(mv.get("count") or 0)
+                _add_hist(m["dur_hist"], mv.get("dur_hist"))
+                m["dur_sum"] += float(mv.get("dur_sum") or 0)
+                m["dur_n"] += int(mv.get("dur_n") or 0)
+                for k in ("input", "output", "cache_read", "cache_creation"):
+                    m[k] += int(mv.get(k) or 0)
+                _add_hist(req_dur_hist, mv.get("dur_hist"))
+                req_dur_sum += float(mv.get("dur_sum") or 0)
+                req_dur_n += int(mv.get("dur_n") or 0)
+            for code, n in (agg.get("errors") or {}).items():
+                errors[code] = errors.get(code, 0) + int(n or 0)
+            refusals += int(agg.get("refusals") or 0)
+            for attempt, n in (agg.get("retries") or {}).items():
+                retries[attempt] = retries.get(attempt, 0) + int(n or 0)
+            pr = agg.get("prompts") or {}
+            prompt_count += int(pr.get("count") or 0)
+            prompt_len_sum += int(pr.get("len_sum") or 0)
+            _add_hist(prompt_len_hist, pr.get("len_hist"))
+
+            d_dec = agg.get("decisions") or {}
+            d_decided = int(d_dec.get("accept") or 0) + int(d_dec.get("reject") or 0)
+            days.append(
+                {
+                    "date": raw.get("date") or str(row.get("created_at") or "")[:10],
+                    "edits_accepted": int(d_dec.get("accept") or 0),
+                    "edits_decided": d_decided,
+                    "tool_calls": sum(
+                        int(t.get("count") or 0) for t in (agg.get("tools") or {}).values()
+                    ),
+                    "prompts": int((agg.get("prompts") or {}).get("count") or 0),
+                    "api_errors": sum(int(v or 0) for v in (agg.get("errors") or {}).values())
+                    + int(agg.get("refusals") or 0),
+                }
+            )
+        days.sort(key=lambda d: d["date"], reverse=True)
+
+        # ---- shape the five families for the tiles -------------------------
+        decided = accept + reject
+        edit_acceptance = {
+            "accepted": accept,
+            "decided": decided,
+            "rate": round(accept / decided, 4) if decided else None,
+            "by_source": [
+                {
+                    "source": s,
+                    "accepted": v["accept"],
+                    "decided": v["accept"] + v["reject"],
+                    "rate": round(v["accept"] / (v["accept"] + v["reject"]), 4)
+                    if (v["accept"] + v["reject"])
+                    else None,
+                }
+                for s, v in sorted(
+                    by_source.items(), key=lambda kv: -(kv[1]["accept"] + kv[1]["reject"])
+                )
+            ],
+        }
+
+        tool_rows = []
+        for t in tools.values():
+            n = t["dur_n"]
+            tool_rows.append(
+                {
+                    "tool": t["tool"],
+                    "count": t["count"],
+                    "success": t["success"],
+                    "fail": t["fail"],
+                    "success_rate": round(t["success"] / (t["success"] + t["fail"]), 4)
+                    if (t["success"] + t["fail"])
+                    else None,
+                    "mcp": t["mcp"],
+                    "avg_ms": round(t["dur_sum"] / n) if n else None,
+                    "p50_ms": percentile_from_hist(t["dur_hist"], DURATION_EDGES_MS, 0.5),
+                    "p90_ms": percentile_from_hist(t["dur_hist"], DURATION_EDGES_MS, 0.9),
+                }
+            )
+        tool_rows.sort(key=lambda r: -r["count"])
+        tool_calls_total = sum(r["count"] for r in tool_rows)
+        mcp_calls = sum(r["count"] for r in tool_rows if r["mcp"])
+
+        model_rows = []
+        for m in models.values():
+            n = m["dur_n"]
+            model_rows.append(
+                {
+                    "model": m["model"],
+                    "requests": m["count"],
+                    "avg_ms": round(m["dur_sum"] / n) if n else None,
+                    "p50_ms": percentile_from_hist(m["dur_hist"], DURATION_EDGES_MS, 0.5),
+                    "p90_ms": percentile_from_hist(m["dur_hist"], DURATION_EDGES_MS, 0.9),
+                    "input_tokens": m["input"],
+                    "output_tokens": m["output"],
+                    "cache_read_tokens": m["cache_read"],
+                    "cache_creation_tokens": m["cache_creation"],
+                }
+            )
+        model_rows.sort(key=lambda r: -r["requests"])
+
+        error_total = sum(errors.values()) + refusals
+        request_total = sum(m["count"] for m in models.values())
+        reliability = {
+            "requests": request_total,
+            "errors": sum(errors.values()),
+            "refusals": refusals,
+            "error_rate": round(error_total / request_total, 4) if request_total else None,
+            "by_status": [
+                {"status_code": c, "count": n}
+                for c, n in sorted(errors.items(), key=lambda kv: -kv[1])
+            ],
+            # attempt>1 is a retry; attempt "1"/absent is the first try.
+            "retries": sum(n for a, n in retries.items() if a not in ("0", "1", "", None)),
+        }
+
+        prompt_cadence = {
+            "count": prompt_count,
+            "avg_len": round(prompt_len_sum / prompt_count) if prompt_count else None,
+            "p50_len": percentile_from_hist(prompt_len_hist, PROMPT_LEN_EDGES, 0.5),
+            "p90_len": percentile_from_hist(prompt_len_hist, PROMPT_LEN_EDGES, 0.9),
+        }
+
+        request_latency = {
+            "requests": req_dur_n,
+            "avg_ms": round(req_dur_sum / req_dur_n) if req_dur_n else None,
+            "p50_ms": percentile_from_hist(req_dur_hist, DURATION_EDGES_MS, 0.5),
+            "p90_ms": percentile_from_hist(req_dur_hist, DURATION_EDGES_MS, 0.9),
+        }
+
+        harvest = (summary.get("platforms", {}).get(BUILD_LOGS_PLATFORM) or {}).get("harvest")
+        return {
+            "enabled": bool(sessions),
+            "harvest": harvest,
+            "edit_acceptance": edit_acceptance,
+            "tools": tool_rows,
+            "tool_calls_total": tool_calls_total,
+            "mcp_calls": mcp_calls,
+            "models": model_rows,
+            "request_latency": request_latency,
+            "reliability": reliability,
+            "prompt_cadence": prompt_cadence,
+            "days": days,
+            "percentile_note": (
+                "p50/p90 are read off a fixed-edge histogram, not raw samples — "
+                "each is the upper edge of the bucket the quantile lands in, an "
+                "honest over-estimate on the grid rather than a fabricated point. "
+                "Histograms sum across days, so the window figure is exact where "
+                "averaging per-day percentiles would not be."
+            ),
+            "content_note": (
+                "Every number here is computed from event METADATA — decision, "
+                "tool_name, duration_ms, status_code, prompt_length — that ships "
+                "whether or not the content flags are set. Those flags are OFF, so "
+                "no prompt text, file content or tool argument is emitted, stored "
+                "or shown. The insights survive content-off because none of them "
+                "needed content (D59)."
+            ),
+            "setup": BUILD_BEHAVIOUR_SETUP,
+        }
+
     @app.get("/api/obs/sessions")
     async def obs_sessions(platform: str | None = None):
         store = _obs_store()
@@ -2454,6 +2879,7 @@ def create_console_app(registry: Registry | None = None):
     async def obs_harvest(platform: str | None = None):
         from observability.adk_source import AdkSource
         from observability.anthropic_source import AnthropicSource
+        from observability.coding_logs_source import CodingLogsSource
         from observability.coding_source import CodingSource
         from observability.openai_source import OpenAISource
         from observability.salesforce_source import SalesforceSource
@@ -2463,13 +2889,19 @@ def create_console_app(registry: Registry | None = None):
             "salesforce": SalesforceSource,
             "openai": OpenAISource,
             "adk": AdkSource,
-            # WS9. Reachable by name only: the Coding Agents Telemetry section
-            # has its own Harvest button, and the sweep below stays the five
-            # agent platforms so Observability's "harvested from all platforms"
-            # keeps meaning what it says.
+            # WS9/WS16. Reachable by name only: the Coding Agents Telemetry
+            # section has its own Harvest button, and the sweep below stays the
+            # five agent platforms so Observability's "harvested from all
+            # platforms" keeps meaning what it says. `coding` is the metrics
+            # (cost/tokens); `coding-logs` is the behavioural log signal.
             BUILD_TELEMETRY_PLATFORM: CodingSource,
+            BUILD_LOGS_PLATFORM: CodingLogsSource,
         }
-        wanted = [platform] if platform else [n for n in sources if n != BUILD_TELEMETRY_PLATFORM]
+        wanted = (
+            [platform]
+            if platform
+            else [n for n in sources if n not in (BUILD_TELEMETRY_PLATFORM, BUILD_LOGS_PLATFORM)]
+        )
         if any(w not in sources for w in wanted):
             return {"ok": False, "error": f"unknown platform '{platform}'"}
 
@@ -2540,7 +2972,11 @@ def create_console_app(registry: Registry | None = None):
                         out.append(sources[name]().harvest(store).__dict__)
                     except Exception as exc:  # noqa: BLE001
                         out.append(
-                            {"platform": name, "status": "error", "detail": f"{type(exc).__name__}: {exc}"}
+                            {
+                                "platform": name,
+                                "status": "error",
+                                "detail": f"{type(exc).__name__}: {exc}",
+                            }
                         )
             finally:
                 store.close()
@@ -2655,6 +3091,32 @@ def create_console_app(registry: Registry | None = None):
             "cost_note": BUILD_TELEMETRY_COST_NOTE,
         }
 
+        # Live schedule state, so Pause/Resume reflects the deployment rather
+        # than the local file (the schedule can be changed from the Claude
+        # console too). Best-effort: the store read below is the panel's real
+        # payload, and an unreachable management API must not blank it.
+        if state and state.get("deployment_id"):
+
+            def _sched():
+                from anthropic import Anthropic
+
+                d = Anthropic().beta.deployments.retrieve(state["deployment_id"])
+                sch = getattr(d, "schedule", None)
+                nxt = getattr(sch, "upcoming_runs_at", None) or []
+                return {
+                    "sched_status": getattr(d, "status", None),
+                    "cron": getattr(sch, "expression", None) or base["cron"],
+                    "timezone": getattr(sch, "timezone", None) or base["timezone"],
+                    "next_run_at": str(nxt[0]) if nxt else None,
+                    "last_run_at": str(getattr(sch, "last_run_at", None) or "") or None,
+                }
+
+            try:
+                live = await asyncio.get_event_loop().run_in_executor(None, _sched)
+                base.update(live)
+            except Exception as exc:  # noqa: BLE001 - schedule is a nicety, brief is the payload
+                base["sched_error"] = f"{type(exc).__name__}: {exc}"
+
         from observability.pg import PgClient, PgObsStore
 
         if not PgClient.configured():
@@ -2703,6 +3165,51 @@ def create_console_app(registry: Registry | None = None):
                     if getattr(dr, "error", None):
                         return {"ok": False, "error": f"{dr.error.type}: {dr.error.message}"}
             return {"ok": True, "session_id": None}
+
+        try:
+            return await asyncio.get_event_loop().run_in_executor(None, run)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    @app.post("/api/cost-brief/schedule")
+    async def cost_brief_schedule(request: Request):
+        """Pause or resume the sentinel's cron. Operator-only for the same
+        reason as the manual run: resuming turns on recurring billed sessions,
+        which is a spend decision, not a viewer's to make.
+
+        The action is `pause` or `resume`. It talks to the live deployment via
+        the SDK's pause/unpause, so the button reflects the actual schedule
+        state — not the local state file, which only records what it was set to
+        last (the schedule can be changed from the Claude console too)."""
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="operator-only")
+        state = _cost_sentinel_state()
+        if not state or not state.get("deployment_id"):
+            return {"ok": False, "error": "sentinel not provisioned"}
+        body = await request.json()
+        action = (body or {}).get("action")
+        if action not in ("pause", "resume"):
+            return {"ok": False, "error": "action must be 'pause' or 'resume'"}
+
+        def run():
+            from anthropic import Anthropic
+
+            client = Anthropic()
+            did = state["deployment_id"]
+            if action == "pause":
+                client.beta.deployments.pause(did)
+            else:
+                client.beta.deployments.unpause(did)
+            # Read the deployment back so the answer is the true state, not the
+            # action we asked for — a pause that no-ops still returns 'paused'.
+            d = client.beta.deployments.retrieve(did)
+            sch = getattr(d, "schedule", None)
+            return {
+                "ok": True,
+                "status": getattr(d, "status", None),
+                "cron": getattr(sch, "expression", None),
+                "timezone": getattr(sch, "timezone", None),
+            }
 
         try:
             return await asyncio.get_event_loop().run_in_executor(None, run)

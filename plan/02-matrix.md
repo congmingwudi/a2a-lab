@@ -24,9 +24,14 @@ plan/03-results.md.
 | MCP | **via-shim** | lab harness MCP client → `agentforce-mcp` shim (:8021) → Agent API (no Claude component speaks MCP to the shim — the Claude agent's own consult uses the Agent API or A2A channels) |
 | A2A | **via-shim** | Claude as A2A client → `agentforce-a2a` shim (:8023) → Agent API |
 
-Claude backend note: each Path B cell can run under `CLAUDE_BACKEND=managed`
-(CMA custom tool, host-side execution) or `sdk` (in-process SDK MCP tool) —
-record which backend produced each result row.
+Claude backend note: the **Agent API (REST)** Path B cell runs under either
+`CLAUDE_BACKEND=managed` (CMA custom tool, host-side execution) or `sdk`
+(in-process SDK MCP tool) — record which backend produced each result row. The
+**A2A** cell is `sdk`-only: `ask_agentforce_a2a` → `af_channel.ask_via_shim` is
+wired in `sdk_backend.py` alone, and `setup_managed_agent.py` provisions the
+managed agent with `ask_agentforce` only (D28 scopes the A2A channel to the
+self-hosted backends). Under the default managed backend the sole
+Claude→Agentforce path is the GA Agent API, not A2A-via-shim.
 
 ## Local loopback cells (protocol plumbing proof, no external platforms)
 
@@ -128,9 +133,13 @@ interop.
   NO field-level security for any profile (grant via permission set, assign
   to the API run-as user); NamedCredential metadata has no calloutOptions
   wrapper and HttpHeader params need sequenceNumber (D15).
-- Anthropic Managed Agents gotcha (D17): scheduled deployments (the
-  platform-native cron) are immutable — archive + recreate to change
-  accounts/cron.
+- Anthropic Managed Agents gotcha (D17): a scheduled deployment's AGENT
+  binding is immutable — archive + recreate to change which agent/account it
+  runs (D17, 2026-07-12). The SCHEDULE is not: the cost sentinel's cron was
+  changed in place via `deployments.update`, and pause/unpause mutate a live
+  deployment too, all preserving the deployment id, vault and run history (D44
+  addendum, 2026-07-30). Earlier notes here said "immutable — recreate to
+  change cron"; that was the agent-binding constraint overgeneralized.
 - Observability harvest (M11, first live run 2026-07-17): CMA delivered 50
   sessions / 1043 events (thinking, tool_use, per-request token usage —
   2.09M tokens aggregated locally; no platform-side aggregation API).

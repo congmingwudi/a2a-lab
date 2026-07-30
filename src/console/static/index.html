@@ -125,6 +125,18 @@
                                  border-radius: 999px; padding: 0 8px; }
   details.acc .acc-body { padding-bottom: 12px; }
 
+  /* Nested sections — a section that lives INSIDE another section's body:
+     Protocol calls and Traces under Experiments, and the two DevOps children
+     (Coding Agents Telemetry, This A2A Lab Project) under DevOps. One level
+     in and one notch quieter than a top-level section: it keeps its own
+     summary and navigate-and-toggle behaviour, but drops the outer border and
+     the sticky pin (which would otherwise stack over the parent's summary),
+     and its header is indented and slightly smaller so the hierarchy reads. */
+  details.acc details.acc.sub { border-bottom: none; border-top: 1px solid var(--border); }
+  details.acc details.acc.sub > summary { position: static; padding: 11px 18px 11px 30px;
+                                          font-size: 10.5px; }
+  details.acc details.acc.sub > summary .sicon { width: 13px; height: 13px; }
+
   /* second-level experiment groups — one expander per platform pair */
   .nav-group { display: flex; align-items: center; gap: 7px; padding: 9px 18px 3px; cursor: pointer;
                font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .4px; }
@@ -595,6 +607,9 @@
     border-radius: 4px; padding: 1px 5px; font-family: var(--font-mono); font-size: 11.5px; }
   .brief-md pre { margin: 6px 0 10px; overflow-x: auto; }
   .obs-updated { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
+  /* Open story rows read one notch quieter than done ones, so a scan of the
+     Stories tab lands on what is still outstanding. */
+  .obs-table tr.row-open td { color: var(--muted); }
   .obs-pipe { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 10px 0 4px; }
   .obs-pipe .stage { flex: 1 1 150px; min-width: 150px; background: var(--card); border: 1px solid var(--border);
     border-radius: 12px; padding: 12px 14px; position: relative; }
@@ -800,6 +815,17 @@
   .ins-cat .cname { flex: 1; font-size: 12.5px; }
   .ins-cat .cnum { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
   .ins-explain { color: var(--muted); font-size: 12.5px; margin: -4px 0 16px; max-width: 680px; line-height: 1.55; }
+  /* Evidence-level key — the three chips exactly as they appear on the tiles,
+     each with the one-line definition that separates it from its neighbours. */
+  .ins-legend { display: flex; flex-direction: column; gap: 7px; margin: 0 0 18px;
+                padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+                background: var(--card2); max-width: 680px; }
+  .ins-legend-t { font: 600 10.5px var(--font-ui); text-transform: uppercase; letter-spacing: .7px;
+                  color: var(--muted); }
+  .ins-legend-item { display: flex; align-items: baseline; gap: 9px; }
+  .ins-legend-item .ins-status { flex: none; min-width: 78px; text-align: center; }
+  .ins-legend-def { font-size: 12px; color: var(--fg); line-height: 1.5; }
+  .ins-legend-eg { color: var(--muted); }
   .ins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px;
               padding: 12px 16px 16px; }
   .ins-card { background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
@@ -817,13 +843,19 @@
   .ins-status.hypothesis { --ist: var(--mcp); }
   .ins-card .lbl { margin: 10px 0 3px; font: 600 10.5px var(--font-ui); color: var(--muted);
                    text-transform: uppercase; letter-spacing: .7px; }
-  .ins-card .evid { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  /* evidence/advisory now render through mdToHtml (soft-wrapped, D-chips), so
+     the sizing lives on the paragraphs it emits rather than the container. */
+  .ins-card .evid { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .ins-card .evid p { margin: 0; }
+  .ins-card .evid p + p { margin-top: 8px; }
   /* the advisor take is the talking point — tinted panel so it leads the eye */
   .ins-card .take { margin-top: 10px; padding: 9px 12px 10px; border-radius: 10px;
                     background: color-mix(in srgb, var(--hero-link) 9%, transparent);
                     border: 1px solid color-mix(in srgb, var(--hero-link) 32%, transparent); }
   .ins-card .take .lbl { margin-top: 0; color: var(--hero-link); }
-  .ins-card .take p { margin: 0; font-size: 12.5px; line-height: 1.55; }
+  .ins-card .take .md { font-size: 12.5px; line-height: 1.55; }
+  .ins-card .take .md p { margin: 0; }
+  .ins-card .take .md p + p { margin-top: 8px; }
   .ins-card .refs { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; }
 
   /* Sign-off (config/insight_reviews.yaml) — shown on insights marked
@@ -1092,6 +1124,27 @@
         </div>
         <div class="hint" id="runAllMsg" style="display:none; padding: 0 12px 8px"></div>
         <div id="scenarios"></div>
+        <!-- Protocol calls and Traces live UNDER Experiments, after the
+             first-class experiments: a protocol cell is a one-agent experiment,
+             and Traces is the record every experiment writes. Nested .sub
+             accordions — collapsible, navigate-and-toggle, one level in. -->
+        <details class="acc sub" id="accCells">
+          <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 1.9v3.2M9.8 1.9v3.2"/><path d="M4.2 5.1h7.6v2.6a3.8 3.8 0 0 1-7.6 0z"/><path d="M8 11.5v2.6"/></svg>Protocol calls <span class="count" id="cellCount"></span></summary>
+          <div class="acc-body">
+            <div id="targets"></div>
+          </div>
+        </details>
+        <details class="acc sub" id="accTraces">
+          <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.3" cy="3.5" r="1.7"/><circle cx="12.7" cy="8" r="1.7"/><circle cx="3.3" cy="12.5" r="1.7"/><path d="M5 3.5h3.7a2.8 2.8 0 0 1 2.5 3.2M11.2 9.4a2.8 2.8 0 0 1-2.5 3.1H5"/></svg>Traces <span class="count" id="traceCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools">
+              <span class="hint">Past runs — every hop's raw wire payloads.</span>
+              <button class="ghost" id="clearBtn" onclick="clearTraces(event)"
+                title="Delete the trace files (traces/*.jsonl) — chat history stays until you reload">Clear</button>
+            </div>
+            <div id="list"></div>
+          </div>
+        </details>
       </div>
     </details>
     <details class="acc" id="accObs">
@@ -1109,22 +1162,6 @@
         <div id="obsSide"></div>
       </div>
     </details>
-    <!-- Sits immediately after Observability, and is its own section rather
-         than a child of it: same question ("what does the platform's own
-         record say?") but a different subject — the tools that BUILT the lab,
-         not the agents it runs. Adjacent, not nested. -->
-    <details class="acc" id="accBuild">
-      <summary onclick="buildNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13.4h12"/><path d="M3.6 13.4V7.2M7.2 13.4V3.6M10.8 13.4V9M14 13.4v-3"/></svg>Coding Agents Telemetry <span class="count" id="buildCount"></span></summary>
-      <div class="acc-body">
-        <div class="traces-tools">
-          <span class="hint">What this lab cost to build — Claude Code and Codex.</span>
-          <button class="ghost" id="buildHarvestBtn" onclick="harvestBuild(event)"
-            title="Pull fresh coding-agent metrics from CloudWatch into the local store (scripts/obs_harvest.py coding) — telemetry appears here only after a harvest">Harvest</button>
-        </div>
-        <div class="hint" id="buildMsg" style="display:none; padding: 0 12px 8px"></div>
-        <div id="buildSide"></div>
-      </div>
-    </details>
     <!-- The deployment map (plan/09-deployment-map.md). Sits next to
          Observability and Insights because it answers the third question an
          operator arrives with — not "what did the agents do" or "what did we
@@ -1138,19 +1175,6 @@
         <div id="archSide"></div>
       </div>
     </details>
-    <!-- Sits under Architecture because it answers the operational half of the
-         same question: not just what is deployed, but what is about to stop
-         working. Operator-only — the section is removed entirely for everyone
-         else rather than rendered empty. -->
-    <details class="acc" id="accCreds">
-      <summary onclick="credsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 4.4V8l2.4 1.6"/></svg>Credentials Expiry Analysis <span class="count" id="credsCount"></span></summary>
-      <div class="acc-body">
-        <div class="traces-tools" style="padding-bottom:10px">
-          <span class="hint">When each credential stops working, and what to do first.</span>
-        </div>
-        <div id="credsSide"></div>
-      </div>
-    </details>
     <details class="acc" id="accInsights">
       <summary onclick="insightsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 12.6h4M6.6 14.4h2.8"/><path d="M8 1.6a4.4 4.4 0 0 0-2.6 7.9c.4.3.6.8.6 1.1h4c0-.3.2-.8.6-1.1A4.4 4.4 0 0 0 8 1.6z"/></svg>Insights <span class="count" id="insightCount"></span></summary>
       <div class="acc-body">
@@ -1160,21 +1184,55 @@
         <div id="insightsSide"></div>
       </div>
     </details>
-    <details class="acc" id="accCells">
-      <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.2 1.9v3.2M9.8 1.9v3.2"/><path d="M4.2 5.1h7.6v2.6a3.8 3.8 0 0 1-7.6 0z"/><path d="M8 11.5v2.6"/></svg>Protocol calls <span class="count" id="cellCount"></span></summary>
-      <div class="acc-body">
-        <div id="targets"></div>
+    <!-- Infrastructure category — the operator's monitoring of the tech stack
+         ITSELF, across every platform, as distinct from what the agents did
+         (Observability) or what is deployed and why (Architecture). Its own
+         expandable section; Credentials Expiry Analysis is the first thing in
+         it (what is about to stop working). More stack-monitoring lives here
+         over time. Operator-only children hide themselves when 403'd. -->
+    <details class="acc" id="accInfra">
+      <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.2" width="12.4" height="4" rx="1"/><rect x="1.8" y="9.4" width="12.4" height="4" rx="1"/><path d="M4.4 4.2h.01M4.4 11.4h.01"/></svg>Infrastructure <span class="count" id="infraCount"></span></summary>
+      <div class="acc-body" style="padding-bottom:0">
+        <details class="acc sub" id="accCreds">
+          <summary onclick="credsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 4.4V8l2.4 1.6"/></svg>Credentials Expiry Analysis <span class="count" id="credsCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools" style="padding-bottom:10px">
+              <span class="hint">When each credential stops working, and what to do first.</span>
+            </div>
+            <div id="credsSide"></div>
+          </div>
+        </details>
       </div>
     </details>
-    <details class="acc" id="accTraces">
-      <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.3" cy="3.5" r="1.7"/><circle cx="12.7" cy="8" r="1.7"/><circle cx="3.3" cy="12.5" r="1.7"/><path d="M5 3.5h3.7a2.8 2.8 0 0 1 2.5 3.2M11.2 9.4a2.8 2.8 0 0 1-2.5 3.1H5"/></svg>Traces <span class="count" id="traceCount"></span></summary>
-      <div class="acc-body">
-        <div class="traces-tools">
-          <span class="hint">Past runs — every hop's raw wire payloads.</span>
-          <button class="ghost" id="clearBtn" onclick="clearTraces(event)"
-            title="Delete the trace files (traces/*.jsonl) — chat history stays until you reload">Clear</button>
-        </div>
-        <div id="list"></div>
+    <!-- DevOps category (WS17, D60). Its own expandable section like every
+         other category — it groups the two things that are about BUILDING the
+         lab rather than about any agent platform: what building it cost and
+         looked like (Coding Agents Telemetry, WS9/WS16) and how it was
+         delivered (This A2A Lab Project, WS15), each a nested .sub section. -->
+    <details class="acc" id="accDevOps">
+      <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 2.2 2 8l3.5 5.8M10.5 2.2 14 8l-3.5 5.8"/></svg>DevOps</summary>
+      <div class="acc-body" style="padding-bottom:0">
+        <details class="acc sub" id="accBuild">
+          <summary onclick="buildNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13.4h12"/><path d="M3.6 13.4V7.2M7.2 13.4V3.6M10.8 13.4V9M14 13.4v-3"/></svg>Coding Agents Telemetry <span class="count" id="buildCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools">
+              <span class="hint">What building this lab cost and looked like — Claude Code and Codex.</span>
+              <button class="ghost" id="buildHarvestBtn" onclick="harvestBuild(event)"
+                title="Pull fresh coding-agent metrics AND behavioural logs from CloudWatch into the local store (scripts/obs_harvest.py coding coding-logs) — telemetry appears here only after a harvest">Harvest</button>
+            </div>
+            <div class="hint" id="buildMsg" style="display:none; padding: 0 12px 8px"></div>
+            <div id="buildSide"></div>
+          </div>
+        </details>
+        <details class="acc sub" id="accProject">
+          <summary onclick="projectNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.2h10v11.6H3z"/><path d="M5.4 5.2h5.2M5.4 8h5.2M5.4 10.8h3"/></svg>This A2A Lab Project <span class="count" id="projectCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools">
+              <span class="hint">How the lab is built and delivered — workstreams, ADRs, the generated board.</span>
+            </div>
+            <div id="projectSide"></div>
+          </div>
+        </details>
       </div>
     </details>
   </div>
@@ -1344,6 +1402,7 @@ const SIGNED_IN_LOADERS = [
   loadObs,             // observability summary + sessions
   loadInsights,
   loadBuildTelemetry,  // coding agents telemetry + the cost brief
+  loadProject,         // WS17: This A2A Lab Project — board counts from the plan
   loadArchitecture,    // the deployment map the Architecture section renders
   loadWarmup,
   loadConfig,
@@ -2399,15 +2458,16 @@ appears in the \`claude\` platform rows like any other agent the lab runs.`,
   },
   cost: {
     label: "Cost analysis",
-    blurb: "The weekly <b>build-cost</b> read from the <b>cost sentinel</b> — what building this lab "
+    blurb: "The daily <b>build-cost</b> read from the <b>cost sentinel</b> — what building this lab "
          + "consumed, in the units each vendor bills.",
-    emptyHint: "The sentinel is a weekly scheduled deployment and is currently paused.",
+    emptyHint: "The sentinel is a scheduled deployment; the Run tab shows whether its daily schedule is running.",
     diagram: () => COST_SENTINEL_DIAGRAM,
     details: `### What writes this brief
 
-The **cost sentinel** (WS12/D44) is a Claude **Managed Agent** on a weekly schedule — Mondays 07:00
-America/New_York. It is currently **paused**; plan/09-deployment-map.md level L5.7 is the inventory that
-says which scheduled processes are actually enabled.
+The **cost sentinel** (WS12/D44) is a Claude **Managed Agent** on a daily schedule — 07:00
+America/New_York (raised from weekly on 2026-07-30 so the console shows a fresh brief each morning).
+Its live run/pause state is on the Run tab, and plan/09-deployment-map.md level L5.7 is the inventory
+that says which scheduled processes are actually enabled.
 
 It reads and writes exactly as the observability analyst does: read-only SQL through the obs MCP server,
 brief saved to \`lab.obs_briefs\` with \`kind='cost'\`. Same table, same tool, different question.
@@ -2839,10 +2899,22 @@ function obsHasData() {
 // section is opened explicitly, exactly as before.
 function sectionHeaderClick(ev, accId, isCurrentView) {
   const acc = document.getElementById(accId);
-  if (!ev) { acc.open = true; return true; }
+  if (!ev) { openAcc(accId); return true; }
   if (!acc.open) return true;              // opening — navigate too
   if (!isCurrentView) { ev.preventDefault(); return true; }
   return false;                            // collapse
+}
+
+// Open an accordion AND every ancestor <details.acc> it nests inside — a nested
+// section (Protocol calls / Traces under Experiments, the DevOps children) is
+// not visible while its parent is collapsed, so opening it programmatically
+// without opening the parent would silently reveal nothing.
+function openAcc(accId) {
+  let el = document.getElementById(accId);
+  while (el) {
+    if (el.tagName === "DETAILS" && el.classList.contains("acc")) el.open = true;
+    el = el.parentElement ? el.parentElement.closest("details.acc") : null;
+  }
 }
 
 window.obsSummaryNav = ev => {
@@ -3072,8 +3144,9 @@ function fanoutVariantRowHtml(key) {
     <label><input type="radio" name="fanoutVariant" value="mcp" ${v === "mcp" ? "checked" : ""}
       onchange="setFanoutVariant('mcp')"> remote MCP tools</label>
     <span class="chan-hint">Same agent, same prompt, two tool inventories (swapped per run via
-      agent_with_overrides). <b>host-side tool</b>: one custom tool, the fan-out runs on this laptop
-      and the host picks the order. <b>remote MCP tools</b>: one tool per business unit on a hosted
+      agent_with_overrides). <b>host-side tool</b>: one custom tool, the fan-out runs on whichever host
+      drives the session — this console process — and the host picks the order. <b>remote MCP tools</b>:
+      one tool per business unit on a hosted
       MCP server, so nothing is attached to the session and the <i>model</i> chooses what to call and
       whether to call them together — the run reports which it did.</span>
   </div>`;
@@ -3221,9 +3294,15 @@ function renderModeBadge() {
 // logs the lab harvests. Claude Code is the tool that BUILT the lab — listing
 // it beside Agentforce would quietly claim they are the same kind of thing.
 let buildData = null;
+let behaviourData = null;   // WS16: the behavioural log signal (edit-acceptance, tool mix, latency…)
 let buildHarvesting = false;
-let costBrief = null;   // WS12: the sentinel's latest weekly brief + its state
-let buildTab = "run";
+let costBrief = null;   // WS12: the sentinel's latest daily brief + its live schedule state
+// Two THINGS in this one section (D57): what building the lab COST (WS9) and
+// what it LOOKED like (WS16). Peer top tabs, not one buried under the other.
+// buildSub is the main|details sub-tab every tab carries.
+let buildTab = "cost";
+let buildSub = "run";
+const BUILD_TABS = [["cost", "Cost"], ["behaviour", "Behaviour"]];
 
 async function loadCostBrief() {
   try {
@@ -3239,6 +3318,7 @@ async function loadBuildTelemetry() {
     if (r.status === 404) return; // console server predates this API
     buildData = await r.json();
     await loadCostBrief();
+    await loadBehaviour();
     const count = document.getElementById("buildCount");
     // Deliberately not the dollar total. Money belongs on the dashboard,
     // where the "modelled at list price, not an invoice" caveat sits next to
@@ -3247,6 +3327,17 @@ async function loadBuildTelemetry() {
     renderBuildSide();
     if (view && view.type === "build") renderMain(true);
   } catch (_e) { /* section stays empty */ }
+}
+
+// WS16 behavioural signal — its own endpoint, harvested from the same seam but
+// a distinct source (`coding-logs`). Loaded alongside the cost data so the
+// Behaviour tab has its numbers the moment the section opens.
+async function loadBehaviour() {
+  try {
+    const r = await fetch(apiUrl("/api/build-behaviour"));
+    if (r.status === 404 || r.status === 403) return; // older server, or viewer
+    behaviourData = await r.json();
+  } catch (_e) { /* the tab renders its un-harvested state */ }
 }
 
 function buildMsg(text, isErr) {
@@ -3272,18 +3363,23 @@ function renderBuildSide() {
     </div>`).join("");
 }
 
-// Same seam as the Observability Harvest button, scoped to the coding source
-// (`scripts/obs_harvest.py coding`). Its own button rather than a ride-along on
-// the Observability one: this section's data is a different subject, and the
-// per-repo view is empty until a harvest runs after an attributed session.
+// Same seam as the Observability Harvest button, scoped to the two coding
+// sources (`scripts/obs_harvest.py coding coding-logs`). Its own button rather
+// than a ride-along on the Observability one: this section's data is a
+// different subject, and both the per-repo cost view and the behavioural tiles
+// are empty until a harvest runs after an attributed session.
 window.harvestBuild = async ev => {
   if (ev) ev.stopPropagation();
   if (buildHarvesting) return;
   buildHarvesting = true;
   const btn = document.getElementById("buildHarvestBtn");
   if (btn) { btn.textContent = "Harvesting…"; btn.disabled = true; }
-  buildMsg("Querying CloudWatch for claude_code.* and codex.* metrics…");
+  buildMsg("Querying CloudWatch — claude_code.* / codex.* metrics AND behavioural log events…");
   try {
+    // The metrics signal first, then the behavioural log signal. Two distinct
+    // sources (`coding`, `coding-logs`); the hosted async path fires the
+    // Lambda, which harvests every platform including both of these, so the
+    // second call is only meaningful on the local, synchronous path.
     const r = await fetch(apiUrl("/api/obs/harvest?platform=coding"), { method: "POST" });
     if (r.status === 404) {
       buildMsg("Console server predates the coding harvest — restart scripts/run_local.sh.", true);
@@ -3294,7 +3390,8 @@ window.harvestBuild = async ev => {
     // Hosted, the server fires the harvest Lambda and returns at once (D54) —
     // there are no per-platform results to read. Reading data.results[0] off an
     // async reply gave `undefined: no coding metrics returned`, a failure
-    // message for a harvest that was running perfectly well.
+    // message for a harvest that was running perfectly well. The Lambda's sweep
+    // covers coding-logs too, so no second call is needed on this path.
     if (data.async) {
       buildMsg("Harvest running in the background — this panel updates when the coding feed lands.");
       const t0 = Date.now();
@@ -3314,12 +3411,22 @@ window.harvestBuild = async ev => {
       }
     }
     const res = (data.results || [])[0] || {};
-    buildMsg(res.status === "ok"
+    // Local path: harvest the behavioural log signal too. Failures here are
+    // reported alongside the metrics result rather than replacing it — the two
+    // sources succeed or fail independently.
+    let behaviourNote = "";
+    try {
+      const rb = await fetch(apiUrl("/api/obs/harvest?platform=coding-logs"), { method: "POST" });
+      const db = await readJson(rb, "behaviour harvest failed");
+      const rbRes = (db.results || [])[0] || {};
+      behaviourNote = rbRes.detail ? ` · behaviour: ${rbRes.detail}` : "";
+    } catch (be) { behaviourNote = ` · behaviour harvest failed: ${be}`; }
+    buildMsg((res.status === "ok"
       ? "Done — " + (res.detail || `${res.sessions || 0} tool-day(s) harvested.`)
-      : `${res.status}: ${res.detail || "no coding metrics returned"}`,
+      : `${res.status}: ${res.detail || "no coding metrics returned"}`) + behaviourNote,
       res.status !== "ok");
     await loadBuildTelemetry();
-    buildNav();  // land on the refreshed dashboard so the result is visible
+    buildNav();  // land on the refreshed section so the result is visible
   } catch (e) {
     buildMsg("Harvest failed: " + e, true);
   } finally {
@@ -3329,30 +3436,52 @@ window.harvestBuild = async ev => {
   }
 };
 
-// Run / Details, the same tabbar the experiment views and the Credentials page
-// use. Run is what was measured; Details is how the sentinel that interprets it
-// is built. Established pattern — not a third layout.
-function buildTabbar() {
-  const stamp = costBrief && costBrief.briefs && costBrief.briefs.length
-    ? `last brief ${fmtWhen(costBrief.briefs[0].created_at)}`
-    : (buildData && buildData.harvest && buildData.harvest.detail ? "" : "");
+// Two THINGS as peer top tabs (Cost, Behaviour), each carrying a Details
+// sub-tab — the same shape Observability uses (D57). Cost is WS9; Behaviour is
+// WS16. Not one buried under the other: they are different subjects measured
+// from different signals (metrics vs log events), and nesting would imply one
+// is a facet of the other.
+window.setBuildTab = id => {
+  buildTab = id;
+  buildSub = "run";   // a new tab opens on its content, never on its Details
+  renderMain(true);
+};
+window.setBuildSub = s => { buildSub = s; renderMain(true); };
+
+function buildTopTabs() {
+  const stamp = buildTab === "cost"
+    ? (costBrief && costBrief.briefs && costBrief.briefs.length
+        ? `last brief ${fmtWhen(costBrief.briefs[0].created_at)}` : "")
+    : (behaviourData && behaviourData.harvest && behaviourData.harvest.at
+        ? `harvested ${fmtWhen(behaviourData.harvest.at)}` : "");
   return `
     <div class="tabbar">
       <h2>Coding Agents Telemetry</h2>
       ${stamp ? `<span class="obs-updated">${esc(stamp)}</span>` : ""}
       <div class="tabs">
-        <button class="tab ${buildTab === "run" ? "on" : ""}" onclick="setBuildTab('run')">Run</button>
-        <button class="tab ${buildTab === "details" ? "on" : ""}" onclick="setBuildTab('details')">Details</button>
+        ${BUILD_TABS.map(([id, label]) =>
+          `<button class="tab ${buildTab === id ? "on" : ""}" onclick="setBuildTab('${id}')">${label}</button>`).join("")}
       </div>
     </div>`;
 }
 
-window.setBuildTab = id => { buildTab = id; renderMain(true); };
+// The main|details sub-tabs for the active top tab. The label of the content
+// sub-tab names the thing, matching the Observability pattern.
+function buildSubTabs() {
+  const label = buildTab === "behaviour" ? "Behaviour" : "Cost";
+  return `<div class="tabs" style="margin:10px 0 4px">
+    <button class="tab ${buildSub !== "details" ? "on" : ""}" onclick="setBuildSub('run')">${label}</button>
+    <button class="tab ${buildSub === "details" ? "on" : ""}" onclick="setBuildSub('details')">Details</button>
+  </div>`;
+}
+
+function buildTabbar() { return buildTopTabs() + buildSubTabs(); }
 
 function buildHtml() {
   if (!buildData) return `<div class="empty">Loading…</div>`;
+  if (buildTab === "behaviour") return buildTabbar() + behaviourHtml();
   const note = `<div class="hint" style="margin:10px 0 18px">⚠️ ${esc(buildData.cost_note)}</div>`;
-  if (buildTab === "details") return buildTabbar() + buildDetailsHtml();
+  if (buildSub === "details") return buildTabbar() + buildDetailsHtml();
 
   if (!buildData.enabled) {
     // The honest first-run state. Telemetry is not retroactive, so the useful
@@ -3678,7 +3807,7 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
 
   subgraph ANT["Anthropic — Managed Agents"]
     MCP["obs MCP server<br/>query_obs_store + save_brief"]
-    AG["Cost Sentinel<br/>weekly deployment, created PAUSED"]
+    AG["Cost Sentinel<br/>daily deployment (07:00 ET)"]
     AG -->|read-only SQL| MCP
     AG -->|save_brief kind=cost| MCP
   end
@@ -3726,10 +3855,9 @@ function costBriefHtml() {
   if (!costBrief.provisioned) {
     return `
       <h3>Cost sentinel</h3>
-      <p class="hint">Not provisioned yet. A weekly scheduled agent (WS12) that reads this
-      store through the obs MCP server and explains the week's movement —
+      <p class="hint">Not provisioned yet. A daily scheduled agent (WS12) that reads this
+      store through the obs MCP server and explains the day's movement —
       <code>${esc(costBrief.setup_hint || "scripts/setup_cost_sentinel.py")}</code>.
-      It is created <b>paused</b>: a scheduled firing bills a real session.
       See the <b>Details</b> tab for why this one is an agent when the credential
       analyst was demoted to a plain API call.</p>`;
   }
@@ -3737,10 +3865,24 @@ function costBriefHtml() {
   const err = costBrief.error
     ? `<div class="hint" style="margin-bottom:8px">Store unavailable: ${esc(costBrief.error)}</div>`
     : "";
+  // The schedule state is the live deployment's, from the management API. When
+  // that read failed the field is absent, so treat unknown as "not running"
+  // and say so rather than showing a Pause button that would no-op.
+  const running = costBrief.sched_status === "active";
+  const schedKnown = !!costBrief.sched_status;
+  const cadence = costBrief.cron === "0 7 * * *" ? "daily"
+    : costBrief.cron ? `cron '${costBrief.cron}'` : "";
   const meta = [
     costBrief.model,
-    costBrief.cron ? `cron '${costBrief.cron}' ${costBrief.timezone || ""}`.trim() : null,
+    schedKnown
+      ? `${running ? "running " + cadence : "paused"}${costBrief.timezone ? " · " + costBrief.timezone : ""}`
+      : (cadence ? cadence + " (schedule state unknown)" : null),
   ].filter(Boolean).join(" · ");
+  const nextLine = running && costBrief.next_run_at
+    ? `<div class="hint" style="margin-top:6px">Next scheduled brief: ${esc(costBrief.next_run_at)} UTC.</div>`
+    : (!running && schedKnown
+        ? `<div class="hint" style="margin-top:6px">Schedule paused — no daily brief will fire until resumed.
+           <b>Brief now</b> still works.</div>` : "");
   const body = briefs.length
     ? `<div class="cred-brief">${mdToHtml(briefs[0].brief_md)}</div>
        <div class="hint" style="margin-top:8px">
@@ -3748,17 +3890,53 @@ function costBriefHtml() {
          session <code>${esc(briefs[0].session_id || "—")}</code>
          ${briefs.length > 1 ? ` · ${briefs.length - 1} earlier brief${briefs.length > 2 ? "s" : ""} in the store` : ""}
        </div>`
-    : `<div class="hint">No brief yet. <b>Brief now</b> fires one manual run — it works while
-       the weekly schedule is paused, which is how it ships.</div>`;
+    : `<div class="hint">No brief yet. <b>Brief now</b> fires one manual run — it works whether or
+       not the daily schedule is running.</div>`;
+  // Pause/Resume mirrors the live state: show the action that changes it. When
+  // the schedule state is unknown, offer Resume — the safe direction is to let
+  // the operator turn it on, not to claim it is already running.
+  const toggle = running
+    ? `<button class="btn" id="costSchedBtn" onclick="toggleCostSchedule('pause')">Pause schedule</button>`
+    : `<button class="btn" id="costSchedBtn" onclick="toggleCostSchedule('resume')">Resume daily schedule</button>`;
   return `
     <h3>Cost sentinel
       <span class="obs-updated" style="float:right">${esc(meta)}</span></h3>
-    <div id="costBriefBox">${err}${body}</div>
+    <div id="costBriefBox">${err}${body}${nextLine}</div>
     <div style="margin-top:10px">
       <button class="btn" id="costRunBtn" onclick="runCostSentinel()">Brief now</button>
+      ${toggle}
       <span class="hint" style="margin-left:8px">Operator only — a firing bills a session.</span>
     </div>`;
 }
+
+window.toggleCostSchedule = async (action) => {
+  const btn = document.getElementById("costSchedBtn");
+  if (btn) { btn.disabled = true; btn.textContent = action === "pause" ? "Pausing…" : "Resuming…"; }
+  try {
+    const r = await fetch(apiUrl("/api/cost-brief/schedule"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      const box = document.getElementById("costBriefBox");
+      if (box) box.insertAdjacentHTML("afterbegin",
+        `<div class="hint" style="margin-bottom:8px">Schedule change failed: ${esc(d.error || r.status)}</div>`);
+      return;
+    }
+    // Re-read so the button and cadence line reflect the deployment's real
+    // state, not the action we asked for.
+    await loadCostBrief();
+    renderMain(true);
+  } catch (e) {
+    const box = document.getElementById("costBriefBox");
+    if (box) box.insertAdjacentHTML("afterbegin",
+      `<div class="hint" style="margin-bottom:8px">Schedule change failed: ${esc(String(e))}</div>`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
 
 window.runCostSentinel = async () => {
   const btn = document.getElementById("costRunBtn");
@@ -3803,7 +3981,7 @@ function buildDetailsHtml() {
          target="_blank" rel="noopener">${esc(s.agent_id)}</a>`
     : `<span class="hint">not provisioned</span>`;
   return `
-    <div class="hint" style="margin:10px 0 16px">How the weekly build-cost brief is produced —
+    <div class="hint" style="margin:10px 0 16px">How the daily build-cost brief is produced —
     what is measured, by what, and what the numbers do and do not mean. The workstream is WS12 in
     plan/07-workstreams.md; where it sits in the estate is plan/09-deployment-map.md.</div>
 
@@ -3820,19 +3998,19 @@ function buildDetailsHtml() {
                 through the hosted obs MCP server (D23) — the agent holds no database
                 credential</td></tr>
         <tr><td><b>Schedule</b></td>
-            <td>a weekly read only means something on a cadence; collection is already hosted,
+            <td>a daily read only means something on a cadence; collection is already hosted,
                 with <code>coding_source.py</code> running in the 6-hourly harvest Lambda against
                 CloudWatch</td></tr>
         <tr><td><b>State</b></td>
-            <td>week-over-week needs history, and the store keeps it — each brief is written to
-                <code>lab.obs_briefs</code> with <code>kind='cost'</code></td></tr>
+            <td>day-over-day and week-over-week need history, and the store keeps it — each brief
+                is written to <code>lab.obs_briefs</code> with <code>kind='cost'</code></td></tr>
       </tbody></table></div></div>
 
     <h3>The pipeline</h3>
     <p class="hint">Deterministic collection below, model interpretation above — the lab's D22
     split, applied to cost. The sentinel never computes a number; the pipeline never writes a
     sentence.</p>
-    ${figureHtml("costfig", "How the weekly cost brief is produced")}
+    ${figureHtml("costfig", "How the daily cost brief is produced")}
 
     <h3>Where the brief lands</h3>
     <p class="hint">The same <code>lab.obs_briefs</code> table as the observability analyst's
@@ -3849,7 +4027,7 @@ function buildDetailsHtml() {
       <li><b>Tokens are four buckets, not one.</b> Uncached input, cache read, cache creation,
         output — billed at roughly 1x, 0.1x, 1.25–2x and the output rate. They cannot be summed
         and multiplied by a rate, which is why the Run tab shows four tiles.</li>
-      <li><b>Silence is a valid brief.</b> A weekly agent that always finds something trains its
+      <li><b>Silence is a valid brief.</b> A daily agent that always finds something trains its
         reader to stop reading — the same rule the credential analyst carries.</li>
     </ul>
 
@@ -3865,6 +4043,251 @@ function buildDetailsHtml() {
     </tbody></table></div></div>`;
 }
 
+// ---- WS16 Behaviour: what building the lab LOOKED like ----------------------
+// Five insight families from Claude Code's OTLP LOG events, all from event
+// METADATA (content flags off end to end): edit-acceptance, tool mix + MCP +
+// per-tool latency, per-request latency, reliability, prompt cadence. Sibling
+// to the cost tab, same section — different signal, different subject (D59).
+
+const msFmt = ms => ms == null ? "—"
+  : ms >= 1000 ? (ms / 1000).toFixed(ms >= 10000 ? 0 : 1) + "s" : Math.round(ms) + "ms";
+const pctFmt = r => r == null ? "—" : (r * 100).toFixed(0) + "%";
+
+function behaviourHtml() {
+  const b = behaviourData;
+  if (!b) return `<div class="empty">Loading…</div>`;
+  if (b.error) return `<div class="hint" style="margin-top:12px">Could not load behavioural
+    telemetry: ${esc(b.error)}.</div>`;
+
+  if (buildSub === "details") return behaviourDetailsHtml();
+
+  if (!b.enabled) {
+    // Telemetry is not retroactive, so the useful first-run answer is how to
+    // start — the launch wrapper and the content-off posture — not an empty
+    // chart. Steps come from the endpoint (BUILD_BEHAVIOUR_SETUP).
+    const steps = (b.setup || []).map((s, i) => `
+      <div class="hop" style="margin-bottom:8px">
+        <div class="hop-head"><b>${i + 1}. ${esc(s.step)}</b></div>
+        <div style="padding:8px 12px" class="hint">${esc(s.detail)}</div>
+      </div>`).join("");
+    return `
+      <p class="hint">Claude Code emits an OTLP <b>log event</b> for every tool call, API
+      request and prompt. From their <b>metadata</b> — never their content — this tab derives
+      what building the lab looked like: how often edits were kept, which tools did the work
+      and how fast, how reliable the model calls were, and how the prompts came.</p>
+      <div class="hint" style="margin:10px 0 18px"><b>Telemetry is not retroactive.</b>
+      Behavioural logs are opt-in and a plain <code>claude</code> exports metrics only — work
+      done before <code>scripts/claude_otel.sh</code> was used cannot be measured after the
+      fact. Content flags stay OFF: no prompt, file or tool-argument text is ever emitted (D59).</div>
+      ${steps}`;
+  }
+
+  const ea = b.edit_acceptance || {};
+  const rl = b.request_latency || {};
+  const rel = b.reliability || {};
+  const pc = b.prompt_cadence || {};
+
+  // Headline tiles — one per family, the number that answers the family's
+  // question. Rates read "—" when nothing was decided rather than a false 0%.
+  const tiles = `
+    <div class="obs-cards">
+      <div class="obs-card"><div class="k">edits kept</div>
+        <div class="v">${pctFmt(ea.rate)}</div>
+        <div class="hint">${ea.accepted || 0} / ${ea.decided || 0} decided</div></div>
+      <div class="obs-card"><div class="k">tool calls</div>
+        <div class="v">${(b.tool_calls_total || 0).toLocaleString()}</div>
+        <div class="hint">${b.mcp_calls || 0} via MCP</div></div>
+      <div class="obs-card"><div class="k">request latency <span class="hint">p90</span></div>
+        <div class="v">${msFmt(rl.p90_ms)}</div>
+        <div class="hint">p50 ${msFmt(rl.p50_ms)} · avg ${msFmt(rl.avg_ms)}</div></div>
+      <div class="obs-card"><div class="k">API error rate</div>
+        <div class="v">${pctFmt(rel.error_rate)}</div>
+        <div class="hint">${rel.errors || 0} err · ${rel.refusals || 0} refusal · ${rel.retries || 0} retry</div></div>
+      <div class="obs-card"><div class="k">prompts</div>
+        <div class="v">${(pc.count || 0).toLocaleString()}</div>
+        <div class="hint">avg ${pc.avg_len == null ? "—" : pc.avg_len + " chars"}</div></div>
+    </div>`;
+
+  // ---- edit acceptance by source -------------------------------------------
+  const srcRows = (ea.by_source || []).map(s => `
+    <tr><td>${esc(s.source)}</td><td class="num">${pctFmt(s.rate)}</td>
+        <td class="num">${s.accepted}</td><td class="num">${s.decided}</td></tr>`).join("");
+  const editHtml = ea.decided ? `
+    <h3>Edit acceptance</h3>
+    <p class="hint">How often the human kept the agent's proposed edit, split by who
+    initiated the tool call. The signal is <code>claude_code.tool_decision</code> — a
+    decision and a source, no file content.</p>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><thead><tr><th>source</th><th class="num">kept</th>
+      <th class="num">accepted</th><th class="num">decided</th></tr></thead>
+    <tbody>${srcRows}</tbody></table></div></div>` : `
+    <h3>Edit acceptance</h3>
+    <p class="hint">No edit decisions in the window yet.</p>`;
+
+  // ---- tool mix + MCP + per-tool latency -----------------------------------
+  const toolRows = (b.tools || []).map(t => `
+    <tr><td>${esc(t.tool)}${t.mcp ? ` <span class="count">MCP</span>` : ""}</td>
+        <td class="num">${t.count.toLocaleString()}</td>
+        <td class="num">${pctFmt(t.success_rate)}</td>
+        <td class="num">${msFmt(t.p50_ms)}</td>
+        <td class="num">${msFmt(t.p90_ms)}</td>
+        <td class="num">${msFmt(t.avg_ms)}</td></tr>`).join("");
+  const toolHtml = (b.tools || []).length ? `
+    <h3>Tool mix, MCP usefulness &amp; latency</h3>
+    <p class="hint">Which tools did the work, how often they succeeded, and how long they
+    took. An <span class="count">MCP</span> tag marks a call served by an MCP server
+    (<code>mcp_server_scope</code> present) — the measure of whether the MCP surfaces earn
+    their place. Latency percentiles are read off a summable histogram (see Details).</p>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><thead><tr><th>tool</th><th class="num">calls</th>
+      <th class="num">success</th><th class="num">p50</th><th class="num">p90</th>
+      <th class="num">avg</th></tr></thead>
+    <tbody>${toolRows}</tbody></table></div></div>` : "";
+
+  // ---- per-request latency by model ----------------------------------------
+  const kfmt = n => {
+    n = n || 0;
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+    return String(n);
+  };
+  const modelRows = (b.models || []).map(m => `
+    <tr><td>${esc(m.model)}</td><td class="num">${m.requests.toLocaleString()}</td>
+        <td class="num">${msFmt(m.p50_ms)}</td><td class="num">${msFmt(m.p90_ms)}</td>
+        <td class="num">${msFmt(m.avg_ms)}</td>
+        <td class="num">${kfmt(m.input_tokens)}</td>
+        <td class="num">${kfmt(m.cache_read_tokens)}</td>
+        <td class="num">${kfmt(m.output_tokens)}</td></tr>`).join("");
+  const modelHtml = (b.models || []).length ? `
+    <h3>Per-request latency by model</h3>
+    <p class="hint">How long the model calls took, per model, from
+    <code>claude_code.api_request</code>. Token buckets are the same four the cost tab bills —
+    shown here for attribution, not priced.</p>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><thead><tr><th>model</th><th class="num">requests</th>
+      <th class="num">p50</th><th class="num">p90</th><th class="num">avg</th>
+      <th class="num">input</th><th class="num">cache read</th><th class="num">output</th></tr></thead>
+    <tbody>${modelRows}</tbody></table></div></div>` : "";
+
+  // ---- reliability ---------------------------------------------------------
+  const statusRows = (rel.by_status || []).map(s => `
+    <tr><td>${esc(s.status_code)}</td><td class="num">${s.count}</td></tr>`).join("");
+  const relHtml = (rel.requests || rel.errors || rel.refusals) ? `
+    <h3>Reliability</h3>
+    <p class="hint">API errors, refusals and retries — <code>claude_code.api_error</code> /
+    <code>api_refusal</code>. A retry is an <code>attempt</code> above the first; a run of
+    529s that eventually succeeds shows here as retries, not failures.</p>
+    ${statusRows ? `<div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><thead><tr><th>status code</th><th class="num">count</th></tr></thead>
+    <tbody>${statusRows}</tbody></table></div></div>`
+      : `<p class="hint">No API errors in the window — ${rel.requests || 0} requests, clean.</p>`}` : "";
+
+  // ---- prompt cadence ------------------------------------------------------
+  const cadenceHtml = pc.count ? `
+    <h3>Prompt cadence</h3>
+    <p class="hint">How many prompts and how long — <code>prompt_length</code> is a character
+    <b>count</b>, never the text. ${pc.count} prompt${pc.count === 1 ? "" : "s"} ·
+    avg ${pc.avg_len} chars · p50 ${pc.p50_len == null ? "—" : Math.round(pc.p50_len) + " chars"} ·
+    p90 ${pc.p90_len == null ? "—" : Math.round(pc.p90_len) + " chars"}.</p>` : "";
+
+  const contentNote = b.content_note
+    ? `<div class="hint" style="margin:14px 0 6px">🔒 ${esc(b.content_note)}</div>` : "";
+  const pctNote = b.percentile_note
+    ? `<div class="hint" style="margin:6px 0 18px">${esc(b.percentile_note)}</div>` : "";
+
+  return `
+    <p class="hint">What building the lab looked like — five families from Claude Code's OTLP
+    log events, every number from event metadata with content flags off (D59).</p>
+    ${tiles}${contentNote}${pctNote}
+    ${editHtml}${toolHtml}${modelHtml}${relHtml}${cadenceHtml}`;
+}
+
+// The behaviour signal's pipeline, for its Details pane. Same D22 split shape as
+// the cost diagram: deterministic ingest and read below, no LLM in the loop —
+// the console just renders the aggregates.
+const BEHAVIOUR_DIAGRAM = `flowchart TB
+  subgraph LOCAL["Developer's machine — opt-in launch"]
+    CC["Claude Code<br/>scripts/claude_otel.sh<br/>OTEL_LOGS_EXPORTER=otlp · content flags OFF"]
+  end
+  CW[("CloudWatch Logs<br/>/a2alab/coding-agents/otlp<br/>bearer-auth ingest")]
+  HARV["Harvest — coding_logs_source.py<br/>SigV4 FilterLogEvents · every 6h<br/>aggregates only, no raw events"]
+  PG[("obs store — obs_sessions<br/>platform = coding-logs<br/>day aggregates + histograms")]
+  CC -->|"OTLP/JSON logs<br/>x-aws-log-group / x-aws-log-stream"| CW
+  CW --> HARV
+  HARV --> PG
+  PG --> UI["Console — Coding Agents Telemetry · Behaviour"]`;
+
+async function renderBehaviourDiagram() {
+  return renderMermaidInto("behavfig", BEHAVIOUR_DIAGRAM, "behavfig-svg");
+}
+
+function behaviourDetailsHtml() {
+  const b = behaviourData || {};
+  const h = b.harvest || {};
+  return `
+    <div class="hint" style="margin:10px 0 16px">What produces the Behaviour tab, how it reads
+    its inputs and as what identity, where the output lives, and what bounds it — the Details
+    half of the one-canvas template (D57). The workstream is WS16 in plan/07-workstreams.md and
+    the reasoning is D59; the estate is plan/09-deployment-map.md.</div>
+
+    <h3>What produces it</h3>
+    <p class="hint">Claude Code emits OTLP <b>log events</b> —
+    <code>claude_code.tool_decision</code>, <code>tool_result</code>, <code>api_request</code>,
+    <code>api_error</code>, <code>api_refusal</code>, <code>user_prompt</code> — when launched
+    with <code>scripts/claude_otel.sh</code>. The wrapper is the opt-in: a plain
+    <code>claude</code> exports metrics only. <code>coding_logs_source.py</code> reads them from
+    CloudWatch on the 6-hourly harvest and folds them into per-day aggregates; the console
+    computes the five families from those aggregates per request.</p>
+    ${figureHtml("behavfig", "How behavioural telemetry reaches the console")}
+
+    <h3>How it reads its inputs, and as what identity</h3>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table">
+      <thead><tr><th>stage</th><th>how</th></tr></thead>
+      <tbody>
+        <tr><td><b>ingest</b></td>
+            <td>OTLP/JSON POST to <code>logs.&lt;region&gt;/v1/logs</code> with a bearer token
+                and the undocumented <code>x-aws-log-group</code> / <code>x-aws-log-stream</code>
+                headers. The token is a <code>logs.amazonaws.com</code> service-specific
+                credential — NOT the metrics token, which 403s here (proven 2026-07-30). It lives
+                in Secrets Manager, never on disk (D39); the wrapper fetches it with the
+                developer's AWS session.</td></tr>
+        <tr><td><b>read-back</b></td>
+            <td>SigV4 <code>FilterLogEvents</code> over the whole log group, signed with the
+                harvest role's own identity — boto3's <code>logs</code> client signs it natively,
+                so unlike the PromQL metrics path there is no hand-rolled signer and no read
+                secret.</td></tr>
+      </tbody></table></div></div>
+
+    <h3>Where the output is stored</h3>
+    <p class="hint">One row per day in <code>obs_sessions</code> with
+    <code>platform = 'coding-logs'</code>; the aggregates and their histograms live in that
+    row's <code>raw_json</code> under <code>aggregates</code>, tagged
+    <code>content_flags = "off …"</code>. Distinct from the <code>coding</code> platform (the
+    cost/token metrics) so the two harvest and read independently.</p>
+
+    <h3>What bounds it, and what it must never claim</h3>
+    <ul class="hint">
+      <li><b>Metadata only — content flags OFF.</b> ${esc(b.content_note || "Every number is computed from event metadata; no prompt, file or tool-argument text is emitted, stored or shown (D59).")}</li>
+      <li><b>Percentiles are histogram edges.</b> ${esc(b.percentile_note || "p50/p90 are the upper edge of the bucket the quantile lands in — an honest over-estimate on the grid, summable across days.")}</li>
+      <li><b>Not retroactive.</b> Only turns run through the launch wrapper are measured; work
+        done before logs were switched on cannot be recovered.</li>
+      <li><b>One developer, one tool.</b> These are Claude Code's events on the machines that use
+        the wrapper — not a fleet metric. Codex's log schema is not mirrored here yet.</li>
+    </ul>
+
+    <h3>Provisioned as</h3>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><tbody>
+      <tr><td>ingest setup</td><td><code>uv run python scripts/setup_cw_logs_otlp.py --apply</code> (once)</td></tr>
+      <tr><td>launch</td><td><code>scripts/claude_otel.sh</code> — the opt-in wrapper</td></tr>
+      <tr><td>source</td><td><code>src/observability/coding_logs_source.py</code> (platform <code>coding-logs</code>)</td></tr>
+      <tr><td>harvest</td><td><code>uv run python scripts/obs_harvest.py coding-logs</code>, or the 6-hourly Lambda</td></tr>
+      <tr><td>last harvest</td><td>${h.at ? `${esc(String(h.status || ""))} · ${esc(String(h.detail || ""))}` : "not harvested yet"}</td></tr>
+    </tbody></table></div></div>`;
+}
+
 window.buildNav = ev => {
   const here = !!(view && view.type === "build");
   if (!sectionHeaderClick(ev, "accBuild", here) || here) return;
@@ -3872,6 +4295,326 @@ window.buildNav = ev => {
   view = { type: "build" };
   renderSidebar(); renderMain(true);
 };
+
+// ---- This A2A Lab Project (WS17, D60) --------------------------------------
+// The lab's delivery process, rendered FROM THE PLAN — never from Jira. The
+// board counts here are computed by the same parser scripts/jira_sync.py runs,
+// so this page and the generated board cannot disagree; the Jira link is a
+// launch-out, not a data source (D58, D60). One-canvas template like every
+// other section: a thing (the delivery record) and what is behind it (Details).
+let projectData = null;
+let projectTab = "run";
+
+async function loadProject() {
+  try {
+    const r = await fetch(apiUrl("/api/project"));
+    if (r.status === 404) return; // console server predates this API
+    projectData = await r.json();
+    const count = document.getElementById("projectCount");
+    // Epics done / total — the same headline the board shows, and the one
+    // number that reads correctly without its caveat (narrative epics stay
+    // open by design, which the Run tab explains next to it).
+    if (count) {
+      const c = projectData.counts;
+      count.textContent = c ? `${c.epics_done}/${c.epics}` : "";
+    }
+    renderProjectSide();
+    if (view && view.type === "project") renderMain(true);
+  } catch (_e) { /* section stays empty */ }
+}
+
+function renderProjectSide() {
+  const el = document.getElementById("projectSide");
+  if (!el) return;
+  if (!projectData || projectData.error) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">${projectData
+      ? esc(projectData.error) : "Loading…"}</div>`;
+    return;
+  }
+  // Each row is a deep link into the canvas tab that shows the thing it counts:
+  // clicking "Workstreams closed" opens the section on its "Workstreams closed"
+  // tab, not just the overview. The header itself (projectNav) opens the
+  // Delivery overview. Three plainly-labelled rows rather than one packed
+  // "6/17 · 53/58" line — a workstream is an epic, open until its stories are
+  // done (narrative-only ones stay open by design; the canvas explains that).
+  const c = projectData.counts;
+  if (!c) { el.innerHTML = ""; return; }
+  const open = c.epics - c.epics_done;
+  const cur = tab => (view && view.type === "project" && projectTab === tab) ? " on" : "";
+  const row = (tab, label, value) => `
+    <div class="obs-plat${cur(tab)}" onclick="projectGoTab(event, '${tab}')">
+      <span>${label}</span><span class="count">${value}</span>
+    </div>`;
+  el.innerHTML =
+    row("closed", "Workstreams closed", c.epics_done) +
+    row("open", "Workstreams open", open) +
+    row("stories", "Stories", `${c.stories_done} / ${c.stories}`);
+}
+
+window.projectNav = ev => {
+  const here = !!(view && view.type === "project");
+  if (!sectionHeaderClick(ev, "accProject", here) || here) return;
+  pushNav();
+  view = { type: "project" };
+  renderSidebar(); renderMain(true);
+};
+
+window.setProjectTab = id => { projectTab = id; renderProjectSide(); renderMain(true); };
+
+// Navigate to a specific project tab from anywhere (the sidebar rows). Unlike
+// setProjectTab, this also enters the project view if we are not already in it
+// and opens the (nested) accordion — a sidebar row is a deep link, not just a
+// tab switch. Re-entrant: pushNav only when the view actually changes, so
+// clicking a row while already on the page does not stack a no-op back-step.
+window.projectGoTab = (ev, tab) => {
+  if (ev) ev.stopPropagation();
+  projectTab = tab;
+  if (!(view && view.type === "project")) { pushNav(); view = { type: "project" }; }
+  openAcc("accProject");
+  renderSidebar();
+  renderMain(true);
+};
+
+// The tabs name the THINGS in this section as peers (D57): the delivery
+// overview, the closed and open workstreams, the stories, and what's behind
+// the page. Counts ride the label so a tab reads the same as the sidebar row
+// that opens it.
+function projectTabList() {
+  const c = (projectData && projectData.counts) || {};
+  const open = (c.epics || 0) - (c.epics_done || 0);
+  return [
+    ["run", "Delivery", ""],
+    ["closed", "Workstreams closed", c.epics_done],
+    ["open", "Workstreams open", open],
+    ["stories", "Stories", c.stories != null ? `${c.stories_done}/${c.stories}` : ""],
+    ["details", "Details", ""],
+  ];
+}
+
+function projectTabbar() {
+  const tabs = projectTabList().map(([id, label, count]) =>
+    `<button class="tab ${projectTab === id ? "on" : ""}" onclick="setProjectTab('${id}')">${esc(label)}${
+      count !== "" && count != null ? ` <span class="count">${esc(String(count))}</span>` : ""}</button>`
+  ).join("");
+  return `
+    <div class="tabbar">
+      <h2>This A2A Lab Project</h2>
+      <div class="tabs">${tabs}</div>
+    </div>`;
+}
+
+// One workstream card. Shared by the Delivery overview and the closed/open
+// tabs so "what a workstream looks like" is defined once. The shape drives what
+// "done" means: stories → x/y items with the item list, narrative → the plan's
+// status line, not-started → so labelled.
+function projectWsCard(w) {
+  const badge = w.shape === "stories"
+    ? `<span class="count">${w.items_done}/${w.items_total} items</span>`
+    : w.shape === "narrative"
+      ? `<span class="count">narrative</span>`
+      : `<span class="count">not started</span>`;
+  const adrs = (w.adrs || []).length
+    ? `<span class="hint"> · ${w.adrs.map(a => esc(a)).join(" ")}</span>` : "";
+  const items = w.items && w.items.length
+    ? `<div style="padding:6px 12px 2px">${w.items.map(it =>
+        `<div class="hint" style="margin-bottom:3px">${it.done ? "✓" : "○"}
+           <b>${esc(w.ws)}-${it.n}</b> ${esc(it.summary)}</div>`).join("")}</div>`
+    : `<div style="padding:6px 12px 2px" class="hint">${w.shape === "narrative"
+        ? "Recorded as narrative in the plan — one epic, no stories. Turning prose into "
+          + "stories would invent a granularity the work never had (D58)."
+        : "No work items in the plan yet."}${w.status ? ` <i>${esc(w.status)}</i>` : ""}</div>`;
+  return `
+    <div class="hop" style="margin-bottom:8px">
+      <div class="hop-head">
+        <b>${esc(w.ws)}: ${esc(w.title)}</b> ${w.done ? "✓" : ""}
+        ${badge}
+      </div>
+      ${items}${adrs ? `<div style="padding:2px 12px 8px">${adrs}</div>` : ""}
+    </div>`;
+}
+
+function projectHtml() {
+  if (!projectData) return `<div class="empty">Loading…</div>`;
+  if (projectData.error) {
+    return projectTabbar() + `<div class="hint" style="margin-top:12px">Could not load the
+      plan parser: ${esc(projectData.error)}. This page reads plan/07-workstreams.md through
+      scripts/jira_sync.py — the same code the board is generated from.</div>`;
+  }
+  if (projectTab === "details") return projectTabbar() + projectDetailsHtml();
+  if (projectTab === "closed") return projectTabbar() + projectWorkstreamsHtml(true);
+  if (projectTab === "open") return projectTabbar() + projectWorkstreamsHtml(false);
+  if (projectTab === "stories") return projectTabbar() + projectStoriesHtml();
+
+  const c = projectData.counts;
+  const j = projectData.jira || {};
+  // The headline counts. Epics and stories are the board's own units; the two
+  // "epics that never close" numbers are stated rather than folded in, because
+  // a narrative-only or not-started workstream is not a bug in the count.
+  const tiles = `
+    <div class="obs-cards">
+      <div class="obs-card"><div class="k">workstreams <span class="hint">epics</span></div>
+        <div class="v">${c.epics_done}<span class="hint"> / ${c.epics}</span></div></div>
+      <div class="obs-card"><div class="k">work items <span class="hint">stories</span></div>
+        <div class="v">${c.stories_done}<span class="hint"> / ${c.stories}</span></div></div>
+      <div class="obs-card"><div class="k">narrative epics <span class="hint">no stories</span></div>
+        <div class="v">${c.narrative_epics}</div></div>
+      <div class="obs-card"><div class="k">not started</div>
+        <div class="v">${c.not_started_epics}</div></div>
+    </div>`;
+
+  // Launch-out to the board. A link, never a read: nothing on this page comes
+  // from Jira (D60). Absent JIRA_SITE_URL, say the board is generated but not
+  // linked from here rather than showing a dead button.
+  const jira = j.url
+    ? `<a class="btn" href="${esc(j.url)}" target="_blank" rel="noopener">Open the ${esc(j.project_key)} board in Jira ↗</a>`
+    : `<span class="hint">The board is generated by <code>scripts/jira_sync.py</code>; set
+       <code>JIRA_SITE_URL</code> to link it from here.</span>`;
+
+  const rows = (projectData.workstreams || []).map(projectWsCard).join("");
+
+  return `
+    ${projectTabbar()}
+    <p class="hint">How this lab is built and delivered. The board is generated one way from the
+    plan; these counts are the same arithmetic over the same file, so the page and the board
+    cannot disagree (D58, D60).</p>
+    ${tiles}
+    <div style="margin:14px 0 18px">${jira}</div>
+    <div class="cred-brief">${mdToHtml(projectData.process || "")}</div>
+    <h3 style="margin-top:20px">Workstreams</h3>
+    <p class="hint">Every workstream is an epic. Work items become stories; a narrative-only
+    workstream is an epic with no stories and stays open even when it shipped — the same
+    safe-direction rule the board applies. The <b>Workstreams closed</b> and
+    <b>Workstreams open</b> tabs split this list; <b>Stories</b> flattens it to the work items.</p>
+    ${rows}`;
+}
+
+// Closed / open workstreams. "Closed" is w.done (an epic with stories, all
+// done); everything else is open — including narrative-only and not-started
+// workstreams, which stay open by design (D58). Stated on each tab so the split
+// is honest rather than a mystery filter.
+function projectWorkstreamsHtml(closed) {
+  const all = projectData.workstreams || [];
+  const list = all.filter(w => !!w.done === closed);
+  const c = projectData.counts || {};
+  const intro = closed
+    ? `<p class="hint">Workstreams that are <b>done</b>: an epic with stories where every story is
+       complete. ${c.epics_done} of ${c.epics} workstreams.</p>`
+    : `<p class="hint">Workstreams still <b>open</b> — ${(c.epics || 0) - (c.epics_done || 0)} of
+       ${c.epics}. This includes ${c.narrative_epics} narrative-only workstream${c.narrative_epics === 1 ? "" : "s"}
+       (an epic with no stories, which stays open even when the work shipped) and
+       ${c.not_started_epics} not yet started — the same safe-direction rule the board applies (D58).</p>`;
+  const body = list.length
+    ? list.map(projectWsCard).join("")
+    : `<div class="hint">None.</div>`;
+  return `${intro}${body}`;
+}
+
+// Stories — the work items flattened out of the workstreams. This is the plan's
+// own story data, the SAME rows jira_sync.py writes to the board; it is NOT read
+// back from Jira (D58/D60), so a story edited only in Jira does not show here.
+// The launch-out opens the live board for anyone who wants Jira's view of them.
+function projectStoriesHtml() {
+  const c = projectData.counts || {};
+  const j = projectData.jira || {};
+  const withStories = (projectData.workstreams || []).filter(w => w.items && w.items.length);
+  const groups = withStories.map(w => {
+    const rows = w.items.map(it => `
+      <tr class="${it.done ? "" : "row-open"}">
+        <td style="white-space:nowrap"><b>${esc(w.ws)}-${it.n}</b></td>
+        <td>${it.done ? "✓ done" : "○ open"}</td>
+        <td>${esc(it.summary)}</td>
+      </tr>`).join("");
+    return `
+      <div style="margin-bottom:16px">
+        <div class="hop-head" style="margin-bottom:6px">
+          <b>${esc(w.ws)}: ${esc(w.title)}</b>
+          <span class="count">${w.items_done}/${w.items_total}</span>
+        </div>
+        <div class="tbl-card"><div class="tbl-scroll">
+          <table class="obs-table"><tbody>${rows}</tbody></table>
+        </div></div>
+      </div>`;
+  }).join("");
+
+  const jira = j.url
+    ? `<a class="btn" href="${esc(j.url)}" target="_blank" rel="noopener">See these on the ${esc(j.project_key)} board in Jira ↗</a>`
+    : `<span class="hint">Set <code>JIRA_SITE_URL</code> to link the board from here.</span>`;
+
+  return `
+    <div class="obs-cards" style="margin-bottom:14px">
+      <div class="obs-card"><div class="k">stories done</div>
+        <div class="v">${c.stories_done}<span class="hint"> / ${c.stories}</span></div></div>
+      <div class="obs-card"><div class="k">workstreams with stories</div>
+        <div class="v">${withStories.length}</div></div>
+    </div>
+    <p class="hint">Every numbered work item in <code>plan/07-workstreams.md</code>, grouped by
+    workstream. These are the exact rows <code>scripts/jira_sync.py</code> writes to the board —
+    the plan is the source, not Jira. Nothing here is read back from the board, so a story edited
+    only in Jira is one this page never sees (D58, D60).</p>
+    <div style="margin:12px 0 18px">${jira}</div>
+    ${groups || `<div class="hint">No work items recorded in the plan yet.</div>`}`;
+}
+
+function projectDetailsHtml() {
+  const j = (projectData && projectData.jira) || {};
+  const docs = ((projectData && projectData.docs) || []).map(d =>
+    `<li><code>${esc(d.path)}</code> — ${esc(d.label)}</li>`).join("");
+  return `
+    <div class="hint" style="margin:10px 0 16px">What produces this page, how it reads its
+    inputs, and what bounds it — the Details half of the one-canvas template (D57). The
+    workstream is WS15/WS17 in plan/07-workstreams.md; the delivery record is plan/11-delivery.md.</div>
+
+    <h3>What produces it</h3>
+    <p class="hint">The console endpoint <code>/api/project</code> imports
+    <code>scripts/jira_sync.parse_plan</code> — the very function that generates the Jira board —
+    and counts the workstreams and their items the same way. There is no second parser and no
+    second definition of "done": the page and the board are one arithmetic over
+    <code>plan/07-workstreams.md</code> (D60).</p>
+
+    <h3>How it reads its inputs, and as what identity</h3>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table">
+      <thead><tr><th>input</th><th>how</th></tr></thead>
+      <tbody>
+        <tr><td><b>the plan</b></td>
+            <td><code>plan/07-workstreams.md</code>, read from the repo checkout the console
+                runs in — no credential, no network</td></tr>
+        <tr><td><b>the board</b></td>
+            <td>NOT read. The Jira link is a launch-out; nothing on this page comes back from
+                Jira. A status edited only in Jira is one the plan and this page never see (D58, D60)</td></tr>
+      </tbody></table></div></div>
+
+    <h3>How the counts are defined</h3>
+    <ul class="hint">
+      <li><b>Epic = workstream.</b> Every WS in the plan is one epic.</li>
+      <li><b>Story = work item.</b> The numbered items inside a workstream. A workstream the plan
+        records only as narrative has an epic and no stories.</li>
+      <li><b>An epic closes only when it has stories and all of them are done.</b> A narrative-only
+        workstream stays OPEN even when the work shipped — closing it would require inventing a
+        story granularity the plan never recorded (D58). This is why "narrative epics" and
+        "not started" are shown as their own numbers rather than folded into "done".</li>
+    </ul>
+
+    <h3>Where the output lives</h3>
+    <p class="hint">Nowhere persistent. This page is computed per request from the plan file;
+    it writes nothing. The board it mirrors is written to Jira by
+    <code>uv run python scripts/jira_sync.py --apply</code> (dry-run without <code>--apply</code>),
+    one way, repo → Jira.</p>
+
+    <h3>What bounds it</h3>
+    <ul class="hint">
+      <li><b>One way only.</b> Nothing reads the board back, by design (D58, D60). If someone moves
+        a card in Jira, this page will not know and neither will the plan.</li>
+      <li><b>Only what the plan records.</b> Work done but not written into
+        <code>plan/07-workstreams.md</code> does not count here — the plan is the source of truth,
+        not the commit log.</li>
+      <li><b>Launch-out needs configuration.</b> The board link is empty unless
+        <code>JIRA_SITE_URL</code> is set${j.site ? "" : " (it is not, here)"}.</li>
+    </ul>
+
+    <h3>Reading further</h3>
+    <ul class="hint">${docs}</ul>`;
+}
 
 // ---- Architecture (plan/09-deployment-map.md) ------------------------------
 // Progressive levels, L0 (the whole estate) down to L6 (repo file -> deployed
@@ -4143,17 +4886,38 @@ function credsUrgent() {
 
 function renderCredsSide() {
   const acc = document.getElementById("accCreds");
+  const infra = document.getElementById("accInfra");
   const count = document.getElementById("credsCount");
+  const infraCount = document.getElementById("infraCount");
   const el = document.getElementById("credsSide");
   if (!acc) return;
-  // Operator-only: /api/expiry 403s for everyone else, so the whole section
-  // disappears rather than teasing an empty panel.
-  if (!expiryData) { acc.style.display = "none"; return; }
+  // Operator-only: /api/expiry 403s for everyone else, so the section
+  // disappears rather than teasing an empty panel. Credentials is the only
+  // thing under Infrastructure today, so an empty category would be a dead
+  // expander — hide the whole Infrastructure category too until it has a
+  // child a viewer can see.
+  if (!expiryData) {
+    acc.style.display = "none";
+    if (infra) infra.style.display = "none";
+    return;
+  }
   acc.style.display = "";
+  if (infra) infra.style.display = "";
+  // The badge counts credentials TRACKED — the same "how many things does this
+  // section watch" number every other section reports. It turns alert-red when
+  // any of them are expired/critical/warn, so the count also carries the
+  // danger signal without hiding the total behind it.
+  const tracked = ((expiryData && expiryData.credentials) || []).length;
   const urgent = credsUrgent();
   if (count) {
-    count.textContent = urgent || "";
+    count.textContent = tracked || "";
     count.className = "count" + (urgent ? " count-alert" : "");
+  }
+  // Infrastructure's own badge mirrors its one child today; when more stack
+  // monitors join the category this becomes their sum.
+  if (infraCount) {
+    infraCount.textContent = tracked || "";
+    infraCount.className = "count" + (urgent ? " count-alert" : "");
   }
   // No list here on purpose — this is a standalone destination, and a
   // duplicate of the table would just be a second thing to keep in sync.
@@ -4525,10 +5289,10 @@ function insightCardHtml(ins) {
       <span class="ins-status ${esc(ins.status || "observed")}">${esc(ins.status || "observed")}</span>
     </div>
     <div class="lbl">What the lab showed</div>
-    <p class="evid">${esc(prose(ins.evidence))}</p>
+    <div class="evid md">${mdToHtml(prose(ins.evidence))}</div>
     <div class="take">
       <div class="lbl">Advisor take</div>
-      <p>${esc(prose(ins.advisory))}</p>
+      <div class="md">${mdToHtml(prose(ins.advisory))}</div>
     </div>
     ${(ins.diagrams || []).length ? `<div class="dgrams">${ins.diagrams.map(d =>
       `<button type="button" class="dgchip" data-diagram="${esc(d.id)}"
@@ -4713,6 +5477,31 @@ function pendingReviewNote() {
     — approve or request changes on the tile.`;
 }
 
+// The three chip labels are an evidence ladder, not a status workflow, and the
+// measured/observed rung is the one that trips people (it did in a live demo).
+// The legend states each rung as "what backs the claim" so the difference is
+// the source of the evidence, not how far along the work is. Same tint classes
+// as the tile chips, so the key reads as the key to those exact chips.
+function insightsLegendHtml() {
+  const rungs = [
+    ["measured", "backed by recorded lab runs — a number you can point to in the results log",
+      "e.g. a latency in plan/03-results.md"],
+    ["observed", "seen and documented in the lab, but not yet reduced to a number",
+      "the behaviour happened and was written down; nothing was timed or counted"],
+    ["hypothesis", "framed by the lab, with the measurement still planned",
+      "a claim we expect to hold and intend to test"],
+  ];
+  return `
+  <div class="ins-legend">
+    <span class="ins-legend-t">Evidence level —</span>
+    ${rungs.map(([k, def, eg]) => `
+      <span class="ins-legend-item">
+        <span class="ins-status ${k}">${k}</span>
+        <span class="ins-legend-def">${esc(def)} <span class="ins-legend-eg">(${esc(eg)})</span></span>
+      </span>`).join("")}
+  </div>`;
+}
+
 function insightsHtml() {
   const cats = insightsData.categories || [];
   return `
@@ -4724,6 +5513,7 @@ function insightsHtml() {
   </div>
   <p class="ins-explain">The deck-ready markdown export — the same findings below as one document,
     ready to pull into Claude Design for presentation work.${pendingReviewNote()}</p>
+  ${insightsLegendHtml()}
   ${cats.length ? cats.map(([cat, items]) => `
   <div class="flow" id="inscat-${catSlug(cat)}">
     <h3>${esc(cat)} <span style="text-transform:none;letter-spacing:0"> · ${items.length} insight${items.length === 1 ? "" : "s"}</span></h3>
@@ -4900,7 +5690,7 @@ function renderWarmPanel() {
     </div>`;
 }
 
-function renderSidebar() { renderScenarios(); renderTargets(); renderList(); renderObsSide(); renderInsightsSide(); }
+function renderSidebar() { renderScenarios(); renderTargets(); renderList(); renderObsSide(); renderInsightsSide(); renderProjectSide(); }
 
 // Two-step clear (no native confirm() dialog): first click arms the button,
 // second click within 4s deletes traces/*.jsonl via the API.
@@ -5211,9 +6001,8 @@ window.goHome = () => { view = null; renderSidebar(); renderMain(); };
 
 window.browseCells = () => {
   ensureSideOpen();
-  const acc = document.getElementById("accCells");
-  acc.open = true;
-  acc.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  openAcc("accCells");               // opens Experiments too — Protocol calls nests in it
+  document.getElementById("accCells").scrollIntoView({ behavior: "smooth", block: "nearest" });
 };
 
 // ---------------------------------------------------------------------------
@@ -5249,7 +6038,7 @@ window.openExperiment = (kind, name, tab) => {
 
 window.openTrace = tid => {
   if (gd.open) setTimeout(() => { gdSyncContext(); gdRender(); }, 0);
-  document.getElementById("accTraces").open = true;
+  openAcc("accTraces");              // opens Experiments too — Traces nests in it
   pushNav();
   view = { type: "trace" }; selected = tid; renderSidebar(); renderMain();
 };
@@ -5672,10 +6461,18 @@ function renderMain(force) {
   }
 
   if (view.type === "build") {
-    mainKey = `build:${buildTab}`;
+    mainKey = `build:${buildTab}:${buildSub}`;
     el.innerHTML = buildHtml();
     linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs via the observer
-    if (buildTab === "details") renderCostDiagram();
+    if (buildTab === "cost" && buildSub === "details") renderCostDiagram();
+    if (buildTab === "behaviour" && buildSub === "details") renderBehaviourDiagram();
+    return;
+  }
+
+  if (view.type === "project") {
+    mainKey = `project:${projectTab}`;
+    el.innerHTML = projectHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
     return;
   }
 

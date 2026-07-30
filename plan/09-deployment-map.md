@@ -402,10 +402,17 @@ flowchart TB
   SM -.->|"env_sync.py<br/>.env lives here too"| OPER
 ```
 
-**What you are looking at.** The rule from D39: **AWS SSO is the only
-interactive human login in the stack.** Every other platform credential is a
-service identity fetched with that AWS session — never an `az login`, never a
-`gcloud auth`, never a value that exists only in someone's `.env`.
+**What you are looking at.** The rule from D39, scoped to the runtime/data
+plane: **at runtime, AWS SSO is the only interactive human login the lab's data
+plane needs.** The harvest and every hosted component fetch each other platform
+credential as a service identity from Secrets Manager — never an `az login`,
+never a `gcloud auth`, never a value that exists only in someone's `.env`
+(enforced by `observability/credentials.py`). Provisioning is the deliberate
+exception: standing up the Foundry agent (`deploy/foundry/provision_foundry.py`)
+and the AWS→GCP federation (`deploy/bridge/gcp_federation.sh`,
+`deploy/fanout/provision_gcp_federation.py`) require the operator's own
+`az login` and `gcloud auth application-default login`, and the ad-hoc credential
+analyst's collection needs all three (see "It is ad-hoc, not scheduled" below).
 
 **Why per-caller Salesforce apps.** One shared External Client App held the
 *union* of four callers' needs. Splitting it into four apps was not about a
@@ -535,7 +542,8 @@ flowchart LR
     S5["App Insights"]
   end
   subgraph CODE["Coding agents — NOT a platform"]
-    S6["Claude Code + Codex<br/>OTLP to CloudWatch"]
+    S6["Claude Code + Codex<br/>OTLP METRICS to CloudWatch<br/>(coding)"]
+    S7["Claude Code OTLP LOGS<br/>to CloudWatch log group<br/>(coding-logs, WS16)"]
   end
   HARV2["a2alab-obs-harvest<br/>Lambda, every 6h<br/>+ scripts/obs_harvest.py"]
   S1 --> HARV2
@@ -544,36 +552,46 @@ flowchart LR
   S4 --> HARV2
   S5 --> HARV2
   S6 --> HARV2
+  S7 --> HARV2
   HARV2 --> PG[("Aurora — hosted store")]
   HARV2 --> LITE[("traces/lab.db — local")]
   PG --> CONSOLE["Console: Observability<br/>+ Coding Agents Telemetry"]
   LITE --> CONSOLE
   PG --> ANALYST["Hosted analyst agent<br/>nightly, reads via a2alab-obs-mcp"]
-  PG --> SENT["Cost sentinel (WS12)<br/>weekly, same MCP server<br/>brief kind=cost"]
+  PG --> SENT["Cost sentinel (WS12)<br/>daily, same MCP server<br/>brief kind=cost"]
 ```
 
 **What you are looking at.** Harvest-and-cache (D18): the console **never**
 proxies a platform API live. Every interior view is pulled into one store first,
 so the console is fast, offline-capable, and shows the same thing twice.
 
-**The one deliberate exclusion.** `coding` shares the harvest seam and the store
-but is **not** a sixth column in the coverage panel. Every column there is an
-agent platform whose interior the lab harvests; Claude Code and Codex are the
-tools that *built* the lab. It gets its own console section instead.
+**The one deliberate exclusion.** `coding` and `coding-logs` share the harvest
+seam and the store but are **not** columns in the coverage panel. Every column
+there is an agent platform whose interior the lab harvests; Claude Code and Codex
+are the tools that *built* the lab. They get their own console section instead —
+**Coding Agents Telemetry**, under the **DevOps** category (WS17/D60), with two
+peer tabs (D57): **Cost** reads the `coding` metrics (WS9) and **Behaviour**
+reads the `coding-logs` log signal (WS16/D59). The two are distinct obs-store
+platforms so they harvest and read independently: `coding` is PromQL over the
+CloudWatch metrics store, `coding-logs` is SigV4 `FilterLogEvents` over a
+CloudWatch **log group**. The behavioural signal is metadata only — content flags
+off end to end, so no prompt, file or tool-argument text is ever emitted.
 
 **Two agents read this store, and only one of them earns the shape.** The
-observability analyst runs nightly; the **cost sentinel** (WS12/D44) runs weekly
-over the coding-agent telemetry and explains what moved. Both reach the store
-through the same `a2alab-obs-mcp` server and write to the same
-`lab.obs_briefs` table, separated by a `kind` column — one store, one reader,
-one migration. Both are created **paused**: a scheduled firing bills a real
-session, so the schedule is opt-in.
+observability analyst runs on demand; the **cost sentinel** (WS12/D44) runs
+**daily** (`0 7 * * *`, America/New_York — moved from weekly and resumed on
+2026-07-30, D44 addendum) over the coding-agent telemetry and explains what
+moved. Both reach the store through the same `a2alab-obs-mcp` server and write to
+the same `lab.obs_briefs` table, separated by a `kind` column — one store, one
+reader, one migration. Both **ship paused** because a scheduled firing bills a
+real session; the sentinel is now resumed on purpose so the console shows a fresh
+brief each morning, and its Pause/Resume/Run controls are in the console.
 
 The sentinel is the counter-example to the credential analyst above. That one
 was demoted to a plain API call because it had no tools, no possible schedule
 and no state. The sentinel has all three — the delta is a SQL question, the
 collection already runs in `a2alab-obs-harvest` rather than on a laptop, and
-week-over-week needs history. Same lab, same rule, opposite answer.
+day-over-day needs history. Same lab, same rule, opposite answer.
 
 **The obs rule that keeps biting:** registering a source in
 `scripts/obs_harvest.py` is *half* the job. The hosted Lambda
@@ -695,13 +713,13 @@ flowchart LR
   BW -->|"services the stalled tool call"| BRIEF
 ```
 
-| # | Process | Where it runs | Cadence | State (2026-07-29) | What it writes |
+| # | Process | Where it runs | Cadence | State (2026-07-30) | What it writes |
 |---|---|---|---|---|---|
-| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — all six platforms |
+| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — six platforms + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16) |
 | 2 | **Account brief agent** (D16) | Scheduled Claude Managed Agent | `0 6 * * *`, America/Denver | **active** | an `A2ALab_Account_Brief__c` in Salesforce, via a host-side tool |
 | 3 | **Brief watcher** (D52) | ECS service `a2alab-briefs` | poll loop, `A2ALAB_BRIEF_POLL_S` = 60s | **running 1/1** | services #2's stalled tool call; `lab.lab_state` serviced-set |
 | 4 | **Observability analyst** (D23) | Scheduled Claude Managed Agent | **no cron — on demand only** | **paused** | `lab.obs_briefs` with `kind='observability'` |
-| 5 | **Cost sentinel** (WS12/D44) | Scheduled Claude Managed Agent | `0 7 * * 1`, America/New_York | **paused** | `lab.obs_briefs` with `kind='cost'` |
+| 5 | **Cost sentinel** (WS12/D44) | Scheduled Claude Managed Agent | `0 7 * * *`, America/New_York | **active** (daily since 2026-07-30, D44 addendum) | `lab.obs_briefs` with `kind='cost'` |
 
 **Always-on but request-shaped**, listed so the inventory is complete: the four
 ECS services (`a2alab-bridge`, `-console`, `-faces`, `-briefs`) all run 1/1.
@@ -713,12 +731,15 @@ Only `-briefs` does work with no caller.
   *Rules*.** They are different services with different APIs, and
   `aws events list-rules` returns nothing for it — which reads exactly like "no
   schedule exists". If you go looking, `aws scheduler list-schedules`.
-- **Two of the five are paused**, and one of those has no cron at all. The
-  observability analyst (#4) had not produced a brief since **2026-07-18**,
-  eleven days, and nothing surfaced that: the console's brief panel showed the
-  newest brief of *any* kind, so the cost sentinel's build-cost brief appeared
-  in the Observability section and looked like the analyst had changed subject
-  (D56).
+- **One of the five is paused**, and it has no cron at all. The observability
+  analyst (#4) had not produced a brief since **2026-07-18**, eleven days, and
+  nothing surfaced that: the console's brief panel showed the newest brief of
+  *any* kind, so the cost sentinel's build-cost brief appeared in the
+  Observability section and looked like the analyst had changed subject (D56).
+  The cost sentinel (#5) was itself paused until 2026-07-30 and is now daily —
+  which is why the console's newest cost brief before then was a *manual* 7/28
+  firing, and why a demo reader took the panel for "not provisioned" (D44
+  addendum).
 - **#2 and #3 are one mechanism split across two clouds.** The Anthropic cron
   fires a session that then *stalls* awaiting a host-side Salesforce write; the
   ECS watcher is the half that finishes it. Neither is useful alone, and
@@ -770,7 +791,7 @@ flowchart LR
 | `src/platforms/openai/` | `deploy/agentcore/deploy.sh openai` | AgentCore runtime `a2alab_openai` + secret `a2alab/runtime/openai` | AWS |
 | `src/platforms/agentforce/` (shim) + `deploy/shim/handler.py` | `build_zip.sh` then `deploy_shim.sh` | Lambda `a2alab-af-shim` + API Gateway HTTP API + secret `a2alab/runtime/shim` | AWS |
 | `src/fanout_mcp/` | `build_zip.sh` then `deploy_fanout.sh` | Lambda `a2alab-fanout-mcp` + API Gateway + secret `a2alab/runtime/fanout-mcp` | AWS |
-| `src/observability/` | `deploy/obs/build_zips.sh` then `deploy_harvest.sh` / `expose_mcp.sh` | Lambdas `a2alab-obs-harvest` (EventBridge 6h) and `a2alab-obs-mcp` (+ API Gateway), secret `a2alab/obs/harvest`, role policy `a2alab-obs-promql` | AWS |
+| `src/observability/` | `deploy/obs/build_zips.sh` then `deploy_harvest.sh` / `expose_mcp.sh` | Lambdas `a2alab-obs-harvest` (EventBridge 6h) and `a2alab-obs-mcp` (+ API Gateway), secret `a2alab/obs/harvest`, role policy `a2alab-obs-promql`. **WS16:** the harvest role also needs `logs:FilterLogEvents` on `/a2alab/coding-agents/otlp` for the `coding-logs` source (owned by `deploy_harvest.sh`) — same shape as the PromQL grant | AWS |
 | `src/obs_mcp/` | `deploy/obs/expose_mcp.sh` (`--code` for code alone) | Function code for `a2alab-obs-mcp`. **Nothing pushed this zip until 2026-07-27** — `expose_mcp.sh` built the API and left the code to a hand-run `update-function-code` | AWS |
 | `observability/pg.py` `DDL` | `scripts/pg_migrate.py` | Schema changes in Aurora `a2alab`, run as the **table owner**. `pg_backfill.py` (rows only) connects as `lab_writer`, which cannot ALTER | AWS |
 | `src/platforms/adk/` | `deploy/adk/deploy_adk.py` | Agent Engine deployments `a2alab-adk-researcher`, `a2alab-supply-orchestrator-adk`, `a2alab-logistics-agent` | GCP |
@@ -781,10 +802,11 @@ flowchart LR
 | `src/faces/` (the nine protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces`. **One process serves all eleven, addressed by path** | AWS |
 | `src/briefs/` (the watcher) | `deploy/briefs/deploy_briefs.sh` | ECS service `a2alab-briefs` on the shared cluster, roles `a2alab-briefs-task` / `-exec`, secret `a2alab/runtime/briefs`. **Reuses the faces image**, no ALB, no target group — it serves nothing | AWS |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
-| `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; metrics land in CloudWatch | laptop → AWS |
+| `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; **metrics** land in CloudWatch (read by `coding`) | laptop → AWS |
+| `scripts/setup_cw_logs_otlp.py` + `scripts/claude_otel.sh` | `setup_cw_logs_otlp.py --apply` (once) | `logs.amazonaws.com` service credential + CloudWatch **log group** `/a2alab/coding-agents/otlp` (bearer auth) + token in Secrets Manager `a2alab/telemetry/cw-logs-api-key`; the launch wrapper exports Claude Code's **log** events there (read by `coding-logs`, WS16) | laptop → AWS |
 | `.env` (gitignored) | `scripts/env_sync.py push` | Secrets Manager secret `A2ALAB_ENV_SECRET` — every platform credential, the account ids, the project ids | AWS |
 | `scripts/credential_analyst.py` | — (no deploy step) | **Nothing hosted** — one `messages.create` per run, started by a person | laptop → Anthropic API |
-| `scripts/setup_cost_sentinel.py`, `scripts/cost_sentinel.py` | `setup_cost_sentinel.py` | Managed Agent "A2ALab Cost Sentinel" + weekly scheduled deployment (created **paused**) + its own vault on the obs MCP server | Anthropic |
+| `scripts/setup_cost_sentinel.py`, `scripts/cost_sentinel.py` | `setup_cost_sentinel.py` | Managed Agent "A2ALab Cost Sentinel" + daily scheduled deployment (`0 7 * * *` America/New_York — shipped weekly-and-paused, moved to daily and resumed 2026-07-30, D44) + its own vault on the obs MCP server | Anthropic |
 
 **What is still on the laptop, and whether that is a problem:**
 

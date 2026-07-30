@@ -74,21 +74,27 @@ Three things about it are honest rather than neat, and should stay that way:
   analyst's `always_allow` fix sat undeployed for days (D46). The issues say so,
   because the plan says so.
 
-## Open items on the board, 2026-07-29
+## Open items on the board, 2026-07-30
 
-The import produced **15 epics and 46 stories**; 40 stories closed, and these are
-genuinely open:
+The board now holds **16 epics and 53 stories** (WS16 added its epic and seven
+stories on 2026-07-30). These are genuinely open:
 
 | Issue | Item | Kind |
 |---|---|---|
 | WS1.5 | Full Agentforce→bridge hosted-mode pass, plus the managed-vs-sdk latency table | lab work |
 | WS14.4 | Entra: grant `Application.Read.All` + admin consent | **operator action** |
 | WS14.5 | GCP: grant the harvest service account `iam.serviceAccounts.list` | **operator action** |
-| WS15.1–7 | This workstream — the board itself | in flight |
+| WS15.1–7 | The board itself | in flight |
+| WS16.1–7 | Behavioural telemetry from Claude Code logs/traces (D59) — all open, Phase 0 a hard gate | lab work |
 
 The two operator actions are the ones a script cannot do: they need a human with
 directory-admin rights in Entra and project-IAM rights in GCP. They are on the
 board precisely so they stop being invisible (WS14).
+
+WS16 imports as an epic with seven stories because the plan records it in the
+work-items table shape (D58); Phase 0 is labelled a hard gate in its own state
+cell, so the board shows *why* the later phases are blocked rather than leaving
+them as bare open tickets.
 
 ## Credentials
 

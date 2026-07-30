@@ -123,7 +123,7 @@ rider.
 ## Design
 
 ```
-platform APIs ──pull──►  harvester (src/observability/)  ──upsert──►  obs store (SQLite)
+platform APIs ──pull──►  harvester (src/observability/)  ──upsert──►  obs store (Aurora PG)
   SF Query API v2                                                    │
   CMA sessions/events        correlation keys from traces/ ──join────┤
   OpenAI responses/usage                                             ▼
@@ -145,9 +145,16 @@ platform APIs ──pull──►  harvester (src/observability/)  ──upsert�
   30 days. The store is the durable superset; the dashboard reads only the
   store. Triggers: on-demand button per platform, `scripts/obs_harvest.py`
   CLI, optional post-scenario hook.
-- **Store = SQLite** (see D19): observability tables live in the same
-  `traces/lab.db` as the sqlite TraceSink so timeline/drill-down joins are
-  plain SQL. JSONL stays the raw archive; DynamoDB stays the cloud/M10 path.
+- **Store = Aurora Postgres, source of truth (D23, D49).** Observability tables
+  share the hosted `a2alab-obs` cluster with the PostgresSink trace hops, so
+  timeline/drill-down joins are plain SQL. `observability.make_obs_store()` is
+  the single selector — it defaults to Postgres and falls back to the local
+  sqlite `traces/lab.db` (the original D19 design) only when
+  `A2ALAB_OBS_STORE=sqlite` or Postgres is unconfigured, i.e. a fresh checkout
+  with no AWS session. This split is exactly what D49 exists to enforce: the
+  console once rendered the laptop's `lab.db` while Aurora filled unseen. JSONL
+  stays the raw archive; the DynamoDB M10 path is superseded by the Aurora
+  zero-copy connector.
 - **Raw payloads preserved.** Same ethos as D7: every harvested record keeps
   the raw platform payload (DMO row / CMA event JSON / OTLP span) alongside
   the normalized columns, shown in the drill-down like the wire view.

@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 from observability.adk_source import AdkSource
 from observability.anthropic_source import AnthropicSource
+from observability.coding_logs_source import CodingLogsSource
 from observability.coding_source import CodingSource
 from observability.foundry_source import FoundrySource
 from observability.openai_source import OpenAISource
@@ -31,10 +32,13 @@ SOURCES = {
     "openai": OpenAISource,
     "adk": AdkSource,
     "foundry": FoundrySource,
-    # WS9: not an agent platform — the coding agents that BUILT the lab. Kept
-    # out of the five-platform coverage panel and rendered in its own console
-    # section; it shares only this harvest seam and the store.
+    # WS9/WS16: not agent platforms — the coding agents that BUILT the lab. Kept
+    # out of the five-platform coverage panel and rendered in their own console
+    # section; they share only this harvest seam and the store. `coding` is the
+    # metrics (cost/tokens); `coding-logs` is the behavioural log signal
+    # (edit-acceptance, tool mix, latency, reliability, prompt cadence).
     "coding": CodingSource,
+    "coding-logs": CodingLogsSource,
 }
 
 
