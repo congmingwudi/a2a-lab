@@ -343,13 +343,13 @@
               background: var(--wordmark-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .hero-sub { font-family: var(--font-head); color: var(--hero-sub); font-size: 16px; font-weight: 600;
               margin: 0 0 14px; letter-spacing: .2px; }
-  .hero-body { color: var(--hero-body); font-size: 15.5px; line-height: 1.7; max-width: 760px; margin: 0 0 22px;
+  .hero-body { color: var(--hero-body); font-size: 15.5px; line-height: 1.7; margin: 0 0 22px;
                text-wrap: pretty; }
   /* The lab's own claim about itself, so it is the first thing a visitor reads
      rather than something the Lab Guide has to be asked for. Set apart from the
      body copy — a left rule and slightly larger type — because it is the
      standard everything below is offering to be held to. */
-  .hero-ethos { color: var(--hero-body); font-size: 15.5px; line-height: 1.65; max-width: 780px;
+  .hero-ethos { color: var(--hero-body); font-size: 15.5px; line-height: 1.65;
                 margin: 0 0 24px; padding-left: 16px; border-left: 2px solid var(--hero-sub); }
   .hero-ethos b { color: #fff; letter-spacing: .01em; }
   .hero-ctas { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
@@ -371,7 +371,7 @@
   .landing section { max-width: 1240px; margin: 0 auto; padding: 44px 48px 8px; }
   .landing section:last-child { padding-bottom: 52px; }
   .landing h2 { font-family: var(--font-head); font-size: 22px; font-weight: 600; letter-spacing: .2px; margin: 0 0 8px; }
-  .landing .lede { color: var(--muted); font-size: 14.5px; margin: 0 0 22px; max-width: 820px; line-height: 1.65; }
+  .landing .lede { color: var(--muted); font-size: 14.5px; margin: 0 0 22px; line-height: 1.65; }
   .landing h3.tile-group { font-family: var(--font-head); font-size: 14px; font-weight: 600;
                            letter-spacing: .2px; margin: 20px 0 10px; }
   .landing h3.tile-group:first-of-type { margin-top: 0; }
@@ -533,6 +533,51 @@
   .flow text.alabel { fill: var(--muted); font-size: 10px; }
   .flow .pbox { fill: var(--card2); stroke: var(--border); rx: 7; }
   .flow .lifeline { stroke: var(--border); stroke-dasharray: 3 4; }
+
+  /* Alternating canvas (D57): a .flow sitting inside the gray .tabpanel canvas
+     is WHITE, so a section reads as a distinct thing ON the canvas rather than
+     dissolving into it. .flow on the white page (Run tab, trace view) is left
+     gray — the same contrast, the other way round. */
+  .tabpanel .flow { background: var(--bg); }
+  /* One section-title look for every Details section. mdToHtml renders `###`
+     as <h6>; the figure header is an .arch-head h3. Both become the console's
+     standard uppercase strip so "What writes this brief" and "How this brief
+     is produced" read as peers, not two different kinds of heading. */
+  .flow > h4, .flow > h5, .flow > h6 {
+    margin: 0; padding: 11px 16px; font-size: 11px; font-weight: 600;
+    color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
+    border-top: 1px solid var(--border); }
+  .flow .arch-head { margin: 0; padding: 9px 16px; border-top: 1px solid var(--border); }
+  .flow .arch-head h3 { font-size: 11px; font-weight: 600; color: var(--muted);
+                        text-transform: uppercase; letter-spacing: .8px; }
+  /* The first section in a flow butts against the flow's own top edge, so it
+     needs no divider above it. */
+  .flow > h4:first-child, .flow > h5:first-child, .flow > h6:first-child,
+  .flow > .arch-head:first-child { border-top: none; }
+  /* mdToHtml emits bare <p>/<ul>/<table> with no wrapper, so give them the
+     horizontal padding the section-title strips already carry. */
+  .flow > p, .flow > ul, .flow > ol { margin: 10px 16px; line-height: 1.7; }
+  .flow > table { margin: 10px 16px; }
+  .flow > .arch-figure { margin: 12px 16px 14px; }
+
+  /* Details panes that render on the white page (build, behaviour, project,
+     credentials) wrap in .detail so their bare <h3>/<h4> section titles get
+     the SAME strip look as the obs sections above — one heading language
+     across every Details view (D57). Body stays as .hint / .arch-prose. */
+  .detail > h3, .detail > h4 {
+    margin: 22px 0 8px; font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .8px; }
+  .detail > h3:first-child, .detail > h4:first-child { margin-top: 6px; }
+  /* A figure's own header strip (figureHtml) sits between section titles in the
+     creds/build/behaviour panes; match the section-title strip so the diagram
+     label reads as a peer of "Where the collection runs", not a bigger heading.
+     Scoped to .detail so the Architecture section keeps its larger level titles. */
+  .detail .arch-head h3 { font-size: 11px; font-weight: 600; color: var(--muted);
+                          text-transform: uppercase; letter-spacing: .8px; }
+  /* Subsection titles inside a prose block: bold, sentence case, one notch below
+     the uppercase section strip so the section > subsection hierarchy survives. */
+  .detail .arch-prose h4 { margin: 16px 0 6px; font-size: 13px; font-weight: 600;
+                           color: var(--fg-hi); }
 
   /* Details tab: numbered steps + agent cards */
   .steps { margin: 0; padding: 8px 16px 14px 36px; }
@@ -827,7 +872,7 @@
   .ins-cat:hover { background: var(--card2); }
   .ins-cat .cname { flex: 1; font-size: 12.5px; }
   .ins-cat .cnum { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
-  .ins-explain { color: var(--muted); font-size: 13.5px; margin: -4px 0 18px; max-width: 820px; line-height: 1.65; }
+  .ins-explain { color: var(--muted); font-size: 13.5px; margin: -4px 0 18px; line-height: 1.65; }
   /* Evidence-level key — the three chips exactly as they appear on the tiles,
      each with the one-line definition that separates it from its neighbours. */
   .ins-legend { display: flex; flex-direction: column; gap: 7px; margin: 0 0 18px;
@@ -917,15 +962,17 @@
   /* Agent Registry (Infrastructure → Agent Registry). One tile per deployed
      agent; the roster fills its canvas, so the grid tracks are generous and
      the copy breathes — same clean-typography pass as the insights tiles. */
-  .reg-lede { max-width: 860px; margin: 2px 0 20px; font-size: 14px; line-height: 1.65;
+  .reg-lede { margin: 2px 0 20px; font-size: 14px; line-height: 1.65;
               color: var(--muted); }
   .reg-group { margin: 0 0 26px; }
   .reg-group-h { margin: 0 0 4px; font-size: 16px; font-weight: 600; color: var(--fg-hi); }
-  .reg-group-blurb { max-width: 860px; margin: 0 0 14px; font-size: 13px; line-height: 1.6;
+  .reg-group-blurb { margin: 0 0 14px; font-size: 13px; line-height: 1.6;
                      color: var(--muted); }
   .reg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
               gap: 16px; align-items: start; }
-  .reg-tile { background: var(--card2); border: 1px solid var(--border); border-radius: 14px;
+  /* Tiles sit on the gray canvas, so they are WHITE for contrast — the same
+     canvas-gray / panel-white alternation used across the console's views. */
+  .reg-tile { background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
               padding: 16px 18px; display: flex; flex-direction: column; }
   .reg-head { display: flex; align-items: flex-start; gap: 11px; }
   .reg-logo { flex: none; display: inline-flex; }
@@ -1347,7 +1394,6 @@ let cardTab = {};         // target -> "fields" | "json"
 
 // Agent Registry (Infrastructure → Agent Registry): from /api/agents.
 let registry = { groups: [], agents: [] };
-let registryTab = "roster";   // 'roster' | 'details'
 let regCardTab = {};          // agent id -> "fields" | "json" (per-tile card view)
 
 const fmtTime = ts => ts ? new Date(ts * 1000).toLocaleTimeString() : "";
@@ -4142,6 +4188,7 @@ function buildDetailsHtml() {
          target="_blank" rel="noopener">${esc(s.agent_id)}</a>`
     : `<span class="hint">not provisioned</span>`;
   return `
+    <div class="detail">
     <div class="hint" style="margin:10px 0 16px">How the daily build-cost brief is produced —
     what is measured, by what, and what the numbers do and do not mean. The workstream is WS12 in
     plan/07-workstreams.md; where it sits in the estate is plan/09-deployment-map.md.</div>
@@ -4201,7 +4248,8 @@ function buildDetailsHtml() {
       <tr><td>deployment</td><td><code>${esc(s.deployment_id || "—")}</code></td></tr>
       <tr><td>setup</td><td><code>uv run python scripts/setup_cost_sentinel.py</code></td></tr>
       <tr><td>drive</td><td><code>uv run python scripts/cost_sentinel.py run|status|latest|pause|resume</code></td></tr>
-    </tbody></table></div></div>`;
+    </tbody></table></div></div>
+    </div>`;
 }
 
 // ---- WS16 Behaviour: what building the lab LOOKED like ----------------------
@@ -4387,6 +4435,7 @@ function behaviourDetailsHtml() {
   const b = behaviourData || {};
   const h = b.harvest || {};
   return `
+    <div class="detail">
     <div class="hint" style="margin:10px 0 16px">What produces the Behaviour tab, how it reads
     its inputs and as what identity, where the output lives, and what bounds it — the Details
     half of the one-canvas template (D57). The workstream is WS16 in plan/07-workstreams.md and
@@ -4446,7 +4495,8 @@ function behaviourDetailsHtml() {
       <tr><td>source</td><td><code>src/observability/coding_logs_source.py</code> (platform <code>coding-logs</code>)</td></tr>
       <tr><td>harvest</td><td><code>uv run python scripts/obs_harvest.py coding-logs</code>, or the 6-hourly Lambda</td></tr>
       <tr><td>last harvest</td><td>${h.at ? `${esc(String(h.status || ""))} · ${esc(String(h.detail || ""))}` : "not harvested yet"}</td></tr>
-    </tbody></table></div></div>`;
+    </tbody></table></div></div>
+    </div>`;
 }
 
 window.buildNav = ev => {
@@ -4721,6 +4771,7 @@ function projectDetailsHtml() {
   const docs = ((projectData && projectData.docs) || []).map(d =>
     `<li><code>${esc(d.path)}</code> — ${esc(d.label)}</li>`).join("");
   return `
+    <div class="detail">
     <div class="hint" style="margin:10px 0 16px">What produces this page, how it reads its
     inputs, and what bounds it — the Details half of the one-canvas template (D57). The
     workstream is WS15/WS17 in plan/07-workstreams.md; the delivery record is plan/11-delivery.md.</div>
@@ -4774,7 +4825,8 @@ function projectDetailsHtml() {
     </ul>
 
     <h3>Reading further</h3>
-    <ul class="hint">${docs}</ul>`;
+    <ul class="hint">${docs}</ul>
+    </div>`;
 }
 
 // ---- Architecture (plan/09-deployment-map.md) ------------------------------
@@ -5149,6 +5201,7 @@ window.setCredsTab = id => {
 
 function credsDetailsHtml() {
   return `
+    <div class="detail">
     <div class="hint" style="margin:10px 0 16px">How the analysis is produced, end to end. The
     split is the lab's own rule from D22 — <b>deterministic collection below, model interpretation
     above</b> — applied to credentials instead of execution logs. Where this sits in the estate is
@@ -5225,6 +5278,7 @@ function credsDetailsHtml() {
       <p><b>The trigger to revisit:</b> the first time someone wishes this had run overnight, or
       the first time the question is "did the credential expire before or after the telemetry
       stopped?"</p>
+    </div>
     </div>`;
 }
 
@@ -5322,8 +5376,6 @@ window.registryNav = ev => {
   renderSidebar(); renderMain(true);
 };
 
-// A new tab opens on its content, never on its Details (D57).
-window.setRegistryTab = t => { registryTab = t; renderMain(true); };
 window.setRegCardTab = (id, target, tab) => { regCardTab[id] = tab; renderMain(true); };
 
 // Reuse the experiment-card fetch machinery (openCards/cardCache/toggleCard):
@@ -5413,9 +5465,14 @@ function registryRosterHtml() {
   const groups = (registry.groups || []);
   return `
     <p class="reg-lede">Every distinct agent this lab has deployed across the stack — one tile per agent,
-      not per protocol face. Each shows the live AgentCard the experiment Details tabs show, the platform
-      it runs on, where it is deployed (region, never an account), and the experiments it takes part in.
-      Source of truth: <code>config/agents.yaml</code>.</p>
+      not per protocol face, so an agent answering on REST, MCP and A2A is a single entry. Each tile shows
+      the platform it runs on, where it is deployed (region only, never an account), the inbound protocols
+      it answers, the experiments it takes part in (click one to open it), and — on expand — the live
+      AgentCard fetched from the same <code>/api/agent-card/{target}</code> route the experiment Details
+      tabs use. Twins are deliberate (D25): one Agentforce agent per platform pair, so four Agentforce
+      tiles share one shim card and the rider routes to the right twin. Source of truth:
+      <code>config/agents.yaml</code>, resolved against <code>config/scenarios.yaml</code> so a renamed
+      experiment shows as unknown rather than a dead link.</p>
     ${groups.map(g => {
       const mine = agents.filter(a => a.group === g.id);
       if (!mine.length) return "";
@@ -5428,53 +5485,18 @@ function registryRosterHtml() {
     }).join("")}`;
 }
 
-const REGISTRY_DETAILS_MD = `### What this section shows
-
-The **Agent Registry** is one tile per distinct **agent** the lab has deployed — as opposed to the
-**Experiments** section, which lists protocol *faces* (often three per agent: REST, MCP, A2A) and *call
-paths*. An agent that answers on three protocols is **one** entry here.
-
-### Where the data comes from
-
-The roster is read from \`config/agents.yaml\` — the source of truth — by the \`/api/agents\` endpoint,
-which resolves each agent's \`experiments\` slugs against \`config/scenarios.yaml\` so a renamed or deleted
-experiment shows as \`(unknown experiment)\` rather than a dead link. The two files cannot silently drift.
-
-Each tile's **agent card** is fetched **live** and **on demand** from \`/api/agent-card/{card_target}\` —
-the exact same route, and cache, the experiment **Details** tab uses. Agents whose platform serves no card
-(a Bedrock **AgentCore** invoke-only runtime, an **OpenAI** Agents SDK agent, or a Claude **Managed Agent**,
-which is a declarative control-plane object rather than an A2A server) show their declared identity and say
-so, rather than a broken fetch.
-
-### How to read a tile
-
-- The **platform chip** (one hue per platform) and the mark beside the name say *what* the agent is —
-  Claude, OpenAI, ADK, Foundry, Agentforce.
-- The **deployment chips** say *where it runs* — the vendor cloud and **region only**, never an account
-  (same rule as everywhere in this repo).
-- The **protocol badges** are the inbound protocols it answers on.
-- The **experiments** list links to every scenario the agent takes part in; click one to open it.
-
-Twins are deliberate (D25): one Agentforce agent per platform pair, same org, different agent, so each
-platform's own execution logs attribute a cross-platform run separately. That's why four Agentforce tiles
-share one shim card (\`agentforce-a2a\`) — the shim routes to the specific twin by the delegation rider.
-
-See plan/07-workstreams.md for the buildout and plan/09-deployment-map.md for where each of these runs.`;
-
+// The Registry is a purely operational view — one tile per deployed agent — so
+// it deliberately carries NO Details sub-tab (the D57 canvas rule is for
+// sections that surface a produced thing with a story behind it; a roster is
+// the thing itself). The provenance a Details pane would hold lives in the lede.
 function registryHtml() {
   const n = (registry.agents || []).length;
   return `
     <div class="tabbar">
       <h2>Agent Registry</h2>
-      <span class="obs-updated">${n} agent${n === 1 ? "" : "s"} · config/agents.yaml</span>
-      <div class="tabs">
-        <button class="tab ${registryTab === "roster" ? "on" : ""}" onclick="setRegistryTab('roster')">Roster</button>
-        <button class="tab ${registryTab === "details" ? "on" : ""}" onclick="setRegistryTab('details')">Details</button>
-      </div>
+      <span class="obs-updated">${n} agent${n === 1 ? "" : "s"}</span>
     </div>
-    <div class="tabpanel">${registryTab === "details"
-      ? `<div class="arch-prose">${mdToHtml(REGISTRY_DETAILS_MD)}</div>`
-      : registryRosterHtml()}</div>`;
+    <div class="tabpanel">${registryRosterHtml()}</div>`;
 }
 
 // Sidebar: the section is a direct destination (its summary click navigates),
@@ -6841,7 +6863,7 @@ function renderMain(force) {
   }
 
   if (view.type === "registry") {
-    mainKey = `registry:${registryTab}`;
+    mainKey = "registry";
     el.innerHTML = registryHtml();
     linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
     // Tiles fetch their live AgentCard lazily on expand — same path as the

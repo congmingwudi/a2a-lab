@@ -1085,7 +1085,7 @@ scenarios:
 
   supplier-disruption-agentforce:
     group: fan-out
-    title: "Supplier Disruption — orchestrated by Agentforce (Agent Script)"
+    title: "Supplier Disruption — orchestrated by Agentforce"
     summary: >
       The SAME scenario and the same three business-unit agents, orchestrated
       by an Agentforce agent authored in Agent Script (D14). This is the third
