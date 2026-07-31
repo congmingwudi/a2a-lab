@@ -77,6 +77,13 @@ keys = [
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
+    # WS18/D62 usage analytics: the external AWS logger's API key. The env
+    # builder below classifies it secret by name (*_KEY) and so drops it from
+    # the plain task def — but excluding a credential without RELOCATING it just
+    # deletes it (the SF_CLIENT_ID_OBS lesson). Its URL is not secret-shaped and
+    # rides plain env via the os.environ scan. Without the key here, /api/track
+    # stores rows but the Slack forward silently no-ops.
+    "A2ALAB_LOGGING_API_KEY",
     # The persona passwords (D36). The is_secret() rule below keeps every
     # *_PASSWORD off the task definition, which is right — but excluding a
     # credential without RELOCATING it just deletes it. That is what happened

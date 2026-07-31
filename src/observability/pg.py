@@ -122,6 +122,31 @@ DDL: list[str] = [
         payload    jsonb NOT NULL,
         updated_at timestamptz NOT NULL DEFAULT now()
     )""",
+    # WS18: console usage analytics. One row per tracked interaction —
+    # unauthenticated visit, persona sign-in, top-level section nav — written
+    # by /api/track and read back as aggregates by the "A2A Lab Monitoring"
+    # section. Deliberately PII-free: no IP is stored (country comes from
+    # Cloudflare's CF-IPCountry header, which is a two-letter code, not an
+    # address), and `visitor_id` is a random UUID the browser mints in
+    # localStorage — enough to count unique/returning visitors, tied to no
+    # person. `persona`/`role` are stamped from the verified JWT, null when
+    # the caller is anonymous, so the visit event that fires before sign-in is
+    # honestly anonymous rather than mislabelled.
+    f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.usage_events (
+        event_id    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        occurred_at timestamptz NOT NULL DEFAULT now(),
+        event       text NOT NULL,
+        visitor_id  text,
+        persona     text,
+        role        text,
+        country     text,
+        locale      text,
+        section     text,
+        detail      jsonb
+    )""",
+    f"CREATE INDEX IF NOT EXISTS idx_lab_usage_events_at ON {SCHEMA}.usage_events (occurred_at)",
+    f"""CREATE INDEX IF NOT EXISTS idx_lab_usage_events_event_at
+        ON {SCHEMA}.usage_events (event, occurred_at)""",
 ]
 
 # Keys used in lab.lab_state. Named here so a typo is an ImportError rather
@@ -519,6 +544,135 @@ class PgObsStore:
         if isinstance(payload, dict):
             payload = {**payload, "stored_at": rows[0]["updated_at"]}
         return payload
+
+    # ---- usage analytics (WS18) -------------------------------------------
+    # The write is the /api/track proxy's job (writer secret); the reads feed
+    # the "A2A Lab Monitoring" section. Kept here beside the other console
+    # reads because the aggregation is pure SQL and belongs with the store,
+    # not the request handler.
+
+    def record_usage(
+        self,
+        event: str,
+        *,
+        visitor_id: str | None = None,
+        persona: str | None = None,
+        role: str | None = None,
+        country: str | None = None,
+        locale: str | None = None,
+        section: str | None = None,
+        detail: Any = None,
+    ) -> None:
+        """One usage row. `occurred_at` defaults to now() in the DB so the
+        timestamp is the server's, not a client clock we cannot trust."""
+        self.client.execute(
+            f"""INSERT INTO {SCHEMA}.usage_events
+                    (event, visitor_id, persona, role, country, locale, section, detail)
+                VALUES (:event, :visitor_id, :persona, :role, :country, :locale,
+                        :section, CAST(:detail AS jsonb))""",
+            {
+                "event": event[:64],
+                "visitor_id": (visitor_id or None) and visitor_id[:64],
+                "persona": (persona or None) and persona[:128],
+                "role": (role or None) and role[:32],
+                "country": (country or None) and country[:8],
+                "locale": (locale or None) and locale[:32],
+                "section": (section or None) and section[:64],
+                "detail": _clip_json(detail) if detail is not None else None,
+            },
+        )
+
+    def usage_stats(self, days: int | None = None) -> dict[str, Any]:
+        """Rolling aggregates for the Monitoring section. `days=None` is the
+        all-time window; otherwise the last N days by `occurred_at`.
+
+        Returns totals, unique/returning visitors, a country and locale
+        breakdown, the most-viewed sections and experiments, and how many
+        visitors used the Lab Guide — everything the console renders, computed
+        in SQL so the row set never has to cross the wire.
+        """
+        # See list_briefs: the Data API sends :days as bigint and make_interval
+        # rejects it, so bound with a multiplied interval literal instead.
+        where = "WHERE occurred_at >= now() - (:days * INTERVAL '1 day')" if days else ""
+        params: dict[str, Any] = {}
+        if days:
+            params["days"] = days
+
+        def q(sql: str) -> list[dict[str, Any]]:
+            return self.client.execute(sql, params)
+
+        totals = q(
+            f"""SELECT
+                    count(*) FILTER (WHERE event = 'site_visit')   AS visits,
+                    count(*) FILTER (WHERE event = 'persona_login') AS logins,
+                    count(*) FILTER (WHERE event = 'nav')          AS navs,
+                    count(DISTINCT visitor_id)                     AS unique_visitors
+                FROM {SCHEMA}.usage_events {where}"""
+        )
+        # A returning visitor is one whose id appears on more than one calendar
+        # day in the window — a single long session is still one visitor.
+        returning = q(
+            f"""SELECT count(*) AS n FROM (
+                    SELECT visitor_id
+                    FROM {SCHEMA}.usage_events {where}
+                    {"AND" if where else "WHERE"} visitor_id IS NOT NULL
+                    GROUP BY visitor_id
+                    HAVING count(DISTINCT date_trunc('day', occurred_at)) > 1
+                ) t"""
+        )
+        by_country = q(
+            f"""SELECT COALESCE(country, '??') AS country,
+                       count(DISTINCT visitor_id) AS visitors
+                FROM {SCHEMA}.usage_events {where}
+                {"AND" if where else "WHERE"} event = 'site_visit'
+                GROUP BY 1 ORDER BY visitors DESC, country LIMIT 30"""
+        )
+        by_locale = q(
+            f"""SELECT COALESCE(locale, 'unknown') AS locale,
+                       count(DISTINCT visitor_id) AS visitors
+                FROM {SCHEMA}.usage_events {where}
+                {"AND" if where else "WHERE"} event = 'site_visit'
+                GROUP BY 1 ORDER BY visitors DESC, locale LIMIT 20"""
+        )
+        by_section = q(
+            f"""SELECT section, count(*) AS views,
+                       count(DISTINCT visitor_id) AS visitors
+                FROM {SCHEMA}.usage_events {where}
+                {"AND" if where else "WHERE"} event = 'nav' AND section IS NOT NULL
+                GROUP BY section ORDER BY views DESC LIMIT 40"""
+        )
+        # Experiments viewed: nav rows into the experiment section carry the
+        # scenario/cell name in detail->>'name'. Distinct from the section
+        # count, which is one row for "the experiments section was opened".
+        experiments = q(
+            f"""SELECT detail->>'name' AS name, count(*) AS views,
+                       count(DISTINCT visitor_id) AS visitors
+                FROM {SCHEMA}.usage_events {where}
+                {"AND" if where else "WHERE"} event = 'nav'
+                    AND section = 'experiment' AND detail->>'name' IS NOT NULL
+                GROUP BY 1 ORDER BY views DESC LIMIT 40"""
+        )
+        guide = q(
+            f"""SELECT count(DISTINCT visitor_id) AS visitors, count(*) AS opens
+                FROM {SCHEMA}.usage_events {where}
+                {"AND" if where else "WHERE"} event = 'nav' AND section = 'guide'"""
+        )
+        t = totals[0] if totals else {}
+        return {
+            "window_days": days,
+            "totals": {
+                "visits": int(t.get("visits") or 0),
+                "logins": int(t.get("logins") or 0),
+                "navs": int(t.get("navs") or 0),
+                "unique_visitors": int(t.get("unique_visitors") or 0),
+                "returning_visitors": int((returning[0].get("n") if returning else 0) or 0),
+            },
+            "by_country": by_country,
+            "by_locale": by_locale,
+            "by_section": by_section,
+            "experiments": experiments,
+            "guide": guide[0] if guide else {"visitors": 0, "opens": 0},
+        }
 
     # ---- reads (WS13 item 6 / D49) ----------------------------------------
     # Until 2026-07-28 the console's `_obs_store()` returned the sqlite

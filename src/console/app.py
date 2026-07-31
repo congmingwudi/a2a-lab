@@ -1455,6 +1455,179 @@ def create_console_app(registry: Registry | None = None):
         claims = identity.verify_token(token) or {}
         return {"token": token, "user": identity.user_context(claims)}
 
+    # WS18 — console usage analytics. The browser posts anonymous interaction
+    # events (a visit before sign-in, a persona login, a top-level section nav)
+    # to this same-origin route; the route stores a PII-free row in
+    # lab.usage_events AND forwards to the operator's external AWS log sink
+    # (Slack notify). Option B in the plan: the logger URL + key live in the
+    # SERVER's environment (Secrets Manager), never in the public bundle —
+    # unlike the mega-demo, which inlines them into the client. The "A2A Lab
+    # Monitoring" section reads the aggregates back via /api/monitoring.
+
+    KNOWN_USAGE_EVENTS = {"site_visit", "persona_login", "nav"}
+
+    def _usage_writer_store():
+        """A PgObsStore bound to the WRITER secret, or None off-cluster.
+
+        record_usage INSERTs, and the default reader pair fails an INSERT with
+        'cannot execute INSERT in a read-only transaction' (D46). Same writer
+        construction the expiry report and the insight-review push use.
+        """
+        try:
+            from observability.pg import PgClient, PgObsStore
+
+            if not PgClient.configured():
+                return None
+            cluster = os.environ.get("A2ALAB_PG_CLUSTER_ARN")
+            writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")
+            client = (
+                PgClient(cluster_arn=cluster, secret_arn=writer)
+                if cluster and writer
+                else PgClient.from_env()
+            )
+            return PgObsStore(client)
+        except Exception:  # noqa: BLE001 - no cluster/boto3: analytics just no-op
+            return None
+
+    async def _forward_to_logger(message: str, detail: dict) -> None:
+        """Fire-and-forget POST to the external AWS logger (mega-demo contract:
+        {source, level, message, detail} + X-Api-Key). A logging failure must
+        never surface — the console has already stored its own row, and the
+        forward is the operator's Slack convenience, not the source of truth.
+        """
+        url = os.environ.get("A2ALAB_LOGGING_API_URL")
+        key = os.environ.get("A2ALAB_LOGGING_API_KEY")
+        if not url or not key:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                await client.post(
+                    url,
+                    headers={"Content-Type": "application/json", "X-Api-Key": key},
+                    json={
+                        "source": "a2a-console",
+                        "level": "info",
+                        "message": message,
+                        "detail": detail,
+                    },
+                )
+        except Exception:  # noqa: BLE001 - swallow exactly like the mega-demo's .catch(()=>{})
+            pass
+
+    @app.post("/api/track")
+    async def track(request: Request):
+        """Record one usage event. Exempt from auth so an UNAUTHENTICATED
+        visit can be logged before any sign-in; write-only, returns 204 and
+        discloses nothing. Persona/role are read from the verified JWT if the
+        caller has one — never trusted from the request body."""
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - a malformed beacon is not an error worth 400ing
+            return Response(status_code=204)
+        event = str(body.get("event") or "").strip()
+        if event not in KNOWN_USAGE_EVENTS:
+            # Unknown event names are dropped rather than stored: the schema is
+            # a closed set, and an open sink is how analytics tables fill with
+            # typos. 204 anyway — the client fires and forgets.
+            return Response(status_code=204)
+
+        # Identity comes from the JWT the middleware verified (exempt paths do
+        # not populate scope state, so re-verify the bearer here, same as
+        # _signed_in does for the other exempt routes).
+        from interop import identity
+
+        persona = role = None
+        authz = request.headers.get("authorization", "")
+        if authz.startswith("Bearer "):
+            claims = identity.verify_token(authz[len("Bearer ") :]) or {}
+            persona = claims.get("sub")
+            role = claims.get("role") or (
+                identity.load_users().get(persona, {}).get("role") if persona else None
+            )
+
+        # Country from Cloudflare's CF-IPCountry (2-letter code, not an IP);
+        # locale from the first Accept-Language tag. Both may be absent (local
+        # dev, or CF not forwarding) — stored as NULL, surfaced as "unknown".
+        country = (request.headers.get("cf-ipcountry") or "").strip().upper()[:8] or None
+        accept_lang = request.headers.get("accept-language", "")
+        locale = (accept_lang.split(",")[0].split(";")[0].strip() or None) if accept_lang else None
+
+        detail = body.get("detail") if isinstance(body.get("detail"), dict) else {}
+        section = str(body.get("section") or "").strip()[:64] or None
+        visitor_id = str(body.get("visitor_id") or "").strip()[:64] or None
+
+        def write():
+            store = _usage_writer_store()
+            if store is None:
+                return
+            try:
+                store.record_usage(
+                    event,
+                    visitor_id=visitor_id,
+                    persona=persona,
+                    role=role,
+                    country=country,
+                    locale=locale,
+                    section=section,
+                    detail=detail or None,
+                )
+            finally:
+                store.close()
+
+        # Store first (the durable record), then forward to Slack. Neither is
+        # allowed to fail the request: the row write runs in a thread and its
+        # exceptions are logged, the forward swallows its own.
+        try:
+            await asyncio.get_event_loop().run_in_executor(None, write)
+        except Exception as exc:  # noqa: BLE001 - a full analytics table must not 500 a beacon
+            print(f"/api/track store failed ({type(exc).__name__}: {str(exc)[:120]})")
+        msg = {
+            "site_visit": "A2A console visit",
+            "persona_login": f"A2A console sign-in ({persona or 'unknown'})",
+            "nav": f"A2A console section: {section or 'unknown'}",
+        }.get(event, f"A2A console {event}")
+        await _forward_to_logger(
+            msg,
+            {
+                "event": event,
+                "persona": persona,
+                "role": role,
+                "country": country,
+                "locale": locale,
+                "section": section,
+                **(detail or {}),
+            },
+        )
+        return Response(status_code=204)
+
+    @app.get("/api/monitoring")
+    async def monitoring(request: Request):
+        """Usage aggregates for the A2A Lab Monitoring section, over a rolling
+        window (day/week/month/year/all). Signed-in only — it is lab operating
+        data, not part of the public exhibit."""
+        if not _signed_in(request):
+            raise HTTPException(status_code=401, detail="sign in to view lab monitoring")
+        window = (request.query_params.get("window") or "week").lower()
+        days = {"day": 1, "week": 7, "month": 30, "year": 365, "all": None}.get(window, 7)
+
+        from observability.pg import PgClient, PgObsStore
+
+        if not PgClient.configured():
+            return {"window": window, "stats": None, "error": "hosted store not configured"}
+
+        def run():
+            store = PgObsStore()
+            try:
+                return store.usage_stats(days=days)
+            finally:
+                store.close()
+
+        try:
+            stats = await asyncio.get_event_loop().run_in_executor(None, run)
+            return {"window": window, "stats": stats}
+        except Exception as exc:  # noqa: BLE001 - surface, don't 500 the panel
+            return {"window": window, "stats": None, "error": f"{type(exc).__name__}: {exc}"}
+
     @app.post("/api/guide")
     async def guide(request: Request):
         """The Lab Guide chat (plan/07, Lab Guide): stateless streaming turns
@@ -3362,6 +3535,12 @@ def create_console_app(registry: Registry | None = None):
             "/healthz",
             "/api/users",
             "/api/login",
+            # WS18: an UNAUTHENTICATED visit must be logged before any sign-in,
+            # so the usage beacon cannot sit behind the persona JWT. Write-only,
+            # returns 204, stores a PII-free row — exempting it discloses
+            # nothing. Any persona identity it records is read from the bearer
+            # token when one is present, not from being on this list.
+            "/api/track",
             "/api/scenarios",
             "/api/targets",
             "/api/decisions",

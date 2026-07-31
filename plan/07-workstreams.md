@@ -2453,3 +2453,55 @@ and the *This A2A Lab Project* section renders the delivery process and current
 board counts from the plan with a working launch-out to Jira and a `Details` pane
 that states the render is one-way from the repo. No console request reads the
 Jira board.
+
+## WS18 — Console usage analytics: who visits the released lab (raised 2026-07-31, D62)
+
+**Status.** Done 2026-07-31. The console is about to go to the field, so the lab
+now needs to know **who reaches it, from where, and what they open** — while
+staying anonymous. This workstream adds a same-origin **`/api/track`** proxy, a
+new Aurora table **`lab.usage_events`**, and an **A2A Lab Monitoring** section
+that reads the aggregates back.
+
+**Three anonymous beacons.** The browser fires fire-and-forget events to the
+proxy: a **site_visit** on every load of the main shell (before any sign-in — the
+one event that must log while anonymous), a **persona_login** on a successful
+sign-in, and a **nav** on each top-level section change (captured once at the
+`pushNav` choke point, so a re-render does not re-count). Modelled on the
+`tdx26/mega-demo` `useLogger` — never awaited, failures swallowed, so analytics
+is never in the path of a render.
+
+**Server-side proxy, not a client-baked key (D62).** The mega-demo inlines its
+logger URL + API key into the browser bundle via `VITE_` vars; that is disallowed
+here — the no-hardcoded-identifier rule and the fact that this is a released
+public surface. So the external logger's URL and key live only in the server's
+environment (Secrets Manager), the browser talks to same-origin `/api/track`, and
+the proxy stamps the persona from the **verified JWT** rather than trusting the
+client. The proxy still **forwards** every event to the operator's existing AWS
+logging service (the Claude/Codex-hooks Lambda) for the Slack notify — that
+forward is a hard requirement, it is how the operator tracks projects.
+
+**PII-free by construction.** No IP, no name, no payloads. Country is
+Cloudflare's `CF-IPCountry` (two-letter code); a visitor is a random
+`localStorage` UUID; the event name is a closed set. See D62 for the full list of
+what is stored and refused.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | `lab.usage_events` table in `observability.pg.DDL` + `record_usage`/`usage_stats`; applied by `scripts/pg_migrate.py` (owner, D46) | **done 2026-07-31** — append-only, indexed on `occurred_at` and `(event, occurred_at)` |
+| 2 | `POST /api/track` proxy: store row (writer secret) + forward to the external logger; auth-exempt, 204, closed event set | **done 2026-07-31** — persona from the JWT, country from `CF-IPCountry`, both null-safe |
+| 3 | Client `track()` + `visitor_id`, wired at boot (site_visit), `labSignIn` (persona_login) and `pushNav` (nav, top-level only) | **done 2026-07-31** — fire-and-forget, `keepalive`, mirrors the mega-demo's swallow |
+| 4 | A2A Lab Monitoring section (D57): Visitors / Sections tabs, day/week/month/year/all window, `GET /api/monitoring` (reader) | **done 2026-07-31** — its own top-level Control Panel section; unique/returning visitors, country + locale, sections + experiments viewed, Lab Guide usage |
+| 5 | `Details` sub-tab naming the proxy, table/columns, reader/writer identities, CF header and anonymity bounds | **done 2026-07-31** — cites D62 and plan/09 (chips linkify) |
+| 6 | Docs + env: D62, this WS18, `plan/09` estate edge + L6 row, `.env(.example)` for `A2ALAB_LOGGING_API_*` | **done 2026-07-31** |
+
+### Exit criteria
+
+An unauthenticated visit is recorded before any sign-in; a persona login and each
+top-level section change are recorded with the persona stamped server-side; every
+event is also forwarded to the external Slack logger; and the A2A Lab Monitoring
+section renders unique/returning visitors, country/locale, and sections/
+experiments viewed over a selectable timeframe, with a `Details` pane that states
+the anonymity bounds. No IP or payload is stored; a logging failure never blocks
+the UI.

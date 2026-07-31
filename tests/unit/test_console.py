@@ -1475,3 +1475,90 @@ def test_the_briefs_endpoint_returns_every_kind_within_the_window(tmp_path, monk
     # and it asks for a WINDOW, so a week with no analyst run looks empty
     # rather than showing an eleven-day-old brief as if it were current.
     assert asked["days"] == 7
+
+
+def test_track_accepts_anonymous_beacon_without_pg(tmp_path, monkeypatch):
+    """WS18: /api/track is exempt from auth (an unauthenticated visit must log
+    before sign-in) and no-ops gracefully when Aurora is not configured — it
+    returns 204 and never 500s a beacon."""
+    monkeypatch.delenv("A2ALAB_PG_CLUSTER_ARN", raising=False)
+    monkeypatch.delenv("A2ALAB_PG_DSN", raising=False)
+    monkeypatch.delenv("A2ALAB_LOGGING_API_URL", raising=False)
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+    r = client.post("/api/track", json={"event": "site_visit", "visitor_id": "v1"})
+    assert r.status_code == 204
+
+
+def test_track_drops_unknown_event(tmp_path, monkeypatch):
+    """The event name is a closed set; an unknown one is dropped (still 204),
+    so the table cannot fill with typos."""
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+    r = client.post("/api/track", json={"event": "definitely-not-real"})
+    assert r.status_code == 204
+
+
+def test_track_records_row_and_stamps_headers(tmp_path, monkeypatch):
+    """When Aurora is configured the beacon writes one row; country comes from
+    CF-IPCountry (not an IP) and persona is NOT taken from the body."""
+    monkeypatch.setenv("A2ALAB_PG_CLUSTER_ARN", "arn:aws:rds:us-east-1:x:cluster:c")
+    monkeypatch.setenv("A2ALAB_PG_SECRET_ARN", "arn:aws:secretsmanager:us-east-1:x:secret:r")
+    monkeypatch.setenv("A2ALAB_PG_WRITER_SECRET_ARN", "arn:aws:secretsmanager:us-east-1:x:secret:w")
+    monkeypatch.delenv("A2ALAB_LOGGING_API_URL", raising=False)
+
+    import console.app as console_app
+
+    make_app(tmp_path / "traces", monkeypatch)  # reload with env set
+    importlib.reload(console_app)
+
+    recorded = {}
+
+    class FakeStore:
+        def record_usage(self, event, **kw):
+            recorded["event"] = event
+            recorded.update(kw)
+
+        def close(self):
+            recorded["closed"] = True
+
+    # Intercept the writer-store construction so no AWS call happens.
+    import observability.pg as pg
+
+    monkeypatch.setattr(pg.PgClient, "configured", classmethod(lambda cls: True))
+    monkeypatch.setattr(pg.PgClient, "__init__", lambda self, **kw: None)
+    monkeypatch.setattr(pg, "PgObsStore", lambda client=None: FakeStore())
+
+    app = console_app.create_console_app()
+    client = TestClient(app)
+    r = client.post(
+        "/api/track",
+        json={
+            "event": "nav",
+            "section": "experiment",
+            "visitor_id": "v9",
+            "persona": "SPOOFED",
+            "detail": {"name": "x"},
+        },
+        headers={"CF-IPCountry": "gb", "Accept-Language": "en-GB,en;q=0.9"},
+    )
+    assert r.status_code == 204
+    assert recorded["event"] == "nav"
+    assert recorded["section"] == "experiment"
+    assert recorded["country"] == "GB"  # uppercased CF header
+    assert recorded["locale"] == "en-GB"  # first Accept-Language tag
+    assert recorded["persona"] is None  # body value ignored, no JWT
+    assert recorded.get("closed") is True
+
+
+def test_monitoring_requires_sign_in(tmp_path, monkeypatch):
+    """The aggregates are lab operating data, not the public exhibit — 401
+    without a credential, unlike /api/track."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+    assert client.get("/api/monitoring").status_code == 401
+    ok = client.get("/api/monitoring", headers={"Authorization": "Bearer sekrit"})
+    # Signed in: 200 with a "not configured" note when there is no Aurora.
+    assert ok.status_code == 200
+    assert ok.json()["stats"] is None

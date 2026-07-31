@@ -250,3 +250,83 @@ def test_list_briefs_without_a_window_is_unbounded_by_date():
     assert "make_interval" not in sql
     assert "WHERE" not in sql
     assert "days" not in params
+
+
+# ---- usage analytics (WS18) ------------------------------------------------
+
+
+def test_record_usage_inserts_pii_free_row():
+    """record_usage writes exactly the columns the schema holds, clipping over-
+    long fields; occurred_at is the DB's now(), never a client clock."""
+    store = PgObsStore(client=FakePg({"INSERT INTO lab.usage_events": []}))
+    store.record_usage(
+        "nav",
+        visitor_id="v1",
+        persona="ryan",
+        role="operator",
+        country="US",
+        locale="en-US",
+        section="experiment",
+        detail={"name": "sf-consult"},
+    )
+    sql, params = store.client.calls[0]
+    assert "INSERT INTO lab.usage_events" in sql
+    assert "occurred_at" not in sql  # defaulted to now() by the DDL
+    assert params["event"] == "nav"
+    assert params["section"] == "experiment"
+    assert params["country"] == "US"
+    assert '"name": "sf-consult"' in params["detail"]
+
+
+def test_record_usage_nulls_empty_optional_fields():
+    """An anonymous visit has no persona/role; those must be NULL, not ''."""
+    store = PgObsStore(client=FakePg({"INSERT INTO lab.usage_events": []}))
+    store.record_usage("site_visit", visitor_id="v2", persona=None, role="")
+    _sql, params = store.client.calls[0]
+    assert params["persona"] is None
+    assert params["role"] is None
+    assert params["detail"] is None
+
+
+def test_usage_stats_windowed_query_bounds_by_interval():
+    """A windowed call bounds every aggregate by the multiplied interval (the
+    Data API rejects make_interval on a bigint — same trap as list_briefs)."""
+    store = PgObsStore(client=FakePg({"FROM lab.usage_events": []}))
+    store.usage_stats(days=7)
+    joined = " ".join(sql for sql, _ in store.client.calls)
+    assert "occurred_at >= now() - (:days * INTERVAL '1 day')" in joined
+    assert "make_interval" not in joined
+    assert all(p.get("days") == 7 for _sql, p in store.client.calls)
+
+
+def test_usage_stats_all_time_has_no_date_bound():
+    store = PgObsStore(client=FakePg({"FROM lab.usage_events": []}))
+    out = store.usage_stats(days=None)
+    joined = " ".join(sql for sql, _ in store.client.calls)
+    assert "INTERVAL '1 day'" not in joined
+    assert out["window_days"] is None
+
+
+def test_usage_stats_shapes_totals_from_rows():
+    """The totals block is coerced to ints and merged with the returning
+    count, so a caller renders numbers even when a sub-query returns nothing."""
+    store = PgObsStore(
+        client=FakePg(
+            {
+                "AS visits": [
+                    {
+                        "visits": 12,
+                        "logins": 3,
+                        "navs": 40,
+                        "unique_visitors": 5,
+                    }
+                ],
+                "HAVING count(DISTINCT": [{"n": 2}],
+            }
+        )
+    )
+    out = store.usage_stats(days=30)
+    assert out["totals"]["visits"] == 12
+    assert out["totals"]["unique_visitors"] == 5
+    assert out["totals"]["returning_visitors"] == 2
+    assert out["by_country"] == []  # no canned rows -> empty, not a crash

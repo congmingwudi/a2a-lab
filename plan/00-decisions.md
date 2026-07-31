@@ -2164,3 +2164,54 @@ on-platform serial path costs when it tries to do the fan-out itself. The claim
 is WS8's: an enterprise needs one protocol and an honest account of what
 crossing platform boundaries costs, here the cost of orchestrating from a
 serial-outbound platform. See plan/07-workstreams.md WS8 and plan/09.
+
+## 2026-07-31 — D62: Console usage analytics go through a server-side proxy, not a client-baked key
+
+**Decision.** The console emits three anonymous usage beacons — a **site_visit**
+on every load of the main shell (fired *before* any sign-in), a **persona_login**
+on a successful sign-in, and a **nav** on each top-level section change — to a
+same-origin **`POST /api/track`** proxy. The proxy does two things: it writes one
+PII-free row to a new Aurora table **`lab.usage_events`** (as `lab_writer`, D46),
+and it **forwards** the event to the operator's existing external AWS logging
+service (the custom Lambda + API Gateway the Claude/Codex hooks already use) for
+the Slack notification the operator tracks projects by. A new **A2A Lab
+Monitoring** section reads the aggregates back through `GET /api/monitoring`
+(as `lab_reader`) over a rolling window — day, week, month, year, all.
+
+**Why a proxy and not the mega-demo's client-side call.** The reference
+implementation (`tdx26/mega-demo`) fetches its logger straight from the browser,
+with the endpoint and API key inlined into the bundle by `VITE_` vars — the key
+is public by design there. That is disallowed here twice over: the no-hardcoded-
+identifier rule forbids the `execute-api` host and account from reaching a
+committed public bundle, and the console is a released public surface behind
+Cloudflare. So the logger's URL and key live only in the **server's** environment
+(Secrets Manager), and the browser talks to same-origin `/api/track`. The proxy
+also lets the server stamp the persona from the **verified JWT** rather than
+trusting a client-supplied identity, and it becomes a reusable ingest other parts
+of the stack can post to later.
+
+**What it stores, and what it refuses to.** No IP, no name, no request/response
+payloads. `country` is Cloudflare's `CF-IPCountry` header — a two-letter code,
+not an address; `locale` is the first `Accept-Language` tag; a *visitor* is a
+random UUID the browser mints once in `localStorage`, enough to count unique and
+returning visitors while tied to no person; `persona`/`role` are null for an
+anonymous visit. `occurred_at` is the server's clock, not the client's. Event
+names are a **closed set** — an unknown one is dropped, not stored, so the table
+cannot fill with typos. Nav counts **top-level sections only**, captured at the
+single `pushNav` choke point, so sub-tab and Details switches do not inflate it.
+
+**Failure shape.** The beacon is fire-and-forget on the client (never awaited,
+`.catch` swallowed — modelled on the mega-demo's `useLogger`) and the route
+returns 204 regardless: a full or unreachable analytics store must never 500 a
+beacon or block a render, and the external Slack forward swallows its own errors
+after the row is already durable. Off-cluster (a laptop with no Aurora) the proxy
+no-ops and the Monitoring section says the store is not configured. `/api/track`
+is on the auth-exempt list because an unauthenticated visit must be logged before
+any sign-in; it is write-only and discloses nothing. `/api/monitoring` is
+signed-in only — the aggregates are lab operating data, not the public exhibit.
+
+**Shape.** The Monitoring section follows the canvas template (D57): peer tabs
+(Visitors, Sections) each carrying a timeframe toggle, plus a **Details** tab that
+names the proxy, the table and columns, the reader/writer identities, the CF
+header, and the anonymity bounds — citing D62 and plan/09. This is WS18. See
+plan/07-workstreams.md WS18 and plan/09-deployment-map.md.

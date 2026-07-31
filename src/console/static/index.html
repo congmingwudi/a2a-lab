@@ -746,6 +746,18 @@
   .obs-card .v { margin-top: 7px; font-size: 21px; font-weight: 600; line-height: 1.1;
                  font-variant-numeric: tabular-nums; }
 
+  /* ---- A2A Lab Monitoring (WS18) — compact horizontal bars, no chart lib. */
+  .mon-bars { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; }
+  .mon-bar-row { display: flex; align-items: center; gap: 10px; }
+  .mon-bar-label { flex: 0 0 150px; font: 500 12px var(--font-mono); color: var(--fg);
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mon-bar-track { flex: 1 1 auto; height: 14px; background: var(--card2);
+                   border-radius: 7px; overflow: hidden; }
+  .mon-bar-fill { display: block; height: 100%; background: var(--primary);
+                  border-radius: 7px; min-width: 2px; }
+  .mon-bar-val { flex: 0 0 auto; font: 600 12px var(--font-mono); color: var(--muted);
+                 font-variant-numeric: tabular-nums; min-width: 32px; text-align: right; }
+
   /* ---- Architecture section (plan/09-deployment-map.md) -------------------
      A diagram here is the exhibit, not decoration: it gets a surface of its
      own, centred, with room around it, because it is read from across a room
@@ -1398,6 +1410,15 @@
         </details>
       </div>
     </details>
+    <details class="acc" id="accMonitoring">
+      <summary onclick="monitoringNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8a6 6 0 0 1 12 0"/><path d="M8 8l3-2"/><circle cx="8" cy="8" r="1"/></svg>A2A Lab Monitoring <span class="count" id="monCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">Who visits the released lab, from where, and what they open — anonymous usage, no PII.</span>
+        </div>
+        <div id="monSide"></div>
+      </div>
+    </details>
   </div>
   <div id="detail"></div>
 </main>
@@ -1480,6 +1501,43 @@ window.fetch = (url, opts = {}) => {
   return _rawFetch(url, opts);
 };
 
+// ---------------------------------------------------------------------------
+// Usage analytics (WS18): fire-and-forget beacons to the same-origin
+// /api/track proxy, modelled on the mega-demo's useLogger — never awaited,
+// failures swallowed, so a logging hiccup can never block a render or a nav.
+// The proxy (not this client) holds the external logger's URL + key and does
+// the storing/forwarding, so no credential or endpoint is baked into this
+// public bundle. The persona JWT rides via the fetch wrapper above, so the
+// server stamps identity itself; we never send who we are in the body.
+// ---------------------------------------------------------------------------
+function visitorId() {
+  try {
+    let id = localStorage.getItem("a2a-visitor-id");
+    if (!id) {
+      id = (crypto.randomUUID && crypto.randomUUID())
+        || (Date.now().toString(36) + Math.random().toString(36).slice(2));
+      localStorage.setItem("a2a-visitor-id", id);
+    }
+    return id;
+  } catch (e) { return null; }  // private mode: still beacon, just uncounted
+}
+
+function track(event, section, detail) {
+  try {
+    fetch(apiUrl("/api/track"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        event,
+        section: section || null,
+        detail: detail || null,
+        visitor_id: visitorId(),
+      }),
+      keepalive: true,  // survive a nav away mid-beacon
+    }).catch(() => {});
+  } catch (e) { /* analytics must never throw into the UI */ }
+}
+
 function renderUserBtn() {
   const btn = document.getElementById("userBtn");
   if (!btn) return;
@@ -1536,6 +1594,7 @@ window.labSignIn = async () => {
     localStorage.setItem("a2a-user-jwt", d.token);
     localStorage.setItem("a2a-user", JSON.stringify(d.user));
     labUser = d.user;
+    track("persona_login");  // server stamps the persona from the fresh JWT
     // Refetch in place rather than reloading the page. The signed-out shell
     // loads nothing but the public surface, so SOMETHING has to re-request it
     // with the new credential — this used to be window.location.reload(), and
@@ -1571,6 +1630,7 @@ const SIGNED_IN_LOADERS = [
   loadInsights,
   loadBuildTelemetry,  // coding agents telemetry + the cost brief
   loadProject,         // WS17: This A2A Lab Project — board counts from the plan
+  loadMonitoring,      // WS18: A2A Lab Monitoring — usage aggregates from lab.usage_events
   loadArchitecture,    // the deployment map the Architecture section renders
   loadWarmup,
   loadConfig,
@@ -2494,6 +2554,15 @@ function pushNav() {
   const snap = { view: { ...view }, selected };
   const top = navStack[navStack.length - 1];
   if (top && JSON.stringify(top) === JSON.stringify(snap)) return;
+  // WS18: one nav beacon per genuine section change (top-level view.type only,
+  // per the plan). pushNav is the single choke point every open* routes
+  // through, and the dedupe above means a re-render of the same view does not
+  // re-fire. `name` rides in detail so the Experiments breakdown can name the
+  // scenario/cell viewed; the server keeps only section + name, no payloads.
+  const prev = navStack[navStack.length - 1];
+  if (!prev || prev.view.type !== view.type || prev.view.name !== view.name) {
+    track("nav", view.type, view.name ? { name: view.name, kind: view.kind || null } : null);
+  }
   navStack.push(snap);
   if (navStack.length > 50) navStack.shift();
 }
@@ -4893,6 +4962,280 @@ function projectDetailsHtml() {
     </div>`;
 }
 
+// ---- A2A Lab Monitoring (WS18, D62) ----------------------------------------
+// Who visits the released lab, from where, and what they open. The rows come
+// from lab.usage_events, written by the /api/track proxy from three anonymous
+// beacons — a visit (fired before any sign-in), a persona login, a top-level
+// section nav. No IP, no PII: country is Cloudflare's two-letter CF-IPCountry
+// header, "visitors" are counted by a random localStorage id. One-canvas
+// template like every section: the numbers, and Details behind them.
+let monData = null;
+let monTab = "visitors";
+let monWindow = "week";
+const MON_WINDOWS = [["day", "Day"], ["week", "Week"], ["month", "Month"],
+  ["year", "Year"], ["all", "All time"]];
+
+async function loadMonitoring() {
+  try {
+    const r = await fetch(apiUrl(`/api/monitoring?window=${monWindow}`));
+    if (r.status === 404) return;   // console predates this API
+    if (r.status === 401) { monData = null; return; }  // signed out
+    monData = await r.json();
+    const count = document.getElementById("monCount");
+    if (count) {
+      const t = monData.stats && monData.stats.totals;
+      count.textContent = t ? String(t.unique_visitors) : "";
+    }
+    renderMonSide();
+    if (view && view.type === "monitoring") renderMain(true);
+  } catch (_e) { /* section stays empty */ }
+}
+
+function renderMonSide() {
+  const el = document.getElementById("monSide");
+  if (!el) return;
+  if (!monData || monData.error || !monData.stats) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">${monData && monData.error
+      ? esc(monData.error)
+      : monData ? "No usage recorded yet." : "Loading…"}</div>`;
+    return;
+  }
+  const t = monData.stats.totals;
+  const cur = tab => (view && view.type === "monitoring" && monTab === tab) ? " on" : "";
+  const row = (tab, label, value) => `
+    <div class="obs-plat${cur(tab)}" onclick="monGoTab(event, '${tab}')">
+      <span>${label}</span><span class="count">${value}</span>
+    </div>`;
+  el.innerHTML =
+    row("visitors", "Unique visitors", t.unique_visitors) +
+    row("sections", "Section views", t.navs);
+}
+
+window.monitoringNav = ev => {
+  const here = !!(view && view.type === "monitoring");
+  if (!sectionHeaderClick(ev, "accMonitoring", here) || here) return;
+  pushNav();
+  view = { type: "monitoring" };
+  renderSidebar(); renderMain(true);
+};
+
+window.setMonTab = id => { monTab = id; renderMonSide(); renderMain(true); };
+
+window.monGoTab = (ev, tab) => {
+  if (ev) ev.stopPropagation();
+  monTab = tab;
+  if (!(view && view.type === "monitoring")) { pushNav(); view = { type: "monitoring" }; }
+  openAcc("accMonitoring");
+  renderSidebar();
+  renderMain(true);
+};
+
+// Changing the timeframe refetches — the aggregation is server-side SQL, so a
+// window switch is a new query, not a client filter over rows we already hold.
+window.setMonWindow = w => {
+  monWindow = w;
+  loadMonitoring();
+};
+
+function monTabbar() {
+  const tabs = [["visitors", "Visitors"], ["sections", "Sections"], ["details", "Details"]]
+    .map(([id, label]) =>
+      `<button class="tab ${monTab === id ? "on" : ""}" onclick="setMonTab('${id}')">${esc(label)}</button>`
+    ).join("");
+  // The window toggle rides in the tab bar for every tab except Details, whose
+  // content does not vary by timeframe.
+  const windows = monTab === "details" ? "" : `
+    <div class="tabs" style="margin-left:auto">${MON_WINDOWS.map(([w, label]) =>
+      `<button class="tab ${monWindow === w ? "on" : ""}" onclick="setMonWindow('${w}')">${esc(label)}</button>`
+    ).join("")}</div>`;
+  return `
+    <div class="tabbar">
+      <h2>A2A Lab Monitoring</h2>
+      <div class="tabs">${tabs}</div>
+      ${windows}
+    </div>`;
+}
+
+function monWindowLabel() {
+  return (MON_WINDOWS.find(([w]) => w === monWindow) || [null, monWindow])[1];
+}
+
+// A section's view.type -> a human label, so the Sections table reads in the
+// console's own vocabulary rather than raw type strings.
+const MON_SECTION_LABELS = {
+  experiment: "Experiments", trace: "Traces", obs: "Observability",
+  insights: "Insights", arch: "Architecture", registry: "Agent Registry",
+  creds: "Credentials", build: "Coding Agents Telemetry", project: "This A2A Lab Project",
+  monitoring: "A2A Lab Monitoring", guide: "Lab Guide",
+};
+const monSectionLabel = s => MON_SECTION_LABELS[s] || s || "unknown";
+
+function monBar(rows, keyFn, valFn, max) {
+  // A compact horizontal-bar list — no chart library, just widths. `max` scales
+  // the longest bar to full width so the shape reads at a glance.
+  const top = max || Math.max(1, ...rows.map(valFn));
+  return rows.map(r => {
+    const v = valFn(r);
+    const pct = Math.round((v / top) * 100);
+    return `
+      <div class="mon-bar-row">
+        <span class="mon-bar-label">${esc(String(keyFn(r)))}</span>
+        <span class="mon-bar-track"><span class="mon-bar-fill" style="width:${pct}%"></span></span>
+        <span class="mon-bar-val">${esc(String(v))}</span>
+      </div>`;
+  }).join("");
+}
+
+function monVisitorsHtml() {
+  const s = monData.stats;
+  const t = s.totals;
+  const country = (s.by_country || []).filter(r => r.country && r.country !== "??");
+  const unknownCountry = (s.by_country || []).find(r => !r.country || r.country === "??");
+  const locale = s.by_locale || [];
+  return `
+    <div class="obs-cards" style="margin-bottom:14px">
+      <div class="obs-card"><div class="k">unique visitors</div>
+        <div class="v">${t.unique_visitors}</div></div>
+      <div class="obs-card"><div class="k">returning <span class="hint">seen &gt;1 day</span></div>
+        <div class="v">${t.returning_visitors}</div></div>
+      <div class="obs-card"><div class="k">total visits</div>
+        <div class="v">${t.visits}</div></div>
+      <div class="obs-card"><div class="k">sign-ins</div>
+        <div class="v">${t.logins}</div></div>
+    </div>
+    <p class="hint">Anonymous usage over the last <b>${esc(monWindowLabel().toLowerCase())}</b>.
+    A visitor is a random per-browser id (no login, no PII); returning means that id was seen on
+    more than one calendar day. Country is Cloudflare's <code>CF-IPCountry</code> header — a
+    two-letter code, never an address (D62).</p>
+
+    <h3 style="margin-top:18px">By country</h3>
+    ${country.length
+      ? `<div class="mon-bars">${monBar(country, r => r.country, r => r.visitors)}</div>`
+      : `<div class="hint">No country data yet — the <code>CF-IPCountry</code> header is added by
+         Cloudflare at the edge, so it is absent for local traffic.</div>`}
+    ${unknownCountry ? `<div class="hint" style="margin-top:6px">${unknownCountry.visitors}
+      visitor${unknownCountry.visitors === 1 ? "" : "s"} with no country header (local or direct-to-origin).</div>` : ""}
+
+    <h3 style="margin-top:18px">By locale</h3>
+    ${locale.length
+      ? `<div class="mon-bars">${monBar(locale, r => r.locale, r => r.visitors)}</div>`
+      : `<div class="hint">No locale recorded yet.</div>`}`;
+}
+
+function monSectionsHtml() {
+  const s = monData.stats;
+  const sections = (s.by_section || []).map(r => ({ ...r, label: monSectionLabel(r.section) }));
+  const experiments = s.experiments || [];
+  const guide = s.guide || { visitors: 0, opens: 0 };
+  return `
+    <div class="obs-cards" style="margin-bottom:14px">
+      <div class="obs-card"><div class="k">section views</div>
+        <div class="v">${s.totals.navs}</div></div>
+      <div class="obs-card"><div class="k">experiments viewed</div>
+        <div class="v">${experiments.length}</div></div>
+      <div class="obs-card"><div class="k">Lab Guide <span class="hint">visitors</span></div>
+        <div class="v">${guide.visitors || 0}</div></div>
+    </div>
+    <p class="hint">What visitors opened over the last <b>${esc(monWindowLabel().toLowerCase())}</b>.
+    One nav event per genuine top-level section change (D57 sections), captured at the single
+    <code>pushNav</code> choke point — a re-render of the same view does not re-count.</p>
+
+    <h3 style="margin-top:18px">Sections viewed</h3>
+    ${sections.length
+      ? `<div class="mon-bars">${monBar(sections, r => r.label, r => r.views)}</div>`
+      : `<div class="hint">No section views recorded yet.</div>`}
+
+    <h3 style="margin-top:18px">Experiments viewed</h3>
+    ${experiments.length
+      ? `<div class="tbl-card"><div class="tbl-scroll"><table class="obs-table">
+          <thead><tr><th>experiment</th><th>views</th><th>visitors</th></tr></thead>
+          <tbody>${experiments.map(e => `<tr>
+            <td>${esc(e.name)}</td><td>${e.views}</td><td>${e.visitors}</td></tr>`).join("")}</tbody>
+         </table></div></div>`
+      : `<div class="hint">No individual experiments opened yet.</div>`}`;
+}
+
+function monDetailsHtml() {
+  return `
+    <div class="detail">
+    <div class="hint" style="margin:10px 0 16px">What produces this page, how it reads its inputs
+    and as what identity, where the data lives, and what bounds it — the Details half of the
+    one-canvas template (D57). The workstream is WS18 in plan/07-workstreams.md; the decision is
+    D62 in plan/00-decisions.md; the deployment shape is in plan/09-deployment-map.md.</div>
+
+    <h3>What produces it</h3>
+    <p class="hint">The browser fires three fire-and-forget beacons to the same-origin
+    <code>/api/track</code> proxy: a <b>site_visit</b> on every load of the main shell (before any
+    sign-in), a <b>persona_login</b> on a successful sign-in, and a <b>nav</b> on each top-level
+    section change. The proxy — not the browser — holds the external logger's URL and key, so no
+    credential or endpoint is baked into this public bundle (D62, Option B). It stores one row in
+    <code>lab.usage_events</code> AND forwards the event to the operator's external AWS log sink for
+    the usual Slack notification. This page reads the aggregates back through
+    <code>/api/monitoring</code>.</p>
+
+    <h3>How it reads its inputs, and as what identity</h3>
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table">
+      <thead><tr><th>input</th><th>how</th></tr></thead>
+      <tbody>
+        <tr><td><b>usage rows</b></td>
+            <td><code>SELECT</code> aggregates from <code>lab.usage_events</code> on Aurora via the
+                RDS Data API, as <code>lab_reader</code> (read-only). Writes on
+                <code>/api/track</code> use the <code>lab_writer</code> secret (D46).</td></tr>
+        <tr><td><b>country</b></td>
+            <td>Cloudflare's <code>CF-IPCountry</code> request header, read server-side. A two-letter
+                code, not an IP — no address is ever stored.</td></tr>
+        <tr><td><b>visitor</b></td>
+            <td>a random UUID the browser mints once in <code>localStorage</code>. It identifies a
+                browser for counting, not a person; there is no login tie.</td></tr>
+        <tr><td><b>persona</b></td>
+            <td>stamped server-side from the verified lab JWT when the caller has one — never trusted
+                from the request body, and null for an anonymous visit.</td></tr>
+      </tbody></table></div></div>
+
+    <h3>Where the output lives</h3>
+    <p class="hint">One append-only table, <code>lab.usage_events</code>, created by
+    <code>scripts/pg_migrate.py</code> as the schema owner (D46). Columns: <code>event</code>,
+    <code>occurred_at</code> (the server's clock, not the client's), <code>visitor_id</code>,
+    <code>persona</code>, <code>role</code>, <code>country</code>, <code>locale</code>,
+    <code>section</code>, and a small <code>detail</code> jsonb (referrer, screen, experiment name).
+    No request or response payloads are stored — this is usage, not a wire trace.</p>
+
+    <h3>What bounds it</h3>
+    <ul class="hint">
+      <li><b>Anonymous by construction.</b> No IP, no name, no request bodies. A visitor id is a
+        random token, and country is a country, not a location (D62).</li>
+      <li><b>Top-level nav only.</b> Sub-tabs and Details switches are not counted — one event per
+        section change, at the <code>pushNav</code> choke point.</li>
+      <li><b>Fire-and-forget.</b> A beacon that fails is dropped by the browser and never blocks the
+        UI; the external Slack forward swallows its own errors too. Analytics is never in the path
+        of a render.</li>
+      <li><b>Present only when hosted.</b> Off-cluster (a laptop with no Aurora) the proxy no-ops and
+        this page reports the store is not configured — there is nothing to show.</li>
+    </ul>
+
+    <h3>Reading further</h3>
+    <ul class="hint">
+      <li><code>plan/07-workstreams.md</code> — WS18, this workstream.</li>
+      <li><code>plan/00-decisions.md</code> — D62, the server-side-proxy decision.</li>
+      <li><code>plan/09-deployment-map.md</code> — where the proxy and table sit in the estate.</li>
+    </ul>
+    </div>`;
+}
+
+function monitoringHtml() {
+  if (!monData) return monTabbar() + `<div class="empty">Loading…</div>`;
+  if (monTab === "details") return monTabbar() + monDetailsHtml();
+  if (monData.error || !monData.stats) {
+    return monTabbar() + `<div class="hint" style="margin-top:12px">${monData.error
+      ? esc(monData.error)
+      : "No usage recorded yet. The three beacons — visit, sign-in, section nav — write to "
+        + "lab.usage_events through /api/track; this page shows their aggregates. See Details."}</div>`;
+  }
+  if (monTab === "sections") return monTabbar() + monSectionsHtml();
+  return monTabbar() + monVisitorsHtml();
+}
+
 // ---- Architecture (plan/09-deployment-map.md) ------------------------------
 // Progressive levels, L0 (the whole estate) down to L6 (repo file -> deployed
 // artifact). The markdown file is the source; this renders it. Diagrams go
@@ -7010,6 +7353,13 @@ function renderMain(force) {
     return;
   }
 
+  if (view.type === "monitoring") {
+    mainKey = `monitoring:${monTab}:${monWindow}`;
+    el.innerHTML = monitoringHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
+    return;
+  }
+
   if (view.type === "creds") {
     mainKey = `creds:${credsTab}`;
     el.innerHTML = credsHtml();
@@ -7667,6 +8017,16 @@ if (GUIDE_ONLY) {
   applyAuthGating();
   gdInitWidth();
   gdSetupResize();
+  // WS18: the visit beacon fires on every load of the main shell, signed in or
+  // not — this is the ONLY event that must be logged while anonymous. Detail
+  // carries the browser fingerprint (no id), mirroring the mega-demo's
+  // browserDetail(); country + locale are added server-side from headers.
+  track("site_visit", null, {
+    referrer: document.referrer || null,
+    screen: `${screen.width}x${screen.height}`,
+    lang: navigator.language || null,
+    signed_in: !!labUser,
+  });
 }
 </script>
 </body>
