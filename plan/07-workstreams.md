@@ -547,7 +547,9 @@ laptop). Next: U3 enforcement.
 **Milestones:**
 
 1. **U1 — lab identity provider.** `config/users.yaml` (demo users +
-   roles: operator / viewer), RS256 keypair under `.a2alab/`, lab-issued
+   roles: master of the universe / operator / viewer — the owner role is
+   operator-equivalent with its own password so the operator login can be
+   shared without the owner's, D63), RS256 keypair under `.a2alab/`, lab-issued
    JWTs, console login (user picker for demos; the shared token keeps
    working as a legacy/service credential so nothing breaks).
    `TokenAuthMiddleware` learns to accept either.

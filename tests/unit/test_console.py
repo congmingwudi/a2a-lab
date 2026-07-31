@@ -560,11 +560,13 @@ def test_targets_carry_cell_details(tmp_path, monkeypatch):
 
 
 def _operator_headers(monkeypatch, tmp_path):
-    """Ryan's persona: role operator in config/users.yaml."""
+    """Ryan's persona: the owner role in config/users.yaml, which carries the
+    full operator privilege set (identity.OPERATOR_ROLES). _is_operator reloads
+    the real directory, so this reflects Ryan's actual role there."""
     from interop import identity
 
     monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
-    users = {"ryan": {"name": "Ryan Cox", "role": "operator", "reviewer": True}}
+    users = {"ryan": {"name": "Ryan Cox", "role": "master of the universe", "reviewer": True}}
     token = identity.issue_token("ryan", users=users)
     return {"authorization": f"Bearer {token}"}
 
@@ -612,6 +614,39 @@ def test_viewer_allowed_surfaces(tmp_path, monkeypatch):
     ):
         r = client.get(path, headers=headers)
         assert r.status_code == 200, f"{path} blocked a viewer: {r.status_code}"
+
+
+def test_owner_role_keeps_the_full_operator_privilege_set(tmp_path, monkeypatch):
+    """The lab owner's role ("master of the universe", D36) is DISTINCT from
+    operator so the operator password can be handed to colleagues without the
+    owner's login — but it must carry every operator surface. This guards the
+    strict-equality regression: an operator gate testing `role == "operator"`
+    would silently 403 the owner on expiry/config/warmup/harvest. The gate
+    must ask identity.is_operator_role, the one source of truth."""
+    from interop import identity
+
+    assert identity.is_operator_role("master of the universe")
+    assert identity.is_operator_role("operator")
+    assert not identity.is_operator_role("viewer")
+    assert not identity.is_operator_role(None)
+    # The owner's role has a password env of its own, or login fails closed.
+    assert identity.ROLE_PASSWORD_ENVS["master of the universe"] == "A2ALAB_MASTER_PASSWORD"
+
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_STATE_DIR", str(tmp_path / "state"))
+    (tmp_path / "state").mkdir(parents=True)
+    (tmp_path / "state" / "expiry.json").write_text(
+        json.dumps({"credentials": [{"name": "k", "status": "ok", "days_left": 9}]})
+    )
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    # A token minted for a directory where ryan holds the owner role — exactly
+    # what config/users.yaml carries — reaches an operator-only surface.
+    users = {"ryan": {"name": "Ryan Cox", "role": "master of the universe", "reviewer": True}}
+    token = identity.issue_token("ryan", users=users)
+    headers = {"authorization": f"Bearer {token}"}
+    app = make_app(tmp_path, monkeypatch)
+    r = TestClient(app).get("/api/expiry", headers=headers)
+    assert r.status_code == 200, f"owner role blocked from operator surface: {r.status_code}"
 
 
 def test_service_token_unaffected_by_role_gate(tmp_path, monkeypatch):

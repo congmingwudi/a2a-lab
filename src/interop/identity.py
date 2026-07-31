@@ -119,7 +119,25 @@ def load_users(path: str | Path = USERS_PATH) -> dict[str, dict]:
 ROLE_PASSWORD_ENVS = {
     "operator": "A2ALAB_OPERATOR_PASSWORD",
     "viewer": "A2ALAB_VIEWER_PASSWORD",
+    # The lab owner's own role (D36). Distinct from operator ONLY so the
+    # operator password can be handed to colleagues for running experiments
+    # without also handing out the owner's login; the permissions are
+    # identical (see OPERATOR_ROLES).
+    "master of the universe": "A2ALAB_MASTER_PASSWORD",
 }
+
+# Roles that carry the full operator privilege set — everything a viewer
+# cannot do (runs, warm-ups, harvest/analyze, config, credential expiry).
+# The ONE place that answers "does this role have operator power?", so a new
+# owner-tier role gets those surfaces instead of silently 403-ing on them:
+# the viewer gate only blocks `viewer`, but the operator checks used to test
+# equality with the single string "operator".
+OPERATOR_ROLES = frozenset({"operator", "master of the universe"})
+
+
+def is_operator_role(role: str | None) -> bool:
+    """True for any role with the full operator privilege set (D36)."""
+    return role in OPERATOR_ROLES
 
 
 def authenticate(username: str, password: str, users: dict[str, dict] | None = None) -> str:

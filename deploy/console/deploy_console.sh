@@ -90,7 +90,7 @@ keys = [
     # on the first hardened deploy: the hosted console held no passwords at
     # all and rejected every login with a correct-looking "wrong user or
     # password".
-    "A2ALAB_OPERATOR_PASSWORD", "A2ALAB_VIEWER_PASSWORD",
+    "A2ALAB_MASTER_PASSWORD", "A2ALAB_OPERATOR_PASSWORD", "A2ALAB_VIEWER_PASSWORD",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
 

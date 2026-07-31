@@ -1371,7 +1371,8 @@ def create_console_app(registry: Registry | None = None):
         sub = claims.get("sub")
         if not sub:
             return False
-        return identity.load_users().get(sub, {}).get("role") == "operator"
+        role = identity.load_users().get(sub, {}).get("role")
+        return identity.is_operator_role(role)
 
     def _is_reviewer(request: Request) -> bool:
         """Sign-off is a named person's act: a verified lab user carrying

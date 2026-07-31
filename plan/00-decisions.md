@@ -2215,3 +2215,38 @@ signed-in only — the aggregates are lab operating data, not the public exhibit
 names the proxy, the table and columns, the reader/writer identities, the CF
 header, and the anonymity bounds — citing D62 and plan/09. This is WS18. See
 plan/07-workstreams.md WS18 and plan/09-deployment-map.md.
+
+## 2026-07-31 — D63: A distinct owner role, so the operator login can be shared
+
+**Decision.** The lab owner (Ryan Cox) moves off the shared `operator` role onto
+a role of his own — **`master of the universe`** in `config/users.yaml` — with its
+own password env `A2ALAB_MASTER_PASSWORD`. The permission set is **identical** to
+operator; the split is purely about *who holds which password*. D36 gave each
+role one shared password, so handing a colleague the operator password to run
+experiments also hands them the owner's login. Splitting the owner onto a
+separate role and password means the operator password can be distributed for
+running experiments while the owner's login stays the owner's. `reviewer: true`
+stays a per-user grant (never role-implied, D36), so the owner keeps insight
+sign-off; the two other `operator` users are unchanged.
+
+**Why an operator-tier set, not a rename.** The gate was two asymmetric checks:
+the viewer middleware blocked `role == "viewer"` (so any new role passed), but
+the operator checks tested `role == "operator"` (so any new role silently
+*lost* the operator-only surfaces — expiry, config, warm-ups, harvest/analyze,
+cost brief). Renaming the owner's role would therefore have 403'd the owner on
+exactly the surfaces "all the same permissions" is supposed to keep. So the
+answer is one source of truth: `identity.OPERATOR_ROLES = {"operator", "master
+of the universe"}` and `identity.is_operator_role(role)`, which `_is_operator`
+in the console now calls instead of comparing to a string. A future owner-tier
+role joins the set in one place. The client already gated on `role !== "viewer"`,
+so the full UI follows without change; a regression test asserts the owner role
+reaches an operator-only surface.
+
+**Plumbing.** New password rides the same path as the others: `.env` +
+`.env.example`, the `deploy_console.sh` secret key list (so it lands in the
+`a2alab/runtime/console` Secrets Manager secret — an omitted password is not
+"no override", it is a login that fails closed, the SF_CLIENT_ID_OBS lesson),
+and `scripts/env_sync.py push`. This is a config change to the hosted console
+(a new secret), not a code path change to the image, so once the code that reads
+`OPERATOR_ROLES` is in the image the password itself deploys `--skip-build`.
+See D36 and plan/07-workstreams.md WS6.
