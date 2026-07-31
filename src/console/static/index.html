@@ -830,6 +830,23 @@
                                  border-radius: 0; display: flex; align-items: center;
                                  justify-content: center; background: var(--bg); }
   .arch-figure.arch-fsfallback svg { max-height: 94vh; max-width: 96vw; }
+  /* Zoom + pan while fullscreen (native browser zoom can't reach a fit-to-screen
+     SVG). The transform scales the already-fitted diagram; the figure clips and
+     pan handles the overflow. Controls are CHILDREN of the figure so they stay
+     visible inside the native fullscreen element's top layer, and fixed so they
+     hold position while the diagram moves beneath them. */
+  .arch-figure.arch-fs-zoom { overflow: hidden; cursor: grab; }
+  .arch-figure.arch-fs-zoom.arch-fs-drag { cursor: grabbing; }
+  .arch-figure.arch-fs-zoom svg { transform-origin: center center; will-change: transform; }
+  .arch-fs-controls { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+                      display: flex; align-items: center; gap: 6px; z-index: 61;
+                      background: var(--card); border: 1px solid var(--border-hi);
+                      border-radius: 11px; padding: 6px 8px; box-shadow: 0 6px 22px rgba(0,0,0,.3); }
+  .arch-fs-controls button { min-width: 32px; padding: 5px 9px; font-size: 15px; line-height: 1; }
+  .arch-fs-controls .arch-fs-pct { font: 600 12px var(--font-mono); color: var(--muted);
+                                   min-width: 48px; text-align: center; }
+  .arch-fs-controls .arch-fs-hint { font-size: 11px; color: var(--muted); margin: 0 4px 0 6px;
+                                    padding-left: 8px; border-left: 1px solid var(--border); }
 
   /* Cost per repository. One hue at one intensity — this is magnitude, not
      identity, so a second colour would imply a category that isn't there.
@@ -5544,19 +5561,112 @@ window.archToggleSource = id => {
 // the start and every other embedded diagram did not, so a reader could enlarge
 // the deployment map but not the pipeline, the analyst architecture or the cost
 // flow — the ones a presenter is most likely to be pointing at.
+// Zoom + pan for a fullscreen figure. Native/browser zoom can't enlarge a
+// fit-to-screen SVG (it scales with the viewport), so we drive a transform on
+// the SVG itself: wheel zooms toward the cursor, drag pans, buttons and keys
+// (+ / - / 0) mirror it. Everything is torn down by teardownFigZoom on exit so
+// a re-open starts clean and the page-level figure is never left transformed.
+function setupFigZoom(fig) {
+  const svg = fig.querySelector("svg");
+  if (!svg) return;                       // source view is showing, nothing to zoom
+  fig.classList.add("arch-fs-zoom");
+  const state = { scale: 1, tx: 0, ty: 0 };
+  const MIN = 0.5, MAX = 8;
+
+  const apply = () => {
+    svg.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
+    const pct = fig.querySelector(".arch-fs-pct");
+    if (pct) pct.textContent = Math.round(state.scale * 100) + "%";
+  };
+  // Zoom about a point (cx,cy in viewport px) so content under the cursor stays put.
+  const zoomAt = (factor, cx, cy) => {
+    const next = Math.min(MAX, Math.max(MIN, state.scale * factor));
+    if (next === state.scale) return;
+    const r = fig.getBoundingClientRect();
+    const ox = cx - r.left - r.width / 2, oy = cy - r.top - r.height / 2;
+    const ratio = next / state.scale;
+    state.tx = ox - (ox - state.tx) * ratio;
+    state.ty = oy - (oy - state.ty) * ratio;
+    state.scale = next;
+    apply();
+  };
+  const center = () => { const r = fig.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+  const reset = () => { state.scale = 1; state.tx = 0; state.ty = 0; apply(); };
+
+  const onWheel = ev => { ev.preventDefault(); zoomAt(ev.deltaY < 0 ? 1.15 : 1 / 1.15, ev.clientX, ev.clientY); };
+  let dragging = false, lastX = 0, lastY = 0;
+  const onDown = ev => {
+    if (ev.button !== 0 || ev.target.closest(".arch-fs-controls")) return;
+    dragging = true; lastX = ev.clientX; lastY = ev.clientY;
+    fig.classList.add("arch-fs-drag"); ev.preventDefault();
+  };
+  const onMove = ev => {
+    if (!dragging) return;
+    state.tx += ev.clientX - lastX; state.ty += ev.clientY - lastY;
+    lastX = ev.clientX; lastY = ev.clientY; apply();
+  };
+  const onUp = () => { dragging = false; fig.classList.remove("arch-fs-drag"); };
+  const onKey = ev => {
+    if (ev.key === "+" || ev.key === "=") { zoomAt(1.2, ...center()); }
+    else if (ev.key === "-" || ev.key === "_") { zoomAt(1 / 1.2, ...center()); }
+    else if (ev.key === "0") { reset(); }
+    else return;
+    ev.preventDefault();
+  };
+
+  fig.addEventListener("wheel", onWheel, { passive: false });
+  fig.addEventListener("pointerdown", onDown);
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("keydown", onKey);
+
+  const controls = document.createElement("div");
+  controls.className = "arch-fs-controls";
+  controls.innerHTML = `
+    <button class="ghost" title="Zoom out (-)" data-fz="out">−</button>
+    <span class="arch-fs-pct">100%</span>
+    <button class="ghost" title="Zoom in (+)" data-fz="in">+</button>
+    <button class="ghost" title="Reset (0)" data-fz="reset">Reset</button>
+    <span class="arch-fs-hint">scroll to zoom · drag to pan · Esc to exit</span>`;
+  controls.querySelector('[data-fz="in"]').onclick = () => zoomAt(1.2, ...center());
+  controls.querySelector('[data-fz="out"]').onclick = () => zoomAt(1 / 1.2, ...center());
+  controls.querySelector('[data-fz="reset"]').onclick = reset;
+  fig.appendChild(controls);
+
+  // Stash the listeners + nodes so teardown can remove exactly what we added.
+  fig._figZoom = { svg, controls, onWheel, onDown, onMove, onUp, onKey };
+  apply();
+}
+
+function teardownFigZoom(fig) {
+  const z = fig && fig._figZoom;
+  if (!z) return;
+  fig.removeEventListener("wheel", z.onWheel);
+  fig.removeEventListener("pointerdown", z.onDown);
+  window.removeEventListener("pointermove", z.onMove);
+  window.removeEventListener("pointerup", z.onUp);
+  window.removeEventListener("keydown", z.onKey);
+  if (z.controls && z.controls.parentNode) z.controls.remove();
+  if (z.svg) z.svg.style.transform = "";
+  fig.classList.remove("arch-fs-zoom", "arch-fs-drag");
+  fig._figZoom = null;
+}
+
 window.figFullscreen = elId => {
   const fig = document.getElementById(elId);
   if (!fig) return;
   fig.classList.add("arch-fs");
-  const done = () => fig.classList.remove("arch-fs");
+  const done = () => { teardownFigZoom(fig); fig.classList.remove("arch-fs"); };
   if (fig.requestFullscreen) {
     fig.requestFullscreen().then(() => {
+      setupFigZoom(fig);
       document.addEventListener("fullscreenchange", function off() {
         if (!document.fullscreenElement) { done(); document.removeEventListener("fullscreenchange", off); }
       });
-    }).catch(() => { fig.classList.add("arch-fsfallback"); });
+    }).catch(() => { fig.classList.add("arch-fsfallback"); setupFigZoom(fig); });
   } else {
     fig.classList.add("arch-fsfallback");
+    setupFigZoom(fig);
   }
 };
 
@@ -5598,6 +5708,7 @@ window.figToggleSource = elId => {
 document.addEventListener("keydown", ev => {
   if (ev.key !== "Escape") return;
   document.querySelectorAll(".arch-fsfallback").forEach(f => {
+    teardownFigZoom(f);
     f.classList.remove("arch-fsfallback", "arch-fs");
   });
 });
