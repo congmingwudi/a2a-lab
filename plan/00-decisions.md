@@ -2252,3 +2252,69 @@ and `scripts/env_sync.py push`. This is a config change to the hosted console
 (a new secret), not a code path change to the image, so once the code that reads
 `OPERATOR_ROLES` is in the image the password itself deploys `--skip-build`.
 See D36 and plan/07-workstreams.md WS6.
+
+## 2026-07-31 — D64: Cursor is a third coding-telemetry tool, not a new source
+
+**Decision.** Cursor joins Claude Code and the Codex CLI as a build-telemetry
+tool inside the existing `coding` harvest source (`src/observability/coding_source.py`),
+not as a new harvest key and not as a sixth Observability platform column. It
+shares the same CloudWatch managed OTLP metrics endpoint, the same PromQL read
+path, and the same `lab.obs_sessions WHERE platform='coding'` rows keyed
+`<tool>:<day>`. `coding_source.py` gains a `cursor_` prefix, a `CURSOR_METRICS`
+list, and `session_total` in `SESSION_SUFFIX`.
+
+**Its attribution is NOT the same shape — this bit on 2026-07-31.** D64 was
+first written assuming Cursor carried the `@resource.tool`/`repo`/`project`
+labels the two native exporters use. It does not: cursorscope's Node SDK builds
+its resource block from the OTEL `service.*` / `deployment.environment` keys, so
+its metrics carry `@resource.service.name` / `@resource.service.namespace` /
+`@resource.deployment.environment` and **none** of the three primary labels
+`_metric_rows` read (both native exporters were confirmed to carry all three
+that day). So the harvest resolves Cursor's tool from `@resource.service.name`,
+repo from `@resource.deployment.environment` and project from
+`@resource.service.namespace` — fallbacks that fire only when the primary label
+is absent, leaving Claude Code and Codex untouched. Without them every Cursor
+row landed `unattributed`, which is half of why nothing showed. The other half:
+the metric that actually lands first is `cursor_hook_events_total` (one point
+per lifecycle hook), which the first `CURSOR_METRICS` list omitted entirely, so
+the harvest never queried the one metric that existed. `CURSOR_METRICS` now
+covers the full cursorscope family (`cursor_hook_events_total`,
+`cursor_session_total`, `cursor_prompt_total`, `cursor_tool_executions_total`,
+`cursor_lines_of_code_total`, `cursor_mcp_invocations_total`,
+`cursor_attribution_invocations_total`,
+`cursor_attributed_context_tokens_total`); the ones a given session does not
+emit are simply absent and skipped, the same best-effort treatment as Codex's
+names.
+
+**Why it is not symmetric with the other two — two differences that change the
+arithmetic.** (1) Cursor ships **no native OTel exporter**. It exposes lifecycle
+hooks; the checked-in `.cursor/hooks.json` forwards them to the cursorscope
+ingestor, which exports the metrics (`scripts/cursor_otel.sh` provisions it —
+build-notes/cursor/01). (2) Cursor's counters are **cumulative**, not the delta
+Sums Claude Code and Codex emit — cursorscope's generated `.env` pins
+`OTEL_..._TEMPORALITY_PREFERENCE=cumulative` and the names carry the Prometheus
+`_total` suffix. So the harvest queries them with `increase()`, gated by a new
+`CUMULATIVE_METRICS` set, where the delta metrics use `sum_over_time()`; summing
+a cumulative counter adds the running total at every step and over-counts by
+orders of magnitude. Like Codex, Cursor publishes **no cost metric** and its
+token figures are `gen_ai.*` histograms this surface returns no scalar for, so
+Cursor is read for **sessions only** — no cross-tool dollar total is attempted
+from it, matching the cost sentinel's existing rule.
+
+**Status: harvest path proven end-to-end; a real session's metrics still
+pending.** As of 2026-07-31 the harvest reads `cursor_hook_events_total` from
+CloudWatch, attributes it correctly via the service.* fallbacks (tool=cursor,
+repo=`<owner>/a2a-lab`, project=a2a-lab), and the writer Lambda wrote a
+`cursor:2026-07-31` row into hosted Aurora that surfaces as a `cursor` line item
+in the console's Coding Agents Telemetry section. What has NOT yet landed is a
+real Agent session: the only datapoints in CloudWatch so far are the
+`scripts/cursor_otel.sh --check` flush probe
+(`cursor_hook_name=debug.flush_test`), whose `increase()` is 0, so the line item
+honestly reads zero sessions until a genuine session emits the session/prompt/
+tool counters. That last mile — session counters landing with the intended
+labels after a real turn — is the same destination-query bar D39/the
+telemetry-config insight set for the other two.
+Behavioural **logs** for Cursor are out of scope (the `coding-logs` path stays
+Claude Code-only; there is no Cursor logs exporter wired). See
+build-notes/cursor/01-coding-agent-telemetry.md, plan/07-workstreams.md WS9, and
+the `telemetry-config-is-not-evidence` insight.

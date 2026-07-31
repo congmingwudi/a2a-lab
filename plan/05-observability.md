@@ -177,9 +177,12 @@ platform APIs ──pull──►  harvester (src/observability/)  ──upsert�
 
 ### What this section is NOT: coding-agent telemetry (WS9)
 
-Claude Code and Codex telemetry shares this subsystem's plumbing — the same
-`PlatformLogSource` seam, the same `ObsStore`, the same harvest Lambda — and it
-is deliberately **not** a sixth column in the coverage panel. That panel's
+Claude Code, Codex and Cursor telemetry shares this subsystem's plumbing — the
+same `PlatformLogSource` seam, the same `ObsStore`, the same harvest Lambda —
+and it is deliberately **not** a sixth column in the coverage panel. (Cursor is
+a third `@resource.tool` inside the one `coding` source, not a new source — it
+reaches CloudWatch via cursorscope hooks and its cumulative counters are read
+with `increase()`; D64.) That panel's
 honesty rests on every column being an agent platform whose interior the lab
 harvests; the tools that BUILT the lab are a different subject, and listing them
 beside Agentforce would quietly claim otherwise. So `coding` is popped from

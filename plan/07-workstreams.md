@@ -654,7 +654,7 @@ through a tunnel."*
 
 | Work | Hosted-independent? | Why |
 |---|---|---|
-| WS9 — build telemetry | ✅ **Fully** | Claude Code/Codex → CloudWatch managed OTLP; `coding_source.py` runs in the harvest Lambda. No lab server involved |
+| WS9 — build telemetry | ✅ **Fully** | Claude Code/Codex/Cursor → CloudWatch managed OTLP (Cursor via cursorscope hooks, D64); `coding_source.py` runs in the harvest Lambda. No lab server involved |
 | WS8 — Claude (AWS) ↔ ADK | ✅ **Fully** | Both ends already hosted (AgentCore, Agent Engine) |
 | WS8 — **ADK orchestrator** | ✅ **Fully** | Runs inside the Agent Engine container calling hosted endpoints |
 | WS8 — **CMA orchestrator** | ⚠️ **One caveat** | See below |
@@ -1837,6 +1837,34 @@ there rather than inventing a comparison"), so the first brief is a test of rule
 attribution the workstream exists for. **A first brief that refuses to compare
 is a pass, not a failure**; the exit criteria stay open until a firing has two
 real weeks behind it.
+
+**Cursor added as a third coding tool (2026-07-31, D64).** The same
+`coding_source.py`, but Cursor is the odd one out *three* ways, all handled on
+the read side so nothing downstream changes. First, it ships **no native OTel
+exporter** — the checked-in `.cursor/hooks.json` forwards lifecycle events to the
+cursorscope ingestor, which exports to the same managed metrics endpoint
+(`scripts/cursor_otel.sh`, build-notes/cursor/01). Second, its counters are
+**cumulative**, not the delta Sums the two native exporters emit, so the harvest
+queries `cursor_*` with `increase()` (gated by `CUMULATIVE_METRICS`) where the
+others use `sum_over_time()`; summing a cumulative counter over-counts by the
+running total at every step. Third — and this is what made the first attempt
+show nothing — cursorscope carries **none of the `@resource.tool`/`repo`/
+`project` labels** the two native exporters do; it labels by
+`@resource.service.name` / `service.namespace` / `deployment.environment`, so
+`_metric_rows` falls back to those for Cursor (tool from service.name, repo from
+deployment.environment, project from service.namespace) or every row lands
+`unattributed`. The other half of the initial blank was the metric list: the one
+series that had landed was `cursor_hook_events_total`, which the first
+`CURSOR_METRICS` omitted. Like Codex, Cursor publishes no cost metric and its
+token figures are `gen_ai.*` histograms this surface cannot scalarise, so it is
+read for **sessions only** and contributes nothing to the cross-tool dollar
+total. Status: **harvest path proven** — the writer Lambda landed a
+`cursor:2026-07-31` row in Aurora that shows as a `cursor` line item in the
+console. It reads zero sessions honestly: the only datapoints so far are the
+setup script's flush probe, so a real session's counters landing with the
+intended labels is the last mile still open, exactly the bar the
+`telemetry-config-is-not-evidence` insight sets. Behavioural **logs** for Cursor
+are out of scope; `coding-logs` stays Claude Code-only.
 
 ---
 

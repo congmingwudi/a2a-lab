@@ -1,16 +1,28 @@
 """Coding-agent telemetry source — what the lab cost to build (WS9).
 
-Claude Code and the Codex CLI both export OpenTelemetry, and CloudWatch accepts
-OTLP directly on a managed endpoint (no collector, no sidecar). Point both tools
-at it and their metrics land as CloudWatch metrics; this source reads them back
-into the obs store so the console can show the lab's own construction cost
-beside the agent telemetry it already collects.
+Claude Code, the Codex CLI and Cursor all get their metrics onto the same
+CloudWatch managed OTLP endpoint (no collector, no sidecar); this source reads
+them back into the obs store so the console can show the lab's own construction
+cost beside the agent telemetry it already collects. Claude Code and Codex ship
+native OTel exporters. Cursor does not — it exposes lifecycle *hooks*, and the
+lab's `.cursor/hooks.json` forwards them to the cursorscope ingestor, which
+exports the metrics to the same endpoint (build-notes/cursor/01). This module
+reads whichever of them exist.
+
+Cursor's resource attribution is NOT symmetrical with the other two, and it bit
+here (2026-07-31): cursorscope's Node SDK builds its resource block from the
+OTEL `service.*` / `deployment.environment` keys, so its metrics carry
+`@resource.service.namespace` and `@resource.deployment.environment` and **no**
+`@resource.tool` / `@resource.repo` / `@resource.project` — the exact labels the
+two native exporters use and the ones `_metric_rows` reads. Cursor's tool still
+resolves from its `cursor_` name prefix; its repo/project need the service.*
+fallbacks added below, or every Cursor row lands `unattributed`.
 
 Deliberately NOT a sixth platform column. The Observability coverage panel
 answers "what did the agents do, per platform", and its honesty depends on all
-five columns being the same kind of thing. Claude Code is not a partner agent
-platform — it is the tool that built the lab. It gets its own console section
-and shares only the harvest plumbing and the store.
+five columns being the same kind of thing. A coding agent is not a partner agent
+platform — it is a tool that built the lab. They get their own console section
+and share only the harvest plumbing and the store.
 
 **Read via PromQL, not ListMetrics.** OTLP metrics ingested through
 CloudWatch's native endpoint do not appear in the classic
@@ -23,8 +35,8 @@ discovery returns nothing, so both halves look healthy in isolation.
 **Metric names are a fixed list, because the API offers no enumeration.**
 `/api/v1/label/__name__/values` is unsupported and a selector without a metric
 name is rejected, so there is no way to ask "what coding metrics exist". The
-Claude Code names come from its published OTel schema; Codex's are best-effort
-and extendable via A2ALAB_CODING_METRICS.
+Claude Code names come from its published OTel schema; Codex's and Cursor's
+(via cursorscope) are best-effort and extendable via A2ALAB_CODING_METRICS.
 
 Cost honesty: `claude_code.cost.usage` is a **client-side USD estimate computed
 from token counts at list prices**, not an invoice, and on subscription or
@@ -91,11 +103,49 @@ CODEX_METRICS = (
     "codex.thread.started",
     "codex.conversation.turn.count",
 )
+# Cursor ships NO native exporter — these come from cursorscope, which derives
+# them from Cursor's lifecycle hooks (build-notes/cursor/01). Two differences
+# from the two above matter for the arithmetic, and both are handled below:
+#
+#   - There is NO cost metric and NO consumable token Sum. cursorscope's token
+#     figures are `gen_ai.*` HISTOGRAMS (the same shape as codex.turn.token_usage
+#     that this surface returns no scalar for), so — like Codex — Cursor is read
+#     for SESSIONS only, and cross-tool cost is not attempted from it.
+#   - These are CUMULATIVE counters, not delta Sums. cursorscope's generated
+#     .env pins OTEL_..._TEMPORALITY_PREFERENCE=cumulative and the names carry
+#     the Prometheus `_total` suffix. sum_over_time on a cumulative counter adds
+#     up the running total at every step and wildly over-counts; the right
+#     function is increase(). CUMULATIVE_METRICS below routes them there.
+#
+# The names are cursorscope's, and the exact set is version-dependent
+# (build-notes/cursor/01 §5). This is the full family cursorscope's source
+# defines; only the ones a given session actually emits return series, the rest
+# are absent and skipped (the same best-effort treatment as the Codex names).
+# `cursor_hook_events_total` is the lowest common denominator — it counts every
+# lifecycle hook and is the first thing to appear once the pipe is live, so it
+# is the one that proves harvest end-to-end. Note it is dimensioned by
+# `cursor_hook_name`, so a `sessionStart`/`sessionEnd` split lives inside it as
+# datapoint labels, distinct from `cursor_session_total`.
+CURSOR_METRICS = (
+    "cursor_hook_events_total",
+    "cursor_session_total",
+    "cursor_prompt_total",
+    "cursor_tool_executions_total",
+    "cursor_lines_of_code_total",
+    "cursor_mcp_invocations_total",
+    "cursor_attribution_invocations_total",
+    "cursor_attributed_context_tokens_total",
+)
+
+# Metrics that are cumulative counters rather than delta Sums, so _metric_rows
+# queries them with increase() instead of sum_over_time(). Everything not in
+# here is treated as a delta Sum (the Claude Code / Codex default).
+CUMULATIVE_METRICS = frozenset(CURSOR_METRICS)
 
 
 def metric_names() -> tuple[str, ...]:
     extra = os.environ.get("A2ALAB_CODING_METRICS", "")
-    names = list(CLAUDE_METRICS) + list(CODEX_METRICS)
+    names = list(CLAUDE_METRICS) + list(CODEX_METRICS) + list(CURSOR_METRICS)
     names += [n.strip() for n in extra.split(",") if n.strip()]
     return tuple(dict.fromkeys(names))
 
@@ -106,6 +156,19 @@ def metric_names() -> tuple[str, ...]:
 TOOL_LABEL = "@resource.tool"
 REPO_LABEL = "@resource.repo"
 PROJECT_LABEL = "@resource.project"
+
+# Cursor's fallback attribution. cursorscope emits no @resource.tool / .repo /
+# .project (build-notes/cursor/01 §3): its resource block is built from the OTEL
+# service.* / deployment.environment keys instead. So when the primary labels
+# above are absent, read the tool from @resource.service.name, the repo from
+# @resource.deployment.environment (the setup script writes it as `owner/name`,
+# the same shape as the native tools' repo label) and the project from
+# @resource.service.namespace. These are fallbacks, not overrides — a datapoint
+# that carries the primary label keeps using it, so Claude Code and Codex are
+# untouched (both were confirmed to carry all three primary labels 2026-07-31).
+SERVICE_NAME_LABEL = "@resource.service.name"
+SERVICE_NAMESPACE_LABEL = "@resource.service.namespace"
+DEPLOYMENT_ENV_LABEL = "@resource.deployment.environment"
 
 # Datapoints that predate the exporter being attributed — or that come from a
 # checkout with no git remote — carry no repo label. They are kept and shown
@@ -168,10 +231,13 @@ def normalize_repos(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-# Metric-name prefixes that identify coding-agent telemetry, per tool.
+# Metric-name prefixes that identify coding-agent telemetry, per tool. Cursor's
+# cursorscope names use an underscore separator (`cursor_session_total`), not
+# the dotted OTel style the two native exporters use.
 TOOL_PREFIXES = {
     "claude-code": "claude_code.",
     "codex": "codex.",
+    "cursor": "cursor_",
 }
 
 # Metric SUFFIXES, matched after the tool prefix is stripped. Suffixes rather
@@ -185,7 +251,9 @@ TOOL_PREFIXES = {
 # `thread.started`. Anything unmatched still lands in `metrics` verbatim.
 COST_SUFFIX = ("cost.usage",)
 TOKEN_SUFFIX = ("token.usage",)
-SESSION_SUFFIX = ("session.count", "thread.started")
+# Claude Code counts a session as `session.count`, Codex as `thread.started`,
+# Cursor (via cursorscope) as `session_total`. Same concept, three names.
+SESSION_SUFFIX = ("session.count", "thread.started", "session_total")
 ACTIVE_TIME_SUFFIX = ("active_time.total",)
 
 
@@ -371,10 +439,20 @@ class CodingSource(PlatformLogSource):
             tool_of_name = _tool_of(name)
             if not tool_of_name:
                 continue
+            # Delta Sums are summed; cumulative counters are differenced. Using
+            # the wrong one is not a rounding error — sum_over_time on a
+            # cumulative counter adds the running total at every step (huge
+            # over-count) and increase() on a delta Sum drops single-sample
+            # series (under-count). Same [step] window either way, so buckets
+            # tile the range once. increase()'s single-sample drop is acceptable
+            # for cumulative counters because a counter with one sample carries
+            # no measurable change anyway.
+            if name in CUMULATIVE_METRICS:
+                promql = f'increase({{"{name}"}}[{PERIOD_S}s])'
+            else:
+                promql = f'sum_over_time({{"{name}"}}[{PERIOD_S}s])'
             try:
-                series = client.query_range(
-                    f'sum_over_time({{"{name}"}}[{PERIOD_S}s])', start, end, PERIOD_S
-                )
+                series = client.query_range(promql, start, end, PERIOD_S)
             except Exception as exc:
                 # One absent metric must not sink the harvest — most of these
                 # names will legitimately not exist. But swallowing the reason
@@ -385,8 +463,28 @@ class CodingSource(PlatformLogSource):
                 continue
             for entry in series:
                 labels = entry.get("metric") or {}
-                # the resource attribute wins; fall back to the name's prefix
-                tool = labels.get(TOOL_LABEL) or tool_of_name
+                # the resource attribute wins; fall back to the name's prefix.
+                # Cursor carries neither @resource.tool nor a `cursor.` dotted
+                # prefix — its tool is the cursorscope service name — so
+                # service.name is the last resort before the name-prefix guess.
+                tool = (
+                    labels.get(TOOL_LABEL)
+                    or labels.get(SERVICE_NAME_LABEL)
+                    or tool_of_name
+                )
+                # Cursor emits no @resource.repo / .project; fall back to the
+                # service.* / deployment.environment keys it does emit, so its
+                # rows attribute instead of all landing `unattributed`.
+                repo = (
+                    labels.get(REPO_LABEL)
+                    or labels.get(DEPLOYMENT_ENV_LABEL)
+                    or UNATTRIBUTED
+                )
+                project = (
+                    labels.get(PROJECT_LABEL)
+                    or labels.get(SERVICE_NAMESPACE_LABEL)
+                    or UNATTRIBUTED
+                )
                 dims = {
                     k: v
                     for k, v in labels.items()
@@ -409,8 +507,8 @@ class CodingSource(PlatformLogSource):
                             # earlier version stripped every "@" label here,
                             # which threw away the per-repo attribution the
                             # exporters were configured to produce.
-                            "repo": labels.get(REPO_LABEL) or UNATTRIBUTED,
-                            "project": labels.get(PROJECT_LABEL) or UNATTRIBUTED,
+                            "repo": repo,
+                            "project": project,
                             "dimensions": dims,
                             "timestamp": dt.datetime.fromtimestamp(ts, dt.timezone.utc),
                             "value": raw_value,
@@ -447,10 +545,10 @@ class CodingSource(PlatformLogSource):
 
         if not rows:
             detail = (
-                "no claude_code.* or codex.* metrics in CloudWatch — switch the "
-                "exporters on (see the Build Telemetry section) and allow one export "
-                "interval. Telemetry is not retroactive: whatever was built before "
-                "collection started cannot be measured afterwards"
+                "no claude_code.*, codex.* or cursor_* metrics in CloudWatch — "
+                "switch the exporters on (see the Build Telemetry section) and allow "
+                "one export interval. Telemetry is not retroactive: whatever was built "
+                "before collection started cannot be measured afterwards"
             )
             if self.query_errors:
                 # An empty result and an unaskable query look identical from

@@ -548,7 +548,7 @@ flowchart LR
     S5["App Insights"]
   end
   subgraph CODE["Coding agents — NOT a platform"]
-    S6["Claude Code + Codex<br/>OTLP METRICS to CloudWatch<br/>(coding)"]
+    S6["Claude Code + Codex + Cursor<br/>METRICS to CloudWatch<br/>(coding; Cursor via cursorscope hooks)"]
     S7["Claude Code OTLP LOGS<br/>to CloudWatch log group<br/>(coding-logs, WS16)"]
   end
   HARV2["a2alab-obs-harvest<br/>Lambda, every 6h<br/>+ scripts/obs_harvest.py"]
@@ -573,8 +573,9 @@ so the console is fast, offline-capable, and shows the same thing twice.
 
 **The one deliberate exclusion.** `coding` and `coding-logs` share the harvest
 seam and the store but are **not** columns in the coverage panel. Every column
-there is an agent platform whose interior the lab harvests; Claude Code and Codex
-are the tools that *built* the lab. They get their own console section instead —
+there is an agent platform whose interior the lab harvests; Claude Code, Codex
+and Cursor are the tools that *built* the lab (Cursor added 2026-07-31, D64 — a
+third `@resource.tool` inside `coding`, not a new source). They get their own console section instead —
 **Coding Agents Telemetry**, under the **DevOps** category (WS17/D60), with two
 peer tabs (D57): **Cost** reads the `coding` metrics (WS9) and **Behaviour**
 reads the `coding-logs` log signal (WS16/D59). The two are distinct obs-store
@@ -813,6 +814,7 @@ flowchart LR
 | `salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator` | `sf agent validate\|publish\|activate` | Agent Script orchestrator bundle in the prod org (WS8 variant 3, D61). Fans out by **delegating** to the bridge's `fanout:` route; reuses `A2ALabInvokeRemoteAgent` — no new Apex, no new Named Credential | Salesforce |
 | `src/bridge/app.py` `_fanout()` | (part of `deploy/bridge/deploy_bridge.sh`) | The bridge's `fanout:<scenario>` verb route — one Apex callout runs the three legs off-platform via `orchestration.dispatch()`. Ships with the bridge image; not a separate deploy (D61) | AWS |
 | `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; **metrics** land in CloudWatch (read by `coding`) | laptop → AWS |
+| `.cursor/hooks.json` + `scripts/cursor_otel.sh` | `cursor_otel.sh` (once, per credential rotation) | Cursor has no native exporter — hooks forward to the **cursorscope** ingestor, which exports **metrics** to the same CloudWatch endpoint (read by `coding` as `tool=cursor`, D64). Cumulative counters | laptop → AWS |
 | `scripts/setup_cw_logs_otlp.py` + `scripts/claude_otel.sh` | `setup_cw_logs_otlp.py --apply` (once) | `logs.amazonaws.com` service credential + CloudWatch **log group** `/a2alab/coding-agents/otlp` (bearer auth) + token in Secrets Manager `a2alab/telemetry/cw-logs-api-key`; the launch wrapper exports Claude Code's **log** events there (read by `coding-logs`, WS16) | laptop → AWS |
 | `.env` (gitignored) | `scripts/env_sync.py push` | Secrets Manager secret `A2ALAB_ENV_SECRET` — every platform credential, the account ids, the project ids | AWS |
 | `scripts/credential_analyst.py` | — (no deploy step) | **Nothing hosted** — one `messages.create` per run, started by a person | laptop → Anthropic API |

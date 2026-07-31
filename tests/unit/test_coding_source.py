@@ -121,8 +121,32 @@ def test_summarize_buckets_by_tool_and_day():
 def test_tool_detection_by_prefix():
     assert _tool_of("claude_code.cost.usage") == "claude-code"
     assert _tool_of("codex.token.usage") == "codex"
+    assert _tool_of("cursor_session_total") == "cursor"
     assert _tool_of("AWS/Lambda.Invocations") is None
     assert _tool_of("my_app.claude_code.cost") is None
+
+
+def test_cursor_sessions_summarize_with_no_cost():
+    """Cursor (via cursorscope) publishes counters but no cost or consumable
+    token metric, so it is read for sessions only — the same footing as Codex,
+    which the model breakdown and cross-tool total already handle."""
+    rows = [
+        {
+            "metric": "cursor_session_total",
+            "tool": "cursor",
+            "repo": "acme/lab",
+            "project": "lab",
+            "dimensions": {"model": "claude-opus-5"},
+            "timestamp": DAY,
+            "value": 4,
+        }
+    ]
+    bucket = summarize_series(rows)["cursor:2026-07-25"]
+    assert bucket["sessions"] == 4
+    assert bucket["cost_usd"] == 0.0
+    assert bucket["tokens"] == {}
+    assert bucket["by_model"]["claude-opus-5"]["sessions"] == 4
+    assert bucket["by_repo"]["acme/lab"]["sessions"] == 4
 
 
 def test_metric_names_are_extendable_and_deduped(monkeypatch):
@@ -170,8 +194,12 @@ def test_harvest_reads_promql_and_writes_sessions(tmp_path):
     assert "modelled build cost at list price" in result.detail
     # Delta-temporality Sums are summed, never rate'd: increase() drops
     # single-sample series and under-counts, and a bare selector double-counts
-    # through its lookback. See _metric_rows for the measured comparison.
-    assert all(q.startswith("sum_over_time(") for q in client.queries)
+    # through its lookback. See _metric_rows for the measured comparison. Scoped
+    # to the delta metrics because the same sweep also queries Cursor's
+    # CUMULATIVE counters, which correctly use increase() — see
+    # test_cursor_cumulative_counters_are_queried_with_increase.
+    delta_qs = [q for q in client.queries if "claude_code." in q or "codex." in q]
+    assert delta_qs and all(q.startswith("sum_over_time(") for q in delta_qs)
 
     sessions = store.list_sessions("coding")
     assert sessions[0]["native_id"] == "claude-code:2026-07-25"
@@ -181,6 +209,93 @@ def test_harvest_reads_promql_and_writes_sessions(tmp_path):
     raw = json.loads(sessions[0]["raw_json"])
     assert "not an invoice" in raw["cost_note"]
     store.close()
+
+
+def test_cursor_cumulative_counters_are_queried_with_increase(tmp_path):
+    """Cursor's counters are CUMULATIVE (cursorscope pins cumulative temporality
+    and the names carry the `_total` suffix), unlike the two native exporters'
+    delta Sums. sum_over_time on a cumulative counter adds the running total at
+    every step and wildly over-counts, so these must go through increase().
+    Delta metrics must still use sum_over_time — the two forms are not
+    interchangeable."""
+    client = FakePromQL(
+        {
+            "cursor_session_total": [
+                _series(
+                    {"__name__": "cursor_session_total", "@resource.tool": "cursor"},
+                    [(DAY, 2.0)],
+                )
+            ],
+            "claude_code.cost.usage": [
+                _series(
+                    {"__name__": "claude_code.cost.usage", "@resource.tool": "claude-code"},
+                    [(DAY, 1.0)],
+                )
+            ],
+        }
+    )
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    CodingSource(client=client).harvest(store)
+    cursor_qs = [q for q in client.queries if "cursor_session_total" in q]
+    delta_qs = [q for q in client.queries if "claude_code.cost.usage" in q]
+    assert cursor_qs and all(q.startswith("increase(") for q in cursor_qs)
+    assert delta_qs and all(q.startswith("sum_over_time(") for q in delta_qs)
+    # and the same [step] window on both, so buckets tile the range once
+    assert all(f"[{300}s]" in q for q in cursor_qs + delta_qs)
+    store.close()
+
+
+def test_cursor_attribution_from_service_labels(tmp_path):
+    """Real cursorscope metrics carry NO @resource.tool / .repo / .project —
+    only @resource.service.name / .service.namespace / .deployment.environment
+    (build-notes/cursor/01 §3, verified live 2026-07-31). _metric_rows must fall
+    back to those, or every Cursor row lands `unattributed` and the tool defaults
+    to the name-prefix guess. This is the shape the harvest actually sees."""
+    client = FakePromQL(
+        {
+            "cursor_hook_events_total": [
+                _series(
+                    {
+                        "__name__": "cursor_hook_events_total",
+                        "@resource.service.name": "cursor",
+                        "@resource.service.namespace": "a2a-lab",
+                        "@resource.deployment.environment": "acme/a2a-lab",
+                        "cursor_hook_name": "sessionStart",
+                    },
+                    [(DAY, 3.0)],
+                )
+            ],
+        }
+    )
+    rows = CodingSource(client=client)._metric_rows(client)
+    assert rows, "cursor_hook_events_total must be queried and returned"
+    row = rows[0]
+    assert row["tool"] == "cursor"  # from @resource.service.name
+    assert row["repo"] == "acme/a2a-lab"  # from @resource.deployment.environment
+    assert row["project"] == "a2a-lab"  # from @resource.service.namespace
+    # cursor_hook_name is a datapoint label, so it stays in dimensions
+    assert row["dimensions"].get("cursor_hook_name") == "sessionStart"
+
+
+def test_cursor_hook_events_do_not_inflate_sessions():
+    """cursor_hook_events_total counts every lifecycle hook, not sessions. Its
+    suffix (`hook_events_total`) is not in SESSION_SUFFIX, so it must land in
+    `metrics` verbatim and leave the session count alone — otherwise every hook
+    fires would be miscounted as a session."""
+    rows = [
+        {
+            "metric": "cursor_hook_events_total",
+            "tool": "cursor",
+            "repo": "acme/lab",
+            "project": "lab",
+            "dimensions": {"cursor_hook_name": "preToolUse"},
+            "timestamp": DAY,
+            "value": 12,
+        }
+    ]
+    bucket = summarize_series(rows)["cursor:2026-07-25"]
+    assert bucket["sessions"] == 0
+    assert bucket["metrics"]["cursor_hook_events_total"] == 12
 
 
 def test_resource_tool_label_wins_over_the_name_prefix(tmp_path):

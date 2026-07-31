@@ -932,6 +932,29 @@ insights:
       bug and the second a naming assumption, and only a query at the
       destination could tell them apart. Both tools now attribute correctly
       (tool, project, repo) and label every datapoint with `model`.
+
+      A third coding agent, Cursor, was wired in 2026-07-31 and made the point
+      twice over. It ships NO native OTel exporter at all, so its metrics reach
+      the same endpoint only through lifecycle hooks forwarded to the cursorscope
+      ingestor, and its counters are CUMULATIVE, not the delta Sums the two
+      native exporters emit — the harvest differences them with increase() where
+      the others are summed, and using the wrong function is a silent
+      order-of-magnitude error, not a rounding one. But the harvest showed
+      nothing at first for two reasons a config file could never have surfaced,
+      and only a destination query did: (1) the one metric that had actually
+      landed was `cursor_hook_events_total`, which the first metric list omitted,
+      so the reader queried a set of names that did not yet exist and skipped the
+      one that did; and (2) cursorscope emits NONE of the @resource.tool / repo /
+      project labels the two native exporters carry — it labels by service.name /
+      service.namespace / deployment.environment instead — so even once the names
+      matched, every Cursor row attributed to `unattributed` until the reader
+      learned to fall back to those keys. With both fixed, the writer Lambda
+      landed a `cursor:2026-07-31` row in Aurora and it surfaces as a `cursor`
+      line item in the console. It honestly reads zero sessions: the only
+      datapoints so far are the setup script's flush probe
+      (`cursor_hook_name=debug.flush_test`), so a real session's counters are the
+      last mile still pending — exactly the destination-query bar, one layer
+      deeper than "does the config parse".
     advisory: >-
       Treat signal, endpoint, and credential as one unit, and never mark a
       telemetry path done on the strength of a config file or a helper that
@@ -943,12 +966,18 @@ insights:
       always something you add — and the mechanism differs per tool (Claude
       Code takes it from a per-project settings file, while Codex ignores
       `otel` in project-local config entirely and needs a launch wrapper).
-      Assume nothing carries over from one agent's setup to another's. Check
-      what is already built in before configuring anything, because the split
-      is not intuitive: both tools label every datapoint with the `model` that
-      ran it, unconfigured (verified 2026-07-27 — claude-opus-5 and
+      Assume nothing carries over from one agent's setup to another's — the
+      third agent added to this lab, Cursor, had no native exporter to configure
+      at all and reaches the endpoint only through a hook-forwarding ingestor.
+      Check what is already built in before configuring anything, because the
+      split is not intuitive: the native tools label every datapoint with the
+      `model` that ran it, unconfigured (verified 2026-07-27 — claude-opus-5 and
       claude-haiku-4-5 on Claude Code's cost and token metrics, gpt-5.6-sol on
       all three Codex metrics), so WHAT ran is free while WHERE it ran is not.
+      And confirm the temporality before writing the read query: Claude Code and
+      Codex export delta Sums, Cursor's cursorscope counters are cumulative, and
+      summing a cumulative counter over-counts by the running total at every
+      step.
       And
       once it is flowing, review the attribution VALUES, not just their
       presence: resource attributes are unvalidated free text, so a repo left
@@ -959,8 +988,10 @@ insights:
     refs:
       - D39
       - build-notes/claude/08-coding-agent-telemetry.md
+      - build-notes/cursor/01-coding-agent-telemetry.md
       - src/observability/coding_source.py
       - scripts/codex_otel.sh
+      - scripts/cursor_otel.sh
 
   - id: input-tokens-is-not-the-input
     category: Observability

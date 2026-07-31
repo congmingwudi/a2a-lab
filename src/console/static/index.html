@@ -1415,7 +1415,7 @@
           <summary onclick="buildNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13.4h12"/><path d="M3.6 13.4V7.2M7.2 13.4V3.6M10.8 13.4V9M14 13.4v-3"/></svg>Coding Agents Telemetry <span class="count" id="buildCount"></span></summary>
           <div class="acc-body">
             <div class="traces-tools">
-              <span class="hint">What building this lab cost and looked like — Claude Code and Codex.</span>
+              <span class="hint">What building this lab cost and looked like — Claude Code, Codex and Cursor.</span>
               <button class="ghost" id="buildHarvestBtn" onclick="harvestBuild(event)"
                 title="Pull fresh coding-agent metrics AND behavioural logs from CloudWatch into the local store (scripts/obs_harvest.py coding coding-logs) — telemetry appears here only after a harvest">Harvest</button>
             </div>
@@ -2774,7 +2774,8 @@ brief saved to \`lab.obs_briefs\` with \`kind='cost'\`. Same table, same tool, d
 ### What it measures
 
 The **coding-agent telemetry** (WS9): the tokens and modelled cost of the agents that BUILD this lab —
-Claude Code and Codex — exported over OTLP into CloudWatch and harvested into the \`coding\` platform rows.
+Claude Code, Codex and Cursor — reaching CloudWatch over OTLP (natively for the first two, via cursorscope
+hooks for Cursor) and harvested into the \`coding\` platform rows.
 That is a different subject from the Observability Analysis tab, which is about the experiments the lab
 **runs**.
 
@@ -3730,7 +3731,7 @@ window.harvestBuild = async ev => {
   buildHarvesting = true;
   const btn = document.getElementById("buildHarvestBtn");
   if (btn) { btn.textContent = "Harvesting…"; btn.disabled = true; }
-  buildMsg("Querying CloudWatch — claude_code.* / codex.* metrics AND behavioural log events…");
+  buildMsg("Querying CloudWatch — claude_code.* / codex.* / cursor_* metrics AND behavioural log events…");
   try {
     // The metrics signal first, then the behavioural log signal. Two distinct
     // sources (`coding`, `coding-logs`); the hosted async path fires the
@@ -3849,9 +3850,10 @@ function buildHtml() {
       </div>`).join("");
     return `
       ${buildTabbar()}
-      <p class="hint">Claude Code and the Codex CLI both export OpenTelemetry, and
-      CloudWatch accepts OTLP on a managed endpoint — no collector. Point both at it
-      and this section shows what the lab cost to build, per tool, per day.</p>
+      <p class="hint">Claude Code, the Codex CLI and Cursor all get their metrics to
+      CloudWatch's managed OTLP endpoint — the first two through native exporters, Cursor
+      through hooks forwarded to the cursorscope ingestor (no collector either way). Point
+      them at it and this section shows what the lab cost to build, per tool, per day.</p>
       <div class="hint" style="margin:10px 0 18px"><b>Telemetry is not retroactive.</b>
       Whatever was built before the exporters were switched on cannot be measured
       after the fact — only what happens from now on.</div>
@@ -3935,16 +3937,16 @@ function buildHtml() {
         <td class="num">${d.sessions ?? "—"}</td>
         <td class="num">${d.active_time_s ? (d.active_time_s / 3600).toFixed(1) + "h" : "—"}</td></tr>`).join("");
 
-  // Which model did the work. Both tools label every datapoint with `model`
-  // and neither needed configuring for it — the opposite of project/repo — so
+  // Which model did the work. Every tool labels each datapoint with `model`
+  // and none needed configuring for it — the opposite of project/repo — so
   // this table is the one cross-tool cut that comes free. The units still
-  // differ: dollars for Claude Code, sessions for Codex (no cost metric), and
-  // a dash beats a zero for the column a tool cannot answer.
+  // differ: dollars for Claude Code, sessions for Codex and Cursor (neither
+  // has a cost metric), and a dash beats a zero for a column a tool cannot answer.
   const models = buildData.by_model || [];
   // Grouped by tool rather than one flat list: the question is "which models
   // did each coding tool use", and the units are per-tool anyway (dollars for
-  // Claude Code, sessions for Codex). A single sorted table would interleave
-  // them and invite a comparison the metrics do not support.
+  // Claude Code, sessions for the tools with no cost metric). A single sorted
+  // table would interleave them and invite a comparison the metrics do not support.
   const modelsByTool = {};
   for (const m of models) (modelsByTool[m.tool] = modelsByTool[m.tool] || []).push(m);
 
@@ -4041,7 +4043,7 @@ function buildHtml() {
   const repoHtml = repos.length ? `
     <h3>By repository</h3>
     <p class="hint">Cost per codebase, from the <code>@resource.repo</code> label
-    the exporters attach to every datapoint. Neither coding agent emits this on
+    the exporters attach to every datapoint. No coding agent emits this on
     its own — it is configuration, which is the whole point of the section.</p>
     ${repoRows}${repoNote}` : `
     <h3>By repository</h3>
@@ -4053,7 +4055,7 @@ function buildHtml() {
 
   return `
     ${buildTabbar()}
-    <p class="hint">The lab measuring its own construction — two coding tools, one
+    <p class="hint">The lab measuring its own construction — three coding tools, one
     OTLP endpoint, harvested through the same seam as every agent platform.</p>
     ${tiles}${mix}${tokenNote}${note}${scope}
     ${costBriefHtml()}
@@ -4150,14 +4152,16 @@ const OBS_ANALYST_DIAGRAM = `flowchart TB
 
 const COST_SENTINEL_DIAGRAM = `flowchart TB
   subgraph LOCAL["Coding agents — any checkout, any machine"]
-    CC["Claude Code<br/>OTLP exporter"]
-    CX["Codex CLI<br/>OTLP exporter"]
+    CC["Claude Code<br/>native OTLP exporter"]
+    CX["Codex CLI<br/>native OTLP exporter"]
+    CU["Cursor<br/>hooks → cursorscope"]
   end
   CW["CloudWatch<br/>managed OTLP endpoint"]
   HARV["Harvest Lambda<br/>coding_source.py — every 6h, PromQL"]
   PG[("Aurora, lab schema<br/>obs_sessions + obs_briefs")]
   CC --> CW
   CX --> CW
+  CU --> CW
   CW --> HARV
   HARV --> PG
 
@@ -4378,9 +4382,9 @@ function buildDetailsHtml() {
     <h3>What it must never claim</h3>
     <ul class="hint">
       <li><b>The dollar figure is not an invoice.</b> ${esc(s.cost_note || "")}</li>
-      <li><b>No cross-tool total.</b> Codex publishes no cost metric at all, and its token
-        metric is a histogram this pipeline does not consume — so a combined dollar figure would
-        be Claude Code's cost wearing both tools' name.</li>
+      <li><b>No cross-tool total.</b> Only Claude Code publishes a cost metric; Codex and Cursor
+        publish none, and their token metrics are histograms this pipeline does not consume — so a
+        combined dollar figure would be Claude Code's cost wearing all three tools' name.</li>
       <li><b>Tokens are four buckets, not one.</b> Uncached input, cache read, cache creation,
         output — billed at roughly 1x, 0.1x, 1.25–2x and the output rate. They cannot be summed
         and multiplied by a rate, which is why the Run tab shows four tiles.</li>

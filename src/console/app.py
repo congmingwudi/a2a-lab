@@ -2345,6 +2345,36 @@ def create_console_app(registry: Registry | None = None):
                 "in project-local .codex/config.toml."
             ),
         },
+        "cursor": {
+            "label": "Cursor",
+            "cost": False,
+            "tokens": False,
+            "detail": (
+                "The only one of the three with NO native OTel exporter. Cursor "
+                "exposes lifecycle hooks, not metrics; the lab's checked-in "
+                ".cursor/hooks.json forwards them to the cursorscope ingestor, "
+                "which exports to the same CloudWatch metrics endpoint (set up by "
+                "scripts/cursor_otel.sh — build-notes/cursor/01). Two consequences "
+                "for the numbers. Its metrics are CUMULATIVE counters "
+                "(cursor_hook_events_total — the lowest common denominator, one "
+                "point per lifecycle hook — plus cursor_session_total, "
+                "cursor_prompt_total, cursor_tool_executions_total once a real "
+                "Agent session emits them), not the delta Sums the two native "
+                "exporters emit, so the harvest differences them with increase() "
+                "rather than summing them. And there is NO cost metric and no "
+                "consumable token Sum — cursorscope's token figures are gen_ai.* "
+                "histograms this surface returns no scalar for, the same shape as "
+                "Codex's token histogram — so Cursor is read for SESSIONS only. "
+                "Its attribution is also NOT symmetrical (this bit on 2026-07-31): "
+                "cursorscope's Node SDK carries NO @resource.tool / repo / project, "
+                "only the service.* / deployment.environment keys it builds its "
+                "resource block from, so the harvest resolves tool from "
+                "@resource.service.name, repo from @resource.deployment.environment "
+                "and project from @resource.service.namespace — fallbacks that fire "
+                "only for Cursor, since both native exporters carry the primary "
+                "labels."
+            ),
+        },
     }
 
     # Shown in the Coding Agents Telemetry section when nothing has been collected yet,
