@@ -676,7 +676,14 @@
   .obs-pipe .stage .who { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 10px;
     color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
   .obs-pipe .arr { align-self: center; padding: 0 6px; color: var(--muted); font-size: 16px; flex: 0 0 auto; }
-  .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  /* Dashboard coverage: a gray inset panel INSIDE the white coverage flow,
+     holding white platform tiles — the console's canvas-gray / panel-white
+     alternation, one more level down. The panel's padding is what keeps the
+     tiles off the flow's borders. */
+  .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;
+              background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+              padding: 16px; margin: 14px 16px 16px; }
+  .obs-grid .obs-card { background: var(--bg); }
   .obs-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   .obs-card h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
   .obs-card .nums { display: flex; gap: 16px; margin: 6px 0 10px; }
@@ -3124,7 +3131,7 @@ function obsDashboardHtml() {
         const i = info(p), h = i.harvest || {};
         return `
         <div class="obs-card">
-          <h4>${esc(caps[p].label)} <span class="obs-status ${esc(h.status || "")}">${esc(h.status || "not harvested")}</span></h4>
+          <h4>${withLogos(caps[p].label)} <span class="obs-status ${esc(h.status || "")}">${esc(h.status || "not harvested")}</span></h4>
           <div class="nums">
             <div class="num"><b>${i.sessions || 0}</b><span>sessions</span></div>
             <div class="num"><b>${i.events || 0}</b><span>events</span></div>
