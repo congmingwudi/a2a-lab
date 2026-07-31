@@ -2110,3 +2110,57 @@ hyperlink built from `JIRA_SITE_URL`.
 `Details` sub-tab that names its source docs and states the one-way rule, so a
 viewer clicking Details learns that the project view is generated from the repo
 and why nothing reads the board back.
+
+## 2026-07-30 — D61: A third supplier orchestrator on Agentforce, which fans out by delegating the fan-out
+
+**Decision.** Build the WS8 supplier-disruption scenario a **third** time, with
+the orchestrator an **Agentforce agent authored in Agent Script** (D14):
+`salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator`. It coordinates
+the **same three business-unit agents** the Managed Agents and ADK variants use
+— Logistics on ADK/Agent Engine (`adk-logistics-a2a`), Commercial/Legal on
+Foundry (`foundry-commercial-a2a`), Customer operations on the OpenAI agent on
+AgentCore (`openai-agentcore`) — and writes one consolidated brief. The three
+orchestrators now span one axis: **who owns the concurrency** — a host tool
+(Managed Agents), a declared graph (ADK `ParallelAgent`), and here a **serial
+Apex callout budget that constrains it**.
+
+**The topology toggle (`af_topology`), delegated by default.** Agentforce's only
+GA outbound is Path A — an Apex callout through the lab bridge — and Apex
+callouts are serial, batch-capped at one, inside a single transaction's ~120s
+cumulative budget. So the run offers two topologies, picked per run via an
+injected `[A2A-LAB ROUTING]` `fanout-topology:` block (the D28 routing-block
+pattern, alongside `af_channel`/`af_route`):
+
+- **DELEGATED** (default, and the one that completes): the Agent Script makes
+  **one** Apex callout to the bridge's new `fanout:supplier-disruption` route.
+  The bridge runs all three legs **concurrently off-platform** — the same
+  `orchestration.dispatch()` the Managed Agents host tool runs — and returns the
+  three sections plus a coverage line. The orchestrator only synthesises.
+- **SERIAL** (the constraint demo): the Agent Script calls its per-leg action
+  three times. Two ~110s callouts already threaten the 120s budget; three
+  overrun it, so a real three-leg run **degrades by design** — a later leg is
+  abandoned mid-turn (HTTP 200, heading present, content silently gone, the
+  exact failure measured 2026-07-25). The partial-failure contract reports it as
+  an unavailable leg rather than letting a degraded run read as complete.
+
+**Why reuse the three legs rather than build twins.** The trace layer, the D27
+delegation rider, and a distinct caller id (`agentforce-orchestrator-via-bridge`)
+already separate this orchestrator's runs from the other two in the console and
+the native logs. Dedicated twins would triple the cross-cloud deploy surface to
+buy only native-log attribution the caller id already provides. So the legs are
+shared; only the orchestrator is new.
+
+**Why no new Apex and no new Named Credential.** Both topologies reuse the
+existing `A2ALabInvokeRemoteAgent` invocable and the `A2ALab_Bridge` Named
+Credential. Delegated is one call with target `fanout:supplier-disruption`;
+serial is three calls to the leg targets. The only new server code is the
+bridge's `fanout:` verb (`src/bridge/app.py` `_fanout()`), which validates the
+scenario, enforces `delegation.allowed()` at the next depth, and dispatches.
+
+**What it measures, and the claim it supports.** That a platform whose native
+outbound cannot fan out at all can **still** participate in a 1:many topology —
+by delegating the parallelism to a seam that has it — and exactly what the
+on-platform serial path costs when it tries to do the fan-out itself. The claim
+is WS8's: an enterprise needs one protocol and an honest account of what
+crossing platform boundaries costs, here the cost of orchestrating from a
+serial-outbound platform. See plan/07-workstreams.md WS8 and plan/09.

@@ -656,6 +656,7 @@ through a tunnel."*
 | WS8 — Claude (AWS) ↔ ADK | ✅ **Fully** | Both ends already hosted (AgentCore, Agent Engine) |
 | WS8 — **ADK orchestrator** | ✅ **Fully** | Runs inside the Agent Engine container calling hosted endpoints |
 | WS8 — **CMA orchestrator** | ⚠️ **One caveat** | See below |
+| WS8 — **Agentforce orchestrator** | ✅ **Fully** | Agent Script bundle in the prod org; both topologies reuse `A2ALabInvokeRemoteAgent` → bridge (delegated = bridge `fanout:` route runs the legs; serial = three stacked callouts). No host process, no new Apex (D61) |
 
 **The caveat, precisely.** Managed Agents custom tools execute **host-side**:
 `managed_backend.py` receives `agent.custom_tool_use` and answers with
@@ -839,8 +840,13 @@ repoints via `.env` once its agent exists.
 
 **Goal.** One long-running orchestrator farms a single business task out to
 three agents on three different platforms *in parallel*, then synthesises one
-answer — built twice, once with an Anthropic Managed Agent and once with Google
-ADK on Agent Engine, so the two async models can be compared directly.
+answer — built **three** times, once with an Anthropic Managed Agent, once with
+Google ADK on Agent Engine, and once with an **Agentforce agent in Agent Script**
+(D61), so the three concurrency-ownership models can be compared directly. The
+axis is **who owns the concurrency**: a host tool (Managed Agents), a declared
+graph (ADK `ParallelAgent`), and a serial Apex callout budget that constrains it
+(Agentforce). The Agentforce variant reuses the same three legs; only the
+orchestrator is new. See "The three-orchestrator comparison" below.
 
 **Why.** Every one of the lab's 12 scenarios is 1:1. Fan-out is a different
 shape with different failure modes, and it is the shape real enterprises
@@ -950,6 +956,29 @@ fan-out, opposite hosting choice.
 **Foundry and OpenAI have no comparable long-running/scheduled hosting** —
 record that honestly rather than working around it, same as OpenAI's write-only
 traces.
+
+### The three-orchestrator comparison (who owns the concurrency) — D61
+
+The same scenario, the same three legs, orchestrated three ways. The axis is not
+"async model" but **where the fan-out concurrency lives**:
+
+| | Anthropic Managed Agents | Google ADK | Agentforce (Agent Script) |
+|---|---|---|---|
+| Fan-out owner | A `custom` tool the **host** executes | **Declared** in the agent graph (`ParallelAgent`) | The **lab bridge**, off-platform, via a delegated callout |
+| Concurrency lives | In the lab's host code | In the framework's scheduler | Not on-platform — Agentforce's only GA outbound is a **serial** Apex callout |
+| Topology | Parallel | Parallel | **DELEGATED** (default: one callout → bridge `fanout:` runs three legs in parallel) or **SERIAL** (three stacked ~110s callouts) |
+| Failure mode measured | Per-leg timeout in host code | Framework leg failure | Serial overruns the 120s Apex callout budget by design — a later leg abandoned (HTTP 200, empty section, the 2026-07-25 failure) |
+| New agent | Managed Agents host tool | ADK graph | `A2ALab_Supply_Orchestrator` Agent Script bundle; **no new Apex, no new Named Credential** |
+
+**Expected finding:** a platform whose native outbound cannot fan out *at all*
+can still participate in a 1:many topology — by **delegating the parallelism to
+a seam that has it** (the bridge's `fanout:` route runs the same
+`orchestration.dispatch()` the Managed Agents host tool runs). The serial
+topology is kept as a selectable **constraint demo**: it shows exactly what the
+on-platform path costs when it tries to do the fan-out itself. The delegated
+caller id `agentforce-orchestrator-via-bridge` and the D27 rider separate this
+orchestrator's legs in the trace layer, so the three legs are **reused**, not
+twinned.
 
 ### Other scenarios — documenting *why* this shape recurs
 

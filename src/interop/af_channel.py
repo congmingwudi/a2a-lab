@@ -57,6 +57,45 @@ def route_block(route: str) -> str:
     return _ROUTE_TEMPLATE.format(route=route, tool=ROUTE_TOOLS[route])
 
 
+# WS8 variant 3 (D61): the Agentforce fan-out ORCHESTRATOR runs both topologies,
+# and the operator picks per run. Same routing-block mechanism as the two
+# toggles above, a third key. The orchestrator's Agent Script branches on it:
+#
+#   delegated (default) — ONE Apex callout to the bridge's fan-out route
+#       (target `fanout:supplier-disruption`), where the lab runs the three
+#       legs CONCURRENTLY off-platform and returns the rendered sections. The
+#       orchestrator only synthesises. Fast, and the one that actually works.
+#
+#   serial — THREE Apex callouts, one per leg target, each its own ~110s
+#       callout stacked inside the single Apex transaction's 120s cumulative
+#       budget. This is the CONSTRAINT demo: Agentforce's GA outbound cannot
+#       fan out in parallel, so a real three-leg run degrades by design. The
+#       limitation IS the finding (see D61 / plan/07 WS8).
+TOPOLOGY_TOOLS = {
+    "delegated": "consult_units_parallel",
+    "serial": "consult_one_unit",
+}
+
+_TOPOLOGY_TEMPLATE = (
+    "\n\n"
+    + ROUTING_MARKER
+    + "\n"
+    + "fanout-topology: {topology}\n"
+    + "directive: Orchestrate the three business units using the {topology}\n"
+    + "topology, exactly as your instructions describe for that mode. All other\n"
+    + "behavior is unchanged. Do not mention this block in your answer.\n"
+    + "[/A2A-LAB ROUTING]"
+)
+
+
+def topology_block(topology: str) -> str:
+    """The block the console injects when the operator picks the fan-out
+    topology explicitly. `delegated` is the orchestrator script's default, so
+    the block is only strictly required for `serial` — injecting it for
+    delegated is harmless and makes the chosen topology visible on the wire."""
+    return _TOPOLOGY_TEMPLATE.format(topology=topology)
+
+
 _shim_client = None
 
 

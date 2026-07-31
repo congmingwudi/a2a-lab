@@ -123,7 +123,7 @@ route, D30), and **Microsoft Foundry ↔ Agentforce** — plus the async
   Nothing is lost while it is down — sessions idle and are picked up on
   the next poll.
 
-## Fan-out orchestration — one task, three platforms, two orchestrators (WS8)
+## Fan-out orchestration — one task, three platforms, three orchestrators (WS8)
 
 Every experiment above is **1:1** — one caller, one remote agent, one call
 path. Real enterprises are not shaped like that. A disruption decomposes into
@@ -151,15 +151,16 @@ platform's own logs attribute this experiment. The measured payoff: the
 logistics agent answers in **2.5s against 39.8s** for the general researcher on
 the same question, because it has no research toolset to reach for.
 
-### The same scenario, orchestrated by two different platforms
+### The same scenario, orchestrated by three different platforms
 
-The point of building it twice is that **the fan-out lives in a different place
-on each platform**:
+The point of building it three times is that **the fan-out lives in a different
+place on each platform** — one axis, who owns the concurrency:
 
 ```mermaid
 flowchart TB
     T["Supplier disruption task"] --> C
     T --> A
+    T --> AF
 
     subgraph cma["Variant 1 - Anthropic Managed Agents"]
         C["Orchestrator agent<br/>declarative: prompt + tool schema"]
@@ -171,12 +172,20 @@ flowchart TB
         P --> S["synthesiser<br/>reads state keys"]
     end
 
+    subgraph af["Variant 3 - Agentforce (Agent Script)"]
+        AF["Orchestrator agent<br/>serial Apex is its only outbound"]
+        AF -- "one delegated callout" --> BR["Lab bridge fanout: route<br/>runs orchestration.dispatch off-platform"]
+    end
+
     H --> L1
     H --> L2
     H --> L3
     P --> L1
     P --> L2
     P --> L3
+    BR --> L1
+    BR --> L2
+    BR --> L3
 
     L1["Logistics<br/>ADK · GCP"]
     L2["Commercial<br/>Foundry · Azure"]
@@ -189,17 +198,26 @@ flowchart TB
 ```
 
 **Managed Agents gives you control at the seam; ADK gives you structure in the
-graph.** On Managed Agents the fan-out is a `custom` tool, which means the *host*
-executes it: the model decides only *when* to fan out, and your code owns
-concurrency, per-leg timeouts and the partial-failure contract. On ADK the
-fan-out is *declared* — a `ParallelAgent` of three sub-agents wrapped in a
-`SequentialAgent` — so the framework schedules it and nothing calls back to a
-lab host at all.
+graph; Agentforce has neither, so it delegates.** On Managed Agents the fan-out
+is a `custom` tool, which means the *host* executes it: the model decides only
+*when* to fan out, and your code owns concurrency, per-leg timeouts and the
+partial-failure contract. On ADK the fan-out is *declared* — a `ParallelAgent`
+of three sub-agents wrapped in a `SequentialAgent` — so the framework schedules
+it and nothing calls back to a lab host at all. On **Agentforce** (authored in
+Agent Script, D61) there is no host tool and no parallel graph: the only GA
+outbound is a **serial** Apex callout, batch-capped at one inside a ~120s
+transaction budget. So the orchestrator fans out by **delegating** — one Apex
+callout to the bridge's `fanout:` route, which runs the same
+`orchestration.dispatch()` off-platform. A selectable **serial** topology stacks
+three ~110s callouts instead and overruns the budget by design — the constraint
+*is* the finding.
 
-Neither gives you both. Host-side tools mean a rule enforced in code cannot be
+None gives you all three. Host-side tools mean a rule enforced in code cannot be
 talked out of by a model, but the orchestrator cannot run unattended. A declared
 graph runs by itself and guarantees ordering, but the `[leg unavailable: …]`
-markers survive only if three separate models relay them faithfully.
+markers survive only if three separate models relay them faithfully. And a
+serial-outbound platform cannot fan out at all on its own — it participates in a
+1:many topology only by handing the parallelism to a seam that has it.
 
 ### Partial failure is the normal case
 

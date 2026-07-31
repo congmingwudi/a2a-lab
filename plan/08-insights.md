@@ -646,18 +646,19 @@ flowchart TB
 
 ### Fan-out is where cross-platform observability stops being a slogan
 
-*Status: observed · refs: D16, D27, D34, plan/07-workstreams.md, plan/03-results.md*
+*Status: observed · refs: D16, D27, D34, D61, plan/07-workstreams.md, plan/03-results.md*
 
-**What the lab showed:** MEASURED 2026-07-25, first live dispatch: two legs in parallel (Gemini on Agent Engine, gpt-5-mini on Foundry) finished in 36.7s against a 50.7s serial equivalent, and a third leg that was genuinely dead (expired AWS credentials) rendered inline as "[leg unavailable: openai — ...]" with a "2/3 legs answered" coverage line and a non-zero exit. The run also surfaced something not planned for: every leg is sent the same shaping instruction, and Foundry honored it both times while the Gemini leg honored it once and on the second run replied with a clarifying question instead of an answer — HTTP 200, non-empty, fast, structurally perfect, and useless to an orchestrator that cannot answer questions. That is the SECOND instance the lab has measured of a successful-looking response carrying nothing usable; the first was an Agentforce action blowing its budget and returning its section heading with the content silently gone. Twelve of the lab's first thirteen scenarios are 1:1 — one caller, one remote agent, one call path to reason about. Real enterprises are not shaped like that: a disruption, a diligence review or a security incident decomposes into independent questions owned by different functions, and in any company of scale those functions already run different agent platforms chosen at different times. WS8 builds the first 1:many cell — one orchestrator dispatching to Google ADK, Microsoft Foundry and OpenAI concurrently — to measure three things the 1:1 cells cannot reach. FIRST, the delegation guard under parallel dispatch rather than chaining: D27's depth limit was designed for chains, and a supervisor calling three platforms is depth-1 three times. SECOND, correlation: a 1:1 run spans at most two platforms' logs, while a fan-out spans four, each with its own retention, ingestion lag and join key — and the lab already measured that only platforms logging the utterance text can be joined by the D34 rider convention, with Foundry joining by response id instead. That number was the deliverable, it was measured on 2026-07-26, and it came in at **1 of 4, not the 3 of 4 this entry originally predicted** (plan/03-results.md, "Fan-out join rate"). Predicting the number and then measuring it is the point; publishing the prediction as though it were the result is not. THIRD, partial failure, which at fan-out is the normal case rather than the edge case — and which the lab has already seen wearing a disguise: on 2026-07-25 an Agentforce action that blew its budget still returned HTTP 200 with its section heading present and the delegated content silently absent, at full cost. One leg of one call path. A fan-out has three times that surface.
+**What the lab showed:** MEASURED 2026-07-25, first live dispatch: two legs in parallel (Gemini on Agent Engine, gpt-5-mini on Foundry) finished in 36.7s against a 50.7s serial equivalent, and a third leg that was genuinely dead (expired AWS credentials) rendered inline as "[leg unavailable: openai — ...]" with a "2/3 legs answered" coverage line and a non-zero exit. The run also surfaced something not planned for: every leg is sent the same shaping instruction, and Foundry honored it both times while the Gemini leg honored it once and on the second run replied with a clarifying question instead of an answer — HTTP 200, non-empty, fast, structurally perfect, and useless to an orchestrator that cannot answer questions. That is the SECOND instance the lab has measured of a successful-looking response carrying nothing usable; the first was an Agentforce action blowing its budget and returning its section heading with the content silently gone. Twelve of the lab's first thirteen scenarios are 1:1 — one caller, one remote agent, one call path to reason about. Real enterprises are not shaped like that: a disruption, a diligence review or a security incident decomposes into independent questions owned by different functions, and in any company of scale those functions already run different agent platforms chosen at different times. WS8 builds the first 1:many cell — one orchestrator dispatching to Google ADK, Microsoft Foundry and OpenAI concurrently — to measure three things the 1:1 cells cannot reach. FIRST, the delegation guard under parallel dispatch rather than chaining: D27's depth limit was designed for chains, and a supervisor calling three platforms is depth-1 three times. SECOND, correlation: a 1:1 run spans at most two platforms' logs, while a fan-out spans four, each with its own retention, ingestion lag and join key — and the lab already measured that only platforms logging the utterance text can be joined by the D34 rider convention, with Foundry joining by response id instead. That number was the deliverable, it was measured on 2026-07-26, and it came in at **1 of 4, not the 3 of 4 this entry originally predicted** (plan/03-results.md, "Fan-out join rate"). Predicting the number and then measuring it is the point; publishing the prediction as though it were the result is not. THIRD, partial failure, which at fan-out is the normal case rather than the edge case — and which the lab has already seen wearing a disguise: on 2026-07-25 an Agentforce action that blew its budget still returned HTTP 200 with its section heading present and the delegated content silently absent, at full cost. One leg of one call path. A fan-out has three times that surface. The scenario is now built THREE ways on one axis — who owns the concurrency: a HOST tool on Managed Agents, a declared graph (ParallelAgent) on ADK, and — added 2026-07-30 (D61) — an Agentforce orchestrator in Agent Script whose only GA outbound is a SERIAL Apex callout. It cannot fan out on-platform, so it DELEGATES: one callout to the bridge's fanout: route runs the same dispatch off-platform (the delegated topology), while a selectable serial topology stacks three ~110s callouts and overruns the 120s Apex budget by design. The finding is that a serial-outbound platform participates in a 1:many topology only by handing the parallelism to a seam that has it.
 
 **Advisor take:** Before promising multi-agent orchestration, ask what the system does when one agent of several does not answer — and check that the answer is not "produce a shorter report and call it success". Partial failure is the default state of any fan-out, so make it structural: every branch gets a section in the output whether or not it succeeded, and every result carries a coverage count. A degraded run that reads like a complete one is worse than an error, because nothing downstream — logs, dashboards, evals, or the human reading the summary — can tell the difference. Then verify you can still trace one logical task across every platform it touched; if you cannot, you have bought orchestration and sold your observability to pay for it.
 
-**Fan-out: two orchestrators** — The same task, three business units, three clouds — orchestrated two ways. On Managed Agents the fan-out is a custom tool the HOST executes; on ADK it is declared in the agent graph. One buys control at the seam, the other structure in the graph.
+**Fan-out: three orchestrators** — The same task, three business units, three clouds — orchestrated three ways, one axis: who owns the concurrency. On Managed Agents the fan-out is a custom tool the HOST executes; on ADK it is declared in the agent graph; on Agentforce there is no host tool and no parallel graph, so the orchestrator DELEGATES the fan-out to the lab bridge — the only way a serial-outbound platform still fans out.
 
 ```mermaid
 flowchart TB
     T["Supplier disruption task"] --> C
     T --> A
+    T --> AF
 
     subgraph cma["Variant 1 - Anthropic Managed Agents"]
         C["Orchestrator agent<br/>declarative: prompt + tool schema"]
@@ -669,12 +670,20 @@ flowchart TB
         P --> S["synthesiser<br/>reads state keys"]
     end
 
+    subgraph af["Variant 3 - Agentforce (Agent Script)"]
+        AF["Orchestrator agent<br/>serial Apex is its only outbound"]
+        AF -- "one delegated callout" --> BR["Lab bridge fanout: route<br/>runs orchestration.dispatch off-platform"]
+    end
+
     H --> L1
     H --> L2
     H --> L3
     P --> L1
     P --> L2
     P --> L3
+    BR --> L1
+    BR --> L2
+    BR --> L3
 
     L1["Logistics<br/>ADK · GCP"]
     L2["Commercial<br/>Foundry · Azure"]

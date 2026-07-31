@@ -855,7 +855,16 @@ insights:
       already seen wearing a disguise: on 2026-07-25 an Agentforce action that
       blew its budget still returned HTTP 200 with its section heading present
       and the delegated content silently absent, at full cost. One leg of one
-      call path. A fan-out has three times that surface.
+      call path. A fan-out has three times that surface. The scenario is now
+      built THREE ways on one axis — who owns the concurrency: a HOST tool on
+      Managed Agents, a declared graph (ParallelAgent) on ADK, and — added
+      2026-07-30 (D61) — an Agentforce orchestrator in Agent Script whose only
+      GA outbound is a SERIAL Apex callout. It cannot fan out on-platform, so it
+      DELEGATES: one callout to the bridge's fanout: route runs the same
+      dispatch off-platform (the delegated topology), while a selectable serial
+      topology stacks three ~110s callouts and overruns the 120s Apex budget by
+      design. The finding is that a serial-outbound platform participates in a
+      1:many topology only by handing the parallelism to a seam that has it.
     advisory: >
       Before promising multi-agent orchestration, ask what the system does
       when one agent of several does not answer — and check that the answer is
@@ -868,7 +877,7 @@ insights:
       difference. Then verify you can still trace one logical task across
       every platform it touched; if you cannot, you have bought orchestration
       and sold your observability to pay for it.
-    refs: [D16, D27, D34, plan/07-workstreams.md, plan/03-results.md]
+    refs: [D16, D27, D34, D61, plan/07-workstreams.md, plan/03-results.md]
 
   - id: cross-cloud-agent-identity
     category: Identity and trust

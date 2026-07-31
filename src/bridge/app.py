@@ -64,12 +64,24 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
     async def healthz():
         return {"ok": True, "service": "bridge"}
 
+    # WS8 variant 3 (D61): the Agentforce fan-out orchestrator's DELEGATED
+    # topology posts one Apex callout at `fanout:<scenario>`, and the bridge
+    # runs that scenario's legs CONCURRENTLY off-platform — the parallelism
+    # Agentforce's serial Apex budget cannot do on-platform. This is not a
+    # target you can resolve in targets.yaml; it is a verb, so it is matched by
+    # prefix before the registry lookup. The orchestrator only synthesises the
+    # sections this returns.
+    FANOUT_PREFIX = "fanout:"
+
     @app.post("/invoke/{target_name}")
     async def invoke(target_name: str, request: Request):
         check_auth(request)
         body = await request.json()
         req = AgentRequest.from_dict(body)
         req.trace_id = req.trace_id or request.headers.get(TRACE_HEADER) or new_trace_id()
+
+        if target_name.startswith(FANOUT_PREFIX):
+            return await _fanout(target_name[len(FANOUT_PREFIX) :], req, request)
 
         registry = get_registry()
         try:
@@ -125,6 +137,70 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
                 "protocol": target.protocol,
                 "status": target.status,
                 "total_ms": int((time.perf_counter() - start) * 1000),
+            }
+            hop.response_payload = payload
+        return payload
+
+    async def _fanout(scenario: str, req: AgentRequest, request: Request) -> dict:
+        """Run a fan-out scenario's legs concurrently and return the rendered
+        sections (WS8 variant 3, D61). The Agentforce orchestrator's delegated
+        topology calls this ONCE; the parallelism it cannot do in serial Apex
+        happens here, off-platform. Each leg is its own Hop under the same
+        trace_id, exactly as the host-side CMA orchestrator produces — so the
+        console groups the Agentforce-orchestrated run the same way.
+
+        Same delegation contract as /invoke: an over-depth request is refused
+        with a wire-visible answer rather than allowed to fan out further.
+        """
+        from orchestration import dispatch, legs_for
+
+        inbound_depth = delegation.depth_of(req)
+        start = time.perf_counter()
+        with Hop(
+            req.trace_id,
+            source="agentforce-apex" if TOKEN_HEADER in request.headers else "caller",
+            target="bridge",
+            protocol="rest",
+            transport_detail=f"POST /invoke/fanout:{scenario}",
+            request_payload={"scenario": scenario, "message": req.message},
+        ) as hop:
+            try:
+                legs_for(scenario)  # validate; raises KeyError for an unknown scenario
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from None
+            if not delegation.allowed(req):
+                payload = {
+                    "text": delegation.refusal("bridge"),
+                    "session_id": req.session_id,
+                    "delegation_refused": True,
+                    "bridge": {"target": f"fanout:{scenario}", "protocol": "fan-out"},
+                }
+                hop.response_payload = payload
+                return payload
+            # The bridge is itself a delegating seam here, so the legs inherit
+            # depth+1 — dispatch stamps the D27 rider on each leg from this
+            # caller identity. caller_platform stays 'agentforce': the run
+            # originated on-platform and the legs' logs should attribute it so.
+            result = await dispatch(
+                req.message,
+                caller="agentforce-orchestrator-via-bridge",
+                caller_platform="agentforce",
+                scenario=scenario,
+                trace_id=req.trace_id,
+                inbound_depth=inbound_depth + 1,
+            )
+            payload = {
+                # `text` is the field the Apex invocable reads back (askOne
+                # parses parsed.get('text')). The orchestrator synthesises from
+                # these rendered sections + the coverage line.
+                "text": result.render(),
+                "session_id": req.session_id,
+                "bridge": {
+                    "target": f"fanout:{scenario}",
+                    "protocol": "fan-out",
+                    "coverage": f"{result.ok_count}/{len(result.results)}",
+                    "total_ms": int((time.perf_counter() - start) * 1000),
+                },
             }
             hop.response_payload = payload
         return payload

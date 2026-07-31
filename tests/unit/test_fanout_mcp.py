@@ -244,10 +244,20 @@ def test_env_override_carries_state_where_no_file_exists(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cma, "STATE_FILE", tmp_path / "absent.json")
     monkeypatch.setattr(cma, "MCP_STATE_FILE", tmp_path / "absent_mcp.json")
-    monkeypatch.setenv(cma.STATE_ENV, json.dumps({"agent_id": "agent_x", "environment_id": "env_x"}))
+    monkeypatch.setenv(
+        cma.STATE_ENV, json.dumps({"agent_id": "agent_x", "environment_id": "env_x"})
+    )
     monkeypatch.setenv(
         cma.MCP_STATE_ENV,
-        json.dumps({"agent_id": "agent_y", "environment_id": "env_y", "system": "s", "mcp_url": "u", "vault_id": "v"}),
+        json.dumps(
+            {
+                "agent_id": "agent_y",
+                "environment_id": "env_y",
+                "system": "s",
+                "mcp_url": "u",
+                "vault_id": "v",
+            }
+        ),
     )
 
     assert cma.load_state()["agent_id"] == "agent_x"

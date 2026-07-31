@@ -170,6 +170,23 @@ targets:
       client_id: ${SF_CLIENT_ID}
       client_secret: ${SF_CLIENT_SECRET}
       agent_id: ${SF_FOUNDRY_AGENT_ID}
+
+  # WS8 orchestrator variant 3 (D61): the supplier-disruption fan-out
+  # orchestrated by an Agentforce agent authored in Agent Script — the third
+  # point on the who-owns-concurrency axis (host / graph / serial-Apex). The
+  # console talks to it over the GA Agent API like any twin; the fan-out
+  # happens INSIDE Agentforce, via the orchestrator's Apex → bridge. The two
+  # topologies (serial-native vs delegated parallel) are picked per run and
+  # branch inside the Agent Script — not a different target.
+  agentforce-orchestrator-rest:
+    platform: agentforce
+    protocol: agentforce-api
+    status: native
+    auth:
+      my_domain: ${SF_MY_DOMAIN}
+      client_id: ${SF_CLIENT_ID}
+      client_secret: ${SF_CLIENT_SECRET}
+      agent_id: ${SF_ORCHESTRATOR_AGENT_ID}
   foundry-rest:
     platform: foundry
     protocol: foundry-api

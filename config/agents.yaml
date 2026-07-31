@@ -1,0 +1,320 @@
+# Agent registry: every distinct AGENT the lab has deployed across the tech
+# stack, as opposed to targets.yaml (which lists protocol FACES — often three
+# per agent) or scenarios.yaml (which lists call PATHS). This is the source of
+# truth for the console's Infrastructure → Agent Registry section: one tile per
+# agent, showing the same AgentCard the experiment Details views show, plus the
+# platform it runs on, where it is deployed, and the experiments it is part of.
+#
+# Each entry:
+#   id           stable slug (tile key)
+#   name         display name (matches the AgentCard / adapter name where one exists)
+#   group        which registry shelf it sits on (see `groups` below)
+#   platform     one of: claude | openai | adk | foundry | agentforce | guide
+#                (drives the platform chip + logo — one hue per platform, D-system)
+#   model        the model it runs (honest; "—" where the platform hides it)
+#   role         one line: what this agent is for
+#   deployments  where it actually runs — [{where, cloud}]. `cloud` picks the
+#                deployment chip's logo (aws|gcloud|microsoft|salesforce|anthropic|openai).
+#                REGION ONLY, never an account — same rule as everywhere else.
+#   protocols    inbound protocols it answers on (badges)
+#   card_target  a target in targets.yaml whose live /.well-known/agent-card.json
+#                IS this agent's card — the console fetches it on demand, exactly
+#                as the experiment Details tab does. Omit when the platform serves
+#                no card (AgentCore invoke-only, OpenAI): the tile then shows the
+#                config-declared identity and says so.
+#   experiments  scenario names (config/scenarios.yaml) this agent appears in —
+#                each renders as a clickable row that opens that experiment.
+#   note         optional caveat that must travel with the tile.
+
+groups:
+  - id: research
+    title: "Research agents"
+    blurb: >-
+      One research agent per platform. Each answers on its own platform and,
+      mid-answer, consults an Agentforce twin — the pairwise experiments.
+  - id: agentforce
+    title: "Agentforce service agents"
+    blurb: >-
+      One Agentforce agent per platform pair (D25): same org, different agent,
+      so each cross-platform experiment is a closed two-platform system and each
+      platform's own logs attribute the run separately.
+  - id: orchestrators
+    title: "Fan-out orchestrators"
+    blurb: >-
+      The 1:many shape (WS8). The same supplier-disruption task, orchestrated
+      three ways — the variable is who decides what runs in parallel: a host, a
+      graph, or (Agentforce) a serial Apex budget.
+  - id: business-units
+    title: "Fan-out business units"
+    blurb: >-
+      The three legs every orchestrator fans out to — dedicated per-scenario
+      agents (WS8) so each platform's execution logs attribute this experiment,
+      reused across all three orchestrators.
+  - id: infrastructure
+    title: "Lab infrastructure"
+    blurb: >-
+      Agents that are part of the lab itself rather than an experiment subject.
+
+agents:
+  # ---- Research agents --------------------------------------------------------
+  - id: claude-researcher
+    name: "Claude research agent"
+    group: research
+    platform: claude
+    model: "claude-haiku-4-5"
+    role: "Cross-platform researcher; consults Agentforce mid-answer via its ask_agentforce tool."
+    deployments:
+      - { where: "Anthropic Managed Agents", cloud: anthropic }
+      - { where: "AWS · us-east-1 · Bedrock AgentCore", cloud: aws }
+    protocols: [rest, mcp, a2a, agentcore-http]
+    card_target: claude-a2a
+    experiments:
+      - claude-to-agentforce
+      - agentforce-to-claude
+      - claude-aws-to-agentforce
+      - agentforce-to-claude-aws
+      - account-brief-async
+    note: >-
+      One adapter, two backends (D26): Anthropic Managed Agents (default) and the
+      self-hosted Claude Agent SDK containerized on Bedrock AgentCore. The A2A
+      card is the same either way — only the hosting differs.
+
+  - id: openai-researcher
+    name: "OpenAI research agent"
+    group: research
+    platform: openai
+    model: "gpt-5-mini"
+    role: "Mirror of the Claude researcher on the OpenAI Agents SDK; consults its OpenAI-paired Agentforce twin."
+    deployments:
+      - { where: "AWS · us-east-1 · Bedrock AgentCore", cloud: aws }
+    protocols: [rest, mcp, a2a, agentcore-http]
+    card_target: openai-a2a
+    experiments:
+      - chatgpt-to-agentforce
+      - agentforce-to-chatgpt
+    note: >-
+      The agents-sdk backend is the Codex deliverable (plan/06). OpenAI hosts no
+      inbound agent endpoint and its trace dashboard is write-only, so the
+      platform-interior leg is dark — the lab's servers are the only door.
+
+  - id: adk-researcher
+    name: "ADK research agent"
+    group: research
+    platform: adk
+    model: "gemini-2.5-flash-lite"
+    role: "Google ADK/Gemini researcher on Vertex AI Agent Engine — the lab's first native×native A2A end."
+    deployments:
+      - { where: "GCP · Vertex AI Agent Engine", cloud: gcloud }
+    protocols: [a2a]
+    card_target: google-adk-a2a
+    experiments:
+      - adk-to-agentforce
+      - agentforce-to-adk
+      - google-adk-to-foundry
+    note: >-
+      Platform-native A2A (WS2). The public agent-card route 404s in the current
+      preview, so the lab pins the transport and builds a minimal card locally —
+      recorded honestly as preview roughness.
+
+  - id: foundry-researcher
+    name: "Microsoft Foundry research agent"
+    group: research
+    platform: foundry
+    model: "gpt-5-mini"
+    role: "Foundry prompt agent with an A2A tool and inbound A2A — the same model as the OpenAI researcher, a different platform."
+    deployments:
+      - { where: "Azure · Foundry Agent Service", cloud: microsoft }
+    protocols: [foundry-api, a2a]
+    card_target: foundry-a2a
+    experiments:
+      - foundry-to-agentforce
+      - agentforce-to-foundry
+      - google-adk-to-foundry
+    note: >-
+      WS3. Speaks the A2A 0.3 dialect inbound (v1.0 card at agentCard/v1.0);
+      instructions and connection are pushed by deploy/foundry/provision_foundry.py.
+
+  # ---- Agentforce service agents (D25 twins) ---------------------------------
+  - id: agentforce-claude-twin
+    name: "A2ALab Research Assistant (Claude-paired)"
+    group: agentforce
+    platform: agentforce
+    model: "—"
+    role: "Answers account questions from CRM (Apex over Account/Opps/Cases), then delegates external research to the Claude agent."
+    deployments:
+      - { where: "Salesforce", cloud: salesforce }
+    protocols: [agentforce-api, a2a, mcp]
+    card_target: agentforce-a2a
+    experiments:
+      - claude-to-agentforce
+      - agentforce-to-claude
+      - claude-aws-to-agentforce
+      - agentforce-to-claude-aws
+      - account-brief-async
+    note: >-
+      Authored in Agent Script (D14). Agentforce publishes no A2A/MCP surface of
+      its own, so the card shown is the lab's shim card (status: via-shim); the
+      shim routes to this specific twin by the delegation rider's platform.
+
+  - id: agentforce-openai-twin
+    name: "A2ALab Research Assistant (OpenAI-paired)"
+    group: agentforce
+    platform: agentforce
+    model: "—"
+    role: "The OpenAI-paired twin (SF_OPENAI_AGENT_ID); its external-research action targets openai-rest, never Claude."
+    deployments:
+      - { where: "Salesforce", cloud: salesforce }
+    protocols: [agentforce-api, a2a, mcp]
+    card_target: agentforce-a2a
+    experiments:
+      - chatgpt-to-agentforce
+      - agentforce-to-chatgpt
+
+  - id: agentforce-adk-twin
+    name: "A2ALab Research Assistant (ADK-paired)"
+    group: agentforce
+    platform: agentforce
+    model: "—"
+    role: "The ADK-paired twin (SF_ADK_AGENT_ID); delegates through the bridge to the ADK agent's native A2A endpoint."
+    deployments:
+      - { where: "Salesforce", cloud: salesforce }
+    protocols: [agentforce-api, a2a, mcp]
+    card_target: agentforce-a2a
+    experiments:
+      - adk-to-agentforce
+      - agentforce-to-adk
+
+  - id: agentforce-foundry-twin
+    name: "A2ALab Research Assistant (Foundry-paired)"
+    group: agentforce
+    platform: agentforce
+    model: "—"
+    role: "The Foundry-paired twin (SF_FOUNDRY_AGENT_ID); delegates through the bridge to Foundry's native inbound A2A."
+    deployments:
+      - { where: "Salesforce", cloud: salesforce }
+    protocols: [agentforce-api, a2a, mcp]
+    card_target: agentforce-a2a
+    experiments:
+      - foundry-to-agentforce
+      - agentforce-to-foundry
+
+  # ---- Fan-out orchestrators (WS8) -------------------------------------------
+  - id: supply-orchestrator-cma
+    name: "A2ALab Supply Orchestrator"
+    group: orchestrators
+    platform: claude
+    model: "claude-sonnet-5"
+    role: "Fans a supplier-disruption task out to three business-unit agents on three platforms, then writes the brief."
+    deployments:
+      - { where: "Anthropic Managed Agents", cloud: anthropic }
+    protocols: [managed-agents-api]
+    experiments:
+      - supplier-disruption-cma
+    note: >-
+      Variant 1 (D41): the fan-out is a host-executed custom tool OR one remote
+      MCP tool per unit, toggled per run — the model decides only WHEN to fan
+      out; the host or the model owns concurrency. No live AgentCard: a Managed
+      Agent is a declarative control-plane object, not an A2A server.
+
+  - id: supply-orchestrator-adk
+    name: "a2alab-supply-orchestrator-adk"
+    group: orchestrators
+    platform: adk
+    model: "gemini-2.5-flash-lite"
+    role: "The same fan-out with concurrency DECLARED in the agent graph — SequentialAgent[ParallelAgent[3], synthesiser]."
+    deployments:
+      - { where: "GCP · Vertex AI Agent Engine", cloud: gcloud }
+    protocols: [a2a]
+    card_target: adk-orchestrator-a2a
+    experiments:
+      - supplier-disruption-adk
+    note: >-
+      Variant 2: self-contained — it fans out from inside the container, so no
+      lab host is attached while it runs. The framework schedules the concurrency.
+
+  - id: supply-orchestrator-agentforce
+    name: "A2ALab Supply Orchestrator (Agentforce)"
+    group: orchestrators
+    platform: agentforce
+    model: "—"
+    role: "The same fan-out orchestrated from Agentforce, authored in Agent Script — the third point on the who-owns-concurrency axis."
+    deployments:
+      - { where: "Salesforce", cloud: salesforce }
+    protocols: [agentforce-api]
+    card_target: agentforce-a2a
+    experiments:
+      - supplier-disruption-agentforce
+    note: >-
+      Variant 3 (WS8, D61): Agentforce's only GA outbound is Path A (Apex →
+      bridge), which is serial and batch-capped at one callout. So it runs two
+      ways, toggled per run — DELEGATED (the default that works): one Apex
+      callout to the bridge's `fanout:` route, where the lab runs the three
+      legs concurrently OFF-platform and hands back the sections to synthesise;
+      or SERIAL: three Apex callouts stacked inside the single transaction's
+      120s budget, which a real three-leg run overruns by design. The
+      constraint is the finding. Authored in Agent Script (D14); the tile shows
+      the lab's shim card (Agentforce publishes no A2A surface of its own).
+
+  # ---- Fan-out business units (dedicated per-scenario legs, WS8) --------------
+  - id: logistics-leg
+    name: "a2alab-logistics-agent"
+    group: business-units
+    platform: adk
+    model: "gemini-2.5-flash-lite"
+    role: "Logistics BU — exposure assessment (which orders/routes are hit)."
+    deployments:
+      - { where: "GCP · Vertex AI Agent Engine", cloud: gcloud }
+    protocols: [a2a]
+    card_target: adk-logistics-a2a
+    experiments:
+      - supplier-disruption-cma
+      - supplier-disruption-adk
+      - supplier-disruption-agentforce
+
+  - id: commercial-leg
+    name: "a2alab-commercial-agent"
+    group: business-units
+    platform: foundry
+    model: "gpt-5-mini"
+    role: "Commercial/Legal BU — contract and penalty position (delay penalties, force majeure)."
+    deployments:
+      - { where: "Azure · Foundry Agent Service", cloud: microsoft }
+    protocols: [a2a]
+    card_target: foundry-commercial-a2a
+    experiments:
+      - supplier-disruption-cma
+      - supplier-disruption-adk
+      - supplier-disruption-agentforce
+
+  - id: customer-comms-leg
+    name: "a2alab-customer-comms-agent"
+    group: business-units
+    platform: openai
+    model: "gpt-5-mini"
+    role: "Customer operations BU — what to tell affected customers."
+    deployments:
+      - { where: "AWS · us-east-1 · Bedrock AgentCore", cloud: aws }
+    protocols: [agentcore-http]
+    experiments:
+      - supplier-disruption-cma
+      - supplier-disruption-adk
+      - supplier-disruption-agentforce
+    note: >-
+      Reached over IAM-signed invoke_agent_runtime (SigV4), not a public
+      endpoint — so it serves no AgentCard; the tile shows its declared identity.
+
+  # ---- Lab infrastructure -----------------------------------------------------
+  - id: lab-guide
+    name: "A2ALab Lab Guide"
+    group: infrastructure
+    platform: guide
+    model: "claude-haiku-4-5"
+    role: "The console's docent — served as a lab agent over all three protocols (the meta exhibit)."
+    deployments:
+      - { where: "AWS · us-east-1 · Fargate (lab-hosted)", cloud: aws }
+    protocols: [rest, mcp, a2a]
+    card_target: guide-a2a
+    note: >-
+      Not an experiment subject: it answers questions about the lab itself. Its
+      MCP server also exposes raw read tools (get_decision, get_trace, …) for
+      client-side reasoning from Claude Desktop.

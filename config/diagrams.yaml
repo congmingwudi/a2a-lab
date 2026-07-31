@@ -171,15 +171,16 @@ diagrams:
           MS -- "0.3 JSON-RPC message/send<br/>a 1.x-only server answers -32601" --> COMPAT
           SRV -- "pinned a2a-version: 1.0<br/>omit it and you get VERSION_NOT_SUPPORTED" --> GOOG
   - id: fan-out-orchestration
-    title: "Fan-out: two orchestrators"
+    title: "Fan-out: three orchestrators"
     caption: >
-      The same task, three business units, three clouds — orchestrated two ways. On Managed Agents the fan-out is a custom tool the HOST executes; on ADK it is declared in the agent graph. One buys control at the seam, the other structure in the graph.
+      The same task, three business units, three clouds — orchestrated three ways, one axis: who owns the concurrency. On Managed Agents the fan-out is a custom tool the HOST executes; on ADK it is declared in the agent graph; on Agentforce there is no host tool and no parallel graph, so the orchestrator DELEGATES the fan-out to the lab bridge — the only way a serial-outbound platform still fans out.
     insights: [orchestration-topology]
     readme: true
     mermaid: |
       flowchart TB
           T["Supplier disruption task"] --> C
           T --> A
+          T --> AF
 
           subgraph cma["Variant 1 - Anthropic Managed Agents"]
               C["Orchestrator agent<br/>declarative: prompt + tool schema"]
@@ -191,12 +192,20 @@ diagrams:
               P --> S["synthesiser<br/>reads state keys"]
           end
 
+          subgraph af["Variant 3 - Agentforce (Agent Script)"]
+              AF["Orchestrator agent<br/>serial Apex is its only outbound"]
+              AF -- "one delegated callout" --> BR["Lab bridge fanout: route<br/>runs orchestration.dispatch off-platform"]
+          end
+
           H --> L1
           H --> L2
           H --> L3
           P --> L1
           P --> L2
           P --> L3
+          BR --> L1
+          BR --> L2
+          BR --> L3
 
           L1["Logistics<br/>ADK · GCP"]
           L2["Commercial<br/>Foundry · Azure"]

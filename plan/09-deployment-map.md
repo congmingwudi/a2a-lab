@@ -47,7 +47,7 @@ flowchart TB
   end
 
   subgraph SF["SALESFORCE — Agentforce"]
-    SF1["Agents: one twin per platform<br/>+ A2ALab Research Assistant"]
+    SF1["Agents: one twin per platform<br/>+ Research Assistant + Supply Orchestrator"]
     SF2["In: Agent API · MCP shim · A2A shim"]
     SF3["Out: Apex invocable to the bridge"]
     SF4["Obs: Data Cloud session-tracing DMOs"]
@@ -195,7 +195,13 @@ wherever `config/targets.yaml` points the bridge that day, which is the whole
 argument for having a bridge: switching a platform or a protocol is a config
 edit, not a Salesforce redeploy. Path B is the return direction — each platform's
 agent consulting Agentforce through the hosted shim — and the fan-out server is
-the one-to-many case, where a single model turn reaches three clouds.
+the one-to-many case, where a single model turn reaches three clouds. There are
+now **two** one-to-many paths: the fan-out MCP server for the Managed Agents
+orchestrator, and — for the Agentforce orchestrator (D61) — the bridge's own
+`fanout:` route, which runs the same three legs off-platform when an Apex callout
+targets `fanout:supplier-disruption` (the delegated topology). Both reuse
+`orchestration.dispatch()`; the bridge route exists because Agentforce's only GA
+outbound is a serial Apex callout that cannot fan out on-platform.
 
 **Why it is spread like this.** Not for redundancy; deliberately, because the
 lab's subject *is* cross-platform interop. An agent on each major platform, each
@@ -802,6 +808,8 @@ flowchart LR
 | `src/faces/` (the nine protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces`. **One process serves all eleven, addressed by path** | AWS |
 | `src/briefs/` (the watcher) | `deploy/briefs/deploy_briefs.sh` | ECS service `a2alab-briefs` on the shared cluster, roles `a2alab-briefs-task` / `-exec`, secret `a2alab/runtime/briefs`. **Reuses the faces image**, no ALB, no target group — it serves nothing | AWS |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
+| `salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator` | `sf agent validate\|publish\|activate` | Agent Script orchestrator bundle in the prod org (WS8 variant 3, D61). Fans out by **delegating** to the bridge's `fanout:` route; reuses `A2ALabInvokeRemoteAgent` — no new Apex, no new Named Credential | Salesforce |
+| `src/bridge/app.py` `_fanout()` | (part of `deploy/bridge/deploy_bridge.sh`) | The bridge's `fanout:<scenario>` verb route — one Apex callout runs the three legs off-platform via `orchestration.dispatch()`. Ships with the bridge image; not a separate deploy (D61) | AWS |
 | `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; **metrics** land in CloudWatch (read by `coding`) | laptop → AWS |
 | `scripts/setup_cw_logs_otlp.py` + `scripts/claude_otel.sh` | `setup_cw_logs_otlp.py --apply` (once) | `logs.amazonaws.com` service credential + CloudWatch **log group** `/a2alab/coding-agents/otlp` (bearer auth) + token in Secrets Manager `a2alab/telemetry/cw-logs-api-key`; the launch wrapper exports Claude Code's **log** events there (read by `coding-logs`, WS16) | laptop → AWS |
 | `.env` (gitignored) | `scripts/env_sync.py push` | Secrets Manager secret `A2ALAB_ENV_SECRET` — every platform credential, the account ids, the project ids | AWS |

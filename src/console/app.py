@@ -54,6 +54,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 # error anywhere.
 SSE_KEEPALIVE_S = 15.0
 SCENARIOS_PATH = Path("config/scenarios.yaml")
+AGENTS_PATH = Path("config/agents.yaml")
 DECISIONS_PATH = Path("plan/00-decisions.md")
 
 _DECISION_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — (D\d+)( \(revised\))?: (.+)$")
@@ -118,6 +119,18 @@ def load_groups(path: str | Path = SCENARIOS_PATH) -> list[dict]:
         return []
     raw = yaml.safe_load(p.read_text()) or {}
     return raw.get("groups") or []
+
+
+def load_agents(path: str | Path = AGENTS_PATH) -> dict[str, list[dict]]:
+    """The Agent Registry source of truth (config/agents.yaml): one entry per
+    distinct DEPLOYED agent, as opposed to targets.yaml's protocol faces. Returns
+    {groups: [...], agents: [...]} in file order. See the Infrastructure → Agent
+    Registry section (D57 canvas) and /api/agents."""
+    p = Path(path)
+    if not p.exists():
+        return {"groups": [], "agents": []}
+    raw = yaml.safe_load(p.read_text()) or {}
+    return {"groups": raw.get("groups") or [], "agents": raw.get("agents") or []}
 
 
 # Customer-shaped default for demos: the Agentforce agent's "Customer account
@@ -1006,6 +1019,12 @@ def create_console_app(registry: Registry | None = None):
             # an Agentforce-only concern.
             "supplier-disruption-cma": ("a2alab-supply-orchestrator", "claude"),
             "supplier-disruption-adk": ("a2alab-supply-orchestrator-adk", "adk"),
+            # Variant 3 (D61): the Agentforce orchestrator delegates the fan-out
+            # through the bridge, which stamps THIS caller on each leg.
+            "supplier-disruption-agentforce": (
+                "agentforce-orchestrator-via-bridge",
+                "agentforce",
+            ),
         }
         pair = by_name.get(name)
         return delegation.rider_for(*pair) if pair else None
@@ -1027,6 +1046,42 @@ def create_console_app(registry: Registry | None = None):
                 for name, spec in load_scenarios().items()
             ],
         }
+
+    @app.get("/api/agents")
+    async def agents():
+        """The Agent Registry (config/agents.yaml): one tile per distinct
+        deployed agent, for Infrastructure → Agent Registry.
+
+        This reads config/agents.yaml (the source of truth) and resolves each
+        agent's `experiments` slugs to their scenario titles + live status from
+        config/scenarios.yaml, so a tile can list clickable experiment rows and
+        the two files cannot silently drift (an experiment renamed in scenarios
+        but not here shows as "(unknown)" rather than a dead link). The live
+        AgentCard is NOT fetched here — the tile lazy-loads it from
+        /api/agent-card/{card_target} on expand, exactly as the experiment
+        Details tab does, so this endpoint stays fast and never blocks on a cold
+        platform."""
+        reg = load_agents()
+        scn = load_scenarios()
+
+        def _exp(slug: str) -> dict:
+            spec = scn.get(slug)
+            return {
+                "name": slug,
+                "title": (spec or {}).get("title") or "(unknown experiment)",
+                "group": (spec or {}).get("group"),
+                "status": (spec or {}).get("status", "missing"),
+            }
+
+        out = []
+        for a in reg["agents"]:
+            out.append(
+                {
+                    **a,
+                    "experiments": [_exp(s) for s in (a.get("experiments") or [])],
+                }
+            )
+        return {"groups": reg["groups"], "agents": out}
 
     # ---- Insights + deployment mode ---------------------------------------
     # The trusted-advisor findings (config/insights.yaml via console.insights)
@@ -1477,6 +1532,7 @@ def create_console_app(registry: Registry | None = None):
                     "bridge",
                     "consult_business_units (fan-out, host-side)",
                     "consult_<unit> (fan-out, ADK ParallelAgent)",
+                    "bridge fanout: route (Agentforce orchestrator, D61)",
                 ],
                 # The <placeholders> in the rider are display-only; real
                 # injected blocks carry the delegating seam's identity:
@@ -1488,6 +1544,7 @@ def create_console_app(registry: Registry | None = None):
                     "agentforce-twin-via-bridge (agentforce)",
                     "a2alab-supply-orchestrator (claude)",
                     "a2alab-supply-orchestrator-adk (adk)",
+                    "agentforce-orchestrator-via-bridge (agentforce)",
                 ],
             },
             # D28 sibling exhibit: the per-run channel routing block the
@@ -1501,6 +1558,13 @@ def create_console_app(registry: Registry | None = None):
             "af_route": {
                 "tools": af_channel.ROUTE_TOOLS,
                 "routing_block": af_channel.route_block("direct"),
+            },
+            # WS8 variant 3 (D61): the Agentforce orchestrator's fan-out
+            # topology (delegated = parallel off-platform via the bridge,
+            # serial = three stacked Apex callouts that degrade by design).
+            "af_topology": {
+                "tools": af_channel.TOPOLOGY_TOOLS,
+                "routing_block": af_channel.topology_block("serial"),
             },
         }
 
@@ -1672,6 +1736,7 @@ def create_console_app(registry: Registry | None = None):
         # so the UI can badge the turn. Only meaningful on toggle scenarios.
         chosen_channel: str | None = None
         chosen_route: str | None = None
+        chosen_topology: str | None = None
 
         scenario_name = body.get("scenario")
         if scenario_name:
@@ -1829,6 +1894,16 @@ def create_console_app(registry: Registry | None = None):
                 # bridge is the twin script's default; only direct injects.
                 if chosen_route == "direct":
                     message += af_channel.route_block("direct")
+            if spec.get("af_topology_toggle"):
+                # WS8 variant 3 (D61): the Agentforce orchestrator's fan-out
+                # topology. delegated (default, works) vs serial (constraint
+                # demo). delegated is the orchestrator script's default, so only
+                # serial strictly needs the block — but injecting either makes
+                # the chosen topology visible on the wire, and the UI badges it.
+                chosen_topology = body.get("af_topology") or "delegated"
+                if chosen_topology not in af_channel.TOPOLOGY_TOOLS:
+                    chosen_topology = "delegated"
+                message += af_channel.topology_block(chosen_topology)
         else:
             name = body.get("target")
         if not name:
@@ -1863,6 +1938,8 @@ def create_console_app(registry: Registry | None = None):
                     result["af_channel"] = chosen_channel
                 if chosen_route:
                     result["af_route"] = chosen_route
+                if chosen_topology:
+                    result["af_topology"] = chosen_topology
                 return result
             client = get_client(name)
             resp = await client.ask(req)
@@ -1874,6 +1951,7 @@ def create_console_app(registry: Registry | None = None):
                 "session_id": resp.session_id,
                 "af_channel": chosen_channel,
                 "af_route": chosen_route,
+                "af_topology": chosen_topology,
             }
         except Exception as exc:  # surface the failure as a result, not a 500
             return {

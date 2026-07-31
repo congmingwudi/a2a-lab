@@ -1082,3 +1082,134 @@ scenarios:
         protocol: a2a
         detail: "The synthesiser reads the three state keys and writes one
           brief, reporting any unit that did not answer as an explicit gap."
+
+  supplier-disruption-agentforce:
+    group: fan-out
+    title: "Supplier Disruption — orchestrated by Agentforce (Agent Script)"
+    summary: >
+      The SAME scenario and the same three business-unit agents, orchestrated
+      by an Agentforce agent authored in Agent Script (D14). This is the third
+      point on the who-owns-concurrency axis: a host owns it on Managed Agents,
+      a graph declares it on ADK, and here a serial Apex budget CONSTRAINS it.
+      Run it two ways, toggled per run — DELEGATED (the default): one Apex
+      callout hands the fan-out to the bridge, which runs the three legs in
+      parallel off-platform; or SERIAL: three stacked Apex callouts, which a
+      real three-leg run overruns by design. The constraint is the finding.
+    target: agentforce-orchestrator-rest
+    af_topology_toggle: true
+    via_bridge: false
+    status: live
+    tags: [fan-out, orchestration, agentforce, agent-api, bridge, adk, foundry, openai]
+    # Deliberately the SAME words as the CMA and ADK variants: the comparison is
+    # only honest if all three orchestrators are handed an identical situation.
+    question: >-
+      A port strike has halted all container traffic through Rotterdam as of
+      06:00 today. Assess the impact for our EU manufacturing customers.
+    description: >
+      SAME SCENARIO, A THIRD ORCHESTRATOR. The situation, the three business
+      units and their agents are identical to the Claude- and ADK-orchestrated
+      runs — what changes is WHO OWNS THE CONCURRENCY, and that is the whole
+      point of building it a third time.
+
+
+      ON ANTHROPIC MANAGED AGENTS the fan-out is a `custom` tool the HOST
+      executes: the lab's code owns concurrency, per-leg timeouts and the
+      partial-failure contract. ON GOOGLE ADK the fan-out is DECLARED in the
+      agent graph — a ParallelAgent the framework schedules. ON AGENTFORCE
+      there is no host tool and no parallel graph: the only GA outbound is Path
+      A (an Apex callout through the lab bridge), and Apex callouts are SERIAL,
+      batch-capped at one, inside a single transaction's 120s cumulative
+      budget. So the orchestrator runs two ways and the operator picks per run.
+
+
+      DELEGATED (the default, and the one that works). The Agent Script issues
+      ONE Apex callout to the bridge's `fanout:supplier-disruption` route. The
+      bridge runs all three legs CONCURRENTLY off-platform — the same
+      `orchestration.dispatch` the Managed Agents variant's host tool runs — and
+      returns the three rendered sections plus a coverage line. The orchestrator
+      only synthesises. The parallelism lives off-platform because Agentforce
+      cannot do it on-platform; moving the fan-out to the bridge is how a
+      serial-outbound platform still fans out.
+
+
+      SERIAL (the constraint demo). The Agent Script calls its per-leg action
+      three times, once per business unit, each a ~110s Apex callout. Two legs
+      already threaten the 120s cumulative callout budget; three overrun it. A
+      real three-leg run therefore DEGRADES — a later leg is abandoned mid-turn,
+      which on Agentforce means HTTP 200 with the section heading present and
+      the content silently gone (the exact failure the lab measured on
+      2026-07-25). The partial-failure contract makes that visible rather than
+      letting a degraded run read as complete.
+
+
+      WHAT IT MEASURES. That a platform whose only outbound is serial can still
+      participate in a 1:many topology — by delegating the parallelism to a
+      seam that has it — and exactly what the on-platform serial path costs when
+      it tries to do the fan-out itself. Three orchestrators, one axis: host,
+      graph, serial-Apex.
+
+
+      THE CLAIM IT SUPPORTS. An enterprise does not need one agent platform. It
+      needs one protocol and an honest account of what crossing platform
+      boundaries costs — here, the cost of orchestrating from a platform whose
+      native outbound cannot fan out at all.
+    note: >
+      Delegated is the default because it is the topology that completes; serial
+      is selectable as the constraint demo and is EXPECTED to report legs as
+      unavailable on a full three-leg run. Partial-failure policy is the same as
+      the other two variants: a leg that fails is REPORTED, never omitted, and
+      every run carries a coverage line. The orchestrator is authored in Agent
+      Script (D14) and published to the production org with
+      `sf agent validate|publish|activate`; the fan-out reuses the existing
+      A2ALabInvokeRemoteAgent invocable — no new Apex, no new Named Credential.
+      See D61 and plan/07-workstreams.md WS8.
+    flow:
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: >-
+          You talk to the Agentforce Supply Orchestrator over the GA Agent API
+          (session + message). Its orchestrator topic owns the whole answer and
+          decides — from the injected [A2A-LAB ROUTING] fanout-topology block —
+          whether to fan out DELEGATED (one callout) or SERIAL (three).
+      - source: agentforce
+        target: agentforce-apex
+        protocol: internal
+        detail: >-
+          DELEGATED path: the agent calls its A2ALab: Fan Out action ONCE. Apex
+          posts to the bridge at target `fanout:supplier-disruption` — a single
+          serial callout that asks the bridge to do the parallel work.
+      - source: agentforce-apex
+        target: bridge
+        protocol: rest
+        detail: >-
+          The callout crosses the Named Credential + tunnel to the lab bridge.
+          The bridge recognises the `fanout:` verb, stamps the D27 rider, and
+          runs orchestration.dispatch — the SAME concurrent fan-out the Managed
+          Agents host tool runs.
+      - source: agentforce-orchestrator-via-bridge
+        target: adk-logistics-a2a
+        protocol: a2a
+        detail: >-
+          LEG 1 — Logistics BU on Agent Engine (Gemini). Dispatched CONCURRENTLY
+          with legs 2 and 3 by the bridge; each leg is its own Hop under this
+          run's trace id, D27 rider at depth 2.
+      - source: agentforce-orchestrator-via-bridge
+        target: foundry-commercial-a2a
+        protocol: a2a
+        detail: >-
+          LEG 2 — Commercial/Legal BU on Microsoft Foundry, over its native
+          inbound A2A.
+      - source: agentforce-orchestrator-via-bridge
+        target: openai-agentcore
+        protocol: agentcore-http
+        detail: >-
+          LEG 3 — Customer operations BU on the OpenAI agent on Bedrock
+          AgentCore (SigV4).
+      - source: bridge
+        target: agentforce
+        protocol: rest
+        detail: >-
+          The bridge returns the three rendered sections plus a coverage line in
+          one response. The orchestrator synthesises the brief on-platform,
+          reporting any leg the fan-out marked unavailable as an explicit gap.
