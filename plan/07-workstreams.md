@@ -2492,7 +2492,7 @@ what is stored and refused.
 | 1 | `lab.usage_events` table in `observability.pg.DDL` + `record_usage`/`usage_stats`; applied by `scripts/pg_migrate.py` (owner, D46) | **done 2026-07-31** — append-only, indexed on `occurred_at` and `(event, occurred_at)` |
 | 2 | `POST /api/track` proxy: store row (writer secret) + forward to the external logger; auth-exempt, 204, closed event set | **done 2026-07-31** — persona from the JWT, country from `CF-IPCountry`, both null-safe |
 | 3 | Client `track()` + `visitor_id`, wired at boot (site_visit), `labSignIn` (persona_login) and `pushNav` (nav, top-level only) | **done 2026-07-31** — fire-and-forget, `keepalive`, mirrors the mega-demo's swallow |
-| 4 | A2A Lab Monitoring section (D57): Visitors / Sections tabs, day/week/month/year/all window, `GET /api/monitoring` (reader) | **done 2026-07-31** — its own top-level Control Panel section; unique/returning visitors, country + locale, sections + experiments viewed, Lab Guide usage |
+| 4 | A2A Lab Monitoring section (D57): Visitors / Sections tabs, day/week/month/year/all window, `GET /api/monitoring` (reader) | **done 2026-07-31** — a sub-section under Infrastructure (peer to Agent Registry and Credentials Expiry — it is stack-monitoring, not an agent platform); unique/returning visitors, country + locale, sections + experiments viewed, Lab Guide usage |
 | 5 | `Details` sub-tab naming the proxy, table/columns, reader/writer identities, CF header and anonymity bounds | **done 2026-07-31** — cites D62 and plan/09 (chips linkify) |
 | 6 | Docs + env: D62, this WS18, `plan/09` estate edge + L6 row, `.env(.example)` for `A2ALAB_LOGGING_API_*` | **done 2026-07-31** |
 

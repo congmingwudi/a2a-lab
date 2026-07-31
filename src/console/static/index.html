@@ -1351,8 +1351,9 @@
     <!-- Infrastructure category — the operator's monitoring of the tech stack
          ITSELF, across every platform, as distinct from what the agents did
          (Observability) or what is deployed and why (Architecture). Its own
-         expandable section; Credentials Expiry Analysis is the first thing in
-         it (what is about to stop working). More stack-monitoring lives here
+         expandable section: Agent Registry (what is deployed), Credentials
+         Expiry Analysis (what is about to stop working), and A2A Lab Monitoring
+         (usage of the released console, WS18). More stack-monitoring lives here
          over time. Operator-only children hide themselves when 403'd. -->
     <details class="acc" id="accInfra">
       <summary><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="2.2" width="12.4" height="4" rx="1"/><rect x="1.8" y="9.4" width="12.4" height="4" rx="1"/><path d="M4.4 4.2h.01M4.4 11.4h.01"/></svg>Infrastructure <span class="count" id="infraCount"></span></summary>
@@ -1376,6 +1377,20 @@
               <span class="hint">When each credential stops working, and what to do first.</span>
             </div>
             <div id="credsSide"></div>
+          </div>
+        </details>
+        <!-- A2A Lab Monitoring (WS18, D62) — usage of the RELEASED console
+             itself: who visits, from where, what they open. Sits under
+             Infrastructure because it is stack-monitoring, the same family as
+             Credentials Expiry (what is about to break) and Agent Registry
+             (what is deployed), not an agent platform. -->
+        <details class="acc sub" id="accMonitoring">
+          <summary onclick="monitoringNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8a6 6 0 0 1 12 0"/><path d="M8 8l3-2"/><circle cx="8" cy="8" r="1"/></svg>A2A Lab Monitoring <span class="count" id="monCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools">
+              <span class="hint">Who visits the released lab, from where, and what they open — anonymous usage, no PII.</span>
+            </div>
+            <div id="monSide"></div>
           </div>
         </details>
       </div>
@@ -1409,15 +1424,6 @@
             <div id="projectSide"></div>
           </div>
         </details>
-      </div>
-    </details>
-    <details class="acc" id="accMonitoring">
-      <summary onclick="monitoringNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8a6 6 0 0 1 12 0"/><path d="M8 8l3-2"/><circle cx="8" cy="8" r="1"/></svg>A2A Lab Monitoring <span class="count" id="monCount"></span></summary>
-      <div class="acc-body">
-        <div class="traces-tools">
-          <span class="hint">Who visits the released lab, from where, and what they open — anonymous usage, no PII.</span>
-        </div>
-        <div id="monSide"></div>
       </div>
     </details>
   </div>
@@ -5156,6 +5162,35 @@ function monSectionsHtml() {
       : `<div class="hint">No individual experiments opened yet.</div>`}`;
 }
 
+// The one-glance picture of WS18: browser beacon -> same-origin proxy ->
+// Postgres AND the external Slack forward, with the dashboard reading back from
+// Postgres. Region only, never an account id (CLAUDE.md). Rendered through the
+// shared figure component so it gets Full screen + zoom + mermaid source.
+const MON_DIAGRAM = `flowchart LR
+  subgraph BROWSER["Visitor's browser"]
+    B["console SPA<br/>3 fire-and-forget beacons<br/>visit · login · nav"]
+  end
+
+  subgraph AWS["AWS — us-east-1 (the console on Fargate)"]
+    PX["/api/track proxy<br/>stamps persona from JWT,<br/>country from CF-IPCountry"]
+    PG[("Aurora Postgres<br/>lab.usage_events<br/>write: lab_writer")]
+    DASH["/api/monitoring<br/>A2A Lab Monitoring dashboard<br/>read: lab_reader"]
+    PX -->|"INSERT one PII-free row"| PG
+    PG -->|"SELECT aggregates"| DASH
+  end
+
+  LOG["general logging API<br/>(external AWS log sink)"]
+  SLACK["Slack<br/>project notifications"]
+
+  B -->|"POST beacon"| PX
+  PX -->|"forward event"| LOG
+  LOG --> SLACK
+  DASH -->|"windowed stats"| B`;
+
+async function renderMonDiagram() {
+  await renderMermaidInto("monfig", MON_DIAGRAM, "monfig-svg");
+}
+
 function monDetailsHtml() {
   return `
     <div class="detail">
@@ -5163,6 +5198,9 @@ function monDetailsHtml() {
     and as what identity, where the data lives, and what bounds it — the Details half of the
     one-canvas template (D57). The workstream is WS18 in plan/07-workstreams.md; the decision is
     D62 in plan/00-decisions.md; the deployment shape is in plan/09-deployment-map.md.</div>
+
+    <h3>How it fits together</h3>
+    ${figureHtml("monfig", "Beacon → proxy → Postgres + Slack; dashboard reads Postgres")}
 
     <h3>What produces it</h3>
     <p class="hint">The browser fires three fire-and-forget beacons to the same-origin
@@ -7342,6 +7380,7 @@ function renderMain(force) {
     mainKey = `monitoring:${monTab}:${monWindow}`;
     el.innerHTML = monitoringHtml();
     linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
+    if (monTab === "details") renderMonDiagram();   // async: lazy mermaid, like creds
     return;
   }
 
