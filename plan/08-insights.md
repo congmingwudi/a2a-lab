@@ -56,7 +56,7 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
-    APEX -- "Path A: REST callout<br/>(tunnel)" --> BR
+    APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
     BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
@@ -118,8 +118,8 @@ flowchart LR
         AF --> APEX --> NC
     end
 
-    TUN["Cloudflare named tunnel<br/>bridge-lab.agenticthings.com"]
-    BR["Bridge :8100"]
+    ALB["ALB a2alab-bridge<br/>bridge-lab.agenticthings.com<br/>idle timeout 120s"]
+    BR["Bridge :8100 (Fargate)"]
 
     subgraph claude["src/platforms/claude — one adapter"]
         REST["REST :8001"]
@@ -134,7 +134,7 @@ flowchart LR
     CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
     ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
 
-    NC -- "X-Bridge-Token" --> TUN --> BR
+    NC -- "X-Bridge-Token" --> ALB --> BR
     BR -- "protocol per targets.yaml" --> REST
     BR --> MCP
     BR --> A2A
@@ -148,7 +148,7 @@ flowchart LR
 
 *Status: measured · refs: D28, D32, plan/01-architecture.md, plan/02-matrix.md, plan/03-results.md, plan/07-workstreams.md*
 
-**What the lab showed:** The lab's Path A budget stacks four ceilings: Agentforce action ~85-90s (MEASURED 2026-07-25, not the ~60s the lab engineered against for six weeks — a reported figure nobody had tested) → Apex callout 110s → bridge 45s → remote agent 100s. The delegated agent's thinking depth is governed by the smallest budget upstream, and one platform's retry can blow another's ceiling. The correction went the generous direction and still cost something: research depth had been tuned against a ceiling 25s below the real one.
+**What the lab showed:** The lab's Path A budget stacks four ceilings: Agentforce action ~85-90s (MEASURED 2026-07-25, not the ~60s the lab engineered against for its first two weeks — a reported figure nobody had tested) → Apex callout 110s → bridge 45s → remote agent 100s. The delegated agent's thinking depth is governed by the smallest budget upstream, and one platform's retry can blow another's ceiling. The correction went the generous direction and still cost something: research depth had been tuned against a ceiling 25s below the real one.
 
 When the ceiling IS hit, nothing on the wire says so — the Agent API returns 200 with its "External market research" heading filled by "temporarily unavailable", while the delegated agent's real answer arrives seconds later and is discarded, every abandoned turn still burning the full ~100s. The rule recurses: hosting the shim behind API Gateway added a hard 29s ceiling that an Agentforce account turn (~20-27s tail, D32) straddles. And third-party callers hit it harder (2026-07-22) — the lab's client retries onto a warmed session, but Microsoft Foundry's A2A tool does not, so a cold turn 500s straight into the calling agent. You control your retries; you don't control your callers'.
 
@@ -251,7 +251,7 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
-    APEX -- "Path A: REST callout<br/>(tunnel)" --> BR
+    APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
     BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
@@ -349,8 +349,8 @@ flowchart LR
         AF --> APEX --> NC
     end
 
-    TUN["Cloudflare named tunnel<br/>bridge-lab.agenticthings.com"]
-    BR["Bridge :8100"]
+    ALB["ALB a2alab-bridge<br/>bridge-lab.agenticthings.com<br/>idle timeout 120s"]
+    BR["Bridge :8100 (Fargate)"]
 
     subgraph claude["src/platforms/claude — one adapter"]
         REST["REST :8001"]
@@ -365,7 +365,7 @@ flowchart LR
     CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
     ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
 
-    NC -- "X-Bridge-Token" --> TUN --> BR
+    NC -- "X-Bridge-Token" --> ALB --> BR
     BR -- "protocol per targets.yaml" --> REST
     BR --> MCP
     BR --> A2A
@@ -456,7 +456,7 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
-    APEX -- "Path A: REST callout<br/>(tunnel)" --> BR
+    APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
     BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
@@ -599,9 +599,9 @@ Two honest limits, both about what text CANNOT reach. A platform whose agent ide
 
 *Status: measured · refs: D40, D41, plan/03-results.md*
 
-**What the lab showed:** MEASURED 2026-07-26. The ADK orchestrator's partial-failure contract works as designed: each business-unit agent passes a "[leg unavailable: ...]" marker through verbatim, and the synthesiser reports it as a gap rather than inventing an answer. It faithfully did so — and rendered "InvalidConfigError ... CA bundle" as "a technical error accessing its tools". Both are true; only one is actionable, and it was not the one that reached a human.
+**What the lab showed:** MEASURED 2026-07-26. The ADK orchestrator's partial-failure contract works as designed: each business-unit agent passes a "[leg unavailable: ...]" marker through verbatim, and the synthesiser reports it as a gap rather than inventing an answer. It faithfully did so — and rendered the raw AccessDenied that named the caller's own OIDC claims as "an InvalidConfigError related to its CA bundle configuration". Both are true; only the raw error is actionable, and it was the paraphrase — not the raw error — that reached a human.
 
-The paraphrase was all the human saw until the leg markers were also printed to container stdout, at which point the raw AccessDenied named the caller's own OIDC claims and the fix was one line. Contrast the host-side variant, where the marker is produced by CODE and cannot be reworded.
+The paraphrase was all the human saw until the leg markers were also printed to container stdout, at which point the raw AccessDenied and its one-line fix were finally legible. Contrast the host-side variant, where the marker is produced by CODE and cannot be reworded.
 
 **Advisor take:** Any error you intend to debug from needs a route to your logs that skips the model. Structured relay through an agent is fine for the USER-facing summary and useless as telemetry — the paraphrase is lossy in exactly the direction that matters, dropping identifiers and keeping sentiment. This is also the sharpest argument for host-side tool execution: a contract enforced in code cannot be talked out of, whereas a declared graph buys ordering guarantees but still relies on three models relaying text faithfully.
 
@@ -749,7 +749,7 @@ Two costs came with it. Coverage: the host-side tool appends "[coverage: n/3]" f
 
 *Status: measured · refs: D47, D41, plan/03-results.md, plan/07-workstreams.md*
 
-**What the lab showed:** MEASURED 2026-07-27. A2A specifies SendMessage MUST return immediately and processing MAY continue, and the lab had implemented that lifecycle (InMemoryTaskStore, full SUBMITTED → WORKING → COMPLETED) then driven it synchronously for months. The workstream that set out to fix it named the server as the blocker and was WRONG: the a2a-sdk already reads `configuration.return_immediately` and responds after the first Task event while a background task drains the queue, no server change made.
+**What the lab showed:** MEASURED 2026-07-27. A2A specifies SendMessage MUST return immediately and processing MAY continue, and the lab had implemented that lifecycle (InMemoryTaskStore, full SUBMITTED → WORKING → COMPLETED) then driven it synchronously the whole time. The workstream that set out to fix it named the server as the blocker and was WRONG: the a2a-sdk already reads `configuration.return_immediately` and responds after the first Task event while a background task drains the queue, no server change made.
 
 Setting that one client field took the hosted Agentforce shim from work bounded by API Gateway's 29s timeout to 31.1s of work completed behind it, longest single request 1.18s — dissolving the ceiling D41 had costed a gateway migration to raise. Submit latency is flat at 13–29ms while work grows 2s→45s. Support is uneven and only measurement reveals it: Azure Foundry implements the async half properly (ratio 0.25–0.33), while Vertex AI Agent Engine is submit-only, returning a task id in 826ms that no request shape reads back — so an async submit there silently loses the answer.
 

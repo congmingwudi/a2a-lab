@@ -45,8 +45,8 @@ insights:
     headline: Every platform in a sync chain stacks its own timeout — the tightest link caps the whole chain
     evidence: >
       The lab's Path A budget stacks four ceilings: Agentforce action ~85-90s
-      (MEASURED 2026-07-25, not the ~60s the lab engineered against for six
-      weeks — a reported figure nobody had tested) → Apex callout 110s →
+      (MEASURED 2026-07-25, not the ~60s the lab engineered against for its
+      first two weeks — a reported figure nobody had tested) → Apex callout 110s →
       bridge 45s → remote agent 100s. The delegated agent's thinking depth is
       governed by the smallest budget upstream, and one platform's retry can
       blow another's ceiling. The correction went the generous direction and
@@ -879,15 +879,16 @@ insights:
       MEASURED 2026-07-26. The ADK orchestrator's partial-failure contract works
       as designed: each business-unit agent passes a "[leg unavailable: ...]"
       marker through verbatim, and the synthesiser reports it as a gap rather
-      than inventing an answer. It faithfully did so — and rendered
-      "InvalidConfigError ... CA bundle" as "a technical error accessing its
-      tools". Both are true; only one is actionable, and it was not the one that
-      reached a human.
+      than inventing an answer. It faithfully did so — and rendered the raw
+      AccessDenied that named the caller's own OIDC claims as "an
+      InvalidConfigError related to its CA bundle configuration". Both are true;
+      only the raw error is actionable, and it was the paraphrase — not the raw
+      error — that reached a human.
 
       The paraphrase was all the human saw until the leg markers were also
-      printed to container stdout, at which point the raw AccessDenied named the
-      caller's own OIDC claims and the fix was one line. Contrast the host-side
-      variant, where the marker is produced by CODE and cannot be reworded.
+      printed to container stdout, at which point the raw AccessDenied and its
+      one-line fix were finally legible. Contrast the host-side variant, where
+      the marker is produced by CODE and cannot be reworded.
     advisory: >-
       Any error you intend to debug from needs a route to your logs that skips
       the model. Structured relay through an agent is fine for the USER-facing
@@ -1018,7 +1019,7 @@ insights:
       MEASURED 2026-07-27. A2A specifies SendMessage MUST return immediately and
       processing MAY continue, and the lab had implemented that lifecycle
       (InMemoryTaskStore, full SUBMITTED → WORKING → COMPLETED) then driven it
-      synchronously for months. The workstream that set out to fix it named the
+      synchronously the whole time. The workstream that set out to fix it named the
       server as the blocker and was WRONG: the a2a-sdk already reads
       `configuration.return_immediately` and responds after the first Task event
       while a background task drains the queue, no server change made.

@@ -1061,10 +1061,12 @@ trust policy pins one Google subject and one audience, granting
 
 **Corollary that generalises past this decision: an error must have a path out
 that does not pass through a model.** These failures first reached us through
-the orchestrator's synthesiser, which faithfully paraphrased
-`InvalidConfigError: ... CA bundle` into *"a technical error accessing its
-tools"* — true, unactionable, and unfixable. Leg markers now also print to
-container stdout. Anything you intend to debug from cannot be relayed by an LLM.
+the orchestrator's synthesiser, which faithfully paraphrased the raw
+`AccessDenied` that named the caller's own OIDC claims into *"an
+InvalidConfigError related to its CA bundle configuration"* — true,
+unactionable, and unfixable. Leg markers now also print to container stdout,
+where the raw `AccessDenied` (and its one-line fix) is legible. Anything you
+intend to debug from cannot be relayed by an LLM.
 
 Applies to every future platform: a new agent that must call another cloud gets
 a federated identity or an explicitly-constructed service principal, added to

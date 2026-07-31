@@ -707,7 +707,7 @@ flowchart LR
     BW["a2alab-briefs<br/>poll every 60s"]
   end
   subgraph WORK["What they drive"]
-    HARV["Lambda a2alab-obs-harvest<br/>6 platforms -> Aurora"]
+    HARV["Lambda a2alab-obs-harvest<br/>7 sources -> Aurora"]
     BRIEF["Brief agent session<br/>-> Salesforce record"]
     ANLY["Obs analyst -> lab.obs_briefs"]
     COST["Cost sentinel -> lab.obs_briefs"]
@@ -721,10 +721,10 @@ flowchart LR
 
 | # | Process | Where it runs | Cadence | State (2026-07-30) | What it writes |
 |---|---|---|---|---|---|
-| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — six platforms + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16) |
+| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — five agent platforms + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16), seven harvest sources in all |
 | 2 | **Account brief agent** (D16) | Scheduled Claude Managed Agent | `0 6 * * *`, America/Denver | **active** | an `A2ALab_Account_Brief__c` in Salesforce, via a host-side tool |
 | 3 | **Brief watcher** (D52) | ECS service `a2alab-briefs` | poll loop, `A2ALAB_BRIEF_POLL_S` = 60s | **running 1/1** | services #2's stalled tool call; `lab.lab_state` serviced-set |
-| 4 | **Observability analyst** (D23) | Scheduled Claude Managed Agent | **no cron — on demand only** | **paused** | `lab.obs_briefs` with `kind='observability'` |
+| 4 | **Observability analyst** (D23) | Scheduled Claude Managed Agent | `0 6 * * *`, America/New_York (**paused**, so on-demand only) | **paused** | `lab.obs_briefs` with `kind='observability'` |
 | 5 | **Cost sentinel** (WS12/D44) | Scheduled Claude Managed Agent | `0 7 * * *`, America/New_York | **active** (daily since 2026-07-30, D44 addendum) | `lab.obs_briefs` with `kind='cost'` |
 
 **Always-on but request-shaped**, listed so the inventory is complete: the four
@@ -825,7 +825,7 @@ flowchart LR
 | The console (`:8200`) and the Lab Guide | **No longer local** — on ECS Fargate since 2026-07-28 (WS13 item 1). `cloudflared` still serves the hostname until DNS is cut over, and stays afterwards for local development. |
 | The protocol servers (`:8001`–`:8003`, `:8011`–`:8013`) | No — the hosted equivalents are the AgentCore runtimes; these are the dev loop. |
 | `cloudflared` tunnel | Reduced — the bridge left it on 2026-07-26. It still fronts the console and the direct protocol hostnames. |
-| The brief watcher (`python -m briefs --watch`) | **Yes** — the last laptop dependency on a live path, and the open half of WS7. |
+| The brief watcher (`python -m briefs --watch`) | **No longer local** — on ECS Fargate as service `a2alab-briefs` since 2026-07-28 (D52 / WS13 item 3), running 1/1, reusing the faces image. The copy in `run_local.sh` is the dev loop, not a live-path dependency. |
 
 ### How this got here: local first, then hosted, one component at a time
 
@@ -841,7 +841,7 @@ out only once there was a reason and a measurement:
 | D23 | observability store → Aurora, harvest → Lambda | a 6-hourly pull cannot depend on a laptop being awake |
 | D41 | fan-out legs → remote MCP server | host-side tools need a laptop attached for the whole run |
 | WS7 item 7 | **the bridge → Fargate + ALB** | it was the last thing on Path A's live call path; the ALB was needed because the 45s budget would not fit a gateway |
-| open | the brief watcher | the remaining one |
+| D52 (2026-07-28) | **the brief watcher → Fargate service `a2alab-briefs`** | the last laptop dependency on a live path; a poll loop, so a service not a Lambda. The estate is now fully hosted. |
 
 The order was not planned up front. Each move was triggered by a specific thing
 the local version could not do, which is why the hosting shapes differ — they

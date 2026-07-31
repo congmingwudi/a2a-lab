@@ -72,7 +72,7 @@ diagrams:
           ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
           FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
-          APEX -- "Path A: REST callout<br/>(tunnel)" --> BR
+          APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
           APEX -- "direct A2A (D30)" --> ADK
           BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
           BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
@@ -108,8 +108,8 @@ diagrams:
               AF --> APEX --> NC
           end
 
-          TUN["Cloudflare named tunnel<br/>bridge-lab.agenticthings.com"]
-          BR["Bridge :8100"]
+          ALB["ALB a2alab-bridge<br/>bridge-lab.agenticthings.com<br/>idle timeout 120s"]
+          BR["Bridge :8100 (Fargate)"]
 
           subgraph claude["src/platforms/claude — one adapter"]
               REST["REST :8001"]
@@ -124,7 +124,7 @@ diagrams:
           CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
           ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
 
-          NC -- "X-Bridge-Token" --> TUN --> BR
+          NC -- "X-Bridge-Token" --> ALB --> BR
           BR -- "protocol per targets.yaml" --> REST
           BR --> MCP
           BR --> A2A

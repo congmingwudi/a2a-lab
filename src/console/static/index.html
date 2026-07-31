@@ -2721,7 +2721,7 @@ const BRIEF_META = {
   observability: {
     label: "Observability analysis",
     blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
-         + "experiment telemetry across all six platforms.",
+         + "experiment telemetry across all five platforms.",
     emptyHint: "The analyst is a PAUSED deployment, so it only runs when you hit Analyze in the sidebar.",
     diagram: () => OBS_ANALYST_DIAGRAM,
     details: `### What writes this brief
@@ -2744,7 +2744,7 @@ permission prompt, so a tool evaluated as "ask" stalls the session indefinitely 
 ### What it analyses, and where the brief lands
 
 The harvested execution logs in \`lab.obs_sessions\` and \`lab.obs_events\` — sessions, turns, tool calls,
-token usage and errors from all six platforms. This is the telemetry of what the **experiments** did.
+token usage and errors from all five platforms. This is the telemetry of what the **experiments** did.
 
 Briefs are written to \`lab.obs_briefs\` with \`kind='observability'\`. The cost sentinel writes to the same
 table with a different kind; each tab shows only its own.
@@ -2823,7 +2823,8 @@ preview A2A surface at all, so its honest shape is one session per deployed engi
 events, rather than one session per turn.
 
 The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
-six-platform sweep runs longer than a browser request may stay open.`;
+seven-source sweep (five agent platforms plus the two coding sources) runs longer than a browser
+request may stay open.`;
   return `<div class="flow">
     ${figureHtml("obsDashFig", "The architecture behind it")}
     ${mdToHtml(md)}
@@ -2993,7 +2994,7 @@ window.harvestObs = async ev => {
 // Watch lab.obs_harvest for platforms whose last_harvest_at is newer than the
 // moment we fired. Each one lands independently, so the panel fills in as they
 // finish rather than all at once — which is also the honest picture of what a
-// six-platform sweep is doing.
+// seven-source sweep is doing.
 // Read a JSON response, or explain what actually answered.
 //
 // When something upstream replies instead of the app — the load balancer's 504
@@ -5250,8 +5251,12 @@ function monDetailsHtml() {
       <tbody>
         <tr><td><b>usage rows</b></td>
             <td><code>SELECT</code> aggregates from <code>lab.usage_events</code> on Aurora via the
-                RDS Data API, as <code>lab_reader</code> (read-only). Writes on
-                <code>/api/track</code> use the <code>lab_writer</code> secret (D46).</td></tr>
+                RDS Data API. Hosted, this reads AND writes as <code>lab_writer</code> — the single
+                <code>A2ALAB_PG_SECRET_ARN</code> the console deploy sets — because
+                <code>A2ALAB_TRACE_SINK=postgres</code> forces trace writes through the same
+                <code>from_env()</code> secret, so a reader ARN would fail every write (D46). The
+                <code>lab_reader</code>/<code>lab_writer</code> split is the laptop/.env shape, not
+                the deployed identity.</td></tr>
         <tr><td><b>country</b></td>
             <td>Cloudflare's <code>CF-IPCountry</code> request header, read server-side. A two-letter
                 code, not an IP — no address is ever stored.</td></tr>
@@ -5668,19 +5673,15 @@ const CRED_AGENT_DIAGRAM = `flowchart LR
   API --> BR["briefing<br/>verdict · act now · watch · blind spots"]`;
 
 const CRED_SCHEDULED_DIAGRAM = `flowchart LR
-  subgraph AWSC["AWS — collection moves off the laptop"]
-    LAM["a2alab-cred-collector<br/>Lambda, EventBridge daily"]
-    ROLE["task role<br/>IAM + ACM read"]
-    FED["federation<br/>to Entra and GCP"]
-    LAM --> ROLE
-    LAM --> FED
+  subgraph AWSC["AWS — collection (already hosted, WS14)"]
+    LAM["a2alab-obs-harvest<br/>6h Lambda, IAM + ACM + federation"]
+    ST[("lab.lab_state snapshot<br/>Aurora, alongside obs")]
+    LAM --> ST
   end
-  ST[("expiry history<br/>Aurora, alongside obs")]
-  LAM --> ST
 
-  subgraph ANT["Anthropic — Managed Agents"]
+  subgraph TODO["Not built — the scheduled variant"]
     MCP["obs MCP server<br/>+ read_expiry tool"]
-    AG["Credential Analyst<br/>scheduled deployment"]
+    AG["Credential Analyst<br/>paused scheduled deployment"]
     AG --> MCP
   end
   ST --> MCP
@@ -5751,24 +5752,28 @@ function credsDetailsHtml() {
     </div>
 
     <h3 style="margin-top:24px">Potential: the scheduled agent variant</h3>
-    <div class="hint" style="margin:6px 0 14px">Not built — the sketch of what would justify a
-    Managed Agent here, kept because the condition is plausible rather than hypothetical.</div>
+    <div class="hint" style="margin:6px 0 14px">Partly built — collection is already hosted (WS14);
+    what remains is the read tool and the scheduled agent, kept because the condition is plausible
+    rather than hypothetical.</div>
 
     ${figureHtml("credfig2", "Where it runs on a schedule")}
 
     <div class="arch-prose">
-      <p><b>The one change that unlocks it</b> is moving collection off this laptop. A Lambda with
-      a task role could read IAM and ACM directly, and reach Entra and GCP through the federation
-      the lab already runs (D40/D41). Once the dates land in a store on a schedule, the analyst no
-      longer needs a person: it becomes a paused scheduled deployment reading through the obs MCP
-      server — exactly the shape of the observability analyst (D23), writing into the same
-      <code>lab.obs_briefs</code> table.</p>
+      <p><b>The half that unlocked it has shipped.</b> Collection already runs off the laptop — in
+      the 6-hourly harvest Lambda (WS14), reading IAM and ACM directly and reaching Entra and GCP
+      through the federation the lab already runs (D40/D41), landing the dates in a store
+      (<code>lab.lab_state</code>) on a schedule. So the analyst no longer needs a person for its
+      <i>data</i>; two things still stand between here and a scheduled deployment: a
+      <code>read_expiry</code> tool on the obs MCP server, and turning the analyst into a paused
+      scheduled Managed Agent reading through it — exactly the shape of the observability analyst
+      (D23), writing into the same <code>lab.obs_briefs</code> table.</p>
       <p><b>What that would buy:</b> a briefing that arrives before you think to ask, history to
       compare against, and the ability to <i>correlate</i> — "telemetry stopped three days ago and
       the metrics key expired three days ago" is a join a prompt cannot do but a tool over the obs
       store can.</p>
-      <p><b>What it would cost, and why it has not been done:</b> a new Lambda, a new role, two
-      federation bindings and an MCP tool — real infrastructure for a lab whose credential set
+      <p><b>What it would cost, and why it has not been done:</b> an MCP <code>read_expiry</code>
+      tool and a scheduled Managed Agent — the Lambda, its task role and the federation bindings
+      already exist from WS14, so this is smaller than it once was, for a lab whose credential set
       changes a few times a year. There is also a boundary to be careful about: the obs MCP server
       is internet-reachable, so exposing expiry data through it means publishing <i>which secrets
       expire when</i> to anything holding that bearer token. That is a deliberate decision, not a

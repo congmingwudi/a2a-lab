@@ -12,7 +12,11 @@ Salesforce Agentforce (custom Service agent; Apex action → Named Credential)
    claude servers  REST :8001 | MCP :8002 | A2A :8003    (openai :8011/12/13, M9)
    agentforce shims        MCP :8021 | A2A :8023          (proxy → Agent API)
    lab console :8200 (trace viewer, SSE live tail)
-   cloudflared tunnel → *-lab.agenticthings.com
+   cloudflared tunnel → claude-*-lab.agenticthings.com  (local dev stack; run_local.sh)
+
+Hosted (the deployed topology): bridge & console → ECS Fargate behind one ALB
+(bridge-lab / console-lab); claude/openai agents → Bedrock AgentCore. The ports
+above are the local dev stack. See plan/09-deployment-map.md for what runs where.
 ```
 
 ## The two seams
