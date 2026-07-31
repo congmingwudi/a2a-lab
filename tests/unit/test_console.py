@@ -75,6 +75,19 @@ def test_index_served(tmp_path, monkeypatch):
     assert "A2A Interop Lab" in r.text
 
 
+def test_shell_asks_browsers_to_revalidate(tmp_path, monkeypatch):
+    # The SPA shell changes on every deploy and the whole app lives inside it,
+    # so a heuristically-cached shell hides just-shipped sections. Both entry
+    # points must send no-cache. Regression guard for the Monitoring section
+    # (WS18) that deployed correctly yet stayed invisible behind a stale shell.
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+    for path in ("/", "/guide"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert r.headers.get("cache-control") == "no-cache", path
+
+
 def test_targets_listed(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)

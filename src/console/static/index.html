@@ -849,7 +849,10 @@
   .arch-figure:fullscreen svg { max-height: 94vh; max-width: 96vw; }
   /* Fallback when the Fullscreen API is unavailable or refused (some embedded
      browsers) — a full-viewport overlay, Esc to leave. */
-  .arch-figure.arch-fsfallback { position: fixed; inset: 0; z-index: 60; margin: 0;
+  /* Above the diagram-chip modal (.dgmask, z-index 80): a figure opened FROM
+     that modal must go fullscreen over it, not behind it. Native fullscreen
+     uses the browser top layer and is unaffected; this is only the fallback. */
+  .arch-figure.arch-fsfallback { position: fixed; inset: 0; z-index: 90; margin: 0;
                                  border-radius: 0; display: flex; align-items: center;
                                  justify-content: center; background: var(--bg); }
   .arch-figure.arch-fsfallback svg { max-height: 94vh; max-width: 96vw; }
@@ -862,7 +865,7 @@
   .arch-figure.arch-fs-zoom.arch-fs-drag { cursor: grabbing; }
   .arch-figure.arch-fs-zoom svg { transform-origin: center center; will-change: transform; }
   .arch-fs-controls { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
-                      display: flex; align-items: center; gap: 6px; z-index: 61;
+                      display: flex; align-items: center; gap: 6px; z-index: 91;
                       background: var(--card); border: 1px solid var(--border-hi);
                       border-radius: 11px; padding: 6px 8px; box-shadow: 0 6px 22px rgba(0,0,0,.3); }
   .arch-fs-controls button { min-width: 32px; padding: 5px 9px; font-size: 15px; line-height: 1; }
@@ -1056,19 +1059,17 @@
   .dgmodal header { display: flex; align-items: center; gap: 12px; padding: 12px 16px;
                     border-bottom: 1px solid var(--border); }
   .dgmodal header h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--fg-hi); flex: 1; }
-  .dgmodal .dgsrc { font: 600 11px var(--font-mono); color: var(--muted);
-                    background: none; border: 1px solid var(--border); border-radius: 999px;
-                    padding: 2px 10px; }
-  .dgmodal .dgsrc:hover { color: var(--fg-hi); border-color: var(--border-hi); }
   .dgmodal .dgclose { background: none; border: none; color: var(--muted); font-size: 19px;
                       line-height: 1; padding: 2px 6px; border-radius: 6px; cursor: pointer; }
   .dgmodal .dgclose:hover { color: var(--fg-hi); background: var(--card2); }
-  .dgbody { flex: 1; min-height: 0; overflow: auto; padding: 18px 16px;
-            display: flex; align-items: center; justify-content: center; }
+  /* The body holds the shared figure component (arch-head controls + figure);
+     stack them, let the figure scroll, and strip the figure's page margins
+     since the modal already provides the padding. */
+  .dgbody { flex: 1; min-height: 0; overflow: auto; padding: 8px 16px 16px;
+            display: flex; flex-direction: column; }
+  .dgbody .arch-head { margin: 6px 0 8px; padding: 0; border-top: none; }
+  .dgbody .arch-figure { margin: 0; }
   .dgbody svg { max-width: 100%; height: auto; }
-  .dgbody pre { align-self: stretch; margin: 0; overflow: auto; background: var(--code);
-                border: 1px solid var(--border); border-radius: 10px; padding: 12px;
-                font: 12px/1.5 var(--font-mono); color: var(--fg); }
   .dgbody .note { color: var(--muted); font-size: 12.5px; }
   .dgcap { padding: 11px 16px 13px; border-top: 1px solid var(--border);
            background: var(--card2); color: var(--muted); font-size: 12.5px; line-height: 1.55; }
@@ -6275,16 +6276,21 @@ async function openDiagram(id) {
   const d = diagramById(id);
   if (!d) return;
   closeDiagram();
+  // Render through the SAME figure component every other diagram uses
+  // (figureHtml + renderMermaidInto), so a chip diagram gets the identical
+  // Full screen button, wheel-zoom/drag-pan controls, and mermaid-source
+  // toggle — instead of the bespoke, no-zoom viewer this modal used to carry.
+  // The element id must be unique and safe for a DOM id / mermaid render id.
+  const figId = "dgfig-" + id.replace(/[^a-z0-9]/gi, "");
   const mask = document.createElement("div");
   mask.className = "dgmask";
   mask.innerHTML = `
     <div class="dgmodal" role="dialog" aria-modal="true" aria-label="${esc(d.title || d.id)}">
       <header>
         <h3>${esc(d.title || d.id)}</h3>
-        <button type="button" class="dgsrc">mermaid source</button>
         <button type="button" class="dgclose" title="Close (Esc)" aria-label="Close">×</button>
       </header>
-      <div class="dgbody"><span class="note">Rendering…</span></div>
+      <div class="dgbody">${figureHtml(figId, "")}</div>
       ${d.caption ? `<div class="dgcap">${esc(prose(d.caption))}</div>` : ""}
     </div>`;
   // Backdrop closes; clicks inside the panel do not bubble out to it.
@@ -6292,39 +6298,10 @@ async function openDiagram(id) {
   mask.querySelector(".dgclose").addEventListener("click", closeDiagram);
   document.body.appendChild(mask);
 
-  const body = mask.querySelector(".dgbody");
-  let showingSource = false;
-  const srcBtn = mask.querySelector(".dgsrc");
-  let rendered = null;
-
-  srcBtn.addEventListener("click", () => {
-    showingSource = !showingSource;
-    srcBtn.textContent = showingSource ? "diagram" : "mermaid source";
-    body.innerHTML = showingSource
-      ? `<pre>${esc(d.mermaid || "")}</pre>`
-      : (rendered || `<span class="note">Rendering…</span>`);
-  });
-
-  try {
-    const mermaid = await ensureMermaid();
-    // Follow the console's theme, and re-initialize per open so switching
-    // theme and reopening gives a diagram that matches the page.
-    const dark = document.documentElement.getAttribute("data-theme") === "dark";
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: dark ? "dark" : "default",
-      securityLevel: "strict",
-      flowchart: { htmlLabels: true, curve: "basis" },
-    });
-    const { svg } = await mermaid.render("dg-" + id.replace(/[^a-z0-9]/gi, ""), d.mermaid || "");
-    rendered = svg;
-    if (!showingSource) body.innerHTML = svg;
-  } catch (e) {
-    // Honest failure: say what broke and still hand over the source, which is
-    // the thing you can paste somewhere else mid-readout.
-    rendered = `<span class="note">Could not render this diagram (${esc(String(e.message || e))}).</span>`;
-    if (!showingSource) body.innerHTML = rendered + `<pre>${esc(d.mermaid || "")}</pre>`;
-  }
+  // renderMermaidInto stashes the source on the figure, which is what
+  // figToggleSource and the Full screen zoom read. Its own honest-failure path
+  // (say what broke, still show the source) covers a render error here too.
+  await renderMermaidInto(figId, d.mermaid || "");
 }
 
 document.addEventListener("click", ev => {
@@ -6334,7 +6311,15 @@ document.addEventListener("click", ev => {
   ev.stopPropagation();
   openDiagram(chip.dataset.diagram);
 });
-document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeDiagram(); });
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "Escape") return;
+  // A chip diagram can be opened to full screen from inside the modal. Esc then
+  // means "leave full screen", not "close the modal" — the fullscreen handler
+  // (native fullscreenchange, or the .arch-fsfallback keydown above) owns this
+  // press. Only close the modal when no figure is fullscreen.
+  if (document.fullscreenElement || document.querySelector(".dgbody .arch-fsfallback")) return;
+  closeDiagram();
+});
 
 // Reviewer-only nudge: how many published claims are still waiting on a
 // decision (never approved, or edited since the last one).

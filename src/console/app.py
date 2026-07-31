@@ -967,9 +967,22 @@ def create_console_app(registry: Registry | None = None):
             clients[name] = get_registry().client_for(name)
         return clients[name]
 
+    # The SPA shell is ONE 430KB file that changes on every deploy, and the
+    # whole app lives inside it — a stale cached shell hides a just-shipped
+    # section (Monitoring, WS18, did exactly this: deployed and served at the
+    # origin, invisible in the browser). With no cache directive a browser
+    # heuristically caches HTML, so returning visitors run yesterday's page.
+    # `no-cache` = revalidate before use; on a released exhibit correctness of
+    # the shell beats saving a few KB per load. The /static mount (versioned
+    # assets) keeps its own caching. Applies to both entry points.
+    SHELL_HEADERS = {"cache-control": "no-cache"}
+
     @app.get("/", response_class=HTMLResponse)
     async def index():
-        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(
+            (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
+            headers=SHELL_HEADERS,
+        )
 
     @app.get("/guide", response_class=HTMLResponse)
     async def guide_page():
@@ -977,7 +990,10 @@ def create_console_app(registry: Registry | None = None):
         # it boots guide-only off location.pathname and shares the JWT + chat
         # history the console left in localStorage. No separate template to
         # keep in step.
-        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        return HTMLResponse(
+            (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
+            headers=SHELL_HEADERS,
+        )
 
     @app.get("/api/targets")
     async def targets(request: Request):
