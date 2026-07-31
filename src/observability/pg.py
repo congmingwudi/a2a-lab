@@ -657,6 +657,27 @@ class PgObsStore:
                 FROM {SCHEMA}.usage_events {where}
                 {"AND" if where else "WHERE"} event = 'nav' AND section = 'guide'"""
         )
+        # Logins by role: who is signing in and how often. persona_login rows
+        # carry the role stamped from the verified JWT (never anonymous — an
+        # unauthenticated caller cannot fire this event), so an empty role here
+        # means an older row, surfaced as 'unknown' rather than dropped.
+        logins_by_role = q(
+            f"""SELECT COALESCE(role, 'unknown') AS role,
+                       count(*)                    AS logins,
+                       count(DISTINCT persona)     AS people
+                FROM {SCHEMA}.usage_events {where}
+                {"AND" if where else "WHERE"} event = 'persona_login'
+                GROUP BY 1 ORDER BY logins DESC, role"""
+        )
+        # Where those logins came from — the country breakdown for sign-ins
+        # specifically (distinct from by_country, which counts visitors).
+        logins_by_country = q(
+            f"""SELECT COALESCE(country, '??') AS country,
+                       count(*)                  AS logins
+                FROM {SCHEMA}.usage_events {where}
+                {"AND" if where else "WHERE"} event = 'persona_login'
+                GROUP BY 1 ORDER BY logins DESC, country LIMIT 30"""
+        )
         t = totals[0] if totals else {}
         return {
             "window_days": days,
@@ -672,6 +693,8 @@ class PgObsStore:
             "by_section": by_section,
             "experiments": experiments,
             "guide": guide[0] if guide else {"visitors": 0, "opens": 0},
+            "logins_by_role": logins_by_role,
+            "logins_by_country": logins_by_country,
         }
 
     # ---- reads (WS13 item 6 / D49) ----------------------------------------

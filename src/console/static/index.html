@@ -780,9 +780,9 @@
      urgency is never colour alone. */
   /* Credentials Expiry Analysis. Two columns: the measured table is narrow and
      scannable, the agent's reading gets the room — it is prose and needs the
-     width. Collapses to one column when there isn't room for both. */
-  .creds-actions { display: flex; gap: 12px; align-items: center; margin: 0 0 18px; }
-  .creds-actions .hint { flex: 1; }
+     width. Collapses to one column when there isn't room for both. The Analyze
+     button lives in the Control Panel sidebar (like Observability's), so there
+     is no in-pane action row. */
   /* The measured column is sized to the longest credential name —
      'cloudwatch.amazonaws.com key — a2alab-cw-metrics-otlp' — because
      wrapping an identifier mid-token makes it unscannable. */
@@ -814,6 +814,12 @@
               border-color: color-mix(in srgb, #d9973a 45%, transparent); }
   .expdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
             margin-right: 8px; vertical-align: 1px; background: var(--muted); }
+  /* Platform mark to the LEFT of a credential name, so a glance says which
+     cloud each secret belongs to (AWS, Entra/Azure, GCP, Salesforce, …). */
+  .cred-logo { flex: none; display: inline-flex; align-items: center; margin-right: 8px;
+               vertical-align: -2px; }
+  .cred-logo svg, .cred-logo img { width: 14px; height: 14px; }
+  .creds-table td .cred-name { display: inline-flex; align-items: center; }
   tr.exp-expired .expdot, tr.exp-critical .expdot { background: var(--err, #e0574f); }
   tr.exp-warn .expdot { background: #d9973a; }
   tr.exp-ok .expdot { background: var(--rest, #4bb37b); }
@@ -1375,6 +1381,8 @@
           <div class="acc-body">
             <div class="traces-tools" style="padding-bottom:10px">
               <span class="hint">When each credential stops working, and what to do first.</span>
+              <button class="ghost" id="credAnalyzeBtn" onclick="runCredentialAnalyst(event)"
+                title="Fire the credential analyst (D44): collects fresh expiry dates from AWS, Entra and GCP, then asks Claude to interpret them — about a minute. The brief lands in the Analysis pane.">Analyze</button>
             </div>
             <div id="credsSide"></div>
           </div>
@@ -1565,7 +1573,7 @@ window.toggleUserPanel = async ev => {
     + users.map(u => `
       <div class="warm-row" style="cursor:pointer" onclick="gdPickUser('${esc(u.username)}', '${esc(u.name)}')">
         <span class="wname">${esc(u.name)}</span>
-        <span class="warm-tag ${u.role === "operator" ? "warm" : "cold"}">${esc(u.role)}</span>
+        <span class="warm-tag ${u.role === "viewer" ? "cold" : "warm"}">${esc(u.role)}</span>
       </div>`).join("")
     + `<div class="warm-foot" id="userPwRow" style="display:none">
          <span class="note" id="userPwWho"></span>
@@ -5099,6 +5107,9 @@ function monVisitorsHtml() {
   const country = (s.by_country || []).filter(r => r.country && r.country !== "??");
   const unknownCountry = (s.by_country || []).find(r => !r.country || r.country === "??");
   const locale = s.by_locale || [];
+  const roleLogins = s.logins_by_role || [];
+  const loginCountry = (s.logins_by_country || []).filter(r => r.country && r.country !== "??");
+  const loginUnknownCountry = (s.logins_by_country || []).find(r => !r.country || r.country === "??");
   return `
     <div class="obs-cards" style="margin-bottom:14px">
       <div class="obs-card"><div class="k">unique visitors</div>
@@ -5126,7 +5137,27 @@ function monVisitorsHtml() {
     <h3 style="margin-top:18px">By locale</h3>
     ${locale.length
       ? `<div class="mon-bars">${monBar(locale, r => r.locale, r => r.visitors)}</div>`
-      : `<div class="hint">No locale recorded yet.</div>`}`;
+      : `<div class="hint">No locale recorded yet.</div>`}
+
+    <h3 style="margin-top:18px">Sign-ins by role</h3>
+    <p class="hint">Each successful sign-in is a <code>persona_login</code> beacon; the role is
+    stamped from the verified JWT, never anonymous (D62). <b>people</b> is the distinct personas
+    behind those sign-ins — repeat logins by one person count once there.</p>
+    ${roleLogins.length
+      ? `<div class="tbl-card"><div class="tbl-scroll"><table class="obs-table">
+          <thead><tr><th>role</th><th>sign-ins</th><th>people</th></tr></thead>
+          <tbody>${roleLogins.map(r => `<tr>
+            <td>${esc(r.role)}</td><td>${r.logins}</td><td>${r.people}</td></tr>`).join("")}</tbody>
+         </table></div></div>`
+      : `<div class="hint">No sign-ins recorded yet in this window.</div>`}
+
+    <h3 style="margin-top:18px">Sign-ins by country</h3>
+    ${loginCountry.length
+      ? `<div class="mon-bars">${monBar(loginCountry, r => r.country, r => r.logins)}</div>`
+      : `<div class="hint">No sign-in country data yet — the <code>CF-IPCountry</code> header is
+         added by Cloudflare at the edge, so it is absent for local or direct-to-origin traffic.</div>`}
+    ${loginUnknownCountry ? `<div class="hint" style="margin-top:6px">${loginUnknownCountry.logins}
+      sign-in${loginUnknownCountry.logins === 1 ? "" : "s"} with no country header.</div>` : ""}`;
 }
 
 function monSectionsHtml() {
@@ -5498,36 +5529,57 @@ function expiryLeft(d) {
 
 function credBriefHtml() {
   if (!credBrief || !credBrief.brief) {
-    return `<h3>Analysis</h3><div class="hint">No analysis yet. <b>Analyze</b> collects the
-      table on the left and asks Claude to interpret it.</div>`;
+    return `<h3>Analysis</h3><div class="hint">No analysis has been run yet. Press <b>Analyze</b>
+      in the Control Panel (under Credentials Expiry Analysis) — it hands Claude the measured
+      table on the left and asks what a threshold cannot answer. The most recent brief then stays
+      here until the next run.</div>`;
   }
+  // Always the LAST brief that ran (stored in credential_brief.json and reloaded
+  // on every visit), stamped with when it was generated so a stale reading is
+  // never mistaken for a fresh one.
   const t = credBrief.tokens || {};
-  const meta = [credBrief.model, t.in && t.out ? `${t.in}+${t.out} tokens` : null]
+  const when = credBrief.generated_at ? `analysed ${fmtWhen(credBrief.generated_at)}` : "";
+  const meta = [when, credBrief.model, t.in && t.out ? `${t.in}+${t.out} tokens` : null]
     .filter(Boolean).join(" · ");
   return `<h3>Analysis
       <span class="obs-updated" style="float:right">${esc(meta)}</span></h3>
     <div class="cred-brief">${mdToHtml(credBrief.brief)}</div>`;
 }
 
-window.runCredentialAnalyst = async () => {
-  const btn = document.getElementById("credRunBtn");
-  const box = document.getElementById("credBriefBox");
+let credAnalyzing = false;
+// The Analyze button lives in the Control Panel sidebar (like Observability's),
+// so this must drive the sidebar button and re-render the main pane rather than
+// reaching for an inline box that no longer exists. If the operator has
+// navigated away, the run still completes and the brief is there when they open
+// the Analysis pane again.
+window.runCredentialAnalyst = async ev => {
+  if (ev) ev.stopPropagation();
+  if (credAnalyzing) return;
+  credAnalyzing = true;
+  const btn = document.getElementById("credAnalyzeBtn");
   if (btn) { btn.disabled = true; btn.textContent = "Analyzing…"; }
+  const box = document.getElementById("credBriefBox");
   if (box) box.innerHTML = `<div class="hint">Collecting from AWS, Entra and GCP, then asking the
     agent — this takes around a minute.</div>`;
   try {
     const r = await fetch(apiUrl("/api/credentials/analyze"), { method: "POST" });
     const d = await r.json();
     if (!d.ok) {
-      if (box) box.innerHTML = `<div class="hint">Analyst failed: ${esc(d.error || r.status)}</div>`;
+      const msg = `<div class="hint">Analyst failed: ${esc(d.error || r.status)}</div>`;
+      const b2 = document.getElementById("credBriefBox");
+      if (b2) b2.innerHTML = msg;
       return;
     }
     credBrief = d;
-    if (box) box.innerHTML = credBriefHtml();
+    // Re-render whatever creds pane is showing so the brief appears, and refresh
+    // the sidebar (the worst-status badge may have moved).
+    if (view && view.type === "creds") renderMain(true);
     renderCredsSide();
   } catch (e) {
-    if (box) box.innerHTML = `<div class="hint">Analyst failed: ${esc(String(e))}</div>`;
+    const b2 = document.getElementById("credBriefBox");
+    if (b2) b2.innerHTML = `<div class="hint">Analyst failed: ${esc(String(e))}</div>`;
   } finally {
+    credAnalyzing = false;
     if (btn) { btn.disabled = false; btn.textContent = "Analyze"; }
   }
 };
@@ -5728,34 +5780,53 @@ function credsDetailsHtml() {
     </div>`;
 }
 
+// Which platform a credential belongs to, derived from its name — the
+// collector groups by provider (AWS IAM/ACM, Entra, GCP) and the declared
+// rows name their platform (SF ECA, Cloudflare). Client-side so it works on
+// existing snapshots with no backend field: a mark to the left of each name.
+function credLogoKey(c) {
+  const s = ((c.name || "") + " " + (c.kind || "")).toLowerCase();
+  if (/\bsf\b|salesforce|\beca\b/.test(s)) return "salesforce";
+  if (/entra|azure|foundry|microsoft|graph/.test(s)) return "microsoft";
+  if (/\bgcp\b|google|gcloud|vertex/.test(s)) return "gcloud";
+  // No Cloudflare mark in the vendor set — the tunnel credential simply shows
+  // no logo rather than a wrong one.
+  if (/cloudflare/.test(s)) return "";
+  // Everything the lab measures otherwise lives in AWS: IAM/ACM/CloudWatch
+  // credentials, the ALB TLS cert, and the lab's own JWT/shared-token secrets
+  // that ride Secrets Manager.
+  if (/\baws\b|iam|acm|cloudwatch|tls cert|jwt|shared token|bridge|lab persona/.test(s)) return "aws";
+  return "";
+}
+
 function credsReportHtml() {
   const creds = (expiryData && expiryData.credentials) || [];
-  const rows = creds.map(c => `
+  const rows = creds.map(c => {
+    const logo = logoSvg(credLogoKey(c));
+    return `
     <tr class="exp-${esc(c.status)}">
-      <td><span class="expdot"></span>${esc(c.name)}
+      <td><span class="cred-name"><span class="expdot"></span>${logo
+        ? `<span class="cred-logo">${logo}</span>` : ""}${esc(c.name)}</span>
         <div class="hint">${esc(c.expires_at ? c.expires_at.slice(0, 10) : "no expiry")} ·
           ${esc(c.source)}${c.error ? " · " + esc(c.error) : ""}</div></td>
       <td class="num">${esc(expiryLeft(c.days_left))}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 
   return `
     <div class="hint" style="margin:0 0 14px">The <b>credential analyst</b> is one Claude API
     call — the lab's first agent doing operations rather than experiments. The table is
     collected deterministically; the agent is handed exactly those numbers and asked what a
-    threshold cannot answer. See the Details tab for why it is an API call and not a Managed
-    Agent (D44), or plan/09-deployment-map.md for where it sits in the estate.</div>
-
-    <div class="creds-actions">
-      <button class="ghost ${credsUrgent() ? "exp-" + credsWorst() : ""}"
-        id="credRunBtn" onclick="runCredentialAnalyst()">Analyze</button>
-      <span class="hint">Collects from four providers, then asks the agent — about a minute.</span>
-    </div>
+    threshold cannot answer. Run it with <b>Analyze</b> in the Control Panel (under Credentials
+    Expiry Analysis), the same place Observability's Analyze lives. See the Details tab for why
+    it is an API call and not a Managed Agent (D44), or plan/09-deployment-map.md for where it
+    sits in the estate.</div>
 
     <div class="creds-split">
       <div class="creds-table">
         <h3>Measured</h3>
         <div class="tbl-card"><div class="tbl-scroll">
-          <table class="obs-table"><thead><tr><th>credential</th><th class="num">left</th></tr></thead>
+          <table class="obs-table"><thead><tr><th>credential</th><th class="num">time left</th></tr></thead>
           <tbody>${rows}</tbody></table>
         </div></div>
         ${expiryData.error ? `<p class="hint">${esc(expiryData.error)}</p>` : `

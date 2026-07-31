@@ -330,3 +330,32 @@ def test_usage_stats_shapes_totals_from_rows():
     assert out["totals"]["unique_visitors"] == 5
     assert out["totals"]["returning_visitors"] == 2
     assert out["by_country"] == []  # no canned rows -> empty, not a crash
+    # Login breakdowns are always present, empty when no rows match.
+    assert out["logins_by_role"] == []
+    assert out["logins_by_country"] == []
+
+
+def test_usage_stats_breaks_logins_down_by_role_and_country():
+    """The Monitoring Visitors tab shows who signed in and from where — both
+    aggregates filter to persona_login, and role/country default to a label
+    (never dropped) so an older null row still counts."""
+    store = PgObsStore(
+        client=FakePg(
+            {
+                "ORDER BY logins DESC, role": [
+                    {"role": "master of the universe", "logins": 4, "people": 1},
+                    {"role": "operator", "logins": 2, "people": 2},
+                ],
+                "ORDER BY logins DESC, country": [
+                    {"country": "US", "logins": 5},
+                    {"country": "GB", "logins": 1},
+                ],
+            }
+        )
+    )
+    out = store.usage_stats(days=7)
+    joined = " ".join(sql for sql, _ in store.client.calls)
+    assert joined.count("event = 'persona_login'") >= 2  # one per login aggregate
+    assert out["logins_by_role"][0]["role"] == "master of the universe"
+    assert out["logins_by_role"][0]["people"] == 1
+    assert out["logins_by_country"][0]["country"] == "US"
