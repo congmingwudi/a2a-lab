@@ -971,6 +971,14 @@ def create_console_app(registry: Registry | None = None):
     async def index():
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
+    @app.get("/guide", response_class=HTMLResponse)
+    async def guide_page():
+        # The Lab Guide popped into its own OS window. Same page, same origin:
+        # it boots guide-only off location.pathname and shares the JWT + chat
+        # history the console left in localStorage. No separate template to
+        # keep in step.
+        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
     @app.get("/api/targets")
     async def targets(request: Request):
         reg = get_registry()
@@ -3340,6 +3348,13 @@ def create_console_app(registry: Registry | None = None):
         app,
         exempt_paths=(
             "/",
+            # The popped-out Lab Guide window serves the SAME public SPA shell
+            # as "/" (it boots guide-only off the path and signs in client-side
+            # with the persona JWT, exactly as the main page does). Gating it
+            # here 401s the window before its own sign-in can run — the shell
+            # itself carries no data, so exempting it discloses nothing "/" does
+            # not. All /api/guide calls it makes stay behind the JWT.
+            "/guide",
             # WS13: the ALB health check has no credentials and never will —
             # a gated health path marks every task unhealthy and the service
             # never stabilises. It answers {"status":"healthy"} and nothing

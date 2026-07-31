@@ -78,6 +78,19 @@ def by_category(insights: list[dict]) -> list[tuple[str, list[dict]]]:
     return [(c, groups[c]) for c in known + extra]
 
 
+def _prose(value: object) -> str:
+    """Collapse a folded YAML scalar to clean prose, preserving paragraphs.
+
+    Mirrors the console's `prose()` helper: `evidence: >` folds a wrapped
+    paragraph to one line and a blank line to a single "\\n", so splitting on
+    newlines recovers the author's paragraphs. Each is whitespace-collapsed and
+    rejoined with a blank line, which is a markdown paragraph break. A
+    single-paragraph value passes through as one line, exactly as before.
+    """
+    paras = [" ".join(p.split()) for p in str(value or "").split("\n")]
+    return "\n\n".join(p for p in paras if p)
+
+
 def to_markdown(insights: list[dict]) -> str:
     """One self-contained markdown doc, shaped as talking points: claim,
     what the lab showed, what to tell the customer."""
@@ -101,9 +114,9 @@ def to_markdown(insights: list[dict]) -> str:
                 + (f" · refs: {', '.join(ins['refs'])}" if ins.get("refs") else "")
                 + "*",
                 "",
-                f"**What the lab showed:** {' '.join(str(ins.get('evidence', '')).split())}",
+                f"**What the lab showed:** {_prose(ins.get('evidence', ''))}",
                 "",
-                f"**Advisor take:** {' '.join(str(ins.get('advisory', '')).split())}",
+                f"**Advisor take:** {_prose(ins.get('advisory', ''))}",
                 "",
             ]
             # Diagrams ride as ```mermaid fences: GitHub and Claude Design both

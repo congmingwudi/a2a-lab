@@ -272,7 +272,9 @@
 
   /* scenario cards (sidebar) — labs experiments-tile outline: the wordmark
      gradient as a rim, brightening on hover and fully lit when open */
-  .card { position: relative; margin: 8px 14px; background: var(--card); border: 1px solid transparent;
+  /* White experiment tiles on the gray sidebar canvas — the same canvas-gray /
+     panel-white alternation as the Observability, Insights and Registry tiles. */
+  .card { position: relative; margin: 8px 14px; background: var(--bg); border: 1px solid transparent;
           border-radius: 12px; padding: 13px 14px; cursor: pointer;
           transition: transform .15s ease, box-shadow .15s ease; }
   .card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
@@ -686,6 +688,8 @@
   .obs-grid .obs-card { background: var(--bg); }
   .obs-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   .obs-card h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .obs-card h4 .obs-card-logo { flex: none; display: inline-flex; align-items: center; }
+  .obs-card h4 .obs-card-name { flex: 1; }
   .obs-card .nums { display: flex; gap: 16px; margin: 6px 0 10px; }
   .obs-card .num { font-family: var(--font-mono); }
   .obs-card .num b { font-size: 18px; font-weight: 600; display: block; }
@@ -910,7 +914,9 @@
   .ins-legend-eg { color: var(--muted); }
   .ins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px;
               padding: 14px 16px 18px; }
-  .ins-card { background: var(--card2); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; }
+  /* White tiles on the gray .flow container — the canvas-gray / panel-white
+     alternation used across the console (Observability, Agent Registry). */
+  .ins-card { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; }
   .ins-card .head { display: flex; align-items: flex-start; gap: 8px; }
   .ins-card h4 { margin: 0; font-size: 14.5px; font-weight: 600; flex: 1; line-height: 1.45; }
   /* status chip — evidence level, tinted like the protocol badges so it reads
@@ -1168,6 +1174,23 @@
                      background: var(--card2); border: 1px solid var(--border);
                      border-radius: 9px; cursor: pointer; }
   .gd-input button:disabled { opacity: .5; cursor: default; }
+  /* Drag the left edge to widen the drawer; width persists per-browser
+     (a2a-guide-width). Hidden in the popped-out /guide window — there the OS
+     window frame does the resizing. */
+  .gd-resize { position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+               cursor: ew-resize; z-index: 1; }
+  .gd-resize:hover, .gd-resize.dragging { background: color-mix(in srgb, var(--a2a) 30%, transparent); }
+  .gd-head .gd-popin { display: none; }
+  /* Pop-out window (/guide): the drawer becomes the whole page. No fixed
+     header/main to hide against, no left-edge resize, and Close becomes
+     "return to the console". */
+  body.guide-only { overflow: hidden; }
+  body.guide-only > header, body.guide-only > main { display: none; }
+  body.guide-only .guide-drawer { position: fixed; inset: 0; width: 100% !important;
+                                  border-left: none; box-shadow: none; }
+  body.guide-only .gd-resize, body.guide-only .gd-head .x,
+  body.guide-only .gd-head .gd-popout { display: none; }
+  body.guide-only .gd-head .gd-popin { display: inline-block; }
 
   /* in-canvas navigation (back + breadcrumbs) */
   .obs-search { float: right; width: 220px; padding: 3px 9px; font: 12px var(--font-ui);
@@ -1196,7 +1219,7 @@
     <h1>A2A Interop Lab</h1>
   </div>
   <span class="sub">cross-platform agent-to-agent experiments · Agentforce × Claude × OpenAI × Google × Microsoft</span>
-  <span id="live" class="live">connecting…</span>
+  <span id="live" class="live" title="Live trace stream — the console's connection to the lab's own backend (/api/stream). When 'live', new wire-trace hops appear here the instant an experiment runs, no refresh needed. It streams under your persona sign-in, so it shows 'sign in for live' until you do.">connecting…</span>
   <span id="modeBadge" class="mode-badge" style="display:none"></span>
   <div class="theme-switch" role="group" aria-label="Theme">
     <button class="tbtn" id="themeLight" onclick="setTheme('light')" title="Light mode" aria-label="Switch to light mode">☀</button>
@@ -1217,10 +1240,13 @@
   </div>
 </header>
 <div id="guideDrawer" class="guide-drawer" style="display:none">
+  <div class="gd-resize" id="gdResize" title="Drag to resize"></div>
   <div class="gd-head">🧭 Lab Guide <span class="hint">the lab, explained by the lab</span>
     <button class="gd-hbtn" onclick="gdHistoryToggle()" title="Past chats" aria-label="Past chats">🕘</button>
     <button class="gd-hbtn" onclick="gdNewChat()" title="New chat (saves this one to history)" aria-label="New chat">＋</button>
     <button class="gd-hbtn" onclick="gdClear()" title="Clear this chat (not saved)" aria-label="Clear chat">🗑</button>
+    <button class="gd-hbtn gd-popout" onclick="gdPopOut()" title="Pop out into its own window" aria-label="Pop out into its own window">⧉</button>
+    <button class="gd-hbtn gd-popin" onclick="gdPopIn()" title="Return to the console" aria-label="Return to the console">⤢</button>
     <button class="x" onclick="toggleGuide()" title="Close" aria-label="Close the Lab Guide">✕</button></div>
   <div id="gdHistory" class="gd-history" style="display:none"></div>
   <div id="gdChat" class="gd-chat"></div>
@@ -3115,6 +3141,14 @@ window.obsSummaryNav = ev => {
   renderSidebar(); renderMain(true);
 };
 
+// One logo per platform tile, placed to the LEFT of the whole title. Keyed by
+// the obs platform id (not the label) so a multi-word label like "Google ADK /
+// Agent Engine" gets ONE mark, not one per keyword the way withLogos() splices.
+const OBS_PLATFORM_LOGO = {
+  claude: "anthropic", salesforce: "salesforce", openai: "openai",
+  foundry: "microsoft", adk: "gcloud",
+};
+
 function obsDashboardHtml() {
   const caps = (obs.summary && obs.summary.capabilities) || {};
   const info = p => (obs.summary && obs.summary.platforms && obs.summary.platforms[p]) || {};
@@ -3131,7 +3165,7 @@ function obsDashboardHtml() {
         const i = info(p), h = i.harvest || {};
         return `
         <div class="obs-card">
-          <h4>${withLogos(caps[p].label)} <span class="obs-status ${esc(h.status || "")}">${esc(h.status || "not harvested")}</span></h4>
+          <h4><span class="obs-card-logo">${logoSvg(OBS_PLATFORM_LOGO[p])}</span><span class="obs-card-name">${esc(caps[p].label)}</span><span class="obs-status ${esc(h.status || "")}">${esc(h.status || "not harvested")}</span></h4>
           <div class="nums">
             <div class="num"><b>${i.sessions || 0}</b><span>sessions</span></div>
             <div class="num"><b>${i.events || 0}</b><span>events</span></div>
@@ -3255,9 +3289,14 @@ function obsSessionDetailHtml() {
 let insightsData = { insights: [], categories: [] };  // from /api/insights
 let labConfig = null;                                 // from /api/config
 
-// Folded YAML scalars arrive with soft newlines — collapse to clean prose
-// (same normalization the markdown export applies).
-const prose = s => String(s || "").replace(/\s+/g, " ").trim();
+// Folded YAML scalars (`evidence: >`) fold a wrapped paragraph to one line and
+// a BLANK line to a single "\n". So splitting on newlines recovers the author's
+// paragraphs: each is collapsed to clean prose, then rejoined with a blank line
+// so mdToHtml emits a <p> per paragraph (.ins-card .evid p + p spaces them). A
+// single-paragraph insight has no "\n" and passes through as one paragraph —
+// same normalization the markdown export applies.
+const prose = s => String(s || "").split(/\n/).map(p => p.replace(/\s+/g, " ").trim())
+  .filter(Boolean).join("\n\n");
 const catSlug = c => String(c).toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
 async function loadInsights() {
@@ -3507,15 +3546,16 @@ function riderSectionHtml() {
 function renderModeBadge() {
   const el = document.getElementById("modeBadge");
   if (!el || !labConfig) return;
+  // Hosted is the only mode the published console ever runs in, so the chip
+  // there says nothing a visitor can act on — show it ONLY when the mode is
+  // `local`, where it is a real signal that runs hit the lab's local servers
+  // (adapter dev via run_local.sh). Hidden otherwise.
   const hosted = labConfig.mode !== "local";
+  if (hosted) { el.style.display = "none"; return; }
   el.style.display = "";
   el.textContent = labConfig.mode;
-  el.classList.toggle("hosted", hosted);
-  const maps = Object.entries(labConfig.remapped || {}).map(([a, b]) => `${a} → ${b}`);
-  el.title = hosted
-    ? `Deployment mode: ${labConfig.mode} — experiment runs are routed to the cloud-hosted runtimes (AgentCore etc.) instead of local servers. Unrelated to the "live" badge, which is the trace stream connection.` +
-      (maps.length ? `\nRemapped targets:\n${maps.join("\n")}` : "\nNo targets remapped.")
-    : "Deployment mode: local — runs hit the lab's local servers (A2ALAB_MODE flips this)";
+  el.classList.remove("hosted");
+  el.title = "Deployment mode: local — runs hit the lab's local servers (A2ALAB_MODE flips this)";
 }
 
 // ---- Coding Agents Telemetry (WS9) -------------------------------------------------
@@ -5787,6 +5827,13 @@ function insightCardHtml(ins) {
   </div>`;
 }
 
+// The approve / request-changes controls are hidden for now: the review flow
+// isn't wired up in the hosted app (the reviewer edits config/insights.yaml and
+// config/insight_reviews.yaml directly), so a live button would do nothing. The
+// state chip still shows. Flip this to true — nothing else changes — when the
+// hosted review flow is made real.
+const INSIGHT_REVIEW_CONTROLS = false;
+
 // Sign-off block — only on insights config/insights.yaml marks
 // `review: required`. Everyone sees the state (a published claim either has
 // been vouched for or hasn't); only the reviewer sees the controls.
@@ -5809,7 +5856,7 @@ function insightReviewHtml(ins) {
       ${who ? `<span class="rvwho">${who}</span>` : ""}
     </div>
     ${rv.comment ? `<p class="rvcomment">${esc(rv.comment)}</p>` : ""}
-    ${insightsData.can_review ? `
+    ${insightsData.can_review && INSIGHT_REVIEW_CONTROLS ? `
     <div class="rvform" data-insight="${esc(ins.id)}">
       <input type="text" placeholder="comment (optional)"
         onkeydown="if(event.key==='Enter')reviewInsight(this,'approved')">
@@ -7452,7 +7499,13 @@ function gdRender() {
   document.getElementById("gdSendBtn").disabled = gd.busy;
 }
 
+// True when this page is the popped-out /guide window (served the same
+// index.html; same origin, so it shares the JWT and chat history in
+// localStorage). It renders guide-only and never opens the console chrome.
+const GUIDE_ONLY = location.pathname.replace(/\/+$/, "") === "/guide";
+
 window.toggleGuide = () => {
+  if (GUIDE_ONLY) return;  // no drawer to toggle — the guide IS the page
   if (!requireSignIn()) return;
   gd.open = !gd.open;
   document.getElementById("guideDrawer").style.display = gd.open ? "" : "none";
@@ -7461,6 +7514,70 @@ window.toggleGuide = () => {
     gdSyncContext();
     gdRender();
     document.getElementById("gdInput").focus();
+  }
+};
+
+// Drawer width: drag the left edge, persist per-browser. Clamped so it can
+// neither shrink past readability nor swallow the whole viewport.
+const GD_MIN_W = 340, GD_HEAD_W = 380;
+function gdApplyWidth(w) {
+  const max = Math.max(GD_MIN_W, window.innerWidth - 80);
+  const px = Math.min(Math.max(w, GD_MIN_W), max);
+  document.getElementById("guideDrawer").style.width = px + "px";
+  return px;
+}
+function gdInitWidth() {
+  if (GUIDE_ONLY) return;  // full-window; width is the OS frame's job
+  let saved = null;
+  try { saved = parseInt(localStorage.getItem("a2a-guide-width") || "", 10); } catch (e) { /* */ }
+  if (saved) gdApplyWidth(saved);
+}
+function gdSetupResize() {
+  const handle = document.getElementById("gdResize");
+  const drawer = document.getElementById("guideDrawer");
+  if (!handle || !drawer) return;
+  handle.addEventListener("pointerdown", ev => {
+    ev.preventDefault();
+    handle.classList.add("dragging");
+    handle.setPointerCapture(ev.pointerId);
+    const move = e => {
+      // drawer is anchored right; width grows as the pointer moves left
+      gdApplyWidth(window.innerWidth - e.clientX);
+    };
+    const up = () => {
+      handle.classList.remove("dragging");
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      try { localStorage.setItem("a2a-guide-width", String(parseInt(drawer.style.width, 10) || GD_MIN_W)); } catch (e) { /* */ }
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  });
+}
+
+// Pop the guide into its own OS window (a same-origin /guide page). Chat state
+// and the JWT already live in localStorage, so the new window comes up signed
+// in with this conversation. Closing the drawer here keeps a single visible
+// guide; a header note in the popped window offers the way back.
+window.gdPopOut = () => {
+  gdPersist();  // hand the current chat to the new window through localStorage
+  const w = Math.min(GD_HEAD_W + 140, Math.round(window.screen.availWidth * 0.42));
+  const h = Math.round(window.screen.availHeight * 0.9);
+  const win = window.open("/guide", "a2a-lab-guide", `width=${w},height=${h}`);
+  if (!win) { alert("Pop-out was blocked — allow pop-ups for this site to open the Lab Guide in its own window."); return; }
+  if (gd.open) toggleGuide();  // avoid two live guides side by side
+};
+
+// In the popped-out window: hand focus back to the opener console (opening the
+// drawer there) and close this window. Falls back to navigating home if this
+// page was opened directly rather than via the button.
+window.gdPopIn = () => {
+  gdPersist();
+  if (window.opener && !window.opener.closed) {
+    try { window.opener.focus(); if (window.opener.toggleGuide) window.opener.toggleGuide(); } catch (e) { /* cross-window guard */ }
+    window.close();
+  } else {
+    location.href = "/";
   }
 };
 
@@ -7522,12 +7639,35 @@ window.gdSend = async () => {
   gdRender();
 };
 
-// First paint drives the SAME list sign-in does, so the two cannot drift. The
-// stream is separate: its loop owns reconnection and must be started once.
-load().then(connectStream);
-Promise.allSettled(SIGNED_IN_LOADERS.map(fn => fn())).then(renderMain);
-renderUserBtn();
-applyAuthGating();
+// Popped-out /guide window: the guide IS the page. Skip the console's data
+// loads and stream (nothing to render), open the drawer full-window, and
+// restore this browser's chat from localStorage — the same store the console
+// wrote before calling window.open.
+function bootGuideOnly() {
+  document.body.classList.add("guide-only");
+  const drawer = document.getElementById("guideDrawer");
+  gd.open = true;
+  drawer.style.display = "";
+  gdLoadState();
+  gdSyncContext();
+  gdRender();
+  gdSetupResize();
+  const input = document.getElementById("gdInput");
+  if (input) input.focus();
+}
+
+if (GUIDE_ONLY) {
+  bootGuideOnly();
+} else {
+  // First paint drives the SAME list sign-in does, so the two cannot drift. The
+  // stream is separate: its loop owns reconnection and must be started once.
+  load().then(connectStream);
+  Promise.allSettled(SIGNED_IN_LOADERS.map(fn => fn())).then(renderMain);
+  renderUserBtn();
+  applyAuthGating();
+  gdInitWidth();
+  gdSetupResize();
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,142 @@
+# Insight sign-off (console: Insights → Approve / Request changes).
+#
+# Written by the console when the lab's reviewer decides on an insight that
+# config/insights.yaml marks `review: required`. `content` is a hash of the
+# text that was approved — edit the insight afterwards and the console shows
+# the approval as stale rather than pretending it still applies.
+#
+# Hand-editing is fine; keep the shape.
+reviews:
+  a2a-async-at-heart:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: e5cb3a22ed57
+    name: Ryan Cox
+    state: approved
+  antipattern-lens:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 43f344977c1a
+    name: Ryan Cox
+    state: approved
+  async-needs-a-runtime-that-keeps-computing:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 6b58ec683808
+    name: Ryan Cox
+    state: approved
+  async-protocol-half-is-unused-not-missing:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 8722f55886b4
+    name: Ryan Cox
+    state: approved
+  behaviour-survives-content-off:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 8c8db4a07fbb
+    name: Ryan Cox
+    state: approved
+  credential-locality:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 6374a3a9ad58
+    name: Ryan Cox
+    state: approved
+  cross-cloud-agent-identity:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 00f2f4a3d231
+    name: Ryan Cox
+    state: approved
+  errors-must-not-be-relayed-by-a-model:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: bdc7caf73ee4
+    name: Ryan Cox
+    state: approved
+  fabricated-attribution:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 61cc3ccb1a97
+    name: Ryan Cox
+    state: approved
+  input-tokens-is-not-the-input:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 97216f3433de
+    name: Ryan Cox
+    state: approved
+  least-privilege-is-identity:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 33430cae50bb
+    name: Ryan Cox
+    state: approved
+  managed-vs-self-hosted:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 43a691228bfa
+    name: Ryan Cox
+    state: approved
+  orchestration-topology:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 3f6cdcbadcd1
+    name: Ryan Cox
+    state: approved
+  remediation-tax:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: aa71e225cb7b
+    name: Ryan Cox
+    state: approved
+  telemetry-config-is-not-evidence:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 845d03f99957
+    name: Ryan Cox
+    state: approved
+  text-rider-legitimacy:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: 183d5651d08d
+    name: Ryan Cox
+    state: approved
+  timeout-budget-stack:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: db90424c8783
+    name: Ryan Cox
+    state: approved
+  versioning-not-negotiation:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: c1d11c9660b2
+    name: Ryan Cox
+    state: approved
+  where-the-tool-runs-decides-who-orchestrates:
+    at: '2026-07-31T11:11:42Z'
+    by: ryan
+    comment: ''
+    content: b76b3c5b24e9
+    name: Ryan Cox
+    state: approved
