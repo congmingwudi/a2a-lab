@@ -2453,6 +2453,10 @@ const PLATFORM_LOGOS = {
   // orange; the wordmark takes currentColor so it survives both themes, where
   // the brand's Squid Ink would disappear on the dark one.
   aws: `<svg class="plogo awslogo" viewBox="0 0 26 16" aria-hidden="true"><text x="13" y="9.2" text-anchor="middle" font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="10.5" font-weight="700" letter-spacing="-.3" fill="currentColor">aws</text><path fill="none" stroke="#ff9900" stroke-width="1.7" stroke-linecap="round" d="M3.4 12.4c3 2.1 6.2 3.1 9.6 3.1s6.6-1 9.6-3.1"/><path fill="#ff9900" d="M20.4 11.2 24.4 11.5 22.6 14.7z"/></svg>`,
+  // Cloudflare's cloud, in the brand's two oranges (the darker base, the lighter
+  // upper). Drawn, not downloaded, like the AWS mark above — the tunnel that
+  // fronts the console is the only Cloudflare credential the lab measures.
+  cloudflare: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="#f6821f" d="M11.4 11.5H3.2a2.6 2.6 0 0 1-.5-5.1 3.7 3.7 0 0 1 6.9-1.2 2.9 2.9 0 0 1 4 1.6h.4a2.35 2.35 0 0 1 0 4.7z"/><path fill="#fbad41" d="M12.9 6.8a2.9 2.9 0 0 0-.3 0l-.15.03a.1.1 0 0 0-.07.07l-.1.35c-.08.3-.05.58.08.78.12.18.33.29.6.3l1.75.11a.13.13 0 0 1 .1.06.13.13 0 0 1 .01.12.17.17 0 0 1-.15.11l-1.82.11c-.99.05-2.05.85-2.42 1.83l-.13.34a.08.08 0 0 0 .07.1h6.24a.15.15 0 0 0 .15-.11 4.4 4.4 0 0 0 .16-1.18 3.24 3.24 0 0 0-3.2-3.24z"/></svg>`,
 };
 const logoSvg = key => PLATFORM_LOGOS[key] || "";
 
@@ -5888,9 +5892,7 @@ function credLogoKey(c) {
   if (/\bsf\b|salesforce|\beca\b/.test(s)) return "salesforce";
   if (/entra|azure|foundry|microsoft|graph/.test(s)) return "microsoft";
   if (/\bgcp\b|google|gcloud|vertex/.test(s)) return "gcloud";
-  // No Cloudflare mark in the vendor set — the tunnel credential simply shows
-  // no logo rather than a wrong one.
-  if (/cloudflare/.test(s)) return "";
+  if (/cloudflare/.test(s)) return "cloudflare";
   // Everything the lab measures otherwise lives in AWS: IAM/ACM/CloudWatch
   // credentials, the ALB TLS cert, and the lab's own JWT/shared-token secrets
   // that ride Secrets Manager.
