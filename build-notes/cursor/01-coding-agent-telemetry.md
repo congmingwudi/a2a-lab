@@ -208,7 +208,9 @@ Query with the same PromQL surface as Claude Code metrics — see
 **Console gap:** `src/observability/coding_source.py` discovers `claude_code.*`
 and `codex.*` prefixes today. Cursor series can arrive in CloudWatch before they
 appear in the Coding Agents Telemetry section; extending the harvest is a
-separate follow-up.
+separate follow-up. For why Cursor (and Codex) show **n/a** for cost while
+Claude Code gets dollars, see
+[02-cross-tool-cost-comparison.md](02-cross-tool-cost-comparison.md).
 
 ---
 

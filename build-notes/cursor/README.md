@@ -24,6 +24,7 @@ Same convention as the Claude build notes:
 | File | Theme |
 |---|---|
 | [01-coding-agent-telemetry.md](01-coding-agent-telemetry.md) | Cursor has no native OTEL — hooks + cursorscope → CloudWatch metrics; project hooks, setup script, attribution, and what's still open |
+| [02-cross-tool-cost-comparison.md](02-cross-tool-cost-comparison.md) | Why Claude Code gets dollars and Codex/Cursor get sessions — three telemetry shapes, histogram limits, and what the console renders as `n/a` |
 
 ## Relationship to the other coding agents
 

@@ -964,6 +964,8 @@ def test_build_telemetry_explains_setup_when_nothing_collected(tmp_path, monkeyp
 
     assert data["enabled"] is False
     assert data["days"] == []
+    assert "D64" in data["comparison_md"]
+    assert "n/a" in data["comparison_md"]
     steps = " ".join(s["step"] + s["detail"] for s in data["setup"])
     assert "CloudWatchAPIKeyAccess" in steps
     assert "tool=codex" in steps

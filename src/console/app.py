@@ -2377,6 +2377,55 @@ def create_console_app(registry: Registry | None = None):
         },
     }
 
+    # Cost-tab Details pane: cross-tool comparison (D64, WS9). Rendered with
+    # mdToHtml so D-chips and build-notes paths linkify. Kept here rather than
+    # duplicated in index.html — same pattern as BUILD_TELEMETRY_COST_NOTE.
+    BUILD_TELEMETRY_COMPARISON_MD = """\
+### What each coding agent publishes
+
+Three tools reach the same CloudWatch managed OTLP endpoint; they do **not**
+publish the same metric shapes. The Run tab shows **n/a** (not `$0.00`) where a
+tool has no cost or token metric — zero would read as "free"; n/a reads as "we
+cannot see it." Full write-up: build-notes/cursor/02-cross-tool-cost-comparison.md.
+
+| | Claude Code | Codex CLI | Cursor |
+|---|---|---|---|
+| OTEL | Native exporter + `otelHeadersHelper` | Native exporter | **None** — hooks → cursorscope (D64) |
+| Cost metric | `claude_code.cost.usage` (USD estimate) | **None** | **None** |
+| Token metric | `token.usage` — delta **Sum**, 4 buckets | `turn.token_usage` — delta **Histogram** | `gen_ai.*` — **Histogram** (hook estimate) |
+| Sessions | `session.count` (delta Sum) | `thread.started` (Sum) | `session_total` (cumulative → `increase()`) |
+| Run tab | Cost + tokens + sessions | Sessions/turns only | Sessions/activity only |
+
+### Why only Claude Code gets dollars
+
+Claude Code publishes (1) a client-side USD estimate and (2) token counts as
+delta **Sums** in four buckets (uncached input, cache read, cache creation,
+output) that bill at different multiples. `coding_source.py` rolls those up with
+`sum_over_time()`. The figure is **modelled build cost at list price** — not an
+invoice (D44, build-notes/claude/10-consumption-and-list-price.md).
+
+### Why Codex and Cursor show n/a for cost
+
+**Codex** ships a native exporter but no cost metric. Its token data is a
+**Histogram**; CloudWatch PromQL returns the series but no scalar this harvest
+can sum — verified live 2026-07-26 (build-notes/claude/08-coding-agent-telemetry.md).
+Only the Sums `codex.thread.started` and `codex.conversation.turn.count` are wired.
+
+**Cursor** is one step further: no native exporter at all. cursorscope derives
+**behaviour counters** from lifecycle hooks (build-notes/cursor/01) — sessions,
+prompts, tool calls — not billing telemetry. Token estimates, when present, are
+histograms with no cache-bucket split. Cursor Pro/Business subscription pricing
+is also a different contract than list-price-per-token. D64 documents the
+service.* attribution fallbacks and cumulative-counter handling.
+
+### What would be needed to estimate Codex or Cursor cost
+
+Not impossible — not implemented. Would require: token counts in a summable form
+(new histogram query logic or Sum exporters), a list-price table, model labels on
+every datapoint, and honest **modelled** labelling. Until then the cost sentinel
+and console never present a combined dollar total across tools (WS12/D44).
+"""
+
     # Shown in the Coding Agents Telemetry section when nothing has been collected yet,
     # which is the honest default: telemetry is NOT retroactive, so whatever
     # was built before the exporters were switched on is unmeasurable.
@@ -2865,6 +2914,7 @@ def create_console_app(registry: Registry | None = None):
             else None,
             "days": days,
             "cost_note": BUILD_TELEMETRY_COST_NOTE,
+            "comparison_md": BUILD_TELEMETRY_COMPARISON_MD,
             "tool_notes": [{"tool": k, **v} for k, v in BUILD_TELEMETRY_TOOL_NOTES.items()],
             "scope_note": (
                 "The totals above are account-wide: the harvest queries each "

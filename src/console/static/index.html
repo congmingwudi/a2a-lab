@@ -4336,17 +4336,22 @@ window.runCostSentinel = async () => {
 
 function buildDetailsHtml() {
   const s = costBrief || {};
+  const comparison = (buildData && buildData.comparison_md)
+    ? `<div class="flow"><div class="arch-prose">${mdToHtml(buildData.comparison_md)}</div></div>`
+    : "";
   const agentLink = s.agent_id
     ? `<a href="https://platform.claude.com/workspaces/default/agents/${encodeURIComponent(s.agent_id)}"
          target="_blank" rel="noopener">${esc(s.agent_id)}</a>`
     : `<span class="hint">not provisioned</span>`;
   return `
     <div class="detail">
-    <div class="hint" style="margin:10px 0 16px">How the daily build-cost brief is produced —
-    what is measured, by what, and what the numbers do and do not mean. The workstream is WS12 in
-    plan/07-workstreams.md; where it sits in the estate is plan/09-deployment-map.md.</div>
+    <div class="hint" style="margin:10px 0 16px">What the Coding Agents Telemetry section
+    measures, how the three tools differ, and what the numbers do and do not mean.
+    WS9 in plan/07-workstreams.md; Cursor wiring is D64; cost honesty is D44.</div>
 
-    <h3>Why this one is a scheduled agent</h3>
+    ${comparison}
+
+    <h3>Why the daily brief is a scheduled agent</h3>
     <p class="hint">The cost sentinel needs the three things the Managed Agents abstraction
     provides, which is the argument for the heavier shape — not that agents are better, but that
     this workload uses what an agent is for (D44).</p>
