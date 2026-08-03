@@ -737,9 +737,19 @@ class PgObsStore:
             accumulate_usage(out["platforms"], row["platform"], row["usage_json"])
         return out
 
-    def list_sessions(self, platform: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, platform: str | None = None, limit: int = 200, *, include_raw: bool = False
+    ) -> list[dict[str, Any]]:
+        # raw_json is OPT-IN because it is unbounded (clipped at 100k chars/row)
+        # and this returns up to `limit` rows — pulling it for every listing
+        # would blow the Data API's ~1 MB result budget for chatty platforms.
+        # sqlite's `SELECT s.*` always includes it, so callers that read
+        # raw ran fine locally and silently got an empty raw against Aurora
+        # (the coding-telemetry activity tiles: sessions/metrics live in raw).
+        raw_col = "s.raw_json::text AS raw_json," if include_raw else ""
         q = f"""SELECT s.platform, s.native_id, s.lab_session_id, s.title, s.status,
                        s.created_at, s.updated_at, s.usage_json::text AS usage_json,
+                       {raw_col}
                        s.harvested_at,
                        (SELECT COUNT(*) FROM {SCHEMA}.obs_events e
                          WHERE e.platform = s.platform

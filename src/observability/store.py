@@ -276,7 +276,15 @@ class ObsStore:
                     out[key] = match.group(1)
         return out
 
-    def list_sessions(self, platform: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, platform: str | None = None, limit: int = 200, *, include_raw: bool = False
+    ) -> list[dict[str, Any]]:
+        # `include_raw` is accepted for interface parity with PgObsStore, where
+        # raw_json is opt-in to stay under the Data API result budget. sqlite has
+        # no such cap and `SELECT s.*` already returns raw_json, so the flag is a
+        # no-op here — but the signatures must match or the console reads raw
+        # against Aurora and drops it against sqlite (or vice versa).
+        _ = include_raw
         q = """SELECT s.*, (
                  SELECT COUNT(*) FROM obs_events e
                  WHERE e.platform = s.platform AND e.native_session_id = s.native_id

@@ -101,6 +101,26 @@ def test_list_sessions_filters_by_platform_when_given():
     assert params["platform"] == "foundry"
 
 
+def test_list_sessions_omits_raw_json_by_default():
+    """raw_json is unbounded (100k chars/row) and this returns up to `limit`
+    rows, so it must stay OUT of the default SELECT or a chatty platform blows
+    the Data API's ~1 MB result budget."""
+    store = PgObsStore(client=FakePg({"FROM lab.obs_sessions s": [{"platform": "claude"}]}))
+    store.list_sessions("claude")
+    sql, _ = store.client.calls[0]
+    assert "raw_json" not in sql
+
+
+def test_list_sessions_includes_raw_json_when_opted_in():
+    """The coding-telemetry tiles read sessions/metrics from raw_json. sqlite's
+    `SELECT s.*` always returned it, so those fields worked locally and silently
+    read empty against Aurora — this is the query that has to opt in."""
+    store = PgObsStore(client=FakePg({"FROM lab.obs_sessions s": [{"platform": "coding"}]}))
+    store.list_sessions("coding", include_raw=True)
+    sql, _ = store.client.calls[0]
+    assert "s.raw_json::text AS raw_json" in sql
+
+
 def test_list_events_pages_to_fit_the_data_api_size_cap():
     """A 1 MB cap against 100_000-char rows means 9 rows per statement. The page
     size is derived from the widest row in THIS session, because payload sizes

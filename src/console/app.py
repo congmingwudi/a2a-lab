@@ -2682,7 +2682,7 @@ and console never present a combined dollar total across tools (WS12/D44).
         """
         store = _obs_store()
         try:
-            sessions = store.list_sessions(BUILD_TELEMETRY_PLATFORM)
+            sessions = store.list_sessions(BUILD_TELEMETRY_PLATFORM, include_raw=True)
             summary = store.summary()
         finally:
             store.close()
@@ -2983,7 +2983,7 @@ and console never present a combined dollar total across tools (WS12/D44).
 
         store = _obs_store()
         try:
-            sessions = store.list_sessions(BUILD_LOGS_PLATFORM)
+            sessions = store.list_sessions(BUILD_LOGS_PLATFORM, include_raw=True)
             summary = store.summary()
         finally:
             store.close()
