@@ -745,6 +745,15 @@
                  color: var(--muted); }
   .obs-card .v { margin-top: 7px; font-size: 21px; font-weight: 600; line-height: 1.1;
                  font-variant-numeric: tabular-nums; }
+  .obs-card .v.zero { color: var(--muted); font-weight: 500; }
+  /* Segmented per-tool tile groups (D64): one labelled row of tiles per coding
+     agent, because the three do not publish comparable metrics. */
+  .tile-group { margin: 12px 0 4px; }
+  .tile-group .obs-cards { margin: 6px 0 4px; }
+  .tile-group-label { font: 600 11px var(--font-mono); text-transform: uppercase;
+                      letter-spacing: .6px; color: var(--fg); }
+  .tile-group-label .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .obs-card.wide { grid-column: 1 / -1; }
 
   /* ---- A2A Lab Monitoring (WS18) — compact horizontal bars, no chart lib. */
   .mon-bars { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; }
@@ -1419,6 +1428,18 @@
               <button class="ghost" id="buildHarvestBtn" onclick="harvestBuild(event)"
                 title="Pull fresh coding-agent metrics AND behavioural logs from CloudWatch into the local store (scripts/obs_harvest.py coding coding-logs) — telemetry appears here only after a harvest">Harvest</button>
             </div>
+            <!-- Cost sentinel controls (WS12). Operator-only, gated in
+                 applyAuthGating like Harvest/Analyze. They live in the Control
+                 Panel — not the canvas — so the Cost tab is a read-only display,
+                 matching the obs analyst's Analyze button (D57). -->
+            <div class="traces-tools" id="costSentinelTools" style="display:none">
+              <span class="hint">Cost sentinel — a firing bills a session.</span>
+              <button class="ghost" id="costRunBtn" onclick="runCostSentinel(event)"
+                title="Fire one manual cost-brief run now (POST /api/cost-brief/run)">Brief now</button>
+              <button class="ghost" id="costSchedBtn" onclick="toggleCostScheduleFromPanel(event)"
+                title="Pause or resume the daily schedule (POST /api/cost-brief/schedule)">Schedule</button>
+            </div>
+            <div class="hint" id="costSentinelMsg" style="display:none; padding: 0 12px 8px"></div>
             <div class="hint" id="buildMsg" style="display:none; padding: 0 12px 8px"></div>
             <div id="buildSide"></div>
           </div>
@@ -1721,6 +1742,12 @@ function applyAuthGating() {
   show("gearBtn", operator);
   if (handle) handle.style.display = "";
   for (const id of ["harvestBtn", "analyzeBtn", "buildHarvestBtn"]) show(id, operator);
+  // The cost sentinel controls moved out of the canvas into the Control Panel
+  // (operator-only). Its tool row is display:none by default so a viewer never
+  // sees it even for the instant before gating runs; syncCostSentinelPanel()
+  // fills the schedule button's label from the live deployment state.
+  show("costSentinelTools", operator);
+  if (operator) syncCostSentinelPanel();
   const runAll = document.getElementById("runAllBtn");
   if (runAll) runAll.parentElement.style.display = operator ? "" : "none";
 
@@ -2659,11 +2686,13 @@ async function loadBriefs() {
 const OBS_TABS = [
   ["dashboard", "Dashboard"],
   ["observability", "Observability Analysis"],
-  ["cost", "Cost Analysis"],
 ];
 // Brief kinds keyed by tab id — `null` for the dashboard, which reads the
-// harvested tables rather than lab.obs_briefs.
-const OBS_TAB_KIND = { dashboard: null, observability: "observability", cost: "cost" };
+// harvested tables rather than lab.obs_briefs. The cost sentinel's briefs used
+// to have a "Cost Analysis" tab here too; they now live ONLY in the Coding
+// Agents Telemetry → Cost tab (WS9/WS12), where the tokens and modelled cost
+// they explain also live, so the same brief is not rendered in two sections.
+const OBS_TAB_KIND = { dashboard: null, observability: "observability" };
 
 window.setObsTab = t => {
   obs.tab = t;
@@ -2754,37 +2783,6 @@ table with a different kind; each tab shows only its own.
 The **Analyze** button reports the session id, and a run is visible in the platform's own session view.
 Its tool calls and thinking events are also harvested back into this store on the next sweep — the analyst
 appears in the \`claude\` platform rows like any other agent the lab runs.`,
-  },
-  cost: {
-    label: "Cost analysis",
-    blurb: "The daily <b>build-cost</b> read from the <b>cost sentinel</b> — what building this lab "
-         + "consumed, in the units each vendor bills.",
-    emptyHint: "The sentinel is a scheduled deployment; the Run tab shows whether its daily schedule is running.",
-    diagram: () => COST_SENTINEL_DIAGRAM,
-    details: `### What writes this brief
-
-The **cost sentinel** (WS12/D44) is a Claude **Managed Agent** on a daily schedule — 07:00
-America/New_York (raised from weekly on 2026-07-30 so the console shows a fresh brief each morning).
-Its live run/pause state is on the Run tab, and plan/09-deployment-map.md level L5.7 is the inventory
-that says which scheduled processes are actually enabled.
-
-It reads and writes exactly as the observability analyst does: read-only SQL through the obs MCP server,
-brief saved to \`lab.obs_briefs\` with \`kind='cost'\`. Same table, same tool, different question.
-
-### What it measures
-
-The **coding-agent telemetry** (WS9): the tokens and modelled cost of the agents that BUILD this lab —
-Claude Code, Codex and Cursor — reaching CloudWatch over OTLP (natively for the first two, via cursorscope
-hooks for Cursor) and harvested into the \`coding\` platform rows.
-That is a different subject from the Observability Analysis tab, which is about the experiments the lab
-**runs**.
-
-### The caveat that travels with every number
-
-\`claude_code.cost.usage\` is a **client-side estimate at list price, not an invoice**. On a subscription
-or credit plan a swing here is a **usage** swing and may never be a billing swing. D44 is about reporting
-consumption in the units each vendor actually bills — tokens, allocated compute, requests — rather than
-collapsing them into one number that means nothing across platforms.`,
   },
 };
 
@@ -3667,6 +3665,9 @@ async function loadCostBrief() {
     if (r.status === 404 || r.status === 403) return; // older server, or viewer
     costBrief = await r.json();
   } catch (_e) { /* the panel renders its un-provisioned state */ }
+  // The Schedule button lives in the Control Panel now, so its label follows
+  // the freshly-loaded deployment state rather than the canvas re-render.
+  syncCostSentinelPanel();
 }
 
 async function loadBuildTelemetry() {
@@ -3874,19 +3875,68 @@ function buildHtml() {
   };
   const promptTotal = (t.input_tokens || 0) + (t.cache_read_tokens || 0)
     + (t.cache_creation_tokens || 0);
+
+  // Segmented per-tool tiles. The three coding agents do NOT publish the same
+  // shapes (D64) — only Claude Code has cost and tokens; Codex and Cursor
+  // publish activity counters only. One tile row per tool, each showing the
+  // numbers that tool genuinely emits, is honest where a single shared row
+  // (cost + tokens) silently reads as Claude Code's alone. A tool that
+  // published a series once but reports nothing this window shows an explained
+  // blank, never a zero that reads as "did no work".
+  const byToolMap = {};
+  for (const b of (buildData.by_tool || [])) byToolMap[b.tool] = b;
+  const act = tool => (byToolMap[tool] && byToolMap[tool].activity) || {};
+  // A count tile: shows the number when the tool emits that series, or an
+  // "n/a" hint with a reason when the series is absent (not landing).
+  const cnt = (label, val, hint) => {
+    const has = val != null;
+    return `<div class="obs-card"><div class="k">${label}${hint
+      ? ` <span class="hint">${hint}</span>` : ""}</div>
+      <div class="v${has ? "" : " zero"}">${has ? Number(val).toLocaleString()
+        : `<span class="hint">n/a</span>`}</div></div>`;
+  };
+
+  const claudeAct = act("claude-code");
+  const claudeTiles = `
+    <div class="obs-card"><div class="k">modelled cost</div><div class="v">$${(t.cost_usd || 0).toFixed(2)}</div></div>
+    ${cnt("sessions", claudeAct.sessions ?? (t.sessions || 0))}
+    <div class="obs-card"><div class="k">input <span class="hint">uncached</span></div>
+      <div class="v" title="${(t.input_tokens || 0).toLocaleString()}">${kfmt(t.input_tokens)}</div></div>
+    <div class="obs-card"><div class="k">cache read <span class="hint">~0.1x</span></div>
+      <div class="v" title="${(t.cache_read_tokens || 0).toLocaleString()}">${kfmt(t.cache_read_tokens)}</div></div>
+    <div class="obs-card"><div class="k">cache write <span class="hint">1.25–2x</span></div>
+      <div class="v" title="${(t.cache_creation_tokens || 0).toLocaleString()}">${kfmt(t.cache_creation_tokens)}</div></div>
+    <div class="obs-card"><div class="k">output</div>
+      <div class="v" title="${(t.output_tokens || 0).toLocaleString()}">${kfmt(t.output_tokens)}</div></div>`;
+
+  // Codex and Cursor: activity only. If the tool has no row at all this window
+  // (e.g. Codex not exporting), say so once rather than printing a row of n/a.
+  const codexAct = act("codex");
+  const codexPresent = !!byToolMap["codex"];
+  const codexTiles = codexPresent
+    ? cnt("sessions", codexAct.sessions) + cnt("turns", codexAct.turns)
+    : `<div class="obs-card wide"><div class="k">Codex</div>
+        <div class="hint" style="padding:2px 0">No Codex metrics this window. Codex needs
+        <code>otel.metrics_exporter</code> (not <code>exporter</code>) set to otlp-http at user level,
+        launched via <code>scripts/codex_otel.sh</code>. Telemetry is not retroactive.</div></div>`;
+
+  const cursorAct = act("cursor");
+  const cursorPresent = !!byToolMap["cursor"];
+  const cursorTiles = cursorPresent
+    ? cnt("sessions", cursorAct.sessions) + cnt("prompts", cursorAct.prompts)
+      + cnt("tool calls", cursorAct.tool_calls)
+    : `<div class="obs-card wide"><div class="k">Cursor</div>
+        <div class="hint" style="padding:2px 0">No Cursor metrics this window. Run
+        <code>scripts/cursor_otel.sh</code>, restart Cursor with this repo as the workspace root,
+        and send one Agent turn.</div></div>`;
+
   const tiles = `
-    <div class="obs-cards">
-      <div class="obs-card"><div class="k">modelled cost</div><div class="v">$${(t.cost_usd || 0).toFixed(2)}</div></div>
-      <div class="obs-card"><div class="k">sessions</div><div class="v">${t.sessions || 0}</div></div>
-      <div class="obs-card"><div class="k">input <span class="hint">uncached</span></div>
-        <div class="v" title="${(t.input_tokens || 0).toLocaleString()}">${kfmt(t.input_tokens)}</div></div>
-      <div class="obs-card"><div class="k">cache read <span class="hint">~0.1x</span></div>
-        <div class="v" title="${(t.cache_read_tokens || 0).toLocaleString()}">${kfmt(t.cache_read_tokens)}</div></div>
-      <div class="obs-card"><div class="k">cache write <span class="hint">1.25–2x</span></div>
-        <div class="v" title="${(t.cache_creation_tokens || 0).toLocaleString()}">${kfmt(t.cache_creation_tokens)}</div></div>
-      <div class="obs-card"><div class="k">output</div>
-        <div class="v" title="${(t.output_tokens || 0).toLocaleString()}">${kfmt(t.output_tokens)}</div></div>
-    </div>`;
+    <div class="tile-group"><div class="tile-group-label">Claude Code <span class="hint">cost · tokens · sessions</span></div>
+      <div class="obs-cards">${claudeTiles}</div></div>
+    <div class="tile-group"><div class="tile-group-label">Codex <span class="hint">activity only — no cost or token metric (D64)</span></div>
+      <div class="obs-cards">${codexTiles}</div></div>
+    <div class="tile-group"><div class="tile-group-label">Cursor <span class="hint">activity only — no cost or token metric (D64)</span></div>
+      <div class="obs-cards">${cursorTiles}</div></div>`;
 
   // Composition of the prompt actually sent, as one stacked bar. The shape IS
   // the finding: on an agent workload cache reads dominate, so a dashboard that
@@ -4243,35 +4293,77 @@ function costBriefHtml() {
     : (!running && schedKnown
         ? `<div class="hint" style="margin-top:6px">Schedule paused — no daily brief will fire until resumed.
            <b>Brief now</b> still works.</div>` : "");
+  // Latest brief in full, with a full date+time stamp (fmtWhen), then the rest
+  // of the rolling week as expandable rows — the same shape the Observability
+  // briefs use (D56/D57), so the cost sentinel reads consistently with every
+  // other brief in the console. The Brief now / schedule controls are NOT here:
+  // they live in the Control Panel (operator-gated), like the obs analyst's
+  // Analyze button, so the canvas is a read-only display.
   const body = briefs.length
     ? `<div class="cred-brief">${mdToHtml(briefs[0].brief_md)}</div>
        <div class="hint" style="margin-top:8px">
-         ${esc(briefs[0].brief_date)} · ${briefs[0].queries_run ?? "?"} queries ·
+         ${fmtWhen(briefs[0].created_at)} · ${esc(briefs[0].brief_date)} ·
+         ${briefs[0].queries_run ?? "?"} queries ·
          session <code>${esc(briefs[0].session_id || "—")}</code>
-         ${briefs.length > 1 ? ` · ${briefs.length - 1} earlier brief${briefs.length > 2 ? "s" : ""} in the store` : ""}
-       </div>`
-    : `<div class="hint">No brief yet. <b>Brief now</b> fires one manual run — it works whether or
-       not the daily schedule is running.</div>`;
-  // Pause/Resume mirrors the live state: show the action that changes it. When
-  // the schedule state is unknown, offer Resume — the safe direction is to let
-  // the operator turn it on, not to claim it is already running.
-  const toggle = running
-    ? `<button class="btn" id="costSchedBtn" onclick="toggleCostSchedule('pause')">Pause schedule</button>`
-    : `<button class="btn" id="costSchedBtn" onclick="toggleCostSchedule('resume')">Resume daily schedule</button>`;
+       </div>
+       ${briefs.length > 1 ? `
+       <div class="hint" style="margin:14px 0 4px"><b>Earlier this week</b> ·
+         rolling 7 days · ${briefs.length - 1} more brief${briefs.length > 2 ? "s" : ""}</div>
+       ${briefs.slice(1).map(b => `
+         <details style="margin:6px 0">
+           <summary style="cursor:pointer; font-size:12.5px; padding:4px 0">
+             ${esc(b.brief_date)} · ${b.queries_run ?? "?"} queries · ${fmtWhen(b.created_at)}
+           </summary>
+           <div class="obs-card brief-md" style="margin:6px 0">${mdToHtml(b.brief_md)}</div>
+         </details>`).join("")}` : ""}`
+    : `<div class="hint">No brief in the last 7 days. An operator can fire one manual run from the
+       <b>Coding Agents Telemetry</b> panel in the Control Panel — it works whether or not the daily
+       schedule is running.</div>`;
   return `
     <h3>Cost sentinel
       <span class="obs-updated" style="float:right">${esc(meta)}</span></h3>
-    <div id="costBriefBox">${err}${body}${nextLine}</div>
-    <div style="margin-top:10px">
-      <button class="btn" id="costRunBtn" onclick="runCostSentinel()">Brief now</button>
-      ${toggle}
-      <span class="hint" style="margin-left:8px">Operator only — a firing bills a session.</span>
-    </div>`;
+    <div id="costBriefBox">${err}${body}${nextLine}</div>`;
 }
 
-window.toggleCostSchedule = async (action) => {
+// A small status line for the Control Panel controls, so an operator gets
+// feedback where the buttons are (the sidebar) rather than only in the canvas —
+// which may be on another view entirely when they press one.
+function costSentinelMsg(text, isErr) {
+  const el = document.getElementById("costSentinelMsg");
+  if (!el) return;
+  el.style.display = text ? "block" : "none";
+  el.textContent = text || "";
+  el.style.color = isErr ? "var(--bad, #c33)" : "";
+}
+
+// Fill the Schedule button's label from the live deployment state, so it always
+// offers the action that changes it (Pause when running, Resume when paused).
+// Called from applyAuthGating and after every load/toggle. Re-entrant: it only
+// reads state and writes the label, never toggles.
+function syncCostSentinelPanel() {
   const btn = document.getElementById("costSchedBtn");
+  if (!btn || !costBrief) return;
+  if (!costBrief.provisioned) {
+    btn.disabled = true;
+    btn.textContent = "Schedule";
+    btn.title = "The cost sentinel is not provisioned — see the Cost tab Details.";
+    return;
+  }
+  btn.disabled = false;
+  const running = costBrief.sched_status === "active";
+  btn.dataset.running = running ? "1" : "0";
+  btn.textContent = running ? "Pause schedule" : "Resume schedule";
+  btn.title = running
+    ? "Pause the daily schedule (POST /api/cost-brief/schedule)"
+    : "Resume the daily schedule (POST /api/cost-brief/schedule)";
+}
+
+window.toggleCostScheduleFromPanel = async (ev) => {
+  if (ev) ev.stopPropagation();
+  const btn = document.getElementById("costSchedBtn");
+  const action = btn && btn.dataset.running === "1" ? "pause" : "resume";
   if (btn) { btn.disabled = true; btn.textContent = action === "pause" ? "Pausing…" : "Resuming…"; }
+  costSentinelMsg(action === "pause" ? "Pausing the daily schedule…" : "Resuming the daily schedule…");
   try {
     const r = await fetch(apiUrl("/api/cost-brief/schedule"), {
       method: "POST",
@@ -4279,56 +4371,49 @@ window.toggleCostSchedule = async (action) => {
       body: JSON.stringify({ action }),
     });
     const d = await r.json();
-    if (!d.ok) {
-      const box = document.getElementById("costBriefBox");
-      if (box) box.insertAdjacentHTML("afterbegin",
-        `<div class="hint" style="margin-bottom:8px">Schedule change failed: ${esc(d.error || r.status)}</div>`);
-      return;
-    }
-    // Re-read so the button and cadence line reflect the deployment's real
-    // state, not the action we asked for.
+    if (!d.ok) { costSentinelMsg("Schedule change failed: " + (d.error || r.status), true); return; }
+    // Re-read so the button and the canvas cadence line reflect the
+    // deployment's real state, not the action we asked for.
     await loadCostBrief();
-    renderMain(true);
+    costSentinelMsg(d.status === "active" ? "Daily schedule resumed." : "Daily schedule paused.");
+    if (view && view.type === "build") renderMain(true);
   } catch (e) {
-    const box = document.getElementById("costBriefBox");
-    if (box) box.insertAdjacentHTML("afterbegin",
-      `<div class="hint" style="margin-bottom:8px">Schedule change failed: ${esc(String(e))}</div>`);
+    costSentinelMsg("Schedule change failed: " + String(e), true);
   } finally {
-    if (btn) btn.disabled = false;
+    syncCostSentinelPanel();
   }
 };
 
-window.runCostSentinel = async () => {
+window.runCostSentinel = async (ev) => {
+  if (ev) ev.stopPropagation();
   const btn = document.getElementById("costRunBtn");
-  const box = document.getElementById("costBriefBox");
   if (btn) { btn.disabled = true; btn.textContent = "Briefing…"; }
-  if (box) box.innerHTML = `<div class="hint">Fired. The agent queries the store and writes the
-    brief server-side — nothing is streamed here, so this panel refreshes when the session
-    finishes (usually a minute or two). Watch it live in the Claude console.</div>`;
+  costSentinelMsg("Fired. The agent queries the store and writes the brief server-side "
+    + "(usually a minute or two); the Cost tab refreshes when it lands.");
   try {
     const r = await fetch(apiUrl("/api/cost-brief/run"), { method: "POST" });
     const d = await r.json();
-    if (!d.ok) {
-      if (box) box.innerHTML = `<div class="hint">Run failed: ${esc(d.error || r.status)}</div>`;
-      return;
-    }
+    if (!d.ok) { costSentinelMsg("Run failed: " + (d.error || r.status), true); return; }
     // The deployment run is asynchronous: the session id comes back quickly,
     // the brief does not. Poll the store a few times rather than leaving the
     // panel claiming success with nothing in it.
-    const link = d.session_id
-      ? `<div class="hint" style="margin-top:6px">session <code>${esc(d.session_id)}</code></div>` : "";
+    const sess = d.session_id ? ` · session ${d.session_id}` : "";
     for (let i = 0; i < 10; i++) {
       await new Promise(r2 => setTimeout(r2, 6000));
       const before = (costBrief.briefs || [])[0];
       await loadCostBrief();
       const after = (costBrief.briefs || [])[0];
-      if (after && (!before || after.id !== before.id)) { renderMain(true); return; }
-      if (box) box.innerHTML = `<div class="hint">Still working (${(i + 1) * 6}s)…</div>${link}`;
+      if (after && (!before || after.id !== before.id)) {
+        costSentinelMsg("Done — new brief written." + sess);
+        if (view && view.type === "build") renderMain(true);
+        return;
+      }
+      costSentinelMsg(`Still working (${(i + 1) * 6}s)…${sess}`);
     }
-    if (box) box.innerHTML = `<div class="hint">Still running. Reload the section shortly, or
-      check <code>uv run python scripts/cost_sentinel.py status</code>.</div>${link}`;
+    costSentinelMsg("Still running. Reload the Cost tab shortly, or check "
+      + "scripts/cost_sentinel.py status." + sess);
   } catch (e) {
-    if (box) box.innerHTML = `<div class="hint">Run failed: ${esc(String(e))}</div>`;
+    costSentinelMsg("Run failed: " + String(e), true);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Brief now"; }
   }

@@ -2728,6 +2728,15 @@ and console never present a combined dollar total across tools (WS12/D44).
                     "cache_read_tokens": 0,
                     "cache_creation_tokens": 0,
                     "days": 0,
+                    # Per-tool ACTIVITY, for the segmented tiles. Codex and Cursor
+                    # publish no cost or token metric (both n/a), but they DO
+                    # publish activity counters — sessions/turns for Codex,
+                    # sessions/prompts/tool-calls for Cursor — which the harvest
+                    # already stored in raw["metrics"] and raw["sessions"]. A
+                    # tile group per tool needs those numbers here, summed across
+                    # the tool's days, rather than only in the by-day table.
+                    "sessions": 0,
+                    "metrics": {},
                 },
             )
             note = BUILD_TELEMETRY_TOOL_NOTES.get(tool) or {}
@@ -2739,6 +2748,12 @@ and console never present a combined dollar total across tools (WS12/D44).
             bucket["cache_read_tokens"] += tcr
             bucket["cache_creation_tokens"] += tcc
             bucket["days"] += 1
+            bucket["sessions"] += int(raw.get("sessions") or 0)
+            # raw["metrics"] is {full_metric_name: summed_value} for this
+            # tool-day — codex.conversation.turn.count, cursor_prompt_total, etc.
+            # Sum them by name so a per-tool tile can pick the one it wants.
+            for _mname, _mval in (raw.get("metrics") or {}).items():
+                bucket["metrics"][_mname] = bucket["metrics"].get(_mname, 0) + float(_mval or 0)
             totals["cost_usd"] += cost
             totals["input_tokens"] += tin
             totals["output_tokens"] += tout
@@ -2833,6 +2848,22 @@ and console never present a combined dollar total across tools (WS12/D44).
         totals["cost_usd"] = round(totals["cost_usd"], 4)
         for bucket in by_tool.values():
             bucket["cost_usd"] = round(bucket["cost_usd"], 4)
+            # Friendly, named activity for the per-tool tiles, so the frontend
+            # picks fields by meaning rather than hardcoding raw OTel names it
+            # would then drift from. Sessions is universal; the rest are the
+            # honest counters each tool actually publishes (Codex turns; Cursor
+            # prompts and tool executions) and are absent → None when a tool
+            # does not emit them, which the tiles render as an explained blank
+            # rather than a misleading zero.
+            m = bucket.get("metrics") or {}
+            _mi = lambda name: int(m[name]) if name in m else None  # noqa: E731,B023
+            bucket["activity"] = {
+                "sessions": bucket.get("sessions") or 0,
+                "turns": _mi("codex.conversation.turn.count"),
+                "prompts": _mi("cursor_prompt_total"),
+                "tool_calls": _mi("cursor_tool_executions_total"),
+                "hook_events": _mi("cursor_hook_events_total"),
+            }
 
         # The unattributed bucket earns its row only when it carries something
         # measurable. It exists so the per-repo view cannot silently disagree

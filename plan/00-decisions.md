@@ -2318,3 +2318,48 @@ Behavioural **logs** for Cursor are out of scope (the `coding-logs` path stays
 Claude Code-only; there is no Cursor logs exporter wired). See
 build-notes/cursor/01-coding-agent-telemetry.md, plan/07-workstreams.md WS9, and
 the `telemetry-config-is-not-evidence` insight.
+
+## 2026-08-02 — D65: The cost sentinel's brief lives with the numbers it explains, and its controls with the operator
+
+**Decision.** The Coding Agents Telemetry section (`build` canvas, WS9) is
+brought to the D57 template and the cost sentinel's brief is consolidated into
+it. Three changes, one shape:
+
+1. **One home for the cost brief, beside the numbers it explains.** The daily
+   build-cost brief used to render in **two** places: the `obs` canvas as a
+   third `Cost Analysis` tab, and inline in `build`. That is the exact D56
+   failure — the same row of `lab.obs_briefs` (`kind='cost'`) presented under
+   two headings, so a reader cannot tell whether they are two things or one. The
+   `obs` `Cost Analysis` tab and its `BRIEF_META.cost` entry are **removed**;
+   the brief now lives ONLY in `build` → Cost, beside the tokens and modelled
+   cost it interprets. `obs` is now `Dashboard | Observability Analysis`. This
+   does not weaken D57's peer-tab principle — the sentinel and the analyst are
+   still peers; they are peers of the *telemetry they explain*, not of each
+   other, so each sits with its own subject.
+
+2. **Segmented per-tool tiles, because the three tools do not publish the same
+   shape (D64).** The top-of-section tiles were a single row that silently read
+   as Claude Code's alone. They are now one labelled tile group per tool: Claude
+   Code shows cost · tokens · sessions; Codex shows sessions · turns; Cursor
+   shows sessions · prompts · tool-calls. A tool that emits no metric this
+   window renders an **explained blank** with the config it needs
+   (`otel.metrics_exporter` for Codex, `scripts/cursor_otel.sh` for Cursor), not
+   a zero that reads as "did no work". The backend already stored the per-tool
+   `metrics`/`sessions` in `raw_json`, so this is a read/render change plus a
+   named `activity` block on each `by_tool` row — no re-harvest.
+
+3. **Operator controls to the Control Panel; the canvas is read-only.** `Brief
+   now` and the schedule pause/resume moved out of the canvas into the Control
+   Panel's Coding Agents Telemetry accordion, operator-gated in
+   `applyAuthGating` like Harvest/Analyze, matching the obs analyst's Analyze
+   button. The canvas is now a read-only display: the latest brief with a full
+   `fmtWhen` timestamp and the rolling week as expandable rows, the same shape
+   every other brief uses (D56/D57). Feedback from the moved buttons reports to
+   a status line beside them in the sidebar (`costSentinelMsg`), since the
+   canvas may be on another view when an operator presses one.
+
+**Nothing about the sentinel itself changed** — same Managed Agent, same daily
+schedule, same `lab.obs_briefs` `kind='cost'` storage, same obs MCP identity.
+This is a console-navigation and honesty change only. See WS9/WS12/D44 (cost
+honesty), D64 (Cursor as a third tool), D57 (the canvas template), D56 (one
+table, the reader must say which kind it wants).

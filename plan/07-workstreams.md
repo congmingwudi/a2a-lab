@@ -2121,9 +2121,9 @@ visitor needs to read a claim rather than take it on trust.
 | Canvas | State |
 |---|---|
 | `experiment` | **conforms** — `Run \| Details` since WS6 |
-| `obs` | **conforms** — `Dashboard \| Observability Analysis \| Cost Analysis`, each with Details (D57) |
+| `obs` | **conforms** — `Dashboard \| Observability Analysis`, each with Details (D57). The cost sentinel's brief used to be a third `Cost Analysis` tab here; it now lives ONLY in `build` → Cost, beside the tokens and modelled cost it explains, so one brief is not rendered in two sections (D65) |
 | `insights` | Details pane not started — should explain: `config/insights.yaml` is the source, `review: required` gates sign-off, sign-offs live in `lab.lab_state` (D50), export regenerates `plan/08-insights.md` |
-| `build` | Details pane not started — should explain WS9: CloudWatch PromQL, the four billing buckets (D44), and that the cost is a modelled client-side estimate at list price |
+| `build` | **conforms** — `Cost \| Behaviour`, each with Details (D57). Cost shows segmented per-tool tiles (Claude Code: cost·tokens·sessions; Codex/Cursor: activity only, D64) and the cost sentinel's rolling-week briefs; Details explains WS9: CloudWatch PromQL, the four billing buckets (D44), and that the cost is a modelled client-side estimate at list price. Operator controls (Brief now / Schedule) are in the Control Panel, not the canvas (D65) |
 | `creds` | Details pane not started — should explain: the collector runs on the operator's own sessions, publishes to `lab.lab_state`, and the console only READS it (WS13) |
 | `arch` | Details pane not started — arguably exempt: the canvas IS the explanation. Decide rather than default |
 | `trace` | Details pane not started — should explain the wire capture: raw bytes, the ASGI wiretap for MCP/A2A, the D27 rider as the correlation channel that survived every hop |

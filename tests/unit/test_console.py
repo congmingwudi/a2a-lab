@@ -835,7 +835,28 @@ def _seed_coding(trace_dir):
             },
         },
     )
-    store.set_harvest_status("coding", "ok", "1 tool-day(s)")
+    # A Codex tool-day: activity counters only, no cost or token metric — the
+    # shape the segmented per-tool tiles must render as real numbers (sessions,
+    # turns) rather than the hardcoded cost/token n/a. `metrics` is the summed
+    # {metric_name: value} dict the harvest stores in raw_json.
+    store.upsert_session(
+        "coding",
+        "codex:2026-07-24",
+        title="codex · 2026-07-24",
+        created_at="2026-07-24T00:00:00+00:00",
+        usage={"cost_usd_estimated": 0.0},
+        raw={
+            "tool": "codex",
+            "sessions": 3,
+            "metrics": {
+                "codex.thread.started": 3,
+                "codex.conversation.turn.count": 41,
+            },
+            "by_model": {},
+            "by_repo": {},
+        },
+    )
+    store.set_harvest_status("coding", "ok", "2 tool-day(s)")
     store.close()
 
 
@@ -854,6 +875,37 @@ def test_build_telemetry_rolls_up_cost_by_tool(tmp_path, monkeypatch):
     # the caveat is part of the payload, so no consumer can render the number
     # without it
     assert "not an invoice" in data["cost_note"]
+
+
+def test_build_telemetry_exposes_per_tool_activity_for_segmented_tiles(tmp_path, monkeypatch):
+    """Codex and Cursor publish no cost or token metric, but they DO publish
+    activity counters — sessions and turns for Codex — and the segmented
+    per-tool tiles need those as real numbers rather than the cost/token n/a.
+
+    The harvest already stores them in raw["metrics"]; this asserts the endpoint
+    surfaces them as a named `activity` map per tool.
+    """
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+    _seed_coding(trace_dir)
+    data = (
+        TestClient(make_app(trace_dir, monkeypatch, FakeRegistry()))
+        .get("/api/build-telemetry")
+        .json()
+    )
+    by_tool = {b["tool"]: b for b in data["by_tool"]}
+
+    assert by_tool["claude-code"]["activity"]["sessions"] == 6
+    codex = by_tool["codex"]["activity"]
+    assert codex["sessions"] == 3
+    assert codex["turns"] == 41
+    # Codex publishes no Cursor prompt/tool metric, so those are absent (None),
+    # which the tile renders as an explained blank rather than a misleading 0.
+    assert codex["prompts"] is None
+    # And the cost/token honesty flags are unchanged — activity does not make
+    # Codex cost-supported.
+    assert by_tool["codex"]["cost_supported"] is False
+    assert by_tool["codex"]["tokens_supported"] is False
 
 
 def test_build_telemetry_reports_all_four_billed_token_buckets(tmp_path, monkeypatch):
