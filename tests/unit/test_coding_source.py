@@ -126,6 +126,35 @@ def test_tool_detection_by_prefix():
     assert _tool_of("my_app.claude_code.cost") is None
 
 
+def test_codex_exec_folds_into_codex():
+    """`codex exec` (headless) reports @resource.service.name=codex_exec while the
+    interactive CLI reports `codex`. Same tool, two launch modes — they must roll
+    into ONE bucket, not two rows, and sum their sessions."""
+    rows = [
+        {
+            "metric": "codex.thread.started",
+            "tool": "codex",
+            "repo": "acme/lab",
+            "project": "lab",
+            "dimensions": {},
+            "timestamp": DAY,
+            "value": 3,
+        },
+        {
+            "metric": "codex.thread.started",
+            "tool": "codex_exec",
+            "repo": "acme/lab",
+            "project": "lab",
+            "dimensions": {},
+            "timestamp": DAY,
+            "value": 1,
+        },
+    ]
+    buckets = summarize_series(rows)
+    assert "codex_exec:2026-07-25" not in buckets
+    assert buckets["codex:2026-07-25"]["sessions"] == 4
+
+
 def test_cursor_sessions_summarize_with_no_cost():
     """Cursor (via cursorscope) publishes counters but no cost or consumable
     token metric, so it is read for sessions only — the same footing as Codex,

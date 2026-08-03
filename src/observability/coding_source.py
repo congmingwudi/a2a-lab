@@ -234,6 +234,21 @@ def normalize_repos(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # Metric-name prefixes that identify coding-agent telemetry, per tool. Cursor's
 # cursorscope names use an underscore separator (`cursor_session_total`), not
 # the dotted OTel style the two native exporters use.
+# Same tool, two OTLP service names. Codex tags the interactive CLI as `codex`
+# and headless `codex exec` as `codex_exec`; the tool is derived from
+# @resource.service.name (Codex sets no @resource.tool), so the two launch modes
+# would otherwise split into two rows for one CLI. Which mode launched Codex is
+# not the question this section answers, so fold them — the same read-side merge
+# `normalize_repos` does for placeholder repo owners. The launch mode is not
+# lost: it still rides each datapoint as its service.name label.
+CANONICAL_TOOL = {"codex_exec": "codex"}
+
+
+def canonical_tool(tool: str) -> str:
+    """Fold a tool's launch-mode aliases into one name (codex_exec -> codex)."""
+    return CANONICAL_TOOL.get(tool, tool)
+
+
 TOOL_PREFIXES = {
     "claude-code": "claude_code.",
     "codex": "codex.",
@@ -292,7 +307,7 @@ def summarize_series(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     # Placeholder owners folded into the real repo BEFORE bucketing, so the
     # per-repo split is computed once on clean labels.
     for row in normalize_repos(rows):
-        tool = row.get("tool") or _tool_of(row.get("metric", "")) or "unknown"
+        tool = canonical_tool(row.get("tool") or _tool_of(row.get("metric", "")) or "unknown")
         ts = row.get("timestamp")
         day = ts.strftime("%Y-%m-%d") if isinstance(ts, dt.datetime) else str(ts)[:10]
         key = f"{tool}:{day}"
