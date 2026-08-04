@@ -482,23 +482,13 @@ class CodingSource(PlatformLogSource):
                 # Cursor carries neither @resource.tool nor a `cursor.` dotted
                 # prefix — its tool is the cursorscope service name — so
                 # service.name is the last resort before the name-prefix guess.
-                tool = (
-                    labels.get(TOOL_LABEL)
-                    or labels.get(SERVICE_NAME_LABEL)
-                    or tool_of_name
-                )
+                tool = labels.get(TOOL_LABEL) or labels.get(SERVICE_NAME_LABEL) or tool_of_name
                 # Cursor emits no @resource.repo / .project; fall back to the
                 # service.* / deployment.environment keys it does emit, so its
                 # rows attribute instead of all landing `unattributed`.
-                repo = (
-                    labels.get(REPO_LABEL)
-                    or labels.get(DEPLOYMENT_ENV_LABEL)
-                    or UNATTRIBUTED
-                )
+                repo = labels.get(REPO_LABEL) or labels.get(DEPLOYMENT_ENV_LABEL) or UNATTRIBUTED
                 project = (
-                    labels.get(PROJECT_LABEL)
-                    or labels.get(SERVICE_NAMESPACE_LABEL)
-                    or UNATTRIBUTED
+                    labels.get(PROJECT_LABEL) or labels.get(SERVICE_NAMESPACE_LABEL) or UNATTRIBUTED
                 )
                 dims = {
                     k: v
