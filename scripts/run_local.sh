@@ -28,7 +28,7 @@ export PYTHONPATH=src
 
 # Every port this stack listens on. Keep in sync with the run lines below —
 # this list is the cleanup contract in both directions.
-PORTS=(8001 8002 8003 8011 8012 8013 8021 8023 8031 8032 8033 8100 8200)
+PORTS=(8001 8002 8003 8011 8012 8013 8041 8042 8043 8021 8023 8031 8032 8033 8100 8200)
 # The brief watcher binds nothing, so it can only be matched by name.
 WATCHER_PATTERN="python -m briefs --watch"
 
@@ -135,6 +135,11 @@ run uv run python -m platforms.claude --protocol a2a  --port 8003
 run uv run python -m platforms.openai --protocol rest --port 8011
 run uv run python -m platforms.openai --protocol mcp  --port 8012
 run uv run python -m platforms.openai --protocol a2a  --port 8013
+# AWS Strands agent (WS5/D66) — backend from STRANDS_BACKEND (.env; stub if
+# unset, which is the state until Kiro delivers strands-sdk, plan/12)
+run uv run python -m platforms.strands --protocol rest --port 8041
+run uv run python -m platforms.strands --protocol mcp  --port 8042
+run uv run python -m platforms.strands --protocol a2a  --port 8043
 if [[ -n "${SF_CLIENT_ID:-}" ]]; then
   run uv run python -m platforms.agentforce.mcp_shim --port 8021
   run uv run python -m platforms.agentforce.a2a_shim --port 8023

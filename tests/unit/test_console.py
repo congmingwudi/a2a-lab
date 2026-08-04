@@ -179,7 +179,11 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "langgraph-agentforce",
         "strands-agentforce",
     ]
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == [False] * 6 + [True] * 2
+    # langgraph-agentforce (WS4) is the only remaining upcoming placeholder;
+    # strands-agentforce (WS5) went live as a scaffold group carrying a
+    # coming-soon scenario once its faces/adapter landed (the real backend is
+    # Kiro's, plan/12). Groups order: [...6 live, langgraph(upcoming), strands(live)].
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 6 + [True] + [False])
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]

@@ -2363,3 +2363,50 @@ schedule, same `lab.obs_briefs` `kind='cost'` storage, same obs MCP identity.
 This is a console-navigation and honesty change only. See WS9/WS12/D44 (cost
 honesty), D64 (Cursor as a third tool), D57 (the canvas template), D56 (one
 table, the reader must say which kind it wants).
+
+## 2026-08-03 — D66: The Strands agent is scaffolded lab-side and its backend farmed to Kiro, on Bedrock
+
+**Decision.** WS5 (AWS Strands Agents — the third framework on the identical
+Bedrock AgentCore runtime) is built the same way the OpenAI side was (D24): the
+lab builds **everything except the agent's model backend**, and the backend is
+farmed to an external coding agent behind a standing contract. Here that agent
+is **Amazon Kiro** and the contract is `plan/12-strands-kiro-handoff.md`. Kiro
+delivers exactly `src/platforms/strands/strands_backend.py` + its tests + a
+`strands` dependency extra; the lab owns the adapter, the three protocol faces,
+the deterministic stub, the Dockerfile, the deploy case, the targets, the
+scenario, the agent-registry entry, this ADR, and the deployment map.
+
+**Two choices that pin the contract:**
+
+1. **Model on Amazon Bedrock via the runtime's IAM role, not an API key.**
+   Strands is model-agnostic; running it on Bedrock (rather than Anthropic
+   direct) is the cleaner framework-isolation choice — it holds the model cloud
+   and family constant against the Claude AgentCore twin, so the *only* variable
+   across the Claude / OpenAI / Strands runtimes is the SDK. Consequence: the
+   `strands` runtime secret carries **only** the Salesforce credentials (for the
+   `ask_agentforce` tool); the execution role gets a `bedrock:InvokeModel` grant
+   (added in `deploy/agentcore/deploy.sh`, strands branch only — the claude and
+   openai runtimes reach their models with an API key and get no such grant).
+   There is deliberately no `STRANDS_API_KEY`.
+
+2. **Built now, live on delivery — the scaffold runs on a stub.** The
+   `strands-agentforce` console group flips from an `upcoming` placeholder to a
+   live group carrying a `status: coming-soon` scenario (`strands-to-agentforce`),
+   and the three faces serve the `[strands-stub]` backend today. The stub needs
+   no extra dependency, so it is safe in the faces image now; going live is a
+   one-line flip (`status: live`) once Kiro delivers `strands-sdk` and
+   `deploy/agentcore/deploy.sh strands` creates the runtime. Until then
+   `targets.yaml` marks the `strands-agentcore` cell **blocked-beta** and
+   `STRANDS_AGENTCORE_ARN` is unset, so resolving the hosted twin fails loudly
+   rather than pretending to run.
+
+**Best-effort side goal:** the handoff asks Kiro to run under the
+Kiro→CloudWatch OTel telemetry path (WS9) during the build, so the build's cost
+lands in the coding-agent telemetry alongside Claude Code / Codex / Cursor —
+contingent on the un-run Kiro OTel probes (`build-notes/kiro/`), and explicitly
+NOT a blocker on delivering the agent.
+
+See D24/plan/06 (the OpenAI/Codex precedent this mirrors), D25 (paired
+Agentforce twin per experiment), D26 (the AgentCore runtime pair this joins),
+D27 (delegation guard), WS5 (plan/07-workstreams.md), and
+plan/12-strands-kiro-handoff.md (the contract).

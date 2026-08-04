@@ -127,6 +127,55 @@ targets:
     options: {timeout: 110, warmup: true}
     auth: {runtime_arn: "${OPENAI_AGENTCORE_ARN}"}
 
+  # ---- AWS Strands agent (WS5/D66 — hosted by us; backend = stub|strands-sdk
+  # via STRANDS_BACKEND; the strands-sdk backend is Kiro's deliverable,
+  # plan/12-strands-kiro-handoff.md). Third framework on the IDENTICAL Bedrock
+  # AgentCore runtime as claude-agentcore and openai-agentcore — the point of
+  # WS5 is to isolate the FRAMEWORK variable at a constant runtime and model
+  # cloud (Bedrock). The three local faces run the stub until Kiro delivers.
+  strands-rest:
+    platform: strands
+    protocol: rest
+    endpoint: http://localhost:8041
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  strands-mcp:
+    platform: strands
+    protocol: mcp
+    endpoint: http://localhost:8042/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  strands-a2a:
+    platform: strands
+    protocol: a2a
+    endpoint: http://localhost:8043
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  # The AWS-hosted twin: Bedrock AgentCore Runtime, IAM data plane
+  # (invoke_agent_runtime) — no raw HTTP endpoint, boto3 client. Same
+  # container handler as strands-rest. Deploy: deploy/agentcore/deploy.sh
+  # strands. Blocked-beta until Kiro's backend lands and the runtime is
+  # created — kept honest: the ARN is unset, so resolving it fails loudly.
+  strands-agentcore:
+    platform: strands
+    protocol: agentcore-http
+    status: blocked-beta
+    options: {timeout: 110, warmup: true}
+    auth: {runtime_arn: "${STRANDS_AGENTCORE_ARN}"}
+
+  # The Strands-paired Agentforce twin (ADR D25): same org/credentials,
+  # different agent — its external-research action targets strands-rest, never
+  # Claude/OpenAI, so this experiment stays a closed two-platform system.
+  agentforce-strands-rest:
+    platform: agentforce
+    protocol: agentforce-api
+    status: native
+    auth:
+      my_domain: "${SF_MY_DOMAIN}"
+      client_id: "${SF_CLIENT_ID}"
+      client_secret: "${SF_CLIENT_SECRET}"
+      agent_id: "${SF_STRANDS_AGENT_ID}"
+
   # The ADK-paired Agentforce twin (ADR D25): same org/credentials,
   # different agent — its external-research action targets adk-a2a.
   agentforce-google-adk-rest:
@@ -360,6 +409,29 @@ targets:
     status: via-shim
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
+  # WS5 hosted twins: the strands faces served by the SAME faces task as the
+  # others. They run the stub backend until Kiro delivers strands-sdk and the
+  # faces image carries the `strands` extra (plan/12) — same address, only the
+  # backend differs, which keeps the protocol comparison honest.
+  strands-rest-hosted:
+    platform: strands
+    protocol: rest
+    endpoint: ${A2ALAB_FACES_BASE}/strands-rest
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  strands-mcp-hosted:
+    platform: strands
+    protocol: mcp
+    endpoint: ${A2ALAB_FACES_BASE}/strands-mcp/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  strands-a2a-hosted:
+    platform: strands
+    protocol: a2a
+    endpoint: ${A2ALAB_FACES_BASE}/strands-a2a
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+
 modes:
   # WS13/D55: claude-rest and openai-rest used to remap to the AGENTCORE
   # runtimes here. That was right while the protocol faces were laptop-only —
@@ -382,3 +454,6 @@ modes:
     guide-a2a: guide-a2a-hosted
     agentforce-mcp: agentforce-mcp-hosted
     agentforce-a2a: agentforce-a2a-hosted
+    strands-rest: strands-rest-hosted
+    strands-mcp: strands-mcp-hosted
+    strands-a2a: strands-a2a-hosted

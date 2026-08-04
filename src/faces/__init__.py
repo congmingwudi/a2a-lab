@@ -50,6 +50,13 @@ FACES: tuple[tuple[str, str, str], ...] = (
     ("openai-rest", "openai", "rest"),
     ("openai-mcp", "openai", "mcp"),
     ("openai-a2a", "openai", "a2a"),
+    # WS5: the strands faces serve the stub backend until Kiro delivers
+    # strands-sdk (the stub needs no extra dep, so this is safe in the faces
+    # image today; plan/12). Once the backend and its `strands` extra land,
+    # the faces image gains the extra and these serve the real agent.
+    ("strands-rest", "strands", "rest"),
+    ("strands-mcp", "strands", "mcp"),
+    ("strands-a2a", "strands", "a2a"),
     ("guide-rest", "guide", "rest"),
     ("guide-mcp", "guide", "mcp"),
     ("guide-a2a", "guide", "a2a"),
@@ -67,7 +74,7 @@ def _adapter(platform: str):
     """Build the same adapter the standalone server would.
 
     Imported lazily and per face: pulling in every platform's backend at module
-    import would make one missing optional dependency break all eleven faces
+    import would make one missing optional dependency break all fourteen faces
     rather than the one that needs it.
     """
     if platform == "claude":
@@ -76,6 +83,10 @@ def _adapter(platform: str):
         return make_adapter()
     if platform == "openai":
         from platforms.openai.core import make_adapter
+
+        return make_adapter()
+    if platform == "strands":
+        from platforms.strands.core import make_adapter
 
         return make_adapter()
     if platform == "guide":

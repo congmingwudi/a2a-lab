@@ -4,6 +4,7 @@
 #
 #   deploy/agentcore/deploy.sh claude          # deploy/update a2alab_claude
 #   deploy/agentcore/deploy.sh openai          # deploy/update a2alab_openai
+#   deploy/agentcore/deploy.sh strands         # deploy/update a2alab_strands
 #   deploy/agentcore/deploy.sh claude --skip-build   # redeploy current image
 #
 # Requires: .env populated (AWS_PROFILE/AWS_REGION + the platform's keys),
@@ -18,7 +19,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-PLATFORM="${1:?usage: deploy.sh <claude|openai> [--skip-build]}"
+PLATFORM="${1:?usage: deploy.sh <claude|openai|strands> [--skip-build]}"
 SKIP_BUILD="${2:-}"
 
 set -a; source .env; set +a
@@ -51,7 +52,24 @@ case "$PLATFORM" in
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
     SECRET_KEYS=(OPENAI_API_KEY SF_CLIENT_ID SF_CLIENT_SECRET)
     ;;
-  *) echo "unknown platform '$PLATFORM' (claude|openai)"; exit 1 ;;
+  strands)
+    DOCKERFILE=deploy/agentcore/strands.Dockerfile
+    RUNTIME_NAME=a2alab_strands
+    ARN_VAR=STRANDS_AGENTCORE_ARN
+    # WS5/D66: Strands is model-agnostic and runs on Amazon Bedrock — no model
+    # API key. The runtime's IAM execution role calls bedrock:InvokeModel
+    # (grant added below), so the only credentials in the secret are the
+    # Salesforce pair for the ask_agentforce tool. SF_AGENT_ID must ship too:
+    # AgentforceClient.from_env() requires it before the twin id overrides it
+    # (same lesson as openai — a scripted redeploy that wiped it broke every
+    # hosted Agentforce consult).
+    ENV_KEYS=(STRANDS_MODEL_ID STRANDS_ANSWER_TIMEOUT_S
+              SF_MY_DOMAIN SF_AGENT_ID SF_STRANDS_AGENT_ID
+              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
+              A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
+    SECRET_KEYS=(SF_CLIENT_ID SF_CLIENT_SECRET)
+    ;;
+  *) echo "unknown platform '$PLATFORM' (claude|openai|strands)"; exit 1 ;;
 esac
 
 # F1: credentials never ride the runtime config. The keys above in
@@ -138,6 +156,17 @@ ROLE_NAME="${ROLE_ARN##*/}"
 aws iam put-role-policy --role-name "$ROLE_NAME" \
   --policy-name "read-runtime-secret-$PLATFORM" \
   --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"$SECRET_ARN\"}]}"
+
+# WS5/D66: Strands runs its model on Bedrock via the runtime's IAM role rather
+# than an API key (the framework-isolation choice — same cloud/model family as
+# the Claude runtime, only the SDK differs). Grant bedrock:InvokeModel on the
+# strands runtime only; the claude/openai runtimes reach their models with an
+# API key and get no such grant. Idempotent, per-platform policy name.
+if [ "$PLATFORM" = "strands" ]; then
+  aws iam put-role-policy --role-name "$ROLE_NAME" \
+    --policy-name "invoke-bedrock-$PLATFORM" \
+    --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream"],"Resource":"*"}]}'
+fi
 
 # ---- runtime env vars (only keys that are set locally) ---------------------
 # A2ALAB_TRACE_SINK=postgres: the container writes hops to the Aurora store

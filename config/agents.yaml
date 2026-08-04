@@ -97,6 +97,25 @@ agents:
       inbound agent endpoint and its trace dashboard is write-only, so the
       platform-interior leg is dark — the lab's servers are the only door.
 
+  - id: strands-researcher
+    name: "AWS Strands research agent"
+    group: research
+    platform: strands
+    model: "Bedrock (Kiro's choice, plan/12)"
+    role: "Mirror of the Claude/OpenAI researchers on the AWS Strands SDK; consults its Strands-paired Agentforce twin. Isolates the framework variable at a constant runtime (Bedrock AgentCore) and model cloud (Bedrock)."
+    deployments:
+      - { where: "AWS · us-east-1 · Bedrock AgentCore", cloud: aws }
+    protocols: [rest, mcp, a2a, agentcore-http]
+    card_target: strands-a2a
+    experiments:
+      - strands-to-agentforce
+    note: >-
+      The strands-sdk backend is the Kiro deliverable (plan/12-strands-kiro-handoff.md,
+      the standing contract). Until it lands the lab runs a deterministic stub
+      over all three faces and the runtime is not yet created (targets.yaml
+      status: blocked-beta) — so the card shown is the stub's. The model runs on
+      Amazon Bedrock via the runtime's IAM role, not an API key (WS5/D66).
+
   - id: adk-researcher
     name: "ADK research agent"
     group: research

@@ -200,6 +200,9 @@
   .badge.adk, .badge.gemini, .badge.agent-engine { --tag: var(--chip-google); }
   .badge.foundry, .badge.azure, .badge.foundry-api, .badge.gpt-5-mini { --tag: var(--chip-foundry); }
   .badge.bridge, .badge.daily-brief { --tag: var(--chip-lab); }
+  /* AWS Strands (WS5): an AWS framework on Bedrock — the AWS steel hue, the
+     same family as its agentcore-http face and its aws deployment chip. */
+  .badge.strands, .badge.bedrock { --tag: var(--chip-aws); }
   /* Deployment-location chips (Agent Registry) key off the `cloud` field, which
      names the VENDOR, not the platform — map each to the same hue its platform
      chips use so a tile reads in one colour family. `aws` keeps the solid AWS
@@ -6037,7 +6040,8 @@ function registryTile(a) {
   // The platform mark: the VENDOR's cloud (D-system), not the model spark —
   // ADK/guide are on a cloud, agentforce is Salesforce, claude is Anthropic.
   const platLogoKey = { claude: "anthropic", openai: "openai", adk: "gcloud",
-    foundry: "microsoft", agentforce: "salesforce", guide: "aws" }[a.platform] || a.platform;
+    foundry: "microsoft", agentforce: "salesforce", guide: "aws",
+    strands: "aws" }[a.platform] || a.platform;
   const deploys = (a.deployments || []).map(d =>
     `<span class="reg-deploy badge ${esc(d.cloud)}">${logoSvg(d.cloud)}${esc(d.where)}</span>`).join(" ");
   const protos = (a.protocols || []).map(p => `<span class="badge ${esc(p)}">${esc(p)}</span>`).join(" ");
