@@ -43,3 +43,9 @@ salesforce/force-app/main/default/externalCredentials/A2ALab_GCP.externalCredent
 *.bak
 *.bak-*
 *.orig
+
+# Kiro OTEL hook env — contains the CloudWatch bearer token fetched by
+# scripts/kiro_otel.sh. Same "never on disk in the repo" posture as the
+# Cursor equivalent (~/.cursorscope/.env). The hook config and forward.sh
+# are committed; the credential is not.
+.kiro/hooks/.env

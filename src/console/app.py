@@ -2375,6 +2375,29 @@ def create_console_app(registry: Registry | None = None):
                 "labels."
             ),
         },
+        "kiro": {
+            "label": "Kiro",
+            "cost": False,
+            "tokens": False,
+            "detail": (
+                "Amazon Kiro — no native OTel exporter, same situation as Cursor. "
+                "The lab's .kiro/hooks/otel-forward.json fires on 8 triggers "
+                "(SessionStart, Stop, PostToolUse, PostFileSave/Create/Delete, "
+                "UserPromptSubmit, PostTaskExec) and forward.sh emits OTLP JSON "
+                "directly to CloudWatch via curl — no ingestor process needed "
+                "(set up by scripts/kiro_otel.sh — build-notes/kiro/02). "
+                "All metrics are CUMULATIVE monotonic Sums (kiro_session_total, "
+                "kiro_prompt_total, kiro_tool_executions_total, kiro_file_saves_total, "
+                "kiro_file_creates_total, kiro_file_deletes_total, "
+                "kiro_task_executions_total, kiro_hook_events_total), queried with "
+                "increase(). There is NO cost metric and NO token/model visibility — "
+                "the hook contract exposes only the trigger name, not model or token "
+                "counts (Probe 2 pending). Kiro's unique advantage is first-class "
+                "file-operation triggers (PostFileSave/Create/Delete), which map "
+                "directly onto the WS16 edit-acceptance signal that Cursor and "
+                "Codex cannot provide."
+            ),
+        },
     }
 
     # Cost-tab Details pane: cross-tool comparison (D64, WS9). Rendered with
@@ -2388,13 +2411,14 @@ publish the same metric shapes. The Run tab shows **n/a** (not `$0.00`) where a
 tool has no cost or token metric — zero would read as "free"; n/a reads as "we
 cannot see it." Full write-up: build-notes/cursor/02-cross-tool-cost-comparison.md.
 
-| | Claude Code | Codex CLI | Cursor |
-|---|---|---|---|
-| OTEL | Native exporter + `otelHeadersHelper` | Native exporter | **None** — hooks → cursorscope (D64) |
-| Cost metric | `claude_code.cost.usage` (USD estimate) | **None** | **None** |
-| Token metric | `token.usage` — delta **Sum**, 4 buckets | `turn.token_usage` — delta **Histogram** | `gen_ai.*` — **Histogram** (hook estimate) |
-| Sessions | `session.count` (delta Sum) | `thread.started` (Sum) | `session_total` (cumulative → `increase()`) |
-| Run tab | Cost + tokens + sessions | Sessions/turns only | Sessions/activity only |
+| | Claude Code | Codex CLI | Cursor | Kiro |
+|---|---|---|---|---|
+| OTEL | Native exporter + `otelHeadersHelper` | Native exporter | **None** — hooks → cursorscope (D64) | **None** — hooks → direct OTLP curl |
+| Cost metric | `claude_code.cost.usage` (USD estimate) | **None** | **None** | **None** |
+| Token metric | `token.usage` — delta **Sum**, 4 buckets | `turn.token_usage` — delta **Histogram** | `gen_ai.*` — **Histogram** (hook estimate) | **None** — hook payload has no token data |
+| Sessions | `session.count` (delta Sum) | `thread.started` (Sum) | `session_total` (cumulative → `increase()`) | `session_total` (cumulative → `increase()`) |
+| File ops (WS16) | ❌ | ❌ | ❌ | ✅ `file_saves/creates/deletes_total` |
+| Run tab | Cost + tokens + sessions | Sessions/turns only | Sessions/activity only | Sessions/activity + file ops |
 
 ### Why only Claude Code gets dollars
 
@@ -2863,6 +2887,13 @@ and console never present a combined dollar total across tools (WS12/D44).
                 "prompts": _mi("cursor_prompt_total"),
                 "tool_calls": _mi("cursor_tool_executions_total"),
                 "hook_events": _mi("cursor_hook_events_total"),
+                # Kiro-specific: prompts, tool calls, and file operations (WS16).
+                "kiro_prompts": _mi("kiro_prompt_total"),
+                "kiro_tool_calls": _mi("kiro_tool_executions_total"),
+                "kiro_file_saves": _mi("kiro_file_saves_total"),
+                "kiro_file_creates": _mi("kiro_file_creates_total"),
+                "kiro_file_deletes": _mi("kiro_file_deletes_total"),
+                "kiro_tasks": _mi("kiro_task_executions_total"),
             }
 
         # The unattributed bucket earns its row only when it carries something

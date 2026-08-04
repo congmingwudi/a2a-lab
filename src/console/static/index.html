@@ -3739,7 +3739,7 @@ window.harvestBuild = async ev => {
   buildHarvesting = true;
   const btn = document.getElementById("buildHarvestBtn");
   if (btn) { btn.textContent = "Harvesting…"; btn.disabled = true; }
-  buildMsg("Querying CloudWatch — claude_code.* / codex.* / cursor_* metrics AND behavioural log events…");
+  buildMsg("Querying CloudWatch — claude_code.* / codex.* / cursor_* / kiro_* metrics AND behavioural log events…");
   try {
     // The metrics signal first, then the behavioural log signal. Two distinct
     // sources (`coding`, `coding-logs`); the hosted async path fires the
@@ -3937,13 +3937,27 @@ function buildHtml() {
         <code>scripts/cursor_otel.sh</code>, restart Cursor with this repo as the workspace root,
         and send one Agent turn.</div></div>`;
 
+  const kiroAct = act("kiro");
+  const kiroPresent = !!byToolMap["kiro"];
+  const kiroTiles = kiroPresent
+    ? cnt("sessions", kiroAct.sessions) + cnt("prompts", kiroAct.kiro_prompts)
+      + cnt("tool calls", kiroAct.kiro_tool_calls)
+      + cnt("file saves", kiroAct.kiro_file_saves)
+      + cnt("file creates", kiroAct.kiro_file_creates)
+      + cnt("file deletes", kiroAct.kiro_file_deletes)
+    : `<div class="obs-card wide"><div class="k">Kiro</div>
+        <div class="hint" style="padding:2px 0">No Kiro metrics this window. Run
+        <code>scripts/kiro_otel.sh</code>, open this repo in Kiro, and send one prompt.</div></div>`;
+
   const tiles = `
     <div class="tile-group"><div class="tile-group-label">Claude Code <span class="hint">cost · tokens · sessions</span></div>
       <div class="obs-cards">${claudeTiles}</div></div>
     <div class="tile-group"><div class="tile-group-label">Codex <span class="hint">activity only — no cost or token metric (D64)</span></div>
       <div class="obs-cards">${codexTiles}</div></div>
     <div class="tile-group"><div class="tile-group-label">Cursor <span class="hint">activity only — no cost or token metric (D64)</span></div>
-      <div class="obs-cards">${cursorTiles}</div></div>`;
+      <div class="obs-cards">${cursorTiles}</div></div>
+    <div class="tile-group"><div class="tile-group-label">Kiro <span class="hint">activity + file ops (WS16) — no cost or token metric</span></div>
+      <div class="obs-cards">${kiroTiles}</div></div>`;
 
   // Composition of the prompt actually sent, as one stacked bar. The shape IS
   // the finding: on an agent workload cache reads dominate, so a dashboard that

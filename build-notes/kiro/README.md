@@ -36,6 +36,7 @@ Same convention as the Claude, Cursor, and Antigravity build notes:
 | File | Theme |
 |---|---|
 | [01-kiro-telemetry-research.md](01-kiro-telemetry-research.md) | Does Kiro fit the lab's telemetry patterns? Docs findings, three candidate paths (native AWS/CloudWatch, CLI OTEL wrapper, hook forwarder), the exit-code hook contract, the metric-coverage gap, the deciding probes, and a placeholder for their results |
+| [02-kiro-otel-configuration.md](02-kiro-otel-configuration.md) | Path H implemented: hook forwarder config, setup script, harvester integration, coverage table, operator steps |
 
 ## Where Kiro would sit beside the others
 

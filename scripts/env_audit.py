@@ -107,7 +107,10 @@ AMBIENT = {
 
 # This file's own regexes and docstrings mention variable names; scanning it
 # would report them as lab configuration.
-SKIP_FILES = {"scripts/env_audit.py"}
+# .kiro/hooks/forward.sh uses internal variables (KIRO_OTLP_METRICS_*, KIRO_PROJECT,
+# KIRO_REPO) sourced from .kiro/hooks/.env — not user-facing env config. They are
+# written by scripts/kiro_otel.sh and consumed only inside the hook.
+SKIP_FILES = {"scripts/env_audit.py", ".kiro/hooks/forward.sh"}
 
 
 def keys_in(path: Path) -> list[str]:

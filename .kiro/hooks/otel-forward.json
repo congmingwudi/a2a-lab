@@ -1,0 +1,69 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "otel-session-start",
+      "trigger": "SessionStart",
+      "matcher": "",
+      "action": { "type": "command", "command": ".kiro/hooks/forward.sh SessionStart" },
+      "timeout": 5,
+      "enabled": true
+    },
+    {
+      "name": "otel-session-stop",
+      "trigger": "Stop",
+      "matcher": "",
+      "action": { "type": "command", "command": ".kiro/hooks/forward.sh Stop" },
+      "timeout": 5,
+      "enabled": true
+    },
+    {
+      "name": "otel-post-tool-use",
+      "trigger": "PostToolUse",
+      "matcher": "",
+      "action": { "type": "command", "command": ".kiro/hooks/forward.sh PostToolUse" },
+      "timeout": 5,
+      "enabled": true
+    },
+    {
+      "name": "otel-post-file-save",
+      "trigger": "PostFileSave",
+      "matcher": "",
+      "action": { "type": "command", "command": ".kiro/hooks/forward.sh PostFileSave" },
+      "timeout": 5,
+      "enabled": true
+    },
+    {
+      "name": "otel-post-file-create",
+      "trigger": "PostFileCreate",
+      "matcher": "",
+      "action": { "type": "command", "command": ".kiro/hooks/forward.sh PostFileCreate" },
+      "timeout": 5,
+      "enabled": true
+    },
+    {
+      "name": "otel-post-file-delete",
+      "trigger": "PostFileDelete",
+      "matcher": "",
+      "action": { "type": "command", "command": ".kiro/hooks/forward.sh PostFileDelete" },
+      "timeout": 5,
+      "enabled": true
+    },
+    {
+      "name": "otel-user-prompt",
+      "trigger": "UserPromptSubmit",
+      "matcher": "",
+      "action": { "type": "command", "command": ".kiro/hooks/forward.sh UserPromptSubmit" },
+      "timeout": 5,
+      "enabled": true
+    },
+    {
+      "name": "otel-post-task-exec",
+      "trigger": "PostTaskExec",
+      "matcher": "",
+      "action": { "type": "command", "command": ".kiro/hooks/forward.sh PostTaskExec" },
+      "timeout": 5,
+      "enabled": true
+    }
+  ]
+}

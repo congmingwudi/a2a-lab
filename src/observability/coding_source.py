@@ -136,16 +136,34 @@ CURSOR_METRICS = (
     "cursor_attribution_invocations_total",
     "cursor_attributed_context_tokens_total",
 )
+# Kiro (Amazon) ships no native OTEL exporter — these come from the
+# .kiro/hooks/ forwarder (build-notes/kiro/01, Path H). Same shape as Cursor:
+# cumulative counters emitted per-hook-invocation via OTLP JSON to the
+# CloudWatch managed metrics endpoint. Token/cost/model are NOT available from
+# hooks (Probe 2 pending), so Kiro is read for sessions + tools + file-ops only.
+# The file-operation metrics (saves/creates/deletes) are Kiro's advantage over
+# the other tools for the WS16 edit-acceptance signal.
+KIRO_METRICS = (
+    "kiro_session_total",
+    "kiro_session_end_total",
+    "kiro_prompt_total",
+    "kiro_tool_executions_total",
+    "kiro_task_executions_total",
+    "kiro_file_saves_total",
+    "kiro_file_creates_total",
+    "kiro_file_deletes_total",
+    "kiro_hook_events_total",
+)
 
 # Metrics that are cumulative counters rather than delta Sums, so _metric_rows
 # queries them with increase() instead of sum_over_time(). Everything not in
 # here is treated as a delta Sum (the Claude Code / Codex default).
-CUMULATIVE_METRICS = frozenset(CURSOR_METRICS)
+CUMULATIVE_METRICS = frozenset(CURSOR_METRICS + KIRO_METRICS)
 
 
 def metric_names() -> tuple[str, ...]:
     extra = os.environ.get("A2ALAB_CODING_METRICS", "")
-    names = list(CLAUDE_METRICS) + list(CODEX_METRICS) + list(CURSOR_METRICS)
+    names = list(CLAUDE_METRICS) + list(CODEX_METRICS) + list(CURSOR_METRICS) + list(KIRO_METRICS)
     names += [n.strip() for n in extra.split(",") if n.strip()]
     return tuple(dict.fromkeys(names))
 
@@ -253,6 +271,7 @@ TOOL_PREFIXES = {
     "claude-code": "claude_code.",
     "codex": "codex.",
     "cursor": "cursor_",
+    "kiro": "kiro_",
 }
 
 # Metric SUFFIXES, matched after the tool prefix is stripped. Suffixes rather
@@ -267,7 +286,8 @@ TOOL_PREFIXES = {
 COST_SUFFIX = ("cost.usage",)
 TOKEN_SUFFIX = ("token.usage",)
 # Claude Code counts a session as `session.count`, Codex as `thread.started`,
-# Cursor (via cursorscope) as `session_total`. Same concept, three names.
+# Cursor (via cursorscope) as `session_total`, Kiro (via hooks) as
+# `session_total`. Same concept, four tools, three names.
 SESSION_SUFFIX = ("session.count", "thread.started", "session_total")
 ACTIVE_TIME_SUFFIX = ("active_time.total",)
 
@@ -550,7 +570,7 @@ class CodingSource(PlatformLogSource):
 
         if not rows:
             detail = (
-                "no claude_code.*, codex.* or cursor_* metrics in CloudWatch — "
+                "no claude_code.*, codex.*, cursor_* or kiro_* metrics in CloudWatch — "
                 "switch the exporters on (see the Build Telemetry section) and allow "
                 "one export interval. Telemetry is not retroactive: whatever was built "
                 "before collection started cannot be measured afterwards"

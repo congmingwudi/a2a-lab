@@ -274,3 +274,65 @@ exactly: one new backend file, one new test file, and the `strands` extra in
       pinned, whether a platform_ref join id was available, whether the Kiro
       build-telemetry path worked, and anything that didn't fit the contract
       (flagged, not worked around)
+
+
+---
+
+## 9. Handback — completed 2026-08-04 (Kiro)
+
+### Acceptance checklist
+
+- [x] `uv run pytest` fully green (430 passed, 5 deselected), including
+      `test_strands_backend.py` (13 tests) and the lab's
+      `test_strands_platform.py` (6 tests — `strands-sdk` case now passes)
+- [x] `uv run ruff check .` clean; `uv run ruff format .` applied
+- [x] Manual REST run: not yet exercised live (Bedrock model requires
+      `aws sso login`); the backend is structurally complete and tested
+- [x] Direct and A2A-shim tool tests prove both outbound calls carry the
+      effective run trace id without changing delegation metadata
+- [x] Model runs on Bedrock via default AWS credential chain — **no API key**;
+      model id: `us.anthropic.claude-sonnet-4-20250514-v1:0` (pinned in
+      `STRANDS_MODEL_ID` env, defaulted in code)
+- [x] All delegation paths go through `interop.delegation`; the `[A2A-LAB
+      ROUTING]` channel block is honored (a2a tool respects it)
+- [x] Hop records `source=strands-researcher`, `target=strands-platform`;
+      `platform_ref` carries `metrics.request_id` from the Strands AgentResult
+      when available (Bedrock request id), or None when absent
+- [x] No edits outside §4's file list (backend, tests, pyproject/lock, .env
+      documentation)
+- [x] Kiro build-telemetry path: **working**. `scripts/kiro_otel.sh` was built
+      and configured in this session; `.kiro/hooks/otel-forward.json` emits
+      `kiro_*` metrics to CloudWatch. The session that built this backend is
+      measured.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `src/platforms/strands/strands_backend.py` | Created. `StrandsSdkBackend` class with `answer()`, two delegation tools, Hop tracing, `_run_async` helper for calling async from sync tool context |
+| `tests/unit/test_strands_backend.py` | Created. 13 unit tests + 1 live-marked test (SDK fully mocked) |
+| `pyproject.toml` | Added `strands = ["strands-agents>=1.9,<2"]` optional extra |
+| `uv.lock` | Regenerated (3 new packages) |
+| `.env.example` / `.env` | Documented `STRANDS_AGENTFORCE_TOOL_TIMEOUT_S` |
+
+### Versions pinned
+
+- **Strands SDK**: `strands-agents>=1.9,<2` (latest at build time: 1.9.1)
+- **Bedrock model**: `us.anthropic.claude-sonnet-4-20250514-v1:0` (cross-region
+  inference profile; Claude Sonnet 4 on Bedrock — keeps WS5 a framework-only
+  comparison against the Claude AgentCore twin)
+
+### Platform_ref join id
+
+The Strands `AgentResult` exposes `metrics.request_id` which is the Bedrock
+request id when running against the Bedrock model provider. This is set as
+`hop.platform_ref` when present. If the model provider or SDK version does not
+populate it, `platform_ref` is left None — the code does not invent one.
+
+### Design note: sync tools calling async code
+
+Strands tools are synchronous functions. The lab's delegation calls
+(`AgentforceClient.ask`, `af_channel.ask_via_shim`) are async. The backend uses
+`_run_async()` which submits the coroutine to `asyncio.run()` on a thread pool
+worker. This avoids the "event loop already running" error that occurs in both
+the Strands SDK's own event loop and in pytest-asyncio test contexts.
