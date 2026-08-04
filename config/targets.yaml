@@ -154,12 +154,13 @@ targets:
   # The AWS-hosted twin: Bedrock AgentCore Runtime, IAM data plane
   # (invoke_agent_runtime) — no raw HTTP endpoint, boto3 client. Same
   # container handler as strands-rest. Deploy: deploy/agentcore/deploy.sh
-  # strands. Blocked-beta until Kiro's backend lands and the runtime is
-  # created — kept honest: the ARN is unset, so resolving it fails loudly.
+  # strands. Live since 2026-08-04: Kiro delivered strands-sdk (plan/12), the
+  # runtime is created, and the strands-to-agentforce scenario runs against it
+  # (model claude-haiku-4-5 on Bedrock via the runtime IAM role).
   strands-agentcore:
     platform: strands
     protocol: agentcore-http
-    status: blocked-beta
+    status: native
     options: {timeout: 110, warmup: true}
     auth: {runtime_arn: "${STRANDS_AGENTCORE_ARN}"}
 

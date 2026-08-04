@@ -767,7 +767,7 @@ flowchart LR
     R1["src/bridge/"]
     R2["src/platforms/claude/sdk_backend.py"]
     R3["src/platforms/openai/"]
-    R12["src/platforms/strands/<br/>(backend: Kiro)"]
+    R12["src/platforms/strands/<br/>(backend: Kiro-built)"]
     R4["src/platforms/agentforce/a2a_shim.py"]
     R5["src/fanout_mcp/"]
     R6["src/observability/"]
@@ -780,7 +780,7 @@ flowchart LR
   R1 -->|"deploy/bridge/deploy_bridge.sh"| D1["ECS service a2alab-bridge"]
   R2 -->|"deploy/agentcore/deploy.sh claude"| D2["AgentCore a2alab_claude"]
   R3 -->|"deploy/agentcore/deploy.sh openai"| D3["AgentCore a2alab_openai"]
-  R12 -.->|"deploy/agentcore/deploy.sh strands<br/>(after Kiro delivers)"| D12["AgentCore a2alab_strands<br/>(not yet deployed)"]
+  R12 -->|"deploy/agentcore/deploy.sh strands"| D12["AgentCore a2alab_strands"]
   R4 -->|"deploy/shim/build_zip.sh + deploy_shim.sh"| D4["Lambda a2alab-af-shim"]
   R5 -->|"deploy/fanout/build_zip.sh + deploy_fanout.sh"| D5["Lambda a2alab-fanout-mcp"]
   R6 -->|"deploy/obs/build_zips.sh + deploy_harvest.sh"| D6["Lambdas obs-harvest + obs-mcp"]
@@ -798,7 +798,7 @@ flowchart LR
 | `src/bridge/` | `deploy/bridge/deploy_bridge.sh` | ECR image + ECS task def + service `a2alab-bridge` on cluster `a2alab`, ALB + target group + listener, roles `a2alab-bridge-task` / `-exec`, secret `a2alab/runtime/bridge` | AWS |
 | `src/platforms/claude/` (sdk backend) | `deploy/agentcore/deploy.sh claude` | AgentCore runtime `a2alab_claude` + secret `a2alab/runtime/claude` | AWS |
 | `src/platforms/openai/` | `deploy/agentcore/deploy.sh openai` | AgentCore runtime `a2alab_openai` + secret `a2alab/runtime/openai` | AWS |
-| `src/platforms/strands/` | `deploy/agentcore/deploy.sh strands` | AgentCore runtime `a2alab_strands` + secret `a2alab/runtime/strands` (Salesforce creds only) + `bedrock:InvokeModel` on the runtime role. **NOT YET DEPLOYED** (WS5/D66): scaffold + Dockerfile + deploy case are in the repo and run on a stub; the runtime is created only after Kiro delivers the `strands-sdk` backend (`plan/12`). Until then `strands-agentcore` is blocked-beta and `STRANDS_AGENTCORE_ARN` is unset | AWS |
+| `src/platforms/strands/` | `deploy/agentcore/deploy.sh strands` | AgentCore runtime `a2alab_strands` + secret `a2alab/runtime/strands` (Salesforce creds only) + `bedrock:InvokeModel` on the runtime role. **LIVE 2026-08-04** (WS5/D66): Kiro delivered the `strands-sdk` backend (`plan/12`), the runtime is created, and `strands-to-agentforce` runs against it — model `claude-haiku-4-5` on Bedrock via the runtime IAM role (no API key), matched to the Claude AgentCore twin so only the SDK differs. Follow-ups: the D25 Strands-paired Agentforce twin is not yet provisioned (falls back to the shared agent), and `platform_ref` (Bedrock request-id) comes back null at this SDK version | AWS |
 | `src/platforms/agentforce/` (shim) + `deploy/shim/handler.py` | `build_zip.sh` then `deploy_shim.sh` | Lambda `a2alab-af-shim` + API Gateway HTTP API + secret `a2alab/runtime/shim` | AWS |
 | `src/fanout_mcp/` | `build_zip.sh` then `deploy_fanout.sh` | Lambda `a2alab-fanout-mcp` + API Gateway + secret `a2alab/runtime/fanout-mcp` | AWS |
 | `src/observability/` | `deploy/obs/build_zips.sh` then `deploy_harvest.sh` / `expose_mcp.sh` | Lambdas `a2alab-obs-harvest` (EventBridge 6h) and `a2alab-obs-mcp` (+ API Gateway), secret `a2alab/obs/harvest`, role policy `a2alab-obs-promql`. **WS16:** the harvest role also needs `logs:FilterLogEvents` on `/a2alab/coding-agents/otlp` for the `coding-logs` source (owned by `deploy_harvest.sh`) — same shape as the PromQL grant | AWS |
@@ -811,7 +811,7 @@ flowchart LR
 | `src/console/` + `src/platforms/guide/` | `deploy/console/deploy_console.sh` | ECR image + task def + ECS service `a2alab-console` on cluster `a2alab`, target group + **host-header rule on the bridge's existing ALB** (no second load balancer), roles `a2alab-console-task` / `-exec`, secret `a2alab/runtime/console`. Deployed 2026-07-28; DNS still points at the tunnel | AWS |
 | `src/console/app.py` `/api/track` + `lab.usage_events` | (part of `deploy/console/deploy_console.sh`; table via `scripts/pg_migrate.py`) | WS18/D62 usage analytics: the console's own `POST /api/track` proxy writes anonymous rows to Aurora `lab.usage_events` (as `lab_writer`) and **forwards** each event to the external AWS logging service below. Ships in the console image; no separate deploy. Needs `A2ALAB_LOGGING_API_URL`/`_KEY` in the console secret | AWS |
 | — (external, not this repo) | operator's existing `aws-logging-service` (custom Lambda + API Gateway, us-west-2) | The Slack log sink the Claude/Codex hooks already post to; `/api/track` forwards to it fire-and-forget for the operator's cross-project notifications. An outbound **edge**, not a component this repo deploys (D62) | AWS |
-| `src/faces/` (the protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces`. **One process serves all fourteen, addressed by path** (the three strands faces run the stub until Kiro's backend lands, WS5/D66) | AWS |
+| `src/faces/` (the protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces`. **One process serves all fourteen, addressed by path** (the three strands faces still run the stub — the live Strands turn runs on the AgentCore runtime, not the faces task; the faces image would need the `strands` extra + `STRANDS_BACKEND` to serve the real backend, WS5/D66) | AWS |
 | `src/briefs/` (the watcher) | `deploy/briefs/deploy_briefs.sh` | ECS service `a2alab-briefs` on the shared cluster, roles `a2alab-briefs-task` / `-exec`, secret `a2alab/runtime/briefs`. **Reuses the faces image**, no ALB, no target group — it serves nothing | AWS |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator` | `sf agent validate\|publish\|activate` | Agent Script orchestrator bundle in the prod org (WS8 variant 3, D61). Fans out by **delegating** to the bridge's `fanout:` route; reuses `A2ALabInvokeRemoteAgent` — no new Apex, no new Named Credential | Salesforce |

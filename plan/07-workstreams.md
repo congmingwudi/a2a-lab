@@ -12,8 +12,9 @@ flagged as candidates only — user decision pending.
 
 **Revised 2026-07-25 after the architecture review** (local working notes under
 the gitignored `tmp-docs/`, not in the repo):
-WS1–WS3 and WS6 U1–U2 are done; WS4 remains deferred and WS5 was scaffolded
-lab-side 2026-08-03 (D66 — backend farmed to Kiro, plan/12). The approved next
+WS1–WS3 and WS6 U1–U2 are done; WS4 remains deferred and WS5 went LIVE
+2026-08-04 (D66 — backend built by Kiro, plan/12; claude-haiku-4-5 on Bedrock).
+The approved next
 order is **WS8 (fan-out orchestration) → WS9 (build telemetry) → WS7 (hosted
 completion) → WS10 (Agent Fabric comparison)**, with WS9 step 1 pulled forward
 immediately because coding-agent telemetry cannot be backfilled. WS8 and WS9
@@ -472,18 +473,34 @@ twin; LangSmith obs source harvesting; insights updated
 
 ---
 
-## WS5 — AWS Strands Agents (scaffolded 2026-08-03; backend farmed to Kiro)
+## WS5 — AWS Strands Agents (LIVE 2026-08-04; backend built by Kiro)
 
 **Goal:** third framework on the *identical* AgentCore runtime (OpenAI
 Agents SDK / Claude Agent SDK / Strands) — isolates the framework
 variable at constant runtime and constant model cloud; native A2A + MCP
 serving from a framework Amazon runs in production (Q, Glue, Kiro).
 
-**Status 2026-08-03 (D66).** Built the OpenAI/Codex way (D24): the lab has
-scaffolded **everything except the model backend**, and the backend is farmed to
-**Amazon Kiro** behind a standing contract, `plan/12-strands-kiro-handoff.md`.
+**Status 2026-08-04 (D66).** LIVE. Built the OpenAI/Codex way (D24): the lab
+scaffolded **everything except the model backend**; **Amazon Kiro** delivered
+the backend behind the standing contract `plan/12-strands-kiro-handoff.md`. The
+runtime is deployed and `strands-to-agentforce` runs against it end-to-end —
+verified with a real Agentforce consult (top open opportunities for Apple,
+CRM-attributed). Model: **claude-haiku-4-5 on Bedrock** via the runtime IAM role
+(no API key), matched to the Claude AgentCore twin so the ONLY difference across
+that pair is the SDK (Strands vs Claude Agent SDK) — the tightest
+framework-isolation of the three. Chosen over Kiro's Sonnet-4 default to fit the
+Path A action-timeout budget; Sonnet 4 needs a Bedrock model-access agreement
+that this account has not accepted.
 
-Done, lab-side (runs today on a deterministic stub):
+Two follow-ups travel with the live cell (honest caveats in the scenario copy):
+- **D25 twin not provisioned:** `SF_STRANDS_AGENT_ID` is unset, so
+  `ask_agentforce` falls back to the shared A2ALab service agent — functional
+  but not the clean per-experiment attribution D25 wants.
+- **platform_ref null:** the Strands `AgentResult` did not expose
+  `metrics.request_id` at SDK 1.50.2, so the hop records no Bedrock request-id
+  join key rather than inventing one.
+
+Done, lab-side (also runs locally on a deterministic stub):
 - `src/platforms/strands/` — adapter (`core.py`), `__main__.py` (faces on
   :8041/:8042/:8043), `stub_backend.py`. Backend selected by `STRANDS_BACKEND`
   (`stub` default, `strands-sdk` = Kiro's).
@@ -491,20 +508,23 @@ Done, lab-side (runs today on a deterministic stub):
   `deploy/agentcore/deploy.sh` — including the `bedrock:InvokeModel` grant on
   the runtime role (Bedrock model access via IAM, no API key) and the
   Salesforce-only runtime secret.
-- `config/`: three local faces + `strands-agentcore` (blocked-beta until the
-  runtime exists) + the Strands-paired Agentforce twin + hosted twins + `modes`
-  remap; the `strands-to-agentforce` scenario (`coming-soon`); the
-  agent-registry entry; the faces registry + `_adapter` branch.
+- `config/`: three local faces + `strands-agentcore` (now `native`) + the
+  Strands-paired Agentforce twin + hosted twins + `modes` remap; the
+  `strands-to-agentforce` scenario (now `live`, target `strands-agentcore`);
+  the agent-registry entry; the faces registry + `_adapter` branch.
 - `tests/unit/test_strands_platform.py`; `.env.example`/`.env` `STRANDS_*`
   keys; console platform chip/logo (AWS steel + `aws` mark).
 
-Open (Kiro's deliverable, then lab-side finish):
-- Kiro delivers `src/platforms/strands/strands_backend.py` + tests + the
-  `strands` dependency extra (contract: plan/12).
-- Lab owner then runs `deploy/agentcore/deploy.sh strands`, sets
-  `STRANDS_AGENTCORE_ARN`, flips the scenario/target to `live`, and records a
-  matrix run. Best-effort: Kiro emits build telemetry (WS9) during the build
-  (contingent on the Kiro OTel probes, `build-notes/kiro/`).
+Delivered by Kiro (merged 2026-08-04):
+- `src/platforms/strands/strands_backend.py` + `tests/unit/test_strands_backend.py`
+  + the `strands` dependency extra (contract: plan/12) — plus the Kiro OTel
+  build-telemetry path (`.kiro/hooks/`, `scripts/kiro_otel.sh`, WS9 metrics in
+  the Coding Agents Telemetry dashboard).
+
+Remaining follow-ups (do not block the live cell):
+- Provision the D25 Strands-paired Agentforce twin, set `SF_STRANDS_AGENT_ID`,
+  redeploy config-only (`deploy.sh strands --skip-build`).
+- Optionally record a matrix run once the attribution is clean.
 
 Reuses WS1's entire deploy path. No new accounts — the lab's AWS account, model
 on Bedrock via the runtime IAM role (D66; Strands is model-agnostic, Bedrock

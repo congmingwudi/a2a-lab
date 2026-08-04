@@ -558,72 +558,87 @@ scenarios:
       An AWS Strands agent calls the Agentforce Agent mid-answer.
     description: >-
       The mirror of Claude → Agentforce and OpenAI → Agentforce, on AWS
-      Strands Agents: you talk to the Strands research agent (Strands SDK,
-      model on Amazon Bedrock); mid-answer it consults the Agentforce agent
-      through its ask_agentforce function tool (Salesforce Agent API) and
-      folds the reply into its answer. WS5's purpose is to isolate the
-      FRAMEWORK variable — Strands runs on the IDENTICAL Bedrock AgentCore
-      runtime as the Claude and OpenAI agents, at a constant model cloud
-      (Bedrock), so the only thing that differs across the three is the agent
-      SDK. Per ADR D25 it talks to a dedicated STRANDS-PAIRED Agentforce twin
-      (SF_STRANDS_AGENT_ID) whose external research targets Strands — never
-      Claude or OpenAI — so this experiment stays a closed two-platform
-      system.
-    target: strands-rest
+      Strands Agents: you invoke the Strands research agent on Bedrock
+      AgentCore (Strands SDK, model on Amazon Bedrock); mid-answer it consults
+      the Agentforce agent through its ask_agentforce function tool (Salesforce
+      Agent API) and folds the reply into its answer. WS5's purpose is to
+      isolate the FRAMEWORK variable, and this cell isolates it the most
+      tightly of the three: Strands runs on the SAME Bedrock AgentCore runtime
+      AND the SAME model as the Claude AgentCore twin (claude-haiku-4-5) — the
+      Claude twin reaches that model through the Anthropic API, Strands reaches
+      it through Bedrock (IAM, no API key), so the one thing left differing is
+      the agent SDK (Strands vs the Claude Agent SDK). The OpenAI AgentCore
+      agent shares the runtime but runs gpt-5-mini, so across all three the
+      constant is the runtime; Strands and Claude-AWS additionally hold the
+      model constant.
+    target: strands-agentcore
     via_bridge: false
-    status: coming-soon
-    tags: [strands, bedrock, agentforce, agent-api]
+    status: live
+    tags: [strands, bedrock, agentcore, agent-sdk, agentforce, agent-api]
     prompt_suffix: >-
       Consult the Salesforce Agentforce agent with your ask_agentforce tool
       as part of answering, and say what it contributed.
     note: >-
-      status: coming-soon until the real backend lands. The Strands SDK
-      backend is farmed to the Kiro coding agent (plan/12-strands-kiro-handoff.md,
-      the standing contract — the same split as the OpenAI/Codex handoff,
-      plan/06); everything else in this experiment (adapter, protocol faces,
-      stub, Dockerfile, deploy path, targets, this scenario) is built and
-      runs against a deterministic stub today. Going live is a one-line flip
-      (status: live) once Kiro delivers strands-sdk and
-      deploy/agentcore/deploy.sh strands has created the runtime. Until then
-      the faces answer with the [strands-stub] placeholder and make no
-      Agentforce call — honest about which backend produced the answer.
+      Live on the Bedrock AgentCore runtime (deploy/agentcore/deploy.sh
+      strands). The Strands SDK backend is the Kiro coding agent's deliverable
+      (plan/12-strands-kiro-handoff.md — the same external-agent split as the
+      OpenAI/Codex handoff, plan/06); everything else (adapter, faces, deploy
+      path, targets, this scenario) is the lab's. Model: claude-haiku-4-5 on
+      Bedrock, matched to the Claude AgentCore twin and chosen over the SDK's
+      Sonnet-4 default to fit the Path A action-timeout budget. TWO honest
+      caveats travel with this cell: (1) the dedicated D25 Strands-paired
+      Agentforce twin (SF_STRANDS_AGENT_ID) is NOT yet provisioned, so
+      ask_agentforce currently falls back to the shared A2ALab service agent
+      — functional, but not the clean per-experiment attribution D25 wants;
+      provisioning the twin and setting SF_STRANDS_AGENT_ID is the follow-up.
+      (2) platform_ref (the Bedrock request-id join key) comes back null —
+      the Strands AgentResult did not expose metrics.request_id at this SDK
+      version, so the hop records no model-side join id rather than inventing
+      one.
     flow:
       - source: remote-caller
-        target: strands-researcher
-        protocol: rest
+        target: strands-agentcore
+        protocol: agentcore-http
         detail: >-
-          You (the console) call the Strands research agent: REST POST /invoke
-          on :8041 (locally; Bedrock AgentCore-hosted in the cloud variant,
-          WS5).
+          You (the console) invoke the AWS-hosted runtime via boto3
+          invoke_agent_runtime — SigV4/IAM only, no public endpoint, no bearer
+          token (the IAM data plane replaces app-level auth). The payload lands
+          on the container's POST /invocations.
       - source: strands-researcher
         target: strands-platform
         protocol: internal
         detail: >-
-          The Strands SDK runs the turn with its model on Amazon Bedrock —
-          reached through the AgentCore runtime's IAM role (bedrock:InvokeModel),
-          not an API key, which is the framework-isolation choice: same cloud
-          and model family as the Claude AgentCore twin, only the SDK differs.
+          Inside the container the Strands SDK runs the turn with model
+          claude-haiku-4-5 on Amazon Bedrock — reached through the AgentCore
+          runtime's IAM role (bedrock:InvokeModel), not an API key. That is the
+          framework-isolation choice: same runtime and same model as the Claude
+          AgentCore twin, only the SDK differs.
       - source: agentforce-client
         target: agentforce
         protocol: agentforce-api
         detail: >-
-          Mid-answer the model calls its ask_agentforce function tool. The
-          lab executes it host-side against the STRANDS-PAIRED Agentforce twin
-          (SF_STRANDS_AGENT_ID) — OAuth client-credentials, then session +
-          message on the Agent API. Credentials never enter prompts or tool
-          schemas.
+          Mid-answer the model calls its ask_agentforce function tool, executed
+          in-container against the Salesforce Agent API (OAuth client-
+          credentials, then session + message), with the D27 delegation rider
+          stamped on the outbound question (depth 1). Credentials never enter
+          prompts or tool schemas. NOTE: the dedicated D25 Strands-paired twin
+          (SF_STRANDS_AGENT_ID) is not yet provisioned, so this currently
+          consults the shared A2ALab service agent.
     agents:
       - title: Strands research agent
         target: strands-a2a
         caption: >-
-          Native card — generated at startup by the lab's a2a-sdk server on
-          :8043 from the mounted adapter's name and description.
-      - title: Agentforce service agent (Strands-paired twin)
+          Native card — the lab's a2a-sdk server generates it from the mounted
+          Strands adapter's name and description. Same adapter the AgentCore
+          runtime hosts; only the hosting differs (the card is served by the
+          faces task, the turn runs on the runtime).
+      - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
           Shim card — Agentforce publishes no A2A surface, so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
-          Honest status: via-shim.
+          Honest status: via-shim. (Currently the shared A2ALab agent; the
+          dedicated D25 Strands twin is not yet provisioned.)
 
   adk-to-agentforce:
     af_channel_toggle: true
