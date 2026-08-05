@@ -8,7 +8,7 @@ config:
     developer_name: "A2ALab_Research_Assistant_Strands"
     default_agent_user: "a2alab_research_assistant@00dkb000002u3fs2050886772.ext"
     agent_label: "A2ALab Research Assistant (Strands-paired)"
-    description: "Strands-paired twin of the lab's research assistant (ADR D25): identical behavior, but external research delegates to the lab's AWS Strands agent (bridge target strands-rest) instead of Claude/OpenAI — keeping each cross-platform experiment a closed two-platform system."
+    description: "Strands-paired twin of the lab's research assistant (ADR D25): identical behavior, but external research delegates to the lab's AWS Strands agent on its Bedrock AgentCore runtime (bridge target strands-agentcore) instead of Claude/OpenAI — keeping each cross-platform experiment a closed two-platform system."
 
 variables:
     EndUserId: linked string
@@ -98,7 +98,7 @@ subagent customer_account_status:
                     is_required: True
                 target: string
                     label: "Bridge Target"
-                    description: "Bridge target name. ALWAYS pass exactly: strands-rest"
+                    description: "Bridge target name. ALWAYS pass exactly: strands-agentcore"
                     is_required: True
             outputs:
                 answer: string
@@ -122,7 +122,7 @@ subagent customer_account_status:
               internal fact ONLY on what it returns (relationship, open opportunities, open
               support cases) — never invent CRM data. If no account matched, tell the user no
               record was found and STOP: do not call the external researcher for unknown accounts.
-              STEP 2 — then call ask_external_researcher with target set EXACTLY to "strands-rest"
+              STEP 2 — then call ask_external_researcher with target set EXACTLY to "strands-agentcore"
               (never any other value) for outside-in context on that company. Phrase the question
               exactly like: "Provide outside-in market research on
               <Account Name>: industry trends, competitive moves, funding or M&A chatter,
