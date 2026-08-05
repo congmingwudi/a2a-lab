@@ -62,6 +62,22 @@ aws iam put-role-policy --role-name a2alab-obs-lambda --policy-name a2alab-obs-c
   --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"logs:FilterLogEvents\"],\"Resource\":[\"${LOGS_ARN}\",\"${LOGS_ARN}:*\"]}]}"
 echo "ensured role policy a2alab-obs-coding-logs (logs:FilterLogEvents on ${CW_LOGS_GROUP})"
 
+# WS5/D66: the Strands source reads two AWS surfaces in this account —
+# AWS/Bedrock model METRICS (GetMetricStatistics: the token/latency meters,
+# which the PromQL grant above does NOT cover — that one is GetMetricData for
+# the managed-Prometheus endpoint) and the AgentCore runtime ACCESS LOG
+# (FilterLogEvents on /aws/bedrock-agentcore/runtimes/*-DEFAULT). Same silent-403
+# trap as the grants above: an unauthorized read surfaces as the friendly
+# blocked/empty status, so the grant must exist for the column to be real. Its
+# own inline policy for the same wholesale-replace reason. Metrics are
+# account-wide (Resource "*", the ModelId dimension is not an ARN); logs are
+# scoped to the AgentCore runtime log-group family, account id from
+# aws_preflight.sh, never a literal (CLAUDE.md).
+AGENTCORE_LOGS_ARN="arn:aws:logs:${REGION}:${AWS_ACCOUNT:?set by aws_preflight.sh}:log-group:/aws/bedrock-agentcore/runtimes/*"
+aws iam put-role-policy --role-name a2alab-obs-lambda --policy-name a2alab-obs-strands \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"cloudwatch:GetMetricStatistics\"],\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"logs:FilterLogEvents\"],\"Resource\":[\"${AGENTCORE_LOGS_ARN}\",\"${AGENTCORE_LOGS_ARN}:*\"]}]}"
+echo "ensured role policy a2alab-obs-strands (cloudwatch:GetMetricStatistics + logs:FilterLogEvents on AgentCore runtimes)"
+
 # WS14: the credential-expiry collector runs on this schedule too, and reads two
 # AWS providers that no other part of this function touches. Its own inline
 # policy for the same reason as above — put-role-policy replaces wholesale, and
@@ -106,6 +122,8 @@ for key in (
     "AZURE_TENANT_ID",
     "AZURE_CLIENT_ID",
     "AZURE_CLIENT_SECRET",
+    "STRANDS_AGENTCORE_ARN",      # strands: runtime id -> AgentCore access log group
+    "STRANDS_MODEL_ID",           # strands: ModelId dimension for AWS/Bedrock meters
 ):
     if os.environ.get(key):
         env[key] = os.environ[key]

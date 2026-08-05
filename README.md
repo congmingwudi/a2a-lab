@@ -1,10 +1,11 @@
 # A2A Interop Lab
 
-Cross-platform agent-to-agent interoperability experiments across five
+Cross-platform agent-to-agent interoperability experiments across six
 platforms — Salesforce **Agentforce**, Anthropic **Claude** (Managed Agents
 and self-hosted SDK on Bedrock AgentCore), **OpenAI** (Agents SDK on
-AgentCore), **Google ADK** (Gemini on Vertex AI Agent Engine), and
-**Microsoft Foundry** (gpt-5-mini on Foundry Agent Service) — with each
+AgentCore), **Google ADK** (Gemini on Vertex AI Agent Engine),
+**Microsoft Foundry** (gpt-5-mini on Foundry Agent Service), and **AWS
+Strands** (Strands SDK on Bedrock AgentCore) — with each
 direction runnable over platform-native REST, MCP, and the A2A protocol:
 same scenario, same question, protocols compared side by side with the raw
 wire payloads visible.
@@ -267,7 +268,7 @@ lab observing itself.
 ```mermaid
 flowchart LR
     subgraph sforg["Salesforce prod org"]
-        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired · Strands-paired"]
         APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
         AGENTAPI["GA Agent API"]
         STDM[("Session Tracing DMOs")]
@@ -286,6 +287,7 @@ flowchart LR
     subgraph aws["AWS"]
         ACC["AgentCore: Claude sdk"]
         ACO["AgentCore: OpenAI Agents SDK"]
+        ACS["AgentCore: Strands SDK<br/>(Bedrock model, D66)"]
         HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
         OBSDB[("Aurora obs + trace store (D23)")]
     end
@@ -299,11 +301,13 @@ flowchart LR
     BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
     BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
     BR --> ACO
+    BR --> ACS
     SRV --> CMA
     SRV -- "Path B: ask_agentforce" --> AGENTAPI
     SHIMS --> AGENTAPI
     ACC -- ask_agentforce --> HSHIM
     ACO --> HSHIM
+    ACS --> HSHIM
     ADK -- A2A --> HSHIM
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
@@ -314,6 +318,7 @@ flowchart LR
     ACC -.hops.-> OBSDB
     STDM -.harvest.-> OBSDB
     CMA -.harvest.-> OBSDB
+    ACS -. "harvest: AWS/Bedrock meters (D67)" .-> OBSDB
 ```
 
 **One pair in detail** — the Claude ↔ Agentforce originals, both

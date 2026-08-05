@@ -25,6 +25,7 @@ from observability.coding_source import CodingSource
 from observability.foundry_source import FoundrySource
 from observability.openai_source import OpenAISource
 from observability.salesforce_source import SalesforceSource
+from observability.strands_source import StrandsSource
 
 SOURCES = {
     "claude": AnthropicSource,
@@ -32,6 +33,7 @@ SOURCES = {
     "openai": OpenAISource,
     "adk": AdkSource,
     "foundry": FoundrySource,
+    "strands": StrandsSource,
     # WS9/WS16: not agent platforms — the coding agents that BUILT the lab. Kept
     # out of the five-platform coverage panel and rendered in their own console
     # section; they share only this harvest seam and the store. `coding` is the

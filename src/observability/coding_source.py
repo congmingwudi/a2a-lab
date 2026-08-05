@@ -137,12 +137,19 @@ CURSOR_METRICS = (
     "cursor_attributed_context_tokens_total",
 )
 # Kiro (Amazon) ships no native OTEL exporter — these come from the
-# .kiro/hooks/ forwarder (build-notes/kiro/01, Path H). Same shape as Cursor:
-# cumulative counters emitted per-hook-invocation via OTLP JSON to the
-# CloudWatch managed metrics endpoint. Token/cost/model are NOT available from
-# hooks (Probe 2 pending), so Kiro is read for sessions + tools + file-ops only.
-# The file-operation metrics (saves/creates/deletes) are Kiro's advantage over
-# the other tools for the WS16 edit-acceptance signal.
+# .kiro/hooks/ forwarder (build-notes/kiro/01, Path H). Emitted per-hook via
+# OTLP JSON to the CloudWatch managed metrics endpoint. Token/cost/model are NOT
+# available from hooks (Probe 2 pending), so Kiro is read for sessions + tools +
+# file-ops only. The file-operation metrics (saves/creates/deletes) are Kiro's
+# advantage over the other tools for the WS16 edit-acceptance signal.
+#
+# Unlike Cursor, these are DELTA Sums, not cumulative counters. cursorscope runs
+# a persistent ingestor that keeps a running total (hence cumulative); the Kiro
+# forwarder is a stateless fire-and-forget hook that can only ever report "+1
+# for this event", so it emits aggregationTemporality=1 (delta). They are read
+# with sum_over_time like Claude Code / Codex and are therefore NOT in
+# CUMULATIVE_METRICS. (Emitting them cumulative-constant-1 made increase() return
+# 0 and hid all Kiro telemetry — the 2026-08-04 harvest bug.)
 KIRO_METRICS = (
     "kiro_session_total",
     "kiro_session_end_total",
@@ -157,8 +164,10 @@ KIRO_METRICS = (
 
 # Metrics that are cumulative counters rather than delta Sums, so _metric_rows
 # queries them with increase() instead of sum_over_time(). Everything not in
-# here is treated as a delta Sum (the Claude Code / Codex default).
-CUMULATIVE_METRICS = frozenset(CURSOR_METRICS + KIRO_METRICS)
+# here is treated as a delta Sum (the Claude Code / Codex / Kiro default) —
+# cursorscope's persistent ingestor is the only cumulative source (see the
+# KIRO_METRICS note on why the stateless Kiro hook is delta, not cumulative).
+CUMULATIVE_METRICS = frozenset(CURSOR_METRICS)
 
 
 def metric_names() -> tuple[str, ...]:

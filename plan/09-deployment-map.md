@@ -16,7 +16,7 @@ picture.
 that way. L0 is the whole estate on one screen. L6 maps repo files to deployed
 artifacts. Read down until you have the detail you need, then stop.
 
-- **L0** — the estate: the console drives five platforms across four clouds
+- **L0** — the estate: the console drives six platforms across four clouds
 - **L0.5** — the same estate as a call graph: who reaches whom
 - **L1** — AWS: four hosting shapes, four different reasons
 - **L2** — Path A end to end: Salesforce reaches out
@@ -35,7 +35,7 @@ below links to the source.
 
 ---
 
-## L0 — The estate: the console drives five platforms across four clouds
+## L0 — The estate: the console drives six platforms across four clouds
 
 ```mermaid
 flowchart TB
@@ -73,7 +73,7 @@ flowchart TB
 
   subgraph AWS["AWS — the lab's OWN infrastructure, and two agents"]
     direction TB
-    A1["Agents: Claude + OpenAI SDK twins<br/>Bedrock AgentCore, IAM data plane"]
+    A1["Agents: Claude + OpenAI + Strands SDK twins<br/>Bedrock AgentCore, IAM data plane"]
     A2["Bridge — Path A's front door<br/>ECS Fargate, 45s budget"]
     A3["Protocol faces ×11<br/>REST · MCP · A2A, one process"]
     A4["Shims + fan-out<br/>Lambda + API Gateway"]
@@ -102,7 +102,7 @@ flowchart TB
 **What you are looking at.** The console at the top is not a viewer — it is the
 **driver**: every experiment in this lab is fired from it, over the protocol the
 experiment names, and every hop's raw wire bytes come back to it. Below it are
-the five agent platforms, each showing the three things that actually matter for
+the six agent platforms, each showing the three things that actually matter for
 interop: **what agents live there**, **which protocols it speaks in and out**,
 and **what its own execution logs expose**.
 
@@ -536,7 +536,7 @@ working without it.
 
 ---
 
-## L5 — Observability: five interiors, one store
+## L5 — Observability: six interiors, one store
 
 ```mermaid
 flowchart LR
@@ -546,6 +546,7 @@ flowchart LR
     S3["OpenAI"]
     S4["Cloud Logging"]
     S5["App Insights"]
+    S8["AWS/Bedrock meters<br/>+ AgentCore access log<br/>(strands, WS5/D67)"]
   end
   subgraph CODE["Coding agents — NOT a platform"]
     S6["Claude Code + Codex + Cursor<br/>METRICS to CloudWatch<br/>(coding; Cursor via cursorscope hooks)"]
@@ -557,6 +558,7 @@ flowchart LR
   S3 --> HARV2
   S4 --> HARV2
   S5 --> HARV2
+  S8 --> HARV2
   S6 --> HARV2
   S7 --> HARV2
   HARV2 --> PG[("Aurora — hosted store")]
@@ -708,7 +710,7 @@ flowchart LR
     BW["a2alab-briefs<br/>poll every 60s"]
   end
   subgraph WORK["What they drive"]
-    HARV["Lambda a2alab-obs-harvest<br/>7 sources -> Aurora"]
+    HARV["Lambda a2alab-obs-harvest<br/>8 sources -> Aurora"]
     BRIEF["Brief agent session<br/>-> Salesforce record"]
     ANLY["Obs analyst -> lab.obs_briefs"]
     COST["Cost sentinel -> lab.obs_briefs"]
@@ -722,7 +724,7 @@ flowchart LR
 
 | # | Process | Where it runs | Cadence | State (2026-07-30) | What it writes |
 |---|---|---|---|---|---|
-| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — five agent platforms + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16), seven harvest sources in all |
+| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — six agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands — the last WS5/D67) + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16), eight harvest sources in all |
 | 2 | **Account brief agent** (D16) | Scheduled Claude Managed Agent | `0 6 * * *`, America/Denver | **active** | an `A2ALab_Account_Brief__c` in Salesforce, via a host-side tool |
 | 3 | **Brief watcher** (D52) | ECS service `a2alab-briefs` | poll loop, `A2ALAB_BRIEF_POLL_S` = 60s | **running 1/1** | services #2's stalled tool call; `lab.lab_state` serviced-set |
 | 4 | **Observability analyst** (D23) | Scheduled Claude Managed Agent | `0 6 * * *`, America/New_York (**paused**, so on-demand only) | **paused** | `lab.obs_briefs` with `kind='observability'` |
@@ -798,10 +800,10 @@ flowchart LR
 | `src/bridge/` | `deploy/bridge/deploy_bridge.sh` | ECR image + ECS task def + service `a2alab-bridge` on cluster `a2alab`, ALB + target group + listener, roles `a2alab-bridge-task` / `-exec`, secret `a2alab/runtime/bridge` | AWS |
 | `src/platforms/claude/` (sdk backend) | `deploy/agentcore/deploy.sh claude` | AgentCore runtime `a2alab_claude` + secret `a2alab/runtime/claude` | AWS |
 | `src/platforms/openai/` | `deploy/agentcore/deploy.sh openai` | AgentCore runtime `a2alab_openai` + secret `a2alab/runtime/openai` | AWS |
-| `src/platforms/strands/` | `deploy/agentcore/deploy.sh strands` | AgentCore runtime `a2alab_strands` + secret `a2alab/runtime/strands` (Salesforce creds only) + `bedrock:InvokeModel` on the runtime role. **LIVE 2026-08-04** (WS5/D66): Kiro delivered the `strands-sdk` backend (`plan/12`), the runtime is created, and `strands-to-agentforce` runs against it — model `claude-haiku-4-5` on Bedrock via the runtime IAM role (no API key), matched to the Claude AgentCore twin so only the SDK differs. Follow-ups: the D25 Strands-paired Agentforce twin is not yet provisioned (falls back to the shared agent), and `platform_ref` (Bedrock request-id) comes back null at this SDK version | AWS |
+| `src/platforms/strands/` | `deploy/agentcore/deploy.sh strands` | AgentCore runtime `a2alab_strands` + secret `a2alab/runtime/strands` (Salesforce creds only) + `bedrock:InvokeModel` on the runtime role. **LIVE 2026-08-04** (WS5/D66): Kiro delivered the `strands-sdk` backend (`plan/12`), the runtime is created, and `strands-to-agentforce` runs against it — model `claude-haiku-4-5` on Bedrock via the runtime IAM role (no API key), matched to the Claude AgentCore twin so only the SDK differs. The D25 Strands-paired Agentforce twin (`A2ALab_Research_Assistant_Strands`, `SF_STRANDS_AGENT_ID`) is provisioned and active, so `ask_agentforce` consults it directly. Remaining caveat: `platform_ref` (Bedrock request-id) comes back null at this SDK version | AWS |
 | `src/platforms/agentforce/` (shim) + `deploy/shim/handler.py` | `build_zip.sh` then `deploy_shim.sh` | Lambda `a2alab-af-shim` + API Gateway HTTP API + secret `a2alab/runtime/shim` | AWS |
 | `src/fanout_mcp/` | `build_zip.sh` then `deploy_fanout.sh` | Lambda `a2alab-fanout-mcp` + API Gateway + secret `a2alab/runtime/fanout-mcp` | AWS |
-| `src/observability/` | `deploy/obs/build_zips.sh` then `deploy_harvest.sh` / `expose_mcp.sh` | Lambdas `a2alab-obs-harvest` (EventBridge 6h) and `a2alab-obs-mcp` (+ API Gateway), secret `a2alab/obs/harvest`, role policy `a2alab-obs-promql`. **WS16:** the harvest role also needs `logs:FilterLogEvents` on `/a2alab/coding-agents/otlp` for the `coding-logs` source (owned by `deploy_harvest.sh`) — same shape as the PromQL grant | AWS |
+| `src/observability/` | `deploy/obs/build_zips.sh` then `deploy_harvest.sh` / `expose_mcp.sh` | Lambdas `a2alab-obs-harvest` (EventBridge 6h) and `a2alab-obs-mcp` (+ API Gateway), secret `a2alab/obs/harvest`, role policy `a2alab-obs-promql`. **WS16:** the harvest role also needs `logs:FilterLogEvents` on `/a2alab/coding-agents/otlp` for the `coding-logs` source (owned by `deploy_harvest.sh`) — same shape as the PromQL grant. **WS5/D67:** and `a2alab-obs-strands` (`cloudwatch:GetMetricStatistics` for the `AWS/Bedrock` meters + `logs:FilterLogEvents` on `/aws/bedrock-agentcore/runtimes/*` for the Strands runtime access log) | AWS |
 | `src/obs_mcp/` | `deploy/obs/expose_mcp.sh` (`--code` for code alone) | Function code for `a2alab-obs-mcp`. **Nothing pushed this zip until 2026-07-27** — `expose_mcp.sh` built the API and left the code to a hand-run `update-function-code` | AWS |
 | `observability/pg.py` `DDL` | `scripts/pg_migrate.py` | Schema changes in Aurora `a2alab`, run as the **table owner**. `pg_backfill.py` (rows only) connects as `lab_writer`, which cannot ALTER | AWS |
 | `src/platforms/adk/` | `deploy/adk/deploy_adk.py` | Agent Engine deployments `a2alab-adk-researcher`, `a2alab-supply-orchestrator-adk`, `a2alab-logistics-agent` | GCP |

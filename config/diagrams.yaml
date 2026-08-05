@@ -39,13 +39,13 @@ diagrams:
   - id: platform-map
     title: "The platform map"
     caption: >
-      Five platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+      Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
     insights: [protocol-reality-check, emergent-topology, when-to-federate]
     readme: true
     mermaid: |
       flowchart LR
           subgraph sforg["Salesforce prod org"]
-              TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+              TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired · Strands-paired"]
               APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
               AGENTAPI["GA Agent API"]
               STDM[("Session Tracing DMOs")]
@@ -64,6 +64,7 @@ diagrams:
           subgraph aws["AWS"]
               ACC["AgentCore: Claude sdk"]
               ACO["AgentCore: OpenAI Agents SDK"]
+              ACS["AgentCore: Strands SDK<br/>(Bedrock model, D66)"]
               HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
               OBSDB[("Aurora obs + trace store (D23)")]
           end
@@ -77,11 +78,13 @@ diagrams:
           BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
           BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
           BR --> ACO
+          BR --> ACS
           SRV --> CMA
           SRV -- "Path B: ask_agentforce" --> AGENTAPI
           SHIMS --> AGENTAPI
           ACC -- ask_agentforce --> HSHIM
           ACO --> HSHIM
+          ACS --> HSHIM
           ADK -- A2A --> HSHIM
           FDY -- "A2A (0.3 dialect)" --> HSHIM
           ADK -- "cross-hyperscaler A2A" --> FDY
@@ -92,6 +95,7 @@ diagrams:
           ACC -.hops.-> OBSDB
           STDM -.harvest.-> OBSDB
           CMA -.harvest.-> OBSDB
+          ACS -. "harvest: AWS/Bedrock meters (D67)" .-> OBSDB
   - id: claude-pair-detail
     title: "One pair, end to end"
     caption: >

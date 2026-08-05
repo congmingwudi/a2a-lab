@@ -26,6 +26,7 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
     from observability.openai_source import OpenAISource
     from observability.pg import PgObsStore
     from observability.salesforce_source import SalesforceSource
+    from observability.strands_source import StrandsSource
 
     sources = {
         "claude": AnthropicSource,
@@ -52,6 +53,13 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         # which is why Aurora held no ADK or Foundry rows while local sqlite did.
         "adk": AdkSource,
         "foundry": FoundrySource,
+        # strands reads AWS/Bedrock model metrics (cloudwatch:GetMetricStatistics)
+        # and the AgentCore runtime access log (logs:FilterLogEvents on
+        # /aws/bedrock-agentcore/runtimes/*-DEFAULT) in THIS account — so the
+        # Lambda's execution role needs both grants (owned by
+        # deploy/obs/deploy_harvest.sh). No new secret (D39): both reads are
+        # signed with the Lambda's role.
+        "strands": StrandsSource,
     }
     asked = event.get("platform") if isinstance(event, dict) else None
     if asked == "anthropic":  # legacy alias for hosted invokes

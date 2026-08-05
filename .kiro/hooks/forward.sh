@@ -48,8 +48,17 @@ esac
 TIMESTAMP_NS=$(python3 -c 'import time; print(int(time.time_ns()))' 2>/dev/null || date +%s000000000)
 
 # OTLP JSON metrics payload (ExportMetricsServiceRequest). One Sum datapoint
-# per hook invocation — cumulative, monotonic. The CloudWatch OTLP endpoint
-# accepts this directly with Bearer auth.
+# per hook invocation. The CloudWatch OTLP endpoint accepts this directly with
+# Bearer auth.
+#
+# Temporality is DELTA (aggregationTemporality: 1), not cumulative. This hook is
+# stateless and fire-and-forget: it cannot maintain a running total across
+# invocations, so it can only ever report "+1 for this event". A CUMULATIVE
+# counter that reports a constant 1 never grows, so the harvest's increase()
+# computes 0 and the dashboard shows "no data" even though points landed (the
+# exact bug that hid Kiro telemetry — see build-notes/kiro/01). Each hook is one
+# delta of 1; coding_source.py rolls them up with sum_over_time (Kiro is a delta
+# Sum, like Claude Code / Codex — NOT in CUMULATIVE_METRICS).
 PAYLOAD=$(cat <<EOF
 {
   "resourceMetrics": [{
@@ -74,7 +83,7 @@ PAYLOAD=$(cat <<EOF
               {"key": "trigger", "value": {"stringValue": "$TRIGGER"}}
             ]
           }],
-          "aggregationTemporality": 2,
+          "aggregationTemporality": 1,
           "isMonotonic": true
         }
       }]

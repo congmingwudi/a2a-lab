@@ -2410,3 +2410,70 @@ See D24/plan/06 (the OpenAI/Codex precedent this mirrors), D25 (paired
 Agentforce twin per experiment), D26 (the AgentCore runtime pair this joins),
 D27 (delegation guard), WS5 (plan/07-workstreams.md), and
 plan/12-strands-kiro-handoff.md (the contract).
+
+**Update 2026-08-04 — D25 Strands twin provisioned.** The follow-up caveat is
+closed: `A2ALab_Research_Assistant_Strands` (agent `0XxKB000000xdwt0AA`,
+published + activated v1) is the Strands-paired Agentforce twin — a clone of the
+OpenAI twin's authoring bundle with its `ask_external_researcher` action pinned
+three ways to bridge target **strands-rest** (required input, input description,
+STEP 2 instruction), reusing the same agent user / permission set / Named
+Credential (no Apex or prod-class deploy, exactly as D25 established). Lab wiring:
+`SF_STRANDS_AGENT_ID` set and pushed to the env store (D39), the `strands`
+AgentCore runtime redeployed config-only so `ask_agentforce` targets the twin,
+and the hosted bridge rebuilt to carry `strands-rest` in its baked
+`config/targets.yaml`. Both directions live-verified with CRM attribution:
+Strands runtime → its Agentforce twin, and the twin → strands-rest through the
+bridge. The one remaining Strands caveat is `platform_ref` null (SDK 1.50.2, per
+D66), unrelated to attribution.
+
+## 2026-08-04 — D67: Strands is observed through AWS's own meters (no vendor session API), and a stateless hook must emit DELTA telemetry
+
+Two observability findings from turning the Strands experiment (D66) live, both
+about telemetry that landed as "no data" while looking healthy.
+
+1. **Strands has no vendor session API, so its obs source reads AWS, not a
+   platform.** Claude and OpenAI run ON AgentCore but are OBSERVED through their
+   vendor APIs (Anthropic Managed Agents sessions, OpenAI Responses) — the
+   AgentCore hosting is invisible to the obs layer. Strands has no such API, so
+   `observability/strands_source.py` reads the two surfaces AWS does expose:
+   **`AWS/Bedrock` model metrics** (`InputTokenCount` / `OutputTokenCount` /
+   `Invocations` / `InvocationLatency`, per `ModelId`) for the token/cost
+   picture, and the **AgentCore runtime access log**
+   (`/aws/bedrock-agentcore/runtimes/<id>-DEFAULT`, `POST /invocations` lines)
+   for invocation/error counts. Both over boto3, signed by the one human AWS
+   login (D39) — no new credential. The honest shape is **one obs session per
+   runtime with a daily rollup**, exactly like ADK/Agent Engine (which also has
+   no session API), not one-per-turn. Two caveats travel with the numbers, in
+   the capability panel and the source's detail string: the Bedrock meters are
+   **per-ModelId, account-wide** (they attribute cleanly only because Strands is
+   this account's *only* Bedrock-backed agent — claude-sdk uses the Anthropic
+   API, openai OpenAI, adk Vertex, foundry Azure), and `platform_ref` (the
+   Bedrock request-id) is **null at this SDK version** (plan/12), so sessions
+   correlate to the runtime, not to individual lab traces. It is the lab's sixth
+   Observability column but the *first* observed purely through the host cloud's
+   meters rather than the agent platform's own API.
+
+2. **A stateless fire-and-forget hook must emit DELTA temporality, not
+   cumulative.** Kiro telemetry showed "no data" for the whole build session for
+   two compounding reasons, neither of which errored. First, `.kiro/hooks/.env`
+   was never provisioned, so every hook hit `forward.sh`'s "not configured →
+   `exit 0`" guard and emitted nothing — silent by design (a hook must never
+   block the agent), so Kiro believed it was exporting. Second, even once
+   provisioned, `forward.sh` emitted each event as a **cumulative** counter
+   (`aggregationTemporality: 2`) with a constant value of 1 — and a cumulative
+   counter that never grows has `increase() == 0`, so the harvest correctly
+   computed zero. Cursor works only because cursorscope runs a **persistent
+   ingestor** that keeps a real running total; a stateless per-hook curl cannot,
+   so it can only ever report "+1 for this event" = **delta**. Fix is
+   symmetric: `forward.sh` now emits `aggregationTemporality: 1`, and
+   `coding_source.py` moves Kiro OUT of `CUMULATIVE_METRICS` so it is read with
+   `sum_over_time` like Claude Code / Codex (the other delta-Sum tools). Verified
+   end-to-end: emit → CloudWatch (HTTP 200) → `sum_over_time` → a `kiro` tool-day
+   row in the store. The general rule: **temporality must match who holds the
+   running total** — a source with persistent state is cumulative, a stateless
+   emitter is delta, and mismatching them fails silently as an empty dashboard.
+
+See D66 (the Strands agent), D64 (Cursor as a third coding-telemetry tool — the
+persistent-ingestor contrast), D59/WS16 (the behavioural-logs signal), D39 (the
+one human AWS login every service read is signed with), and
+plan/05-observability.md (the honest capability matrix, now six columns).

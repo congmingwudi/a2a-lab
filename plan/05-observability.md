@@ -14,17 +14,17 @@ platform docs; re-verify betas before building).
 
 ## What each platform lets us pull (honest matrix)
 
-All five platforms the lab harvests. The columns are deliberately not ranked —
+All six platforms the lab harvests. The columns are deliberately not ranked —
 each is strong somewhere and absent somewhere else, and **which axis a platform
 is strong on is the finding**, not a scoreboard.
 
-| Capability | Salesforce Agentforce | Anthropic Managed Agents | OpenAI | Google Agent Engine | Microsoft Foundry |
-|---|---|---|---|---|---|
-| List executions org-wide | ✅ SQL over STDM DMOs | ✅ `GET /v1/sessions` (paginated; no time-range filter documented) | ❌ none (usage metrics only) | ⚠️ no session/turn read API on the preview A2A surface — Cloud Logging entries per ReasoningEngine instead | ✅ KQL over App Insights `AppDependencies` |
-| Per-execution step detail | ✅ interaction steps DMO; OTel export (beta) | ✅ `GET /v1/sessions/{id}/events` | ⚠️ `GET /v1/responses/{id}` by known id only | ⚠️ container app logs and request lines — not agent-semantic, and A2A `contextId` does not appear in the default logs | ✅ gen_ai spans: `invoke_agent` (turn), `chat <model>`, `execute_tool` (its own record of calling the lab's shim) |
-| LLM request/response logs | ✅ Einstein GenAI audit DMOs | ⚠️ inside session events (thinking/tool events, token spans) | ⚠️ stored responses, 30-day TTL, fetch by id | ❌ not exposed | ✅ full input/output messages on the `chat` spans |
-| Real-time stream | ❌ (poll DMOs) | ✅ `GET /v1/sessions/{id}/events/stream` (SSE) | ❌ | ❌ (poll Cloud Logging) | ❌ (poll KQL) |
-| Aggregate usage/cost API | ⚠️ via DMO SQL aggregation | ❌ none | ✅ `GET /v1/organization/usage/*`, `/costs` (admin key) | ✅ Cloud Monitoring — `cpu/allocation_time` and `memory/allocation_time`, the **literal billing meters**, plus publisher token counts | ⚠️ `gen_ai.usage.*` tokens on each span, aggregate by KQL; no cost API |
+| Capability | Salesforce Agentforce | Anthropic Managed Agents | OpenAI | Google Agent Engine | Microsoft Foundry | AWS Strands (Bedrock AgentCore) |
+|---|---|---|---|---|---|---|
+| List executions org-wide | ✅ SQL over STDM DMOs | ✅ `GET /v1/sessions` (paginated; no time-range filter documented) | ❌ none (usage metrics only) | ⚠️ no session/turn read API on the preview A2A surface — Cloud Logging entries per ReasoningEngine instead | ✅ KQL over App Insights `AppDependencies` | ⚠️ no session/turn read API (the Strands SDK exposes none) — the AgentCore runtime access log instead (`POST /invocations` lines) |
+| Per-execution step detail | ✅ interaction steps DMO; OTel export (beta) | ✅ `GET /v1/sessions/{id}/events` | ⚠️ `GET /v1/responses/{id}` by known id only | ⚠️ container app logs and request lines — not agent-semantic, and A2A `contextId` does not appear in the default logs | ✅ gen_ai spans: `invoke_agent` (turn), `chat <model>`, `execute_tool` (its own record of calling the lab's shim) | ❌ access log is HTTP-level (invocation + 5xx counts) — no agent-semantic events without custom instrumentation |
+| LLM request/response logs | ✅ Einstein GenAI audit DMOs | ⚠️ inside session events (thinking/tool events, token spans) | ⚠️ stored responses, 30-day TTL, fetch by id | ❌ not exposed | ✅ full input/output messages on the `chat` spans | ❌ not exposed (Bedrock does not log prompt/response by default) |
+| Real-time stream | ❌ (poll DMOs) | ✅ `GET /v1/sessions/{id}/events/stream` (SSE) | ❌ | ❌ (poll Cloud Logging) | ❌ (poll KQL) | ❌ (poll CloudWatch) |
+| Aggregate usage/cost API | ⚠️ via DMO SQL aggregation | ❌ none | ✅ `GET /v1/organization/usage/*`, `/costs` (admin key) | ✅ Cloud Monitoring — `cpu/allocation_time` and `memory/allocation_time`, the **literal billing meters**, plus publisher token counts | ⚠️ `gen_ai.usage.*` tokens on each span, aggregate by KQL; no cost API | ✅ `AWS/Bedrock` CloudWatch meters — `Input/OutputTokenCount`, `Invocations`, `InvocationLatency` per `ModelId` → est. cost. **Per-ModelId, account-wide** (attributes to Strands only because it is this account's sole Bedrock agent) |
 
 **Read the table by column, and the shape of each platform falls out.**
 Salesforce is queryable session/step data. Anthropic is deep per-session events
@@ -34,15 +34,26 @@ execution detail and the only one with a first-class cost API. Google lands
 than agent-semantic, because Agent Engine bills **allocated compute, not
 tokens**, and its meters say so. Foundry is the column WS3 hoped for:
 agent-semantic **and** queryable, with the platform's own record of calling us.
+Strands (WS5/D67) is the extreme of the OpenAI end for *interior* detail and the
+extreme of the Google end for *cost*: no session API and an HTTP-level access
+log, but clean per-`ModelId` token/latency meters from `AWS/Bedrock` — because
+it is observed through the **host cloud's** meters, not the agent platform's own
+API (there isn't one). It is the only column where the hosting cloud *is* the
+telemetry surface.
 
-Two consequences the lab actually ran into. Because Agent Engine exposes no
-session read, its honest shape in the store is **one obs session per deployed
-engine**, with log entries as events and a daily metrics rollup — not one per
-turn. And because Foundry keys its spans on `gen_ai.response.id`, which is the
-same id the lab's `FoundryClient` records as `platform_ref`, the
-`trace_events ↔ obs_sessions` join works with no extra correlation machinery —
-the only platform where that is true by construction rather than by the D27
-rider.
+Three consequences the lab actually ran into. Because Agent Engine **and**
+Strands expose no session read, their honest shape in the store is **one obs
+session per deployed engine/runtime**, with log entries or a daily metrics
+rollup as events — not one per turn. Because Foundry keys its spans on
+`gen_ai.response.id`, which is the same id the lab's `FoundryClient` records as
+`platform_ref`, the `trace_events ↔ obs_sessions` join works with no extra
+correlation machinery — the only platform where that is true by construction
+rather than by the D27 rider (Strands is the opposite extreme: its
+`platform_ref` is null at this SDK version, so it does not join at all yet). And
+because the `AWS/Bedrock` meters are dimensioned by `ModelId`, account-wide,
+they attribute to Strands **only because it is this account's sole Bedrock
+agent** — a second Bedrock agent on the same model would blur the column, and
+the capability panel says so.
 
 ### Salesforce — the richest pull surface
 - **Session Tracing Data Model (STDM)** — Data Cloud DMOs, queryable with

@@ -2757,7 +2757,7 @@ const BRIEF_META = {
   observability: {
     label: "Observability analysis",
     blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
-         + "experiment telemetry across all five platforms.",
+         + "experiment telemetry across all six platforms.",
     emptyHint: "The analyst is a PAUSED deployment, so it only runs when you hit Analyze in the sidebar.",
     diagram: () => OBS_ANALYST_DIAGRAM,
     details: `### What writes this brief
@@ -2780,7 +2780,7 @@ permission prompt, so a tool evaluated as "ask" stalls the session indefinitely 
 ### What it analyses, and where the brief lands
 
 The harvested execution logs in \`lab.obs_sessions\` and \`lab.obs_events\` — sessions, turns, tool calls,
-token usage and errors from all five platforms. This is the telemetry of what the **experiments** did.
+token usage and errors from all six platforms. This is the telemetry of what the **experiments** did.
 
 Briefs are written to \`lab.obs_briefs\` with \`kind='observability'\`. The cost sentinel writes to the same
 table with a different kind; each tab shows only its own.

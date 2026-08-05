@@ -1035,6 +1035,7 @@ def create_console_app(registry: Registry | None = None):
                 "claude",
             ),
             "claude-aws-to-agentforce": ("claude-sdk-agent", "claude"),
+            "strands-to-agentforce": ("strands-sdk-agent", "strands"),
             "chatgpt-to-agentforce": ("openai-agents-sdk-agent", "openai"),
             "adk-to-agentforce": ("adk-gemini-agent", "adk"),
             "foundry-to-agentforce": ("foundry-agent", "foundry"),
@@ -2676,6 +2677,20 @@ and console never present a combined dollar total across tools (WS12/D44).
                 "token metrics per engine (project+model granularity only)",
             ],
         },
+        "strands": {
+            "label": "AWS Strands (Bedrock AgentCore)",
+            "can": [
+                "Bedrock model meters (AWS/Bedrock): input/output tokens, invocations, latency",
+                "token counts → est. cost (Strands is this account's only Bedrock agent, so ModelId attributes cleanly)",
+                "AgentCore runtime access log: invocation + error (5xx) counts",
+            ],
+            "cannot": [
+                "session/turn read API (the Strands SDK exposes none)",
+                "agent-semantic events (tool calls) without custom instrumentation",
+                "token metrics per runtime (Bedrock meters are per-ModelId, account-wide)",
+                "join to wire traces — platform_ref (Bedrock request-id) is null at this SDK version",
+            ],
+        },
     }
 
     @app.get("/api/obs/summary")
@@ -3301,12 +3316,14 @@ and console never present a combined dollar total across tools (WS12/D44).
         from observability.coding_source import CodingSource
         from observability.openai_source import OpenAISource
         from observability.salesforce_source import SalesforceSource
+        from observability.strands_source import StrandsSource
 
         sources = {
             "claude": AnthropicSource,
             "salesforce": SalesforceSource,
             "openai": OpenAISource,
             "adk": AdkSource,
+            "strands": StrandsSource,
             # WS9/WS16. Reachable by name only: the Coding Agents Telemetry
             # section has its own Harvest button, and the sweep below stays the
             # five agent platforms so Observability's "harvested from all

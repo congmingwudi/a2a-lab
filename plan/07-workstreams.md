@@ -492,13 +492,17 @@ framework-isolation of the three. Chosen over Kiro's Sonnet-4 default to fit the
 Path A action-timeout budget; Sonnet 4 needs a Bedrock model-access agreement
 that this account has not accepted.
 
-Two follow-ups travel with the live cell (honest caveats in the scenario copy):
-- **D25 twin not provisioned:** `SF_STRANDS_AGENT_ID` is unset, so
-  `ask_agentforce` falls back to the shared A2ALab service agent — functional
-  but not the clean per-experiment attribution D25 wants.
+One honest caveat travels with the live cell (in the scenario copy):
 - **platform_ref null:** the Strands `AgentResult` did not expose
   `metrics.request_id` at SDK 1.50.2, so the hop records no Bedrock request-id
   join key rather than inventing one.
+
+The D25 twin is now provisioned (2026-08-04): `A2ALab_Research_Assistant_Strands`
+(`SF_STRANDS_AGENT_ID = 0XxKB000000xdwt0AA`, published + activated v1), its
+`ask_external_researcher` action pinned to bridge target `strands-rest`. The
+runtime was redeployed config-only so `ask_agentforce` consults the twin
+directly — the clean per-experiment attribution D25 wants, both directions
+live-verified.
 
 Done, lab-side (also runs locally on a deterministic stub):
 - `src/platforms/strands/` — adapter (`core.py`), `__main__.py` (faces on
@@ -522,9 +526,7 @@ Delivered by Kiro (merged 2026-08-04):
   the Coding Agents Telemetry dashboard).
 
 Remaining follow-ups (do not block the live cell):
-- Provision the D25 Strands-paired Agentforce twin, set `SF_STRANDS_AGENT_ID`,
-  redeploy config-only (`deploy.sh strands --skip-build`).
-- Optionally record a matrix run once the attribution is clean.
+- Optionally record a matrix run now that the attribution is clean.
 
 Reuses WS1's entire deploy path. No new accounts — the lab's AWS account, model
 on Bedrock via the runtime IAM role (D66; Strands is model-agnostic, Bedrock

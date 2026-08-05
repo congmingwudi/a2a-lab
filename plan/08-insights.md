@@ -24,12 +24,12 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Advise customers to consolidate within a trust domain and federate across trust domains — and to treat "we'll never need interop" with suspicion: your vendors are already shipping agents, so the second platform usually arrives whether you chose it or not.
 
-**The platform map** — Five platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
 
 ```mermaid
 flowchart LR
     subgraph sforg["Salesforce prod org"]
-        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired · Strands-paired"]
         APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
         AGENTAPI["GA Agent API"]
         STDM[("Session Tracing DMOs")]
@@ -48,6 +48,7 @@ flowchart LR
     subgraph aws["AWS"]
         ACC["AgentCore: Claude sdk"]
         ACO["AgentCore: OpenAI Agents SDK"]
+        ACS["AgentCore: Strands SDK<br/>(Bedrock model, D66)"]
         HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
         OBSDB[("Aurora obs + trace store (D23)")]
     end
@@ -61,11 +62,13 @@ flowchart LR
     BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
     BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
     BR --> ACO
+    BR --> ACS
     SRV --> CMA
     SRV -- "Path B: ask_agentforce" --> AGENTAPI
     SHIMS --> AGENTAPI
     ACC -- ask_agentforce --> HSHIM
     ACO --> HSHIM
+    ACS --> HSHIM
     ADK -- A2A --> HSHIM
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
@@ -76,6 +79,7 @@ flowchart LR
     ACC -.hops.-> OBSDB
     STDM -.harvest.-> OBSDB
     CMA -.harvest.-> OBSDB
+    ACS -. "harvest: AWS/Bedrock meters (D67)" .-> OBSDB
 ```
 
 ### Every cross-platform hop levies a tax — latency, tokens, and an observability seam — that consolidation avoids
@@ -219,12 +223,12 @@ Only two platforms speak a protocol natively: Google Vertex AI Agent Engine (A2A
 
 **Advisor take:** Plan for bridges and adapters as permanent, first-class, observable components of an interop program — not temporary scaffolding. Ask every vendor "which protocols do you speak natively, in which direction, GA or beta?" and demand wire-level evidence.
 
-**The platform map** — Five platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
 
 ```mermaid
 flowchart LR
     subgraph sforg["Salesforce prod org"]
-        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired · Strands-paired"]
         APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
         AGENTAPI["GA Agent API"]
         STDM[("Session Tracing DMOs")]
@@ -243,6 +247,7 @@ flowchart LR
     subgraph aws["AWS"]
         ACC["AgentCore: Claude sdk"]
         ACO["AgentCore: OpenAI Agents SDK"]
+        ACS["AgentCore: Strands SDK<br/>(Bedrock model, D66)"]
         HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
         OBSDB[("Aurora obs + trace store (D23)")]
     end
@@ -256,11 +261,13 @@ flowchart LR
     BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
     BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
     BR --> ACO
+    BR --> ACS
     SRV --> CMA
     SRV -- "Path B: ask_agentforce" --> AGENTAPI
     SHIMS --> AGENTAPI
     ACC -- ask_agentforce --> HSHIM
     ACO --> HSHIM
+    ACS --> HSHIM
     ADK -- A2A --> HSHIM
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
@@ -271,6 +278,7 @@ flowchart LR
     ACC -.hops.-> OBSDB
     STDM -.harvest.-> OBSDB
     CMA -.harvest.-> OBSDB
+    ACS -. "harvest: AWS/Bedrock meters (D67)" .-> OBSDB
 ```
 
 ### "Never scrape text" is single-platform advice — cross-platform, a versioned text rider is a contract, not a hack
@@ -424,12 +432,12 @@ flowchart LR
 
 **Advisor take:** Once agents can call agents, delegation chains form transitively — including across billing, compliance, and data boundaries. Enforce closed systems per use case, and monitor real topology from traces. This governance problem arrives with your second platform, not your tenth.
 
-**The platform map** — Five platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
 
 ```mermaid
 flowchart LR
     subgraph sforg["Salesforce prod org"]
-        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired"]
+        TWINS["Agentforce twins (D25)<br/>Claude-paired · OpenAI-paired<br/>ADK-paired · Foundry-paired · Strands-paired"]
         APEX["Apex invocables<br/>InvokeRemoteAgent (bridge)<br/>InvokeAgentEngine (direct, D30)"]
         AGENTAPI["GA Agent API"]
         STDM[("Session Tracing DMOs")]
@@ -448,6 +456,7 @@ flowchart LR
     subgraph aws["AWS"]
         ACC["AgentCore: Claude sdk"]
         ACO["AgentCore: OpenAI Agents SDK"]
+        ACS["AgentCore: Strands SDK<br/>(Bedrock model, D66)"]
         HSHIM["Hosted A2A shim (Lambda + API GW)<br/>0.3↔1.x translation + wiretap"]
         OBSDB[("Aurora obs + trace store (D23)")]
     end
@@ -461,11 +470,13 @@ flowchart LR
     BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
     BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
     BR --> ACO
+    BR --> ACS
     SRV --> CMA
     SRV -- "Path B: ask_agentforce" --> AGENTAPI
     SHIMS --> AGENTAPI
     ACC -- ask_agentforce --> HSHIM
     ACO --> HSHIM
+    ACS --> HSHIM
     ADK -- A2A --> HSHIM
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
@@ -476,6 +487,7 @@ flowchart LR
     ACC -.hops.-> OBSDB
     STDM -.harvest.-> OBSDB
     CMA -.harvest.-> OBSDB
+    ACS -. "harvest: AWS/Bedrock meters (D67)" .-> OBSDB
 ```
 
 ### Agent protocols have no TTL — bidirectional agent pairs loop by construction unless you build the guard yourself

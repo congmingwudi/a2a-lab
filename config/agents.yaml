@@ -9,7 +9,7 @@
 #   id           stable slug (tile key)
 #   name         display name (matches the AgentCard / adapter name where one exists)
 #   group        which registry shelf it sits on (see `groups` below)
-#   platform     one of: claude | openai | adk | foundry | agentforce | guide
+#   platform     one of: claude | openai | adk | foundry | agentforce | strands | guide
 #                (drives the platform chip + logo — one hue per platform, D-system)
 #   model        the model it runs (honest; "—" where the platform hides it)
 #   role         one line: what this agent is for

@@ -585,16 +585,14 @@ scenarios:
       OpenAI/Codex handoff, plan/06); everything else (adapter, faces, deploy
       path, targets, this scenario) is the lab's. Model: claude-haiku-4-5 on
       Bedrock, matched to the Claude AgentCore twin and chosen over the SDK's
-      Sonnet-4 default to fit the Path A action-timeout budget. TWO honest
-      caveats travel with this cell: (1) the dedicated D25 Strands-paired
-      Agentforce twin (SF_STRANDS_AGENT_ID) is NOT yet provisioned, so
-      ask_agentforce currently falls back to the shared A2ALab service agent
-      — functional, but not the clean per-experiment attribution D25 wants;
-      provisioning the twin and setting SF_STRANDS_AGENT_ID is the follow-up.
-      (2) platform_ref (the Bedrock request-id join key) comes back null —
-      the Strands AgentResult did not expose metrics.request_id at this SDK
-      version, so the hop records no model-side join id rather than inventing
-      one.
+      Sonnet-4 default to fit the Path A action-timeout budget. ONE honest
+      caveat travels with this cell: platform_ref (the Bedrock request-id join
+      key) comes back null — the Strands AgentResult did not expose
+      metrics.request_id at this SDK version, so the hop records no model-side
+      join id rather than inventing one. (The dedicated D25 Strands-paired
+      Agentforce twin, SF_STRANDS_AGENT_ID = 0XxKB000000xdwt0AA, is now
+      provisioned and active, so ask_agentforce consults it directly — the
+      clean per-experiment attribution D25 wants.)
     flow:
       - source: remote-caller
         target: strands-agentcore
@@ -621,9 +619,9 @@ scenarios:
           in-container against the Salesforce Agent API (OAuth client-
           credentials, then session + message), with the D27 delegation rider
           stamped on the outbound question (depth 1). Credentials never enter
-          prompts or tool schemas. NOTE: the dedicated D25 Strands-paired twin
-          (SF_STRANDS_AGENT_ID) is not yet provisioned, so this currently
-          consults the shared A2ALab service agent.
+          prompts or tool schemas. This consults the dedicated D25 Strands-paired
+          twin (SF_STRANDS_AGENT_ID), whose own external-research action targets
+          strands-rest — keeping the experiment a closed two-platform system.
     agents:
       - title: Strands research agent
         target: strands-a2a
@@ -637,8 +635,8 @@ scenarios:
         caption: >-
           Shim card — Agentforce publishes no A2A surface, so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
-          Honest status: via-shim. (Currently the shared A2ALab agent; the
-          dedicated D25 Strands twin is not yet provisioned.)
+          Honest status: via-shim. (The dedicated D25 Strands-paired twin,
+          A2ALab_Research_Assistant_Strands, is provisioned and active.)
 
   adk-to-agentforce:
     af_channel_toggle: true
