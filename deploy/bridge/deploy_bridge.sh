@@ -120,7 +120,7 @@ aws iam put-role-policy --role-name "$EXEC_ROLE" --policy-name read-runtime-secr
 # Targets the bridge routes to that authorize with AWS IAM rather than a bearer.
 AGENTCORE_ARNS=$(python3 - <<'PY'
 import json, os
-arns = [a for a in (os.environ.get("OPENAI_AGENTCORE_ARN"), os.environ.get("CLAUDE_AGENTCORE_ARN")) if a]
+arns = [a for a in (os.environ.get("OPENAI_AGENTCORE_ARN"), os.environ.get("CLAUDE_AGENTCORE_ARN"), os.environ.get("STRANDS_AGENTCORE_ARN")) if a]
 print(json.dumps(sorted({r for a in arns for r in (a, a + "/*")})))
 PY
 )

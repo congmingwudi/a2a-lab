@@ -15,7 +15,10 @@ from observability.strands_source import (
     summarize_requests,
 )
 
-ARN = "arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/a2alab_strands-a07goY5qhK"
+# Account segment is a non-numeric placeholder on purpose: the repo commits no
+# 12-digit account id (test_no_account_identifiers), and runtime_id_from_arn
+# only reads the part after the last "/", so the account is irrelevant here.
+ARN = "arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:runtime/a2alab_strands-a07goY5qhK"
 MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 

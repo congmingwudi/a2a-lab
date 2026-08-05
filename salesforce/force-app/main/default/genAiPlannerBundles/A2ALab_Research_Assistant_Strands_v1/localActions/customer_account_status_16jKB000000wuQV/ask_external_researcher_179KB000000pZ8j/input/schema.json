@@ -11,7 +11,7 @@
     },
     "target" : {
       "title" : "Bridge Target",
-      "description" : "Bridge target name. ALWAYS pass exactly: strands-rest",
+      "description" : "Bridge target name. ALWAYS pass exactly: strands-agentcore",
       "lightning:type" : "lightning__textType",
       "lightning:isPII" : false,
       "copilotAction:isUserInput" : false

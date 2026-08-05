@@ -2477,3 +2477,77 @@ See D66 (the Strands agent), D64 (Cursor as a third coding-telemetry tool — th
 persistent-ingestor contrast), D59/WS16 (the behavioural-logs signal), D39 (the
 one human AWS login every service read is signed with), and
 plan/05-observability.md (the honest capability matrix, now six columns).
+
+## 2026-08-05 — D68: D55 left the REVERSE AgentCore cells describing a remap it deleted — a mode remap cannot reach an AgentCore runtime at all
+
+**Context.** Scoping the reverse Strands experiment (Agentforce → Strands, the
+mirror of the live `strands-to-agentforce`), the plan was to copy the existing
+`agentforce-to-claude-aws` cell. Reading how that cell actually resolves surfaced
+that it does not do what its own scenario text claims — the same class of silent
+drift D55 was written to kill, in the direction D55 did not touch.
+
+**What the cell claims vs. what resolves.** `agentforce-to-claude-aws`
+(`requires_mode: hosted`, `status: live`) reads: *"the bridge resolves
+claude-rest to claude-agentcore and forwards over IAM-authed
+invoke_agent_runtime."* But **D55 deleted that remap.** `modes.hosted` now maps
+`claude-rest → claude-rest-hosted` — the ECS **faces task** (`protocol=rest`,
+`CLAUDE_BACKEND=managed`), not the AgentCore runtime (`agentcore-http`). The
+Claude twin's Apex action defaults to `claude-rest` (`A2ALabInvokeRemoteAgent.cls`
+`DEFAULT_TARGET`), so in hosted mode the delegation lands on the **managed faces
+backend** — the same backend `agentforce-to-claude` uses. Proven, not argued, by
+resolving the real config:
+
+```
+A2ALAB_MODE=hosted:
+  claude-rest   -> claude-rest-hosted    protocol=rest         (faces, backend=managed)
+  strands-rest  -> strands-rest-hosted   protocol=rest         (faces, backend=strands-sdk)
+  claude-agentcore   protocol=agentcore-http                   (never a remap target)
+  strands-agentcore  protocol=agentcore-http
+```
+
+So the reverse AgentCore comparison is two cells of one thing again — the exact
+D55 failure, mirrored. (The conftest note at tests/conftest.py:20 still describes
+the pre-D55 `claude-rest -> claude-agentcore` remap too: the drift is in more
+than one place.)
+
+**Why a mode remap can NEVER be the mechanism here — this is the general rule.**
+Reaching an AgentCore runtime from a bridge-delegated `*-rest` target would
+require remapping `rest → agentcore-http`, which changes the **protocol**. D55
+rule #2 forbits exactly that ("a mode entry may change an address; it may not
+change a backend, a platform, or a protocol"). The two ideas compose to a hard
+constraint: **the deployment-mode seam can move a face to its hosted twin, but it
+cannot move a face onto an AgentCore runtime, because the runtime is a different
+protocol.** An experiment that must hit the runtime has to *name a target that
+resolves there* — it cannot be reached by flipping `A2ALAB_MODE`.
+
+**Decision.**
+
+1. **A cell that must exercise the AgentCore runtime names an AgentCore target
+   directly; it does not rely on a hosted remap.** For the reverse experiments
+   that means the Agentforce twin's action posts a target that resolves to the
+   `*-agentcore` runtime (`agentcore-http`), independent of `A2ALAB_MODE`. The
+   forward cells already do this — `strands-to-agentforce` targets
+   `strands-agentcore` outright.
+2. **The reverse Strands cell (Agentforce → Strands) is built on this
+   corrected mechanism**, not by copying `agentforce-to-claude-aws`'s stale
+   wiring. It gets its own twin action / bridge target that reaches
+   `strands-agentcore`, so it genuinely exercises the IAM `invoke_agent_runtime`
+   seam the forward cell does.
+3. **`agentforce-to-claude-aws` is a confirmed-stale cell.** This ADR records
+   the finding; the fix (repointing or rewording that cell, and correcting the
+   conftest note) is tracked but NOT bundled into the Strands reverse build, so
+   the Claude correction is verified on its own rather than assumed.
+
+**The lesson, again about timing.** D55 fixed the forward remap and, reasonably,
+did not audit the reverse cells or the runtime-reachability question — there was
+no reverse-AgentCore cell in flight to force it. The compensation D55 removed
+(the `claude-rest → claude-agentcore` remap) had a second consumer nobody
+re-examined: the reverse scenario's prose. A capability change is not done when
+the thing that changed is fixed; it is done when everything that leaned on the
+old shape has been re-read.
+
+See D55 (the forward remap and the "a remap may change an address, not a
+backend/platform/protocol" rule this extends), D26 (the AgentCore runtime pair
+and the deployment-mode seam), D66/D67 (the Strands agent and its observability),
+D25 (one Agentforce twin per platform pair), D27 (the delegation rider stamped on
+the reverse leg), and plan/07-workstreams.md WS5 (the experiment this scopes).

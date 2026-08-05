@@ -16,10 +16,12 @@ def isolated_traces(tmp_path, monkeypatch, request):
     middleware on under the unit suite.
 
     A2ALAB_MODE is cleared for the same reason and was the same bug: with
-    `A2ALAB_MODE=hosted` exported, the registry remaps claude-rest ->
-    claude-agentcore and two mode-sensitive tests fail with an assertion that
-    says nothing about the cause. Sourcing .env before running pytest is a
-    natural thing to do; the suite must describe the code, not the shell.
+    `A2ALAB_MODE=hosted` exported, the registry applies the hosted remap
+    (claude-rest -> claude-rest-hosted, etc.; pre-D55 this was
+    claude-rest -> claude-agentcore) and two mode-sensitive tests fail with an
+    assertion that says nothing about the cause. Sourcing .env before running
+    pytest is a natural thing to do; the suite must describe the code, not the
+    shell.
 
     The A2ALAB_PG_* group is the third instance, and the sharpest: with them
     exported, `/api/expiry` read the REAL Aurora state store and returned the

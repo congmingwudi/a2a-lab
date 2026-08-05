@@ -165,8 +165,10 @@ targets:
     auth: {runtime_arn: "${STRANDS_AGENTCORE_ARN}"}
 
   # The Strands-paired Agentforce twin (ADR D25): same org/credentials,
-  # different agent — its external-research action targets strands-rest, never
-  # Claude/OpenAI, so this experiment stays a closed two-platform system.
+  # different agent — its external-research action targets strands-agentcore
+  # (the Bedrock AgentCore runtime, so the reverse cell exercises the IAM
+  # invoke_agent_runtime seam — D68), never Claude/OpenAI, so this experiment
+  # stays a closed two-platform system. Entry point for agentforce-to-strands.
   agentforce-strands-rest:
     platform: agentforce
     protocol: agentforce-api

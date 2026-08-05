@@ -499,10 +499,25 @@ One honest caveat travels with the live cell (in the scenario copy):
 
 The D25 twin is now provisioned (2026-08-04): `A2ALab_Research_Assistant_Strands`
 (`SF_STRANDS_AGENT_ID = 0XxKB000000xdwt0AA`, published + activated v1), its
-`ask_external_researcher` action pinned to bridge target `strands-rest`. The
-runtime was redeployed config-only so `ask_agentforce` consults the twin
-directly — the clean per-experiment attribution D25 wants, both directions
-live-verified.
+`ask_external_researcher` action pinned to bridge target `strands-agentcore` (the
+Bedrock AgentCore runtime — repinned from `strands-rest` on 2026-08-05 so the
+reverse cell hits the runtime, not the faces task; D68). The runtime was
+redeployed config-only so `ask_agentforce` consults the twin directly — the clean
+per-experiment attribution D25 wants, both directions live-verified.
+
+**Reverse cell — `agentforce-to-strands` (2026-08-05, D68).** The mirror of the
+live forward cell: you talk to the Strands-paired twin, which answers from CRM
+(Apex) then delegates outside-in research through the bridge to the Strands agent
+on its AgentCore runtime. It reuses the whole forward stack — no new agent, no
+Kiro handoff. Two things made it real rather than a copy of `agentforce-to-claude-aws`
+(whose text D68 found stale): the twin's action posts `strands-agentcore`
+directly (a mode remap cannot reach an `agentcore-http` runtime without changing
+the protocol, which D55 forbids), so the cell needs no `requires_mode`; and the
+bridge task role's `invoke-agentcore` policy now includes `STRANDS_AGENTCORE_ARN`
+(it listed only the Claude/OpenAI runtimes — the reverse leg would have hit
+AccessDenied). Same stacked-timeout caveat as the other AgentCore reverse cells:
+warm the runtime first (a cold start inside the bridge's 45s budget fails the
+sync turn).
 
 Done, lab-side (also runs locally on a deterministic stub):
 - `src/platforms/strands/` — adapter (`core.py`), `__main__.py` (faces on

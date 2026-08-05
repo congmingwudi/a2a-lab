@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <GenAiPlannerBundle xmlns="http://soap.sforce.com/2006/04/metadata">
-    <description>Strands-paired twin of the lab&apos;s research assistant (ADR D25): identical behavior, but external research delegates to the lab&apos;s AWS Strands agent (bridge target strands-rest) instead of Claude/OpenAI — keeping each cross-platform experiment a closed two-platform system.</description>
+    <description>Strands-paired twin of the lab&apos;s research assistant (ADR D25): identical behavior, but external research delegates to the lab&apos;s AWS Strands agent on its Bedrock AgentCore runtime (bridge target strands-agentcore) instead of Claude/OpenAI — keeping each cross-platform experiment a closed two-platform system.</description>
     <localTopicLinks>
         <genAiPluginName>agent_interoperability_protocols_16jKB000000wuQV</genAiPluginName>
     </localTopicLinks>
