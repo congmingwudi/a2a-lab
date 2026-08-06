@@ -27,10 +27,6 @@ const INSIGHTS = {
             description: 'each checkable factual claim: numbers, dates, named incidents',
           },
           refs: { type: 'array', items: { type: 'string' } },
-          review: {
-            type: 'string',
-            description: 'the entry\'s review: field verbatim, or "" when absent (D38 sign-off)',
-          },
         },
       },
     },
@@ -61,8 +57,8 @@ phase('Discover')
 const found = await agent(
   'Read config/insights.yaml in this repo. For EVERY insight entry return ' +
   '{id, status, claims: [each checkable factual claim in headline/evidence AND advisory — ' +
-  'numbers, dates, named incidents, "verified <date>" parentheticals], refs: [its refs list], ' +
-  'review: [its review: field verbatim, or ""]}. All entries, no sampling.',
+  'numbers, dates, named incidents, "verified <date>" parentheticals], refs: [its refs list]}. ' +
+  'All entries, no sampling.',
   { schema: INSIGHTS, effort: 'low' },
 )
 log(`${found.insights.length} insights to audit`)
@@ -83,10 +79,7 @@ const results = await pipeline(
         '(2) REFS. Every ref must be a path that EXISTS in the repo (or a D-number present in ' +
         'plan/00-decisions.md) and must actually discuss the topic. A ref to a file that is ' +
         'gone is a problem even when the claim itself is sound.\n' +
-        '(3) SIGN-OFF (D38). An entry carrying `review: required` is awaiting Ryan\'s approval ' +
-        'and must not read as already endorsed. Materially NEW or CHANGED claims in an entry ' +
-        'that is NOT marked `review: required` are a problem: the edit escaped sign-off.\n' +
-        '(4) SUPERSEDED FACTS. A claim can be true when written and false now (a config since ' +
+        '(3) SUPERSEDED FACTS. A claim can be true when written and false now (a config since ' +
         'fixed, a metric since wired up, a limit since lifted). Check the current state of the ' +
         'code and config it describes, not just the prose around it.\n' +
         'Check each claim against the cited refs and the wider plan/ and build-notes/ ' +

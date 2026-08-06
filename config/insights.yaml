@@ -13,11 +13,14 @@
 # Each entry: headline (the claim), evidence (what the lab showed),
 # advisory (the talking point you'd give a customer), refs (ADRs/docs).
 #
-# Optional: `review: required` puts the insight in front of the lab's
-# reviewer in the console (Insights → Approve / Request changes), and the
-# decision lands in config/insight_reviews.yaml. Use it for anything the lab
-# would say in public before its owner has read it. Approval is pinned to the
-# text approved — edit the claim afterwards and the sign-off shows as stale.
+# Legacy: `review: required` on older entries marked an insight for the
+# console's in-app reviewer. The Approve / Request-changes CONTROLS are turned
+# off (INSIGHT_REVIEW_CONTROLS = false in index.html), so there is no in-app
+# way to clear a review — an entry marked `review: required` just shows a
+# permanent "awaiting review" state chip. A new insight therefore does NOT
+# take this key (it would only pin an uncleared chip), and insights-audit no
+# longer treats an unmarked entry as an escaped sign-off. Existing keys are
+# harmless; leave them until the review flow is either rewired or removed.
 
 insights:
   - id: sync-delegation-works
@@ -729,6 +732,102 @@ insights:
       privilege and per-caller attribution from the same change — and the
       attribution is often the part the auditors were really asking for.
     refs: [D37, plan/04-runbooks.md, plan/02-matrix.md]
+
+  - id: observed-via-host-cloud-meters
+    category: Observability
+    status: observed
+    headline: When a platform ships no observability API, its host cloud's own meters are the audit trail — you observe the substrate, not the agent
+    evidence: >
+      Strands is the lab's sixth Observability column and the first observed
+      purely through the HOST CLOUD's meters rather than an agent-platform API
+      (D67). Claude and OpenAI also run on Bedrock AgentCore, but the lab reads
+      them through their vendor session APIs (Anthropic Managed Agents, OpenAI
+      Responses) — the AgentCore hosting is invisible to the obs layer. Strands
+      has no vendor session API at all, so `strands_source.py` reads the two
+      surfaces AWS exposes about anything running there: `AWS/Bedrock` model
+      metrics (InputTokenCount / OutputTokenCount / Invocations /
+      InvocationLatency per ModelId) for tokens and cost, and the AgentCore
+      runtime access log (POST /invocations lines) for invocation and error
+      counts — both over boto3, signed by the one human AWS login (D39), no new
+      credential. First live harvest (2026-08-05, recorded in D67): one runtime
+      obs session carrying 6 ok / 0 error invocations and ~11.7k tokens (≈ $0.02
+      est.). Two honest limits travel with the numbers: the Bedrock meters are
+      per-ModelId and account-wide (they attribute to Strands cleanly only
+      because it is this account's only Bedrock-backed agent), and the Bedrock
+      request-id (platform_ref) is null at this SDK version, so the obs session
+      binds to the RUNTIME, not to individual lab traces — a daily rollup per
+      runtime, like ADK's Agent Engine column, not one row per turn.
+    advisory: >
+      Before promising a single pane of glass over a multi-platform agent
+      estate, ask per platform: does it expose an observability API at all? For
+      the ones that don't, you are not blocked — you fall back to the host
+      cloud's own meters (billing, model-invocation, and access logs), which
+      exist for anything running there. But price the downgrade honestly: cloud
+      meters are keyed by infrastructure (model id, runtime, account), not by
+      your business trace, so you get cost and volume but usually not turn-level
+      detail or a join back to the specific cross-platform run. Plan a second
+      correlation key, or accept a runtime-level rollup, before you promise
+      per-trace attribution.
+    refs: [D67, D66, D39, plan/05-observability.md]
+
+  - id: mode-remap-cannot-cross-protocols
+    category: Hosting models
+    status: observed
+    headline: A deployment-mode switch can move an agent to its hosted twin, but it cannot move it onto a runtime that speaks a different protocol
+    evidence: >
+      The lab flips one env var (A2ALAB_MODE=hosted) to resolve every local
+      target to its hosted twin — the local↔hosted dev switch (D26). D55
+      constrained that remap to addresses only: a mode entry may change WHERE a
+      target lives, never its backend, platform, or protocol. Building the
+      reverse Strands experiment (Agentforce → Strands) surfaced the corollary
+      (D68): reaching a Bedrock AgentCore runtime from a bridge-delegated REST
+      target would require remapping rest → agentcore-http — a PROTOCOL change,
+      which the rule forbids. So no value of A2ALAB_MODE can route a delegation
+      onto an AgentCore runtime. A cell that must exercise the runtime's IAM
+      invoke_agent_runtime seam has to NAME a target that already resolves there
+      (strands-agentcore), independent of mode. The stale cell that assumed
+      otherwise (agentforce-to-claude-aws, whose text still described a remap D55
+      had deleted) proved the failure mode: it silently landed on the managed
+      faces backend — two cells describing one thing.
+    advisory: >
+      A "same code, hosted or local" switch is only honest within one protocol.
+      The moment your hosted twin speaks a different wire protocol than its local
+      original — a container runtime with an IAM data plane instead of an HTTP
+      face — an environment flag can no longer be the thing that reaches it,
+      because you would be changing the contract, not the address. Make the
+      target that must hit the special runtime name it explicitly, and keep the
+      mode switch for like-for-like address swaps. And audit every consumer of a
+      remap you remove: the drift here outlived the fix by two months because it
+      leaned on scenario prose nobody re-read.
+    refs: [D68, D55, D26, D66]
+
+  - id: runtime-constant-framework-variable
+    category: Hosting models
+    status: observed
+    headline: A container agent-runtime is framework-agnostic — the SDK inside is the variable, the host is the constant
+    evidence: >
+      The lab now runs three different agent frameworks on the identical Bedrock
+      AgentCore substrate: the Claude Agent SDK, the OpenAI Agents SDK (D24/D26),
+      and the Strands SDK (D66) — each a different Dockerfile and agent loop, all
+      behind the same IAM-only invoke_agent_runtime data plane and the same lab
+      AgentAdapter seam. Nothing in the runtime knows or cares which SDK it
+      hosts; the container contract (build an image, expose /invocations, sign
+      with SigV4) is constant across all three. The differences are all INSIDE
+      the box — footprint and cold start (an 8-line OpenAI image vs the Claude
+      harness's Node subprocess, ~31s vs ~56s cold on identical runtimes) — not
+      in how the platform hosts them. Adding Strands as the third was a new
+      backend and a new target, and touched nothing in the runtime layer.
+    advisory: >
+      Separate two decisions customers routinely conflate: which agent runtime
+      hosts the container, and which agent framework runs inside it. A generic
+      container runtime (AgentCore, Cloud Run, a plain ECS task) commits you to
+      an operational contract — build, deploy, authenticate, scale — and leaves
+      the framework a swappable, portable choice; the reasoning stack is not
+      wedded to the host. That portability is a real asset in a best-of-breed or
+      hedge-your-vendor strategy, but it stops at the runtime boundary: a managed
+      agent platform that owns both layers trades it away for speed-to-value.
+      Know which of the two you are buying.
+    refs: [D66, D24, D26]
 
   - id: orchestration-topology
     category: Orchestration topology

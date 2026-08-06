@@ -35,12 +35,13 @@ in one round trip with no setup.
 
 **The test for when the heavier shape IS right** — and it is a real path, not a
 hypothetical: the moment this needs to run *without a person*, or needs a tool.
-Both hinge on the same dependency. Collection currently reads the operator's own
-AWS SSO session, `az` login and `gcloud` ADC, so it can only happen on this
-machine. Move the collector server-side (a Lambda with cloud-native credentials)
-and a schedule becomes possible — which is exactly what Managed Agents are for,
-and at that point this should go back. See the Details tab in the console's
-Credentials view for the sketch of that variant.
+Collection has since moved server-side — `expiry_report.collect()` now runs in
+the 6-hourly harvest Lambda under cloud-native service identities (WS14), so the
+old "only on the operator's machine" dependency is gone and a schedule is now
+technically possible. The analyst's `messages.create` is nonetheless kept
+operator-triggered on purpose: a rotation readout is judgment someone acts on,
+not a nightly line nobody reads. See the Details tab in the console's
+Credentials view for the sketch of the scheduled variant.
 """
 
 from __future__ import annotations

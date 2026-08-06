@@ -2453,6 +2453,14 @@ about telemetry that landed as "no data" while looking healthy.
    Observability column but the *first* observed purely through the host cloud's
    meters rather than the agent platform's own API.
 
+   First live harvest (2026-08-05, `obs_harvest.py strands` against Aurora):
+   **1 obs session** (the runtime rollup) carrying **6 ok / 0 error invocations**
+   from the access log and **~11.7k tokens (≈ $0.02 est.)** from the Bedrock
+   meters. The unit that varies is the *invocation* count, not sessions — the
+   source hard-sets `sessions = 1` per runtime (`strands_source.py`), so "how
+   many Strands sessions" is always 1 by construction and "6" is the invocation
+   tally, not a session count.
+
 2. **A stateless fire-and-forget hook must emit DELTA temporality, not
    cumulative.** Kiro telemetry showed "no data" for the whole build session for
    two compounding reasons, neither of which errored. First, `.kiro/hooks/.env`

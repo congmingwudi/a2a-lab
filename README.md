@@ -298,8 +298,8 @@ flowchart LR
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
-    BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
-    BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+    BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+    BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
     BR --> ACO
     BR --> ACS
     SRV --> CMA
@@ -348,13 +348,15 @@ flowchart LR
     end
 
     CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
-    ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
+    FACES["Fargate faces twin<br/>claude-rest-hosted (backend=managed)"]
+    ACC["Bedrock AgentCore<br/>(sdk backend, agentcore-http)"]
 
     NC -- "X-Bridge-Token" --> ALB --> BR
     BR -- "protocol per targets.yaml" --> REST
     BR --> MCP
     BR --> A2A
-    BR -. "A2ALAB_MODE=hosted" .-> ACC
+    BR -. "A2ALAB_MODE=hosted<br/>(address swap, D26/D55)" .-> FACES
+    BR -- "target names claude-agentcore<br/>IAM invoke, not a mode remap (D68)" --> ACC
     ADAPTER -- "sessions + event stream" --> CMA
     CMA -. "ask_agentforce tool call<br/>executed HOST-side" .-> ADAPTER
     ADAPTER -- "OAuth client-credentials" --> AGENTAPI
@@ -424,13 +426,17 @@ on MCP, and `metadata.trace_id` on A2A. Each hop additionally records a
 `platform_ref` — the *platform-native* execution id (CMA session id, Agent
 API/STDM session id) — stamped at emit time.
 
-**Public exposure** (D20): a free-plan Cloudflare account holds DNS for the
-whole `agenticthings.com` zone; a named tunnel (`cloudflared`, outbound-only,
-HTTP/2) publishes the lab under stable single-level hostnames
-(`bridge-lab`, `console-lab`, `claude-{rest,mcp,a2a}-lab`
-`.agenticthings.com` — single-level because free Universal SSL covers only
-one subdomain label). Stable hostnames mean the Salesforce Named Credential
-is configured once and survives tunnel restarts.
+**Public exposure** (D20, WS13): a free-plan Cloudflare account holds DNS for
+the whole `agenticthings.com` zone under stable single-level hostnames
+(single-level because free Universal SSL covers only one subdomain label). As
+of WS13 (2026-07-28) the hosted components are published as Cloudflare-**proxied**
+(orange) CNAMEs fronting the shared ALB `a2alab-bridge` — TLS terminates at the
+Cloudflare edge, Full (strict) to the ALB's imported `*.agenticthings.com`
+origin cert — for `bridge-lab`, `console-lab` and `faces-lab`. The named
+`cloudflared` tunnel (outbound-only, HTTP/2) still runs but is **re-scoped to
+local development**, fronting only the `claude-{rest,mcp,a2a}-lab` hostnames
+(`run_local.sh`). Stable hostnames mean the Salesforce Named Credential is
+configured once and survives both edge and tunnel restarts.
 
 **Observability** (M11, `plan/05-observability.md`): a dedicated console
 section shows each *platform's interior view* of the runs the lab drove,
@@ -790,7 +796,7 @@ and once deployed nothing needs a live session for the lab to keep working.
 |---|---|---|
 | Path A bridge | ECS Fargate + ALB | `deploy/bridge/deploy_bridge.sh` |
 | Lab console | ECS Fargate, host-header rule on the same ALB | `deploy/console/deploy_console.sh` |
-| The eleven protocol faces | ECS Fargate, **one process**, addressed by path | `deploy/faces/deploy_faces.sh` |
+| The fourteen protocol faces | ECS Fargate, **one process**, addressed by path | `deploy/faces/deploy_faces.sh` |
 | Claude + OpenAI SDK agents | Bedrock AgentCore (IAM data plane, no URL) | `deploy/agentcore/deploy.sh` |
 | Agentforce A2A shim, fan-out MCP, obs harvest + obs MCP | Lambda | `deploy/shim/`, `deploy/fanout/`, `deploy/obs/` |
 | ADK agents | Vertex AI Agent Engine | `deploy/adk/deploy_adk.py` |

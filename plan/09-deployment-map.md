@@ -75,7 +75,7 @@ flowchart TB
     direction TB
     A1["Agents: Claude + OpenAI + Strands SDK twins<br/>Bedrock AgentCore, IAM data plane"]
     A2["Bridge — Path A's front door<br/>ECS Fargate, 45s budget"]
-    A3["Protocol faces ×11<br/>REST · MCP · A2A, one process"]
+    A3["Protocol faces ×14<br/>REST · MCP · A2A, one process"]
     A4["Shims + fan-out<br/>Lambda + API Gateway"]
     A5[("Aurora Postgres<br/>traces · obs · briefs · state")]
     A6["Scheduled: harvest 6h · brief watcher<br/>credential expiry"]
@@ -110,7 +110,7 @@ and **what its own execution logs expose**.
 of the platform row because it is the hub every other platform consults, in both
 directions — that is the lab's subject. And **AWS is not a peer**: it holds two
 agents like the others, but it also holds the lab's own infrastructure — the
-bridge Path A depends on, the eleven protocol faces, the shims, the fan-out
+bridge Path A depends on, the fourteen protocol faces, the shims, the fan-out
 server, the Postgres store every observability number comes from, and the
 scheduled jobs that keep it current. The dotted lines are that store filling up:
 each platform's *interior* record of the runs the console drove, harvested back
@@ -146,7 +146,7 @@ flowchart TB
     FANOUT["Fan-out MCP server<br/>Lambda + API Gateway"]
     OBS["Obs harvest + obs MCP<br/>Lambda + Aurora"]
     CONSOLE["Lab console<br/>ECS Fargate, rule on the bridge ALB"]
-    FACES["Eleven protocol faces<br/>ECS Fargate, one process, by path"]
+    FACES["Fourteen protocol faces<br/>ECS Fargate, one process, by path"]
     WATCH["Brief watcher<br/>ECS Fargate, no inbound path"]
   end
 
@@ -351,10 +351,17 @@ is the only place the lab can see what a vendor's A2A client actually sends.
 - **Dialect translation.** Foundry speaks A2A **0.3**; Agent Engine requires
   **1.0**. `interop/servers/a2a_compat.py` translates, so neither vendor has to
   be wrong for the other to work.
-- **The 29s gateway wall.** The shim is on API Gateway, and Foundry's A2A tool
-  does **not** retry — so a cold twin session behind that ceiling fails the tool
-  call outright. The lab's answer is a warm-up path rather than a retry, because
-  the caller is a platform whose retry behaviour is not ours to change.
+- **The 29s gateway wall.** The shim is on API Gateway (the HTTP API's hard
+  ceiling is 30s; the Lambda is capped one second under it at 29s, so 29s is the
+  operative bound), and Foundry's A2A tool does **not** retry — so a cold twin
+  session behind that ceiling fails the tool call outright. The lab's answer is
+  two-layered. A **warm-up path** (`config/targets.yaml agentforce-a2a-shim`
+  sets `warmup: true` + `warmup_delegated_platform: foundry`) pre-creates the
+  twin session so the first real turn is not cold. And a **one-shot retry in our
+  own `FoundryClient`** (`src/platforms/foundry/client.py` re-issues
+  `responses.create` on a `tool_user_error` / `Failed Dependency`, so the second
+  turn rides the warmed shim session). We cannot change Foundry's A2A-tool retry
+  behaviour, but the *client turn* — the part that is ours — is retried once.
 
 **Every calling platform gets its own Agentforce twin** (D25), so each
 experiment stays a closed two-platform system rather than four platforms
@@ -510,10 +517,18 @@ Four design choices, each deliberate:
   the same prompt, the same data, in one round trip. D44 records the three tests
   it failed and names the cost sentinel as the counter-example that passes them;
   the moment collection moves server-side, this should go back.
-- **It is ad-hoc, not scheduled** — which is a limitation, stated. Collection
-  needs the operator's own AWS SSO session, `az` login and `gcloud` ADC, so a
-  cron firing in Anthropic's sandbox would report "cannot query" every night and
-  train everyone to ignore it. Nothing runs unless a person starts it.
+- **It is ad-hoc, not scheduled** — a deliberate choice, no longer a
+  constraint. The original reason was that collection needed the operator's own
+  AWS SSO session, `az` login and `gcloud` ADC, so a cron in Anthropic's sandbox
+  would report "cannot query" every night. WS14 removed that: **collection now
+  runs hosted in the 6-hourly harvest Lambda under service identities** (see the
+  collector paragraph above), so the trigger this section set ("the moment
+  collection moves server-side, this should go back") is now met for the
+  *collector*. What stays manual is the **analyst's `messages.create`** — the
+  interpretation step — kept operator-triggered on purpose: a rotation readout
+  is judgment a person acts on, not a nightly line nobody reads, and firing the
+  model on a schedule would spend tokens producing advice with no one at the
+  keyboard. Nothing runs the analyst unless a person starts it.
 - **It is fed, not tooled.** The obs analyst reads its store through a hosted
   MCP server; this one does not, because putting "which secrets expire when"
   behind an internet-reachable endpoint to save a copy-paste is a poor trade.
@@ -668,7 +683,7 @@ otherwise fully deployed still has four manual steps hiding in it.
 |---|---|---|---|
 | `bridge-lab` | ALB `a2alab-bridge` | Path A — the Apex callout's Named Credential target. **Salesforce-visible**, so this is the one to change carefully | 2026-07-26 (WS7 item 7) |
 | `console-lab` | the same ALB | The lab console, routed by a host-header rule (priority 20) | 2026-07-28 (WS13 item 1) |
-| `faces-lab` | the same ALB | All eleven protocol faces, rule priority 30, addressed by **path**: `/<target-name>/...` | 2026-07-28 (WS13 item 2) |
+| `faces-lab` | the same ALB | All fourteen protocol faces, rule priority 30, addressed by **path**: `/<target-name>/...` | 2026-07-28 (WS13 item 2) |
 | `claude-rest-lab`, `claude-mcp-lab`, `claude-a2a-lab` | the `cloudflared` tunnel | Local development only. Superseded for hosted use by `faces-lab`; kept because the tunnel is now a dev convenience rather than the front door | M6 |
 
 **Why three hostnames and one load balancer.** The ALB terminates TLS on :443
@@ -679,10 +694,10 @@ listener's *default action* and carries no rule, which is what makes adding a
 face safe: a malformed host condition can only make the new face unreachable,
 never Path A.
 
-**Why `faces-lab` is one record and not nine.** Nine faces addressed by hostname
-would be nine hand-made DNS records and nine listener rules. Addressed by path
-they are one of each (D51), and the mount prefix is the target name — so
-`claude-mcp` lives at `https://faces-lab.../claude-mcp/mcp`.
+**Why `faces-lab` is one record and not fourteen.** Fourteen faces addressed by
+hostname would be fourteen hand-made DNS records and fourteen listener rules.
+Addressed by path they are one of each (D51), and the mount prefix is the target
+name — so `claude-mcp` lives at `https://faces-lab.../claude-mcp/mcp`.
 
 **The corporate-proxy caveat.** The operator's proxy blocks this whole domain at
 DNS, so none of these hostnames resolve from the work laptop with the proxy on
@@ -911,7 +926,7 @@ The choices above that look inconsistent until you know what drove them:
 | …give the console a CDN front door so it works behind the corporate proxy? | Tried and reverted 2026-07-27. It worked — but it solved the wrong problem. The proxy blocks the lab's whole domain at DNS (a hostname that never existed still hangs 30s), so no front door fixes the *domain*, and the operator is content to drop the proxy to view the console. What actually hurt was the laptop being on the runtime path, which is WS13. |
 | …keep sqlite as the console's observability store? | D49. It was, and that was the bug: the hosted harvest wrote Aurora, the local harvest wrote `traces/lab.db`, and the console read only the file — so the dashboard showed the laptop's copy while the authoritative one drifted. Postgres is the source of truth now, chosen in one place, with sqlite kept only for offline work on a snapshot. |
 | …make the brief watcher an EventBridge Lambda? | That is what WS13 item 3 assumed, and it was the wrong shape. Its work is a poll LOOP, and a Lambda would need a third zip carrying the Anthropic SDK, httpx and the Salesforce client — another bundle to build and keep in step (D46's whole subject). The faces image already contains the code and every dependency, so the watcher is that image with a different command, at ~$4/month. |
-| …run each protocol face as its own service? | D51. Nine Fargate tasks (~$80/month) to run nine `uvicorn`s, when every face is an ASGI app that `build_app()` already returns without a server. One process serves all eleven, addressed by PATH rather than by nine hostnames — nine DNS records somebody creates by hand, against one, for no behavioural difference. It also sidesteps ECS's limit of five target groups per service. |
+| …run each protocol face as its own service? | D51. Fourteen Fargate tasks (~$125/month) to run fourteen `uvicorn`s, when every face is an ASGI app that `build_app()` already returns without a server. One process serves all fourteen, addressed by PATH rather than by fourteen hostnames — fourteen DNS records somebody creates by hand, against one, for no behavioural difference. It also sidesteps ECS's limit of five target groups per service. |
 | …give the console its own load balancer? | A second ALB is ~$16/month for nothing. The bridge's already terminates TLS on :443 with the `*.agenticthings.com` origin cert, so an extra face costs a target group, a **host-header rule** and a task. The bridge stays the listener's default action and carries no rule, so a wrong host pattern can only make the console unreachable — it cannot break Path A. |
 | …trust that a deploy which passes its own runbook is verified? | D48. The console's first hosted run passed every check — image, secret, rule, stable service, `/healthz` 200 — while serving every `/api` surface unauthenticated, because its runtime secret was created, shipped and never loaded, and the auth middleware treats a missing token as *auth is off*. A valid-token check proves nothing when all tokens are accepted; the negative test is the one that finds it. |
 | …make the credential analyst a Managed Agent like the other two? | It was one, and it was demoted (D44). Its work is one round trip over a report a person just collected — no tools, no schedule, no state. The agent object, setup step and state file were surface with nothing behind them. |

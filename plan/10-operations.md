@@ -103,8 +103,9 @@ deploy/bridge/deploy_bridge.sh   --skip-build
 **Which seams carry which credential is not obvious**, and getting it wrong
 leaves one container on the old value. The authority is the `keys = [...]` list
 at the top of each deploy script. `A2ALAB_TOKEN` is in all four; the Salesforce
-pair is in console, faces, briefs and bridge; `ANTHROPIC_API_KEY` is in console,
-faces and briefs.
+pair is in console, faces, briefs and bridge; `ANTHROPIC_API_KEY` is in all four
+(console, faces, briefs and bridge — the bridge carries it too,
+`deploy/bridge/deploy_bridge.sh`).
 
 **A credential that is excluded from the task definition but not added to that
 list is simply deleted.** That is how the hosted console ended up with no

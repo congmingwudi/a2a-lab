@@ -59,8 +59,8 @@ flowchart LR
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
-    BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
-    BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+    BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+    BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
     BR --> ACO
     BR --> ACS
     SRV --> CMA
@@ -136,13 +136,15 @@ flowchart LR
     end
 
     CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
-    ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
+    FACES["Fargate faces twin<br/>claude-rest-hosted (backend=managed)"]
+    ACC["Bedrock AgentCore<br/>(sdk backend, agentcore-http)"]
 
     NC -- "X-Bridge-Token" --> ALB --> BR
     BR -- "protocol per targets.yaml" --> REST
     BR --> MCP
     BR --> A2A
-    BR -. "A2ALAB_MODE=hosted" .-> ACC
+    BR -. "A2ALAB_MODE=hosted<br/>(address swap, D26/D55)" .-> FACES
+    BR -- "target names claude-agentcore<br/>IAM invoke, not a mode remap (D68)" --> ACC
     ADAPTER -- "sessions + event stream" --> CMA
     CMA -. "ask_agentforce tool call<br/>executed HOST-side" .-> ADAPTER
     ADAPTER -- "OAuth client-credentials" --> AGENTAPI
@@ -258,8 +260,8 @@ flowchart LR
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
-    BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
-    BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+    BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+    BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
     BR --> ACO
     BR --> ACS
     SRV --> CMA
@@ -371,13 +373,15 @@ flowchart LR
     end
 
     CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
-    ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
+    FACES["Fargate faces twin<br/>claude-rest-hosted (backend=managed)"]
+    ACC["Bedrock AgentCore<br/>(sdk backend, agentcore-http)"]
 
     NC -- "X-Bridge-Token" --> ALB --> BR
     BR -- "protocol per targets.yaml" --> REST
     BR --> MCP
     BR --> A2A
-    BR -. "A2ALAB_MODE=hosted" .-> ACC
+    BR -. "A2ALAB_MODE=hosted<br/>(address swap, D26/D55)" .-> FACES
+    BR -- "target names claude-agentcore<br/>IAM invoke, not a mode remap (D68)" --> ACC
     ADAPTER -- "sessions + event stream" --> CMA
     CMA -. "ask_agentforce tool call<br/>executed HOST-side" .-> ADAPTER
     ADAPTER -- "OAuth client-credentials" --> AGENTAPI
@@ -390,6 +394,22 @@ flowchart LR
 **What the lab showed:** Containerizing both self-hosted agents side by side: the OpenAI Agents SDK is a pure-Python library implementing its agent loop natively — an 8-line Dockerfile. The Claude Agent SDK packages the entire Claude Code harness: the Python package is a client that spawns the Claude Code CLI (a Node runtime) as a subprocess, which owns the agentic loop, tool execution, MCP client, and session state. Same lab adapter on top; very different footprints underneath — measured on identical AgentCore runtimes: ~31s vs ~56s cold start; warm invokes comparable (p50 ~10.3s vs ~8.4s).
 
 **Advisor take:** When customers compare "agent SDKs," make them ask what's actually in the box. A thin loop means a small image and full DIY on tooling; a harness means mature tool execution, MCP, and subagents for free — paid for in image size, cold start, and an extra process boundary. Neither is wrong; budget and architect for the one you picked.
+
+### A deployment-mode switch can move an agent to its hosted twin, but it cannot move it onto a runtime that speaks a different protocol
+
+*Status: observed · refs: D68, D55, D26, D66*
+
+**What the lab showed:** The lab flips one env var (A2ALAB_MODE=hosted) to resolve every local target to its hosted twin — the local↔hosted dev switch (D26). D55 constrained that remap to addresses only: a mode entry may change WHERE a target lives, never its backend, platform, or protocol. Building the reverse Strands experiment (Agentforce → Strands) surfaced the corollary (D68): reaching a Bedrock AgentCore runtime from a bridge-delegated REST target would require remapping rest → agentcore-http — a PROTOCOL change, which the rule forbids. So no value of A2ALAB_MODE can route a delegation onto an AgentCore runtime. A cell that must exercise the runtime's IAM invoke_agent_runtime seam has to NAME a target that already resolves there (strands-agentcore), independent of mode. The stale cell that assumed otherwise (agentforce-to-claude-aws, whose text still described a remap D55 had deleted) proved the failure mode: it silently landed on the managed faces backend — two cells describing one thing.
+
+**Advisor take:** A "same code, hosted or local" switch is only honest within one protocol. The moment your hosted twin speaks a different wire protocol than its local original — a container runtime with an IAM data plane instead of an HTTP face — an environment flag can no longer be the thing that reaches it, because you would be changing the contract, not the address. Make the target that must hit the special runtime name it explicitly, and keep the mode switch for like-for-like address swaps. And audit every consumer of a remap you remove: the drift here outlived the fix by two months because it leaned on scenario prose nobody re-read.
+
+### A container agent-runtime is framework-agnostic — the SDK inside is the variable, the host is the constant
+
+*Status: observed · refs: D66, D24, D26*
+
+**What the lab showed:** The lab now runs three different agent frameworks on the identical Bedrock AgentCore substrate: the Claude Agent SDK, the OpenAI Agents SDK (D24/D26), and the Strands SDK (D66) — each a different Dockerfile and agent loop, all behind the same IAM-only invoke_agent_runtime data plane and the same lab AgentAdapter seam. Nothing in the runtime knows or cares which SDK it hosts; the container contract (build an image, expose /invocations, sign with SigV4) is constant across all three. The differences are all INSIDE the box — footprint and cold start (an 8-line OpenAI image vs the Claude harness's Node subprocess, ~31s vs ~56s cold on identical runtimes) — not in how the platform hosts them. Adding Strands as the third was a new backend and a new target, and touched nothing in the runtime layer.
+
+**Advisor take:** Separate two decisions customers routinely conflate: which agent runtime hosts the container, and which agent framework runs inside it. A generic container runtime (AgentCore, Cloud Run, a plain ECS task) commits you to an operational contract — build, deploy, authenticate, scale — and leaves the framework a swappable, portable choice; the reasoning stack is not wedded to the host. That portability is a real asset in a best-of-breed or hedge-your-vendor strategy, but it stops at the runtime boundary: a managed agent platform that owns both layers trades it away for speed-to-value. Know which of the two you are buying.
 
 ## Security & trust
 
@@ -467,8 +487,8 @@ flowchart LR
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
-    BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
-    BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+    BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+    BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
     BR --> ACO
     BR --> ACS
     SRV --> CMA
@@ -606,6 +626,14 @@ flowchart LR
 Two honest limits, both about what text CANNOT reach. A platform whose agent identity is a static prompt (Foundry's) can identify itself but cannot carry a per-run id outbound; and Foundry's harvested rows are Azure Monitor span metadata (timings, tokens, operation ids, no prompt text), so there is nothing for the regex to match and that column joins by response id (platform_ref) instead. A text convention only works where the platform logs the text.
 
 **Advisor take:** Distributed tracing for agent estates won't come from the protocols soon — none of REST, MCP, or A2A propagates a correlation id end-to-end today, and platforms drop what they don't understand. Put the correlation id in the message text as a convention and harvest it back out of each platform's logs. It's inelegant and it works — and it's the only mechanism the lab found that survives every seam, including ones you don't operate. Then check, per platform, whether the logs you get back actually contain text: where a platform emits span metadata only, plan a second join key (a response or operation id) before you promise a single pane of glass.
+
+### When a platform ships no observability API, its host cloud's own meters are the audit trail — you observe the substrate, not the agent
+
+*Status: observed · refs: D67, D66, D39, plan/05-observability.md*
+
+**What the lab showed:** Strands is the lab's sixth Observability column and the first observed purely through the HOST CLOUD's meters rather than an agent-platform API (D67). Claude and OpenAI also run on Bedrock AgentCore, but the lab reads them through their vendor session APIs (Anthropic Managed Agents, OpenAI Responses) — the AgentCore hosting is invisible to the obs layer. Strands has no vendor session API at all, so `strands_source.py` reads the two surfaces AWS exposes about anything running there: `AWS/Bedrock` model metrics (InputTokenCount / OutputTokenCount / Invocations / InvocationLatency per ModelId) for tokens and cost, and the AgentCore runtime access log (POST /invocations lines) for invocation and error counts — both over boto3, signed by the one human AWS login (D39), no new credential. First live harvest (2026-08-05, recorded in D67): one runtime obs session carrying 6 ok / 0 error invocations and ~11.7k tokens (≈ $0.02 est.). Two honest limits travel with the numbers: the Bedrock meters are per-ModelId and account-wide (they attribute to Strands cleanly only because it is this account's only Bedrock-backed agent), and the Bedrock request-id (platform_ref) is null at this SDK version, so the obs session binds to the RUNTIME, not to individual lab traces — a daily rollup per runtime, like ADK's Agent Engine column, not one row per turn.
+
+**Advisor take:** Before promising a single pane of glass over a multi-platform agent estate, ask per platform: does it expose an observability API at all? For the ones that don't, you are not blocked — you fall back to the host cloud's own meters (billing, model-invocation, and access logs), which exist for anything running there. But price the downgrade honestly: cloud meters are keyed by infrastructure (model id, runtime, account), not by your business trace, so you get cost and volume but usually not turn-level detail or a join back to the specific cross-platform run. Plan a second correlation key, or accept a runtime-level rollup, before you promise per-trace attribution.
 
 ### An LLM asked to relay an error paraphrases it — give failures a path out that does not pass through a model
 

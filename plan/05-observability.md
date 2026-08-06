@@ -118,9 +118,12 @@ the capability panel says so.
 ### OpenAI — our trace layer stays the system of record
 - **Traces dashboard is write-only**: Agents SDK exports to an undocumented
   `POST /v1/traces/ingest`; there is **no read/list API** (open issue
-  openai/openai-agents-python#793). Plan: register a custom
+  openai/openai-agents-python#793). Plan (NOT built): register a custom
   `TracingProcessor` in the M9 OpenAI agent to tee spans straight into our
-  observability store — capture at emit time or lose it.
+  observability store. What actually shipped instead is response-id persistence
+  (next bullet) via the interop trace/`Hop` layer — the tee remains unbuilt, and
+  the response-id path covers the "capture at emit time or lose it" need without
+  it.
 - Responses API: `GET /v1/responses/{id}` (+ `/input_items`) returns full
   output/tool-call/usage detail, but only by known id; stored 30 days
   (`store:true` default); **no list endpoint** → persist response ids as we
@@ -256,8 +259,12 @@ platforms". Details and measurements live in WS9 (plan/07-workstreams.md).
 - **M11.4 — enrichment**: SF OTel single-session export in drill-down;
   Anthropic webhooks (session/deployment-run state changes) as a
   harvest trigger; usage/cost lanes.
-- **M9 hook**: OpenAI platform lands with `TracingProcessor` tee + response
-  id persistence from day one (there is no after-the-fact pull).
+- **M9 hook**: OpenAI platform lands with response-id persistence from day one
+  — the run's response id is captured to `hop.platform_ref` and
+  `.a2alab/openai_responses.json` at emit time and harvested later via
+  `GET /v1/responses/{id}` (there is no after-the-fact list/pull). The
+  `TracingProcessor` span tee was planned but never built; response-id
+  persistence is what covers the emit-time capture.
 - **M11.5 — observability analyst agent** (deferred until the store holds
   real multi-platform data — at minimum live STDM rows next to the CMA
   harvest): a scheduled CMA deployment (D16 daily-brief pattern) that

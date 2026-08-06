@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Host the nine protocol faces on ECS Fargate, behind the ALB the bridge and
+# Host the fourteen protocol faces on ECS Fargate, behind the ALB the bridge and
 # console already share (WS13 item 2).
 #
-# One service, one port, eleven mounted ASGI apps addressed by PATH
+# One service, one port, fourteen mounted ASGI apps addressed by PATH
 # (https://<FACES_HOSTNAME>/<target-name>/...). See src/faces/__init__.py for
-# why that rather than nine services on nine hostnames.
+# why that rather than fourteen services on fourteen hostnames.
 #
 #   deploy/faces/deploy_faces.sh                    # build, push, create-or-update
 #   deploy/faces/deploy_faces.sh --skip-build       # redeploy the current image

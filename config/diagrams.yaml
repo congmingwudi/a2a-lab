@@ -75,8 +75,8 @@ diagrams:
 
           APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
           APEX -- "direct A2A (D30)" --> ADK
-          BR -- "rest | mcp | a2a<br/>per targets.yaml" --> SRV
-          BR -- "A2ALAB_MODE=hosted (D26)" --> ACC
+          BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+          BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
           BR --> ACO
           BR --> ACS
           SRV --> CMA
@@ -126,13 +126,15 @@ diagrams:
           end
 
           CMA["Anthropic Managed Agents<br/>sandbox (beta)"]
-          ACC["Bedrock AgentCore<br/>(sdk backend, hosted mode)"]
+          FACES["Fargate faces twin<br/>claude-rest-hosted (backend=managed)"]
+          ACC["Bedrock AgentCore<br/>(sdk backend, agentcore-http)"]
 
           NC -- "X-Bridge-Token" --> ALB --> BR
           BR -- "protocol per targets.yaml" --> REST
           BR --> MCP
           BR --> A2A
-          BR -. "A2ALAB_MODE=hosted" .-> ACC
+          BR -. "A2ALAB_MODE=hosted<br/>(address swap, D26/D55)" .-> FACES
+          BR -- "target names claude-agentcore<br/>IAM invoke, not a mode remap (D68)" --> ACC
           ADAPTER -- "sessions + event stream" --> CMA
           CMA -. "ask_agentforce tool call<br/>executed HOST-side" .-> ADAPTER
           ADAPTER -- "OAuth client-credentials" --> AGENTAPI

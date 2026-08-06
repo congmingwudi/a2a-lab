@@ -1,23 +1,24 @@
-"""The nine local protocol faces, hosted as ONE ASGI app (WS13 item 2).
+"""The fourteen local protocol faces, hosted as ONE ASGI app (WS13 item 2).
 
-**What this closes.** `config/targets.yaml` pointed nine cells at
-`localhost:80xx` — the Claude and OpenAI MCP/A2A servers, the Lab Guide's three,
-and the two Agentforce shims. Inside a container `localhost` is the container,
-so every one of them failed from the hosted console and the lab still needed a
-laptop running `run_local.sh` to exercise a protocol comparison. That was the
-last runtime dependency on the operator's machine.
+**What this closes.** `config/targets.yaml` pointed a spread of cells at
+`localhost:80xx` — the Claude, OpenAI and (since WS5) Strands REST/MCP/A2A
+servers, the Lab Guide's three, and the two Agentforce shims. Inside a container
+`localhost` is the container, so every one of them failed from the hosted
+console and the lab still needed a laptop running `run_local.sh` to exercise a
+protocol comparison. That was the last runtime dependency on the operator's
+machine.
 
-**Why one process rather than nine services.** Each face is an ASGI app that
+**Why one process rather than fourteen services.** Each face is an ASGI app that
 `interop.adapter.build_app()` already returns without running a server, so
-there is no reason to pay for nine Fargate tasks (~$80/month) to run nine
-`uvicorn`s. One task runs all of them. It also sidesteps ECS's limit of five
-target groups per service, which nine separately-addressed faces would have
-hit.
+there is no reason to pay for fourteen Fargate tasks (~$125/month) to run
+fourteen `uvicorn`s. One task runs all of them. It also sidesteps ECS's limit of
+five target groups per service, which fourteen separately-addressed faces would
+have hit.
 
-**Why paths rather than nine hostnames.** Host-based routing is what the console
-uses and would have worked, but every hostname is a DNS record somebody creates
-by hand in Cloudflare. Nine records and nine listener rules, versus one of each,
-for no behavioural difference: the faces are addressed as
+**Why paths rather than fourteen hostnames.** Host-based routing is what the
+console uses and would have worked, but every hostname is a DNS record somebody
+creates by hand in Cloudflare. Fourteen records and fourteen listener rules,
+versus one of each, for no behavioural difference: the faces are addressed as
 
     https://<faces host>/<face>/...
 
