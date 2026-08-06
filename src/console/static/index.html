@@ -4165,6 +4165,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
     OA["OpenAI<br/>stored responses, by id only"]
     GG["Vertex AI Agent Engine<br/>Cloud Logging + Monitoring meters"]
     FD["Microsoft Foundry<br/>App Insights gen_ai spans (KQL)"]
+    ST["AWS Strands<br/>AWS/Bedrock meters + AgentCore access log (D67)"]
     CD["Coding agents<br/>CloudWatch OTLP metrics (WS9)"]
   end
 
@@ -4186,6 +4187,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
   OA --> HARV
   GG --> HARV
   FD --> HARV
+  ST --> HARV
   CD --> HARV
   HARV --> S
   HARV --> E

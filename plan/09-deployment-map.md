@@ -141,7 +141,7 @@ flowchart TB
 
   subgraph AWS["AWS — us-east-1<br/>the lab's runtime account"]
     BRIDGE["Bridge<br/>ECS Fargate + ALB"]
-    RUNTIMES["Claude + OpenAI agents<br/>Bedrock AgentCore"]
+    RUNTIMES["Claude + OpenAI + Strands agents<br/>Bedrock AgentCore"]
     SHIM["Agentforce A2A/MCP shim<br/>Lambda + API Gateway"]
     FANOUT["Fan-out MCP server<br/>Lambda + API Gateway"]
     OBS["Obs harvest + obs MCP<br/>Lambda + Aurora"]
@@ -184,6 +184,7 @@ flowchart TB
   OBS -.-> CMA
   OBS -.-> ADK
   OBS -.-> FOUNDRY
+  OBS -.->|"OpenAI + Strands<br/>(AWS/Bedrock meters)"| RUNTIMES
   TUNNEL -.-> LOCAL
 ```
 
@@ -237,6 +238,7 @@ flowchart LR
   subgraph AC["Bedrock AgentCore Runtime — no public HTTP"]
     ACC["a2alab_claude<br/>claude-agent-sdk container"]
     ACO["a2alab_openai<br/>openai-agents container"]
+    ACS["a2alab_strands<br/>strands-sdk container (D66)"]
   end
 
   subgraph SCHED["EventBridge — no front door at all"]
@@ -251,6 +253,7 @@ flowchart LR
   BR --> SEC
   ACC --> SEC
   ACO --> SEC
+  ACS --> SEC
   HARV --> STORE
   OMCP --> STORE
 ```
@@ -262,7 +265,7 @@ is chosen by **what the component's work costs in seconds**, not by preference.
 |---|---|---|
 | Lambda + API Gateway HTTP API | shim, fan-out MCP, obs MCP | Cheapest thing with a public URL. Its integration timeout maxes at **30s and is not adjustable** — fine, because each of these finishes well inside it. |
 | ECS Fargate + ALB | **the bridge** | Path A's budget is **45s** (action ~85-90s → Apex 110s → bridge 45s). An HTTP API would have silently cut 15s off the lab's sync research depth. An ALB's `idle_timeout` is a settable attribute — set to **120s** on every deploy so a console edit cannot reintroduce the ceiling. |
-| Bedrock AgentCore Runtime | Claude + OpenAI self-hosted agents | The point of D26: an agent runtime with an **IAM data plane and no public HTTP endpoint**. Callers use `invoke_agent_runtime` with SigV4; there is no URL to leak. |
+| Bedrock AgentCore Runtime | Claude + OpenAI + Strands self-hosted agents | The point of D26: an agent runtime with an **IAM data plane and no public HTTP endpoint**. Callers use `invoke_agent_runtime` with SigV4; there is no URL to leak. |
 | EventBridge → Lambda | obs harvest | Nothing calls it. It wakes up, pulls each platform's logs, writes Aurora, sleeps. |
 
 **The rule to take away:** *host to the measured ceiling, not the observed
