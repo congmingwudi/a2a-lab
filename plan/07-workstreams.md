@@ -519,6 +519,20 @@ AccessDenied). Same stacked-timeout caveat as the other AgentCore reverse cells:
 warm the runtime first (a cold start inside the bridge's 45s budget fails the
 sync turn).
 
+Work items (stories):
+1. ✅ `src/platforms/strands/` scaffold — adapter, faces `__main__.py`, `stub_backend.py`, `STRANDS_BACKEND` switch; deployed to AgentCore via `deploy/agentcore/deploy.sh strands` with the `bedrock:InvokeModel` IAM grant (D66).
+2. ✅ Strands SDK backend delivered by Kiro behind the `plan/12` contract — `src/platforms/strands/strands_backend.py` + tests + the `strands` extra; runtime live on `claude-haiku-4-5` via the runtime IAM role, no API key (D66).
+3. ✅ Forward cell `strands-to-agentforce` live end-to-end on the AgentCore runtime — real Agentforce consult, CRM-attributed; tightest framework-isolation of the three (SDK is the only variable vs the Claude twin) (D66).
+4. ✅ D25 Strands-paired Agentforce twin `A2ALab_Research_Assistant_Strands` published + activated; `ask_agentforce` consults it directly after a config-only runtime redeploy (D66).
+5. ✅ Reverse cell `agentforce-to-strands` built and live-verified both directions — twin answers from CRM (Apex) then delegates outside-in research through the bridge to the runtime; confirmed the `bridge → strands-agentcore` hop on `agentcore-http` with the D27 rider on the wire (D68).
+6. ✅ Twin repinned `strands-rest → strands-agentcore` in the authoring bundle and republished as v2 (validate → publish → activate), so the reverse cell hits the AgentCore runtime, not the faces task — a mode remap cannot reach an `agentcore-http` runtime (D68).
+7. ✅ Bridge task role `invoke-agentcore` policy extended with `STRANDS_AGENTCORE_ARN` and redeployed — the reverse leg is the first `bridge → Strands-runtime` path and would otherwise hit AccessDenied (D68).
+8. ✅ Strands observability source `src/observability/strands_source.py` — `AWS/Bedrock` model meters (tokens/cost/latency) + AgentCore runtime access log (invocation/error counts); registered in the 6h harvest Lambda and the CLI sweep as the eighth harvest source (D67).
+9. ✅ Console: AWS Strands added to the title-bar platform list, the obs coverage card + logo, and both observability diagrams (harvest + analyst); Experiments nav orders the live Strands pair ahead of the upcoming LangGraph group.
+10. ✅ Deployment map + architecture diagrams updated — Strands runtime in the AgentCore estate/L1, the scheduled harvest reaching it, and the L6 code→deploy rows (`plan/09`, `config/diagrams.yaml`, console `*_DIAGRAM` constants).
+
+One honest caveat rides the live cells: `platform_ref` (Bedrock request-id) comes back null at this SDK version, so obs sessions correlate to the runtime, not to individual lab traces.
+
 Done, lab-side (also runs locally on a deterministic stub):
 - `src/platforms/strands/` — adapter (`core.py`), `__main__.py` (faces on
   :8041/:8042/:8043), `stub_backend.py`. Backend selected by `STRANDS_BACKEND`
