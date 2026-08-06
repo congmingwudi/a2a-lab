@@ -4206,6 +4206,7 @@ const OBS_ANALYST_DIAGRAM = `flowchart TB
     OA["OpenAI"]
     GG["Agent Engine"]
     FD["Foundry"]
+    ST["AWS Strands"]
   end
   HARV["Harvest Lambda<br/>every 6h, deterministic — no LLM"]
   PG[("Aurora, lab schema<br/>obs_sessions · obs_events · obs_harvest")]
@@ -4217,6 +4218,7 @@ const OBS_ANALYST_DIAGRAM = `flowchart TB
   OA --> HARV
   GG --> HARV
   FD --> HARV
+  ST --> HARV
   HARV --> PG
   PG --> MCP
   MCP <-->|"the agent asks, the server answers"| AG

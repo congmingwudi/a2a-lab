@@ -176,14 +176,14 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "foundry-agentforce",
         "cross-cloud",
         "fan-out",
-        "langgraph-agentforce",
         "strands-agentforce",
+        "langgraph-agentforce",
     ]
-    # langgraph-agentforce (WS4) is the only remaining upcoming placeholder;
-    # strands-agentforce (WS5) went live as a scaffold group carrying a
-    # coming-soon scenario once its faces/adapter landed (the real backend is
-    # Kiro's, plan/12). Groups order: [...6 live, langgraph(upcoming), strands(live)].
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 6 + [True] + [False])
+    # strands-agentforce (WS5) is live and now sits above the sole remaining
+    # upcoming placeholder, langgraph-agentforce (WS4) — a live pair reads
+    # ahead of a coming-soon one. Groups order: [...6 live, strands(live),
+    # langgraph(upcoming)].
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 7 + [True])
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]

@@ -34,11 +34,11 @@ groups:
   # the lab explored first and, until WS8, the only shape it had.
   - id: fan-out
     title: "Fan-out orchestration (1:many)"
+  - id: strands-agentforce
+    title: "AWS Strands - Agentforce"
   - id: langgraph-agentforce
     title: "LangGraph - Agentforce"
     upcoming: WS4
-  - id: strands-agentforce
-    title: "AWS Strands - Agentforce"
 
 scenarios:
   claude-to-agentforce:
