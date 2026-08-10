@@ -28,6 +28,48 @@ salesforce/force-app/main/default/extlClntAppGlobalOauthSets/
 # live in a public repo. Backed up by ~/projects/local-project-files/sync.sh.
 salesforce/force-app/main/default/externalCredentials/A2ALab_GCP.externalCredential-meta.xml
 
+# Salesforce metadata is strictly A2A_Lab*-namespaced (see CLAUDE.md). This org
+# is a shared demo org, so a wildcard `sf project retrieve` of a metadata TYPE
+# drags in hundreds of standard-org members — on 2026-08-08 a Flexipage
+# retrieve pulled 210 unrelated Lightning pages. Ignore everything in the flat
+# type directories that suffer this, then re-include only the lab's own
+# artifacts (A2A_Lab*/A2ALab*/a2a_lab*) plus the few members that genuinely
+# cannot carry the prefix (named by URL/type). Only DIRECT children are ignored
+# (`dir/*`), so nested trees under a prefixed parent — objects/A2ALab_*__c/fields,
+# bots/A2ALab_*/vN, genAiPlannerBundles/A2ALab_*/... — are untouched, and their
+# legitimately-non-prefixed leaf files (fields, botVersions, schema.json) stay
+# tracked. settings/ is deliberately NOT guarded: settings are named by type
+# (Security, Account, …) and can never be prefixed.
+salesforce/force-app/main/default/flexipages/*
+!salesforce/force-app/main/default/flexipages/A2A_Lab*
+!salesforce/force-app/main/default/flexipages/A2ALab*
+!salesforce/force-app/main/default/flexipages/AI_Agents.flexipage-meta.xml
+!salesforce/force-app/main/default/flexipages/SDO_Account_Default.flexipage-meta.xml
+salesforce/force-app/main/default/applications/*
+!salesforce/force-app/main/default/applications/A2A_Lab*
+!salesforce/force-app/main/default/applications/A2ALab*
+salesforce/force-app/main/default/tabs/*
+!salesforce/force-app/main/default/tabs/A2A_Lab*
+!salesforce/force-app/main/default/tabs/A2ALab*
+salesforce/force-app/main/default/permissionsets/*
+!salesforce/force-app/main/default/permissionsets/A2A_Lab*
+!salesforce/force-app/main/default/permissionsets/A2ALab*
+salesforce/force-app/main/default/classes/*
+!salesforce/force-app/main/default/classes/A2ALab*
+salesforce/force-app/main/default/cspTrustedSites/*
+!salesforce/force-app/main/default/cspTrustedSites/A2A_Lab*
+!salesforce/force-app/main/default/cspTrustedSites/A2ALab*
+salesforce/force-app/main/default/corsWhitelistOrigins/*
+!salesforce/force-app/main/default/corsWhitelistOrigins/A2A_Lab*
+!salesforce/force-app/main/default/corsWhitelistOrigins/A2ALab*
+!salesforce/force-app/main/default/corsWhitelistOrigins/https_console_lab_agenticthings_com.corsWhitelistOrigin-meta.xml
+salesforce/force-app/main/default/notificationtypes/*
+!salesforce/force-app/main/default/notificationtypes/A2ALab*
+salesforce/force-app/main/default/namedCredentials/*
+!salesforce/force-app/main/default/namedCredentials/A2ALab*
+salesforce/force-app/main/default/customMetadata/*
+!salesforce/force-app/main/default/customMetadata/A2ALab*
+
 # Personal Claude Code settings: absolute paths, telemetry endpoints, and the
 # permission allowlist for one developer — never shared repo config. This was
 # already covered by a rule in the author's ~/.gitignore_global, which is
