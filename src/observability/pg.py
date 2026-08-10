@@ -8,10 +8,20 @@ Data 360 zero-copy federation.
 Two access backends behind one ``PgClient.execute(sql, params)``:
 
 - **data-api** — the RDS Data API (boto3 ``rds-data``). IAM-authed HTTPS,
-  so Lambdas need no VPC attachment and the cluster's 5432 ingress stays
-  closed to them entirely. Selected when A2ALAB_PG_CLUSTER_ARN +
+  so Lambdas need no VPC attachment and reach the cluster with no 5432
+  ingress at all. Selected when A2ALAB_PG_CLUSTER_ARN +
   A2ALAB_PG_SECRET_ARN are set. Which DB role you act as = which secret
   ARN you hold (writer vs reader), enforced by Postgres grants.
+
+  Every lab component uses this path, so for its whole life the cluster's
+  5432 ingress was closed to all but the lab host. WS19/D69 opened the ONE
+  exception: the Data 360 Zero Copy connector cannot use the Data API, so a
+  scoped, TLS-only 5432 rule now allows the Salesforce Data Cloud tenant's
+  published IP ranges (eu-central-1) to reach the cluster endpoint as
+  ``lab_reader`` — see ``deploy/obs/deploy_datacloud_ingress.sh`` and the
+  ``ROLE_GRANTS`` that bound that role (15s statement_timeout, connection
+  cap). No lab code opens a 5432 socket; that path exists solely for the
+  connector.
 - **dsn** — direct pg8000 connection (pure-Python driver, no binary
   wheels) for the lab host: backfills, provisioning, local console reads.
   Selected by A2ALAB_PG_DSN (postgres://user:pass@host:5432/a2alab).
@@ -61,6 +71,75 @@ DDL: list[str] = [
     f"CREATE INDEX IF NOT EXISTS idx_lab_trace_events_ts ON {SCHEMA}.trace_events (ts)",
     f"""CREATE INDEX IF NOT EXISTS idx_lab_trace_events_platform_ref
         ON {SCHEMA}.trace_events (platform_ref)""",
+    # WS19/M10: a single-column surrogate key for the Data 360 Zero Copy DLO.
+    # The row's real identity is the composite PK (trace_id, hop_seq, ts), but a
+    # Data Cloud DLO wants ONE primary-key field. Generating it on the table
+    # (rather than a DLO-side formula) keeps the key a repo artifact the
+    # connector reads as just another SELECTable column — PostgresSink never
+    # writes it, Postgres computes it. STORED so a federated SELECT returns it
+    # without recomputation. Idempotent: ADD COLUMN IF NOT EXISTS.
+    f"""ALTER TABLE {SCHEMA}.trace_events
+        ADD COLUMN IF NOT EXISTS event_key text
+        GENERATED ALWAYS AS (trace_id || '#' || hop_seq::text || '#' || ts::text) STORED""",
+    # WS19: a UNIQUE index on event_key. The Data 360 DLO wants a SINGLE-column
+    # primary key — the DLO→DMO mapping API refuses a composite key outright
+    # ("We do not support multiple Primary"), and Data Cloud reflects the DB's
+    # ACTUAL unique constraints, so a generated column with no unique index is
+    # not offerable as a DLO PK ("Cannot set [event_key] as primary keys").
+    # event_key is deterministic from the composite PK (trace_id#hop_seq#ts), so
+    # this index is guaranteed valid and never conflicts. It does NOT replace the
+    # table's composite PK — it is the single-column surrogate Zero Copy keys on.
+    f"""CREATE UNIQUE INDEX IF NOT EXISTS uq_lab_trace_events_event_key
+        ON {SCHEMA}.trace_events (event_key)""",
+    # WS19: the Zero Copy federation VIEW the Data 360 DLO reads from. Why a view
+    # and not the base table: Data Cloud reflects the SOURCE table's real PRIMARY
+    # KEY and forces the DLO to key on it — so a stream over trace_events ALWAYS
+    # lands a composite (trace_id, hop_seq, ts) DLO PK, which the DLO→DMO mapping
+    # API then rejects. A VIEW carries no PK constraint, so the DLO's declared
+    # single PK (event_key) stands. The view is ALSO the residency boundary made
+    # structural: it selects only the scalar hop columns + event_key and OMITS
+    # the two jsonb payload columns, so the raw wire bytes cannot leave us-east-1
+    # even by misconfiguration — they are not in the object Data Cloud can see.
+    # SECURITY INVOKER (default) so it runs as lab_reader with its read-only
+    # posture and 15s statement_timeout, not the owner's rights.
+    f"""CREATE OR REPLACE VIEW {SCHEMA}.trace_events_zc AS
+        SELECT event_key, trace_id, hop_seq, ts, ts_at, source, target,
+               protocol, transport_detail, status, latency_ms, platform_ref,
+               inserted_at
+        FROM {SCHEMA}.trace_events""",
+    # WS19/§4c: the TRACE-GRAIN federation view — one row per trace_id — the
+    # second Zero Copy DLO reads from. Why it exists: end-to-end trace latency is
+    # a TWO-LEVEL aggregation (sum the hops within a trace, then average across
+    # traces), and Tableau Semantics' calc dialect has NO FIXED/LOD expression
+    # (verified 2026-08-09 against the function reference) — so it cannot be a
+    # semantic-model measure over the hop-grain DMO. The alternatives were a
+    # calculated insight (which MATERIALIZES aggregates into eu-central-1, losing
+    # the residency property) or this: push the GROUP BY down into Aurora as a
+    # view and federate it live, exactly like trace_events_zc pushes the hop grain
+    # down. The aggregation runs in us-east-1 at query time; nothing is copied to
+    # the tenant region, and the dashboard's trace tiles stay a real EU->US
+    # measurement.
+    #
+    # Keyed on trace_id (single column, no PK constraint on a view — the same
+    # reason trace_events_zc exists rather than streaming the base table). Carries
+    # NO jsonb, so the residency boundary is structural here too. wall_ms is the
+    # end-to-end wall clock from the epoch-seconds `ts` (double precision) *1000;
+    # total_latency_ms is the SUMMED per-hop work; all_ok is 1 iff EVERY hop in
+    # the trace succeeded (BOOL_AND), cast to int so the DMO sees a number it can
+    # AVG into a success rate. edge_source/edge_target are the hop_seq=0 endpoints
+    # (the trace's entry edge), so trace tiles can group by platform.
+    f"""CREATE OR REPLACE VIEW {SCHEMA}.trace_rollup_zc AS
+        SELECT trace_id,
+               COUNT(*)                                     AS hop_count,
+               MAX(hop_seq)                                 AS max_depth,
+               SUM(latency_ms)                              AS total_latency_ms,
+               (MAX(ts) - MIN(ts)) * 1000                   AS wall_ms,
+               (BOOL_AND(status = 'ok'))::int               AS all_ok,
+               MIN(ts_at)                                   AS started_at,
+               MAX(CASE WHEN hop_seq = 0 THEN source END)   AS edge_source,
+               MAX(CASE WHEN hop_seq = 0 THEN target END)   AS edge_target
+        FROM {SCHEMA}.trace_events
+        GROUP BY trace_id""",
     f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.obs_sessions (
         platform        text NOT NULL,
         native_id       text NOT NULL,
@@ -147,6 +226,40 @@ DDL: list[str] = [
     f"CREATE INDEX IF NOT EXISTS idx_lab_usage_events_at ON {SCHEMA}.usage_events (occurred_at)",
     f"""CREATE INDEX IF NOT EXISTS idx_lab_usage_events_event_at
         ON {SCHEMA}.usage_events (event, occurred_at)""",
+]
+
+# Federation grants for lab_reader — the role the Data 360 Zero Copy connector
+# authenticates as (D69/WS19). Applied by scripts/pg_migrate.py as the table
+# OWNER, right after DDL, for the exact D46 reason the DDL moved there: until
+# WS19 these settings existed ONLY because someone ran them by hand at
+# provisioning, so nothing in the repo could recreate the reader's posture on a
+# rebuilt cluster — config no script owned. Now it does.
+#
+# What is deliberately NOT here: CREATE ROLE and the password. The role's login
+# secret is a Secrets Manager value synced like every other identity (D39/D45);
+# putting a password in the repo would be the account-identifier rule's cousin.
+# These statements assume lab_reader already exists and only shape what it may
+# do — every one is idempotent (GRANT re-grants cleanly, ALTER ROLE is a set).
+#
+# The bound that matters for federation is statement_timeout: a runaway Tableau
+# query is killed at 15s rather than pinning the scale-to-zero cluster. Postgres
+# has no native per-role ROW cap, so the honest control is the timeout plus a
+# CONNECTION LIMIT — the one lever WS19 adds — so a query storm from Data Cloud
+# cannot exhaust connection slots. -1 (unlimited) was the provisioned default.
+ROLE_GRANTS: list[str] = [
+    "ALTER ROLE lab_reader SET default_transaction_read_only = on",
+    "ALTER ROLE lab_reader SET statement_timeout = '15s'",
+    # Bounds the 5432 federation path (Data API callers hold no persistent
+    # connection). 15 leaves headroom for parallel Tableau tiles + the analyst
+    # while still capping a runaway; raise in .env-land, not here, if a real
+    # dashboard needs more.
+    "ALTER ROLE lab_reader CONNECTION LIMIT 15",
+    f"GRANT USAGE ON SCHEMA {SCHEMA} TO lab_reader",
+    f"GRANT SELECT ON ALL TABLES IN SCHEMA {SCHEMA} TO lab_reader",
+    # Future tables (a new obs table shipped in DDL above) auto-grant SELECT, so
+    # the connector sees them without a re-grant. Scoped to tables the owner
+    # creates in this schema — never CREATE, never write.
+    f"ALTER DEFAULT PRIVILEGES IN SCHEMA {SCHEMA} GRANT SELECT ON TABLES TO lab_reader",
 ]
 
 # Keys used in lab.lab_state. Named here so a typo is an ImportError rather

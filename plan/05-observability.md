@@ -193,7 +193,7 @@ platform APIs ──pull──►  harvester (src/observability/)  ──upsert�
 
 Claude Code, Codex and Cursor telemetry shares this subsystem's plumbing — the
 same `PlatformLogSource` seam, the same `ObsStore`, the same harvest Lambda —
-and it is deliberately **not** a sixth column in the coverage panel. (Cursor is
+and it is deliberately **not** a column in the coverage panel. (Cursor is
 a third `@resource.tool` inside the one `coding` source, not a new source — it
 reaches CloudWatch via cursorscope hooks and its cumulative counters are read
 with `increase()`; D64.) That panel's
@@ -203,7 +203,8 @@ beside Agentforce would quietly claim otherwise. So `coding` is popped from
 `/api/obs/summary`, gets its own **Coding Agents Telemetry** console section
 with its own Harvest button, and is reachable from `/api/obs/harvest` only by
 name — the unqualified sweep behind the Observability Harvest button stays the
-five agent platforms, because that button reports "harvested from all
+six agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands — the
+last WS5/D67), because that button reports "harvested from all
 platforms". Details and measurements live in WS9 (plan/07-workstreams.md).
 
 ## Work items

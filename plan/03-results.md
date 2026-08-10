@@ -1057,3 +1057,41 @@ that the claim stopped being true and nobody re-read it. Two of these were
 falsified **by work done in the same 24 hours**, which is the shortest
 staleness interval yet recorded and the strongest argument for running the
 sweep at the end of a session rather than before a demo.
+
+## Data 360 Zero Copy federation (M10 / WS19) — measured 2026-08-08
+
+First read of the `lab.trace_events` obs store *through* Salesforce Data 360,
+after the Zero Copy data stream was created (DLO `A2A_Lab_Trace_Events__dll`,
+primary key `hop_seq`, acceleration OFF so rows stay resident in us-east-1).
+Queried over the **core REST API** (`/services/data/v62.0/query`) as the
+`a2a_lab_obs` client-credentials identity — the same credential and path the
+M11 harvest already uses for STDM DMOs, so no new auth. The tenant is in
+**eu-central-1**, the Aurora cluster in **us-east-1**, so every row crossed the
+Atlantic live (no copy, no ETL):
+
+| Query | Result | Wall time |
+|---|---|---|
+| Full-table paginated pull (`SELECT` 7 cols, 2 pages of ≤2000) | **2,999 rows**, 957 distinct traces | **7.4s** |
+| 5-row `ORDER BY ts_at__c DESC LIMIT 5` | 5 rows | sub-second |
+
+Aggregate shape (computed client-side from the 2,999 federated rows — see the
+caveat below on why not server-side): 8 protocols (rest 756, agentforce-api
+611, internal 585, a2a 367, mcp 276, agentcore-http 234, managed-agents-api
+139, foundry-api 31); status ok 2,828 / error 171; avg latency by protocol
+ranged mcp ~1.8s … foundry-api ~21.5s. These match the console's own view of
+the same table — **the point of M10: two independent readers, one table, and
+Zero Copy means they never diverge.**
+
+**What works and what doesn't, over the core REST API against a federated DLO:**
+- **Row `SELECT` (with or without `WHERE`/`ORDER BY`/`LIMIT`) federates cleanly.**
+  This is the end-to-end proof the connection, data stream, and query path all
+  work.
+- **`COUNT()` → `UNSUPPORTED_QUERY`; `FIELDS(ALL)` and `GROUP BY`/aggregates →
+  `UNKNOWN_EXCEPTION`.** Aggregation over a Zero Copy DLO is not served by core
+  SOQL — it wants the **Data Cloud Query API** (`/api/v2/query`, ANSI SQL) or
+  Tableau's own query pushdown. Not a federation fault; a SOQL-surface limit.
+
+**This is NOT the L5.8 headline number.** 7.4s is a REST full-table pull, useful
+as a floor. The number WS19 exists to publish is the **Tableau Next dashboard's
+end-to-end render** (item 6c) — the true EU→US round trip a business user sees —
+recorded here once the dashboard is built.

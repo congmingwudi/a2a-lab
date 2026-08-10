@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FlexiPage xmlns="http://soap.sforce.com/2006/04/metadata">
+    <flexiPageRegions>
+        <itemInstances>
+            <componentInstance>
+                <componentInstanceProperties>
+                    <name>decorate</name>
+                    <value>true</value>
+                </componentInstanceProperties>
+                <componentInstanceProperties>
+                    <name>richTextValue</name>
+                    <value>&lt;p&gt;&lt;strong style=&quot;font-size: 24px;&quot;&gt;A2A Interop Lab&lt;/strong&gt;&lt;/p&gt;&lt;p&gt;&lt;span style=&quot;font-size: 14px;&quot;&gt;This org is one node in a cross-platform agent-to-agent interoperability lab. Salesforce Agentforce agents here exchange work with Claude, OpenAI, Google ADK (Vertex AI), Microsoft Foundry, and AWS Strands — the same scenario run over REST, MCP, and the A2A protocol, with every wire payload recorded.&lt;/span&gt;&lt;/p&gt;</value>
+                </componentInstanceProperties>
+                <componentName>flexipage:richText</componentName>
+                <identifier>flexipage_richText_header</identifier>
+            </componentInstance>
+        </itemInstances>
+        <name>header</name>
+        <type>Region</type>
+    </flexiPageRegions>
+    <flexiPageRegions>
+        <itemInstances>
+            <componentInstance>
+                <componentInstanceProperties>
+                    <name>decorate</name>
+                    <value>true</value>
+                </componentInstanceProperties>
+                <componentInstanceProperties>
+                    <name>richTextValue</name>
+                    <value>&lt;p&gt;&lt;strong style=&quot;font-size: 18px;&quot;&gt;What in this org supports the lab&lt;/strong&gt;&lt;/p&gt;&lt;p&gt;&lt;br&gt;&lt;/p&gt;&lt;p&gt;&lt;strong&gt;Agentforce Agents.&lt;/strong&gt; Platform-native service agents — one twin paired to each external platform — delegate out to remote agents through an Apex invocable and the GA Agent API, and answer inbound A2A / MCP calls through the lab&#x27;s shims. Every delegation is stamped with a guard rider and recorded.&lt;/p&gt;&lt;p&gt;&lt;br&gt;&lt;/p&gt;&lt;p&gt;&lt;strong&gt;Zero-Copy observability → Tableau Next.&lt;/strong&gt; The lab’s agent-execution traces live in an Aurora PostgreSQL store in AWS. Data 360 federates them into this org by &lt;strong&gt;Zero Copy&lt;/strong&gt; — the rows are read live from Aurora, nothing is copied into Salesforce — and a &lt;strong&gt;Tableau Next&lt;/strong&gt; dashboard reads that federated data. Open the &lt;strong&gt;A2A Lab Traffic&lt;/strong&gt; tab to view it.&lt;/p&gt;</value>
+                </componentInstanceProperties>
+                <componentName>flexipage:richText</componentName>
+                <identifier>flexipage_richText_main</identifier>
+            </componentInstance>
+        </itemInstances>
+        <name>main</name>
+        <type>Region</type>
+    </flexiPageRegions>
+    <flexiPageRegions>
+        <itemInstances>
+            <componentInstance>
+                <componentInstanceProperties>
+                    <name>decorate</name>
+                    <value>true</value>
+                </componentInstanceProperties>
+                <componentInstanceProperties>
+                    <name>richTextValue</name>
+                    <value>&lt;p&gt;&lt;strong style=&quot;font-size: 16px;&quot;&gt;Lab console&lt;/strong&gt;&lt;/p&gt;&lt;p&gt;&lt;br&gt;&lt;/p&gt;&lt;p&gt;The full lab console — live scenario runs, protocol-by-protocol wire payloads, and the cross-platform observability behind the dashboard — runs outside Salesforce.&lt;/p&gt;&lt;p&gt;&lt;br&gt;&lt;/p&gt;&lt;p&gt;&lt;a href=&quot;https://console-lab.agenticthings.com&quot; target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot; style=&quot;font-size: 16px;&quot;&gt;Open the A2A Lab console →&lt;/a&gt;&lt;/p&gt;</value>
+                </componentInstanceProperties>
+                <componentName>flexipage:richText</componentName>
+                <identifier>flexipage_richText_sidebar</identifier>
+            </componentInstance>
+        </itemInstances>
+        <name>sidebar</name>
+        <type>Region</type>
+    </flexiPageRegions>
+    <masterLabel>A2A Lab Home</masterLabel>
+    <template>
+        <name>runtime_cdp:cdpHomeDesktopTemplate</name>
+    </template>
+    <type>HomePage</type>
+</FlexiPage>

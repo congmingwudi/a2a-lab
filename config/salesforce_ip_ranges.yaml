@@ -1,0 +1,67 @@
+# Salesforce Data 360 egress IP addresses, per AWS region — the source of the
+# 5432 ingress allowlist for the Data 360 Zero Copy connector (D69, WS19 item 2).
+#
+# WHICH SALESFORCE MANIFEST (the WS19 correction, 2026-08-08, D70). There are TWO
+# and they are NOT interchangeable:
+#   - ip-ranges.salesforce.com/ip-ranges.json is the Salesforce core/app-fabric
+#     range. The Data 360 external-database connector does NOT egress from it.
+#     Item 2 originally pinned this manifest and the connector's Test Connection
+#     failed with "could not connect" while every other layer (route, public IP,
+#     TLS, credential, URL) checked out.
+#   - "IP Addresses Used by Data 360 Services" (the article below) is the list
+#     Data 360 uses to reach EXTERNAL services (S3, GCS, Snowflake, SFTP, and the
+#     database connectors). These are AWS-native Hyperforce NAT egress IPs, which
+#     is why they resolve to AWS's OWN regional EC2 ranges, not to the Salesforce
+#     app-fabric block. The Aurora connector's "Before you begin" links to exactly
+#     this article. THIS is the authoritative allowlist source.
+#
+# HOW WE KNOW THE METHOD IS RIGHT. Not by trusting the article alone: VPC flow
+# logs on the cluster captured connection-test probes arriving from AWS-native
+# NAT IPs, absent from ip-ranges.salesforce.com but present verbatim as /32s in
+# this article's table — proving the article is the source and ip-ranges.json is
+# not. This was observed TWICE: first against a DIFFERENT org whose tenant was in
+# ca-central-1 (an operator mistake, D70 — REJECTed probes from ca-central-1 /32s
+# proved the METHOD), then against the lab's ACTUAL eu-central-1 tenant, where the
+# probe egressed from 3.64.2.81 and 18.198.9.100 — both in the set below, both
+# ACCEPTed, connection established (2026-08-08). So the eu-central-1 /32s are now
+# empirically confirmed for this tenant, not merely documented.
+#
+# NO MACHINE-READABLE MANIFEST. Unlike ip-ranges.json, this article publishes no
+# JSON, so `--verify` cannot auto-diff it — it checks every pinned /32 is
+# authorized on the SG. `fetched` is the date the list was read.
+#
+# WHICH REGION IS THE OPERATIVE ONE (the D69/D70 lesson). The allowlist is the
+# **Data Cloud tenant's** region, NOT the core org's instance and NOT where the
+# Aurora cluster lives. For the lab: core org on EU55 (EU), Aurora cluster in
+# us-east-1, and the Data Cloud tenant in **eu-central-1** (Frankfurt) — so org
+# and tenant are co-located in Europe (the customer-representative shape) and the
+# only cross-region hop is tenant(EU) -> store(us-east-1). The script takes the
+# region from `A2ALAB_DATACLOUD_REGION` in .env (the tenant's, read from its
+# home-org instance name) and looks it up below. The instance name itself is not
+# recorded here — it is a tenant identifier and lives in .env / D69.
+
+source_url: https://help.salesforce.com/s/articleView?id=data.c360_a_data_cloud_ip_address_allowlist.htm&type=5
+source_kind: article           # NOT a JSON manifest — --verify cannot auto-diff it
+fetched: "2026-08-08"
+
+regions:
+  eu-central-1:
+    # Data 360 Services egress /32s for the eu-central-1 (Frankfurt) tenant
+    # region — the lab org's tenant (home-org instance CDP2-AWS-PROD3-EUCENTRAL1).
+    # Published across two CDP VPC endpoints (6 each). Two of these (3.64.2.81 and
+    # 18.198.9.100) were observed egressing in a flow-log capture of the successful
+    # connection test 2026-08-08 (D70); the rest are pinned from the article so a
+    # NAT-IP rotation cannot silently break federation.
+    ipv4:
+      - "18.156.144.84/32"
+      - "18.159.12.44/32"
+      - "35.156.54.210/32"
+      - "18.156.161.183/32"
+      - "18.192.111.185/32"
+      - "35.157.176.56/32"
+      - "18.193.163.242/32"
+      - "3.126.68.114/32"
+      - "35.158.17.154/32"
+      - "18.198.246.75/32"
+      - "18.198.9.100/32"
+      - "3.64.2.81/32"

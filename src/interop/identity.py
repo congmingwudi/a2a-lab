@@ -134,10 +134,24 @@ ROLE_PASSWORD_ENVS = {
 # equality with the single string "operator".
 OPERATOR_ROLES = frozenset({"operator", "master of the universe"})
 
+# The lab OWNER's role alone — a strict subset of OPERATOR_ROLES. Owner-tier
+# surfaces are the ones the owner does not hand to colleagues even with the
+# operator password: here, the deep link that launches the in-org "A2A Lab"
+# Lightning app (the live Tableau Next dashboard behind a Salesforce login),
+# which only the owner can actually authenticate into during a controlled
+# presentation. `operator` (Ana) gets every experiment surface but NOT this.
+OWNER_ROLES = frozenset({"master of the universe"})
+
 
 def is_operator_role(role: str | None) -> bool:
     """True for any role with the full operator privilege set (D36)."""
     return role in OPERATOR_ROLES
+
+
+def is_owner_role(role: str | None) -> bool:
+    """True only for the lab owner's role — narrower than operator (D36).
+    Gates owner-only affordances the operator password must not unlock."""
+    return role in OWNER_ROLES
 
 
 def authenticate(username: str, password: str, users: dict[str, dict] | None = None) -> str:

@@ -103,6 +103,11 @@ AMBIENT = {
     # clothes, and never something a checkout supplies.
     "A2ALAB_CURRENT",
     "A2ALAB_JSON",
+    # Same shape: passed inline to deploy_datacloud_ingress.sh's heredocs
+    # (`A2ALAB_RANGES_FILE=… A2ALAB_SRC=… python3 - <<PY`) so the embedded
+    # Python can read them — locals, not configuration a checkout supplies.
+    "A2ALAB_RANGES_FILE",
+    "A2ALAB_SRC",
 }
 
 # This file's own regexes and docstrings mention variable names; scanning it

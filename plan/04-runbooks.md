@@ -213,8 +213,11 @@ Provisioned 2026-07-17 in the lab's runtime account (D21), us-east-1:
   obs_harvest, obs_briefs (all jsonb payloads).
 - **Roles/secrets** (Secrets Manager): master (RDS-managed),
   `a2alab/obs/writer` (lab_writer), `a2alab/obs/reader` (lab_reader —
-  default_transaction_read_only, 15s statement_timeout). The Data API
-  secret ARN *is* the role selection; 5432 stays closed to AWS compute.
+  default_transaction_read_only, 15s statement_timeout, and since WS19/D69 a
+  `CONNECTION LIMIT 15` cap, all codified in `observability.pg.ROLE_GRANTS` and
+  applied by `scripts/pg_migrate.py` as owner — no longer hand-run). The Data
+  API secret ARN *is* the role selection; 5432 stays closed to AWS compute —
+  the one exception is the Data Cloud connector path below (D69).
 - **Lambdas** (arm64, py3.12, role `a2alab-obs-lambda`):
   `a2alab-obs-mcp` (obs_mcp/lambda_entry.handler — the MCP server; bearer
   token in env + `.a2alab/obs_mcp.json`) and `a2alab-obs-harvest`
@@ -253,10 +256,37 @@ client is connected; that's the point of D23). setup_obs_analyst.py sets
 it explicitly; symptom if it regresses: session idle `requires_action` on
 `agent.mcp_tool_use` events, `evaluated_permission: "ask"`.
 
-**Data 360 (M10):** the Aurora Postgres zero-copy connector replaces the
-DynamoDB one — needs the cluster endpoint reachable from Salesforce IP
-ranges (extend the SG), TLS, and a `lab_reader`-style user scoped to the
-`lab` schema. Set up in Data 360 UI; not automatable here.
+**Data 360 (M10 / WS19):** the Aurora Postgres zero-copy connector replaces the
+DynamoDB one — needs the cluster endpoint reachable from the Data 360 egress IPs
+and the `lab_reader` user scoped to the `lab` schema. Connection is **live in
+prod** (`A2A_Lab_Obs_Aurora`, created 2026-08-08).
+- **5432 ingress:** `deploy/obs/deploy_datacloud_ingress.sh` opens a scoped,
+  TLS-only 5432 rule on `a2alab-aurora-sg` for the Data Cloud **tenant's** region
+  (`A2ALAB_DATACLOUD_REGION`, eu-central-1 → the us-east-1 cluster; the region is
+  the tenant's, read from its home-org instance name, not the core org's — the
+  D69 lesson). **The IPs come from the "IP Addresses Used by Data 360 Services"
+  help article, NOT `ip-ranges.salesforce.com`** — that app-fabric manifest
+  (`155.226.152.0/23`) is what the connector does *not* use, and pinning it (D69)
+  left Test Connection failing with "could not connect" for hours while every
+  other layer was fine. D70 has the full diagnosis, including the wrong-org detour
+  (a first flow-log capture was against a different org whose tenant is in
+  ca-central-1; the lab's real tenant is eu-central-1, and its probe was later
+  captured egressing from `3.64.2.81`/`18.198.9.100`, both ACCEPTed). CIDRs pinned
+  in `config/salesforce_ip_ranges.yaml`; `--verify` checks every pinned `/32` is
+  authorized on the SG (the article has no JSON manifest to diff), `--tls`
+  enforces `rds.force_ssl=1`.
+- **Role:** `lab_reader`'s posture is `ROLE_GRANTS` in `pg.py`, applied by
+  `pg_migrate.py` (above).
+
+**The connection is created in the Setup UI, NOT by REST** (corrected 2026-08-08,
+D70 — the D69 item-4 "API-creatable" claim was wrong): the `AwsRdsAuroraPostgres`
+connector has no documented `POST /ssot/connections` request body, and probing
+the shape blindly against the prod org risks orphaning a real connection. Create
+it at Data Cloud Setup → External Integrations → Other Connectors → New → AWS
+Aurora PostgreSQL Source (Connection Name + auto-derived API Name, URL as bare
+`host:port`, Database + Schema as separate fields, `lab_reader` creds). What also
+stays UI-only: the Zero Copy method selection on the DLO→DMO mapping and Tableau
+Next authoring. Requires the `unifiedIngestZeroCopy` org permission.
 
 ## 9. Saved audit workflows (.claude/workflows/)
 

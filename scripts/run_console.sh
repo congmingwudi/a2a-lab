@@ -3,8 +3,8 @@
 #
 #   scripts/run_console.sh            # http://localhost:8200
 #
-# WHY THIS EXISTS. `scripts/run_local.sh` starts thirteen processes because it
-# predates hosting: eleven protocol faces, the bridge and the console. Every one
+# WHY THIS EXISTS. `scripts/run_local.sh` starts sixteen processes because it
+# predates hosting: fourteen protocol faces, the bridge and the console. Every one
 # of those except the console now runs on Fargate, so starting them locally
 # rebuilds an entire lab in order to iterate on one web app.
 #

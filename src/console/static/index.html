@@ -191,6 +191,9 @@
   .badge.managed-agents-api { --tag: var(--managed-agents-api); }
   .badge.internal { --tag: var(--internal); }
   .badge.soon { --tag: var(--muted); }
+  /* Agent Plugins — a vendor-neutral spec chip (What's Next), tinted like the
+     protocol spec badges rather than any one vendor's hue. */
+  .badge.agent-plugins { --tag: var(--a2a); }
   /* platform & lab-component chips — always the --chip-* tokens, so
      agentforce is ALWAYS blue, claude ALWAYS orange, openai neutral,
      lab plumbing gray, and AgentCore/AWS steel — on every chip surface */
@@ -602,6 +605,29 @@
   .compshot-missing { color: var(--muted); font-size: 12px; background: var(--code);
                       border: 1px dashed var(--border); border-radius: 8px; padding: 12px; line-height: 1.6; }
   .compshot-missing code { background: var(--bg); padding: 1px 5px; border-radius: 5px; font-size: 11px; }
+  /* WS19: owner-only inline Tableau Next embed host. Frames the live dashboard
+     the same way .compshot frames the screenshot fallback below it. */
+  .tableau-embed { margin: 4px 16px 12px; border: 1px solid var(--border); border-radius: 10px;
+                   overflow: hidden; min-height: 120px; background: var(--code); }
+  /* Once the dashboard mounts, the host grows to hold the full fixed-layout
+     dashboard rather than trapping it in a short scrolling box. The element's own
+     height is set via the SDK's `height` attribute (see mountTableauEmbed) — the
+     SDK manages style.height itself, so we only size the container here. */
+  .tableau-embed.tableau-embed-loaded { min-height: 1000px; }
+  .tableau-embed analytics-dashboard { display: block; }
+  .tableau-embed .tableau-embed-status { padding: 14px 16px; }
+  .tableau-embed.tableau-embed-failed { border-style: dashed; }
+  /* WS19: owner-only collapsible framing the screenshot fallback, so the inline
+     embed is the primary surface and the still image folds away beneath it. */
+  .snapfold { margin: 4px 16px 12px; }
+  .snapfold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px;
+                        font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+                        letter-spacing: .8px; padding: 8px 0; }
+  .snapfold > summary::-webkit-details-marker { display: none; }
+  .snapfold > summary::before { content: "▸"; font-size: 10px; transition: transform .15s ease; }
+  .snapfold[open] > summary::before { transform: rotate(90deg); }
+  .snapfold > summary:hover { color: var(--fg); }
+  .snapfold .compshot { padding: 0; }
   .cardbox { padding: 0 16px 14px; }
   .cardbox .curl { margin: 0 0 6px; color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
   .acard { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; }
@@ -962,6 +988,21 @@
   .ins-status.measured { --ist: var(--rest); }
   .ins-status.observed { --ist: var(--agentforce-api); }
   .ins-status.hypothesis { --ist: var(--mcp); }
+  /* What's Next horizon chips — HOW FAR ALONG a plan is: in-flight=green (being
+     built now), planned=blue (accepted), exploring=amber (still an idea). Same
+     tint family as the evidence chips so the two sections read as one system. */
+  .ins-status.wn-in-flight { --ist: var(--rest); }
+  .ins-status.wn-planned { --ist: var(--agentforce-api); }
+  .ins-status.wn-exploring { --ist: var(--mcp); }
+  /* horizon dot beside a heading / sidebar row — the chip's colour, minus text */
+  .wn-dot { display: inline-block; width: 7px; height: 7px; border-radius: 999px;
+            margin-right: 6px; vertical-align: middle;
+            background: var(--wndot, var(--muted)); }
+  .wn-dot.in-flight { --wndot: var(--rest); }
+  .wn-dot.planned { --wndot: var(--agentforce-api); }
+  .wn-dot.exploring { --wndot: var(--mcp); }
+  /* a D<n> ref before linkifyDecisions upgrades it — reads as a chip either way */
+  .wn-ref { font: 600 9.5px var(--font-mono); color: var(--muted); }
   .ins-card .lbl { margin: 10px 0 3px; font: 600 10.5px var(--font-ui); color: var(--muted);
                    text-transform: uppercase; letter-spacing: .7px; }
   /* evidence/advisory now render through mdToHtml (soft-wrapped, D-chips), so
@@ -1458,6 +1499,20 @@
         </details>
       </div>
     </details>
+    <!-- What's Next — a first-class category, deliberately LAST so the nav reads
+         as an arc that ends on the horizon. Not under DevOps: DevOps is how the
+         lab is built and DELIVERED (the committed workstreams); this is where it
+         GOES next — higher-altitude plans that graduate into workstreams and
+         pick up decisions as they get built (config/whats_next.yaml). -->
+    <details class="acc" id="accWhatsNext">
+      <summary onclick="whatsNextNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h9M8 4.5 11.5 8 8 11.5"/><path d="M13.5 2.4v11.2"/></svg>What's Next <span class="count" id="whatsNextCount"></span></summary>
+      <div class="acc-body">
+        <div class="traces-tools">
+          <span class="hint">Where this lab goes from here — plans that graduate into workstreams as they get built.</span>
+        </div>
+        <div id="whatsNextSide"></div>
+      </div>
+    </details>
   </div>
   <div id="detail"></div>
 </main>
@@ -1466,6 +1521,8 @@
 // State
 // ---------------------------------------------------------------------------
 let traces = [];          // [{trace_id, started, hops, protocols}]
+let traceFetchInFlight = new Set(); // trace_ids being fetched windowless by id
+let traceFetchMisses = new Set();   // trace_ids the windowless lookup 404'd on
 let selected = null;      // trace_id shown in the trace section / trace view
 let openHops = new Set();
 let autoOpened = new Set(); // error hops auto-expanded once (then user-controlled)
@@ -1667,6 +1724,7 @@ const SIGNED_IN_LOADERS = [
   refreshTraces,       // trace list, now that /api/traces answers
   loadObs,             // observability summary + sessions
   loadInsights,
+  loadWhatsNext,       // the roadmap-horizon plans (config/whats_next.yaml)
   loadBuildTelemetry,  // coding agents telemetry + the cost brief
   loadProject,         // WS17: This A2A Lab Project — board counts from the plan
   loadMonitoring,      // WS18: A2A Lab Monitoring — usage aggregates from lab.usage_events
@@ -2693,13 +2751,14 @@ async function loadBriefs() {
 const OBS_TABS = [
   ["dashboard", "Dashboard"],
   ["observability", "Observability Analysis"],
+  ["tableau", "Tableau Next"],
 ];
 // Brief kinds keyed by tab id — `null` for the dashboard, which reads the
 // harvested tables rather than lab.obs_briefs. The cost sentinel's briefs used
 // to have a "Cost Analysis" tab here too; they now live ONLY in the Coding
 // Agents Telemetry → Cost tab (WS9/WS12), where the tokens and modelled cost
 // they explain also live, so the same brief is not rendered in two sections.
-const OBS_TAB_KIND = { dashboard: null, observability: "observability" };
+const OBS_TAB_KIND = { dashboard: null, observability: "observability", tableau: null };
 
 window.setObsTab = t => {
   obs.tab = t;
@@ -2818,6 +2877,7 @@ on Aurora Postgres, which is the source of truth for everything on this page (D4
 - **OpenAI** — stored responses, fetched by id (there is no list-executions API)
 - **Google Agent Engine** — Cloud Logging entries and Cloud Monitoring meters
 - **Microsoft Foundry** — KQL over App Insights \`gen_ai\` spans
+- **AWS Strands (Bedrock AgentCore)** — AWS/Bedrock CloudWatch meters (Input/OutputTokenCount, Invocations, InvocationLatency) plus the AgentCore runtime access log; one session per deployed runtime (D67)
 - **coding** — CloudWatch metrics for the agents that build the lab (WS9), surfaced in its own section
 
 ### What limits what you see here
@@ -2829,10 +2889,236 @@ preview A2A surface at all, so its honest shape is one session per deployed engi
 events, rather than one session per turn.
 
 The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
-seven-source sweep (five agent platforms plus the two coding sources) runs longer than a browser
+eight-source sweep (six agent platforms plus the two coding sources) runs longer than a browser
 request may stay open.`;
   return `<div class="flow">
     ${figureHtml("obsDashFig", "The architecture behind it")}
+    ${mdToHtml(md)}
+  </div>`;
+}
+
+
+// WS19/M10: the Tableau Next tab. Everyone sees a screenshot of the "Agent
+// Interop Traffic" dashboard; only the OWNER (role 'master of the universe')
+// gets the deep link into the in-org "A2A Lab" app, because launching it means
+// authenticating to Salesforce — which only the owner can do in a controlled
+// presentation. The server scrubs app_url for everyone else (see /api/config),
+// so this is a display of what the server already decided, not the gate itself.
+function obsTableauNextHtml() {
+  const t = (labConfig && labConfig.tableau_next) || {};
+  const shot = t.shot ? apiUrl(t.shot) : null;
+  const embed = t.embed;   // owner-only, present only when the embed ECA is wired
+  // The screenshot is the fallback surface: shown to everyone, and to the owner
+  // too until the inline embed finishes loading (or if it fails). The embed host
+  // sits above it and is mounted after render by mountTableauEmbed().
+  const shotInner = shot
+    ? `<div class="compshot"><img src="${esc(shot)}" alt="Tableau Next — Agent Interop Traffic dashboard" loading="lazy"></div>`
+    : `<div class="compshot"><div class="compshot-missing">No screenshot yet — drop
+        <code>src/console/static/components/tableau-next-traffic.png</code> and reopen this tab.</div></div>`;
+  // For the owner the inline embed is the primary surface, so the still image
+  // folds away into a collapsible "Dashboard snapshot"; everyone else has only
+  // the screenshot, so it stays open as their primary surface.
+  const shotBlock = embed
+    ? `<details class="snapfold"><summary>Dashboard snapshot</summary>${shotInner}</details>`
+    : shotInner;
+  return `<div class="flow">
+    <h3>Agent Interop Traffic — Tableau Next${embed ? " Inline Embedded" : ""}</h3>
+    <div class="desc"><span class="stat">The lab's own wire hops, visualized in Tableau Next over
+      Salesforce Data 360 — federated live from Aurora Postgres by Zero Copy, never copied out of
+      <b>AWS — us-east-1</b>. See <b>Details</b> for the pipeline (D69–D71, plan/09).</span></div>
+    ${embed
+      // Owner + embed ECA wired: render the live dashboard inline. The host page
+      // mints a frontdoor URL server-side (no login step); the SDK loads from the
+      // pinned CDN and renders <analytics-dashboard> into #tableauEmbedHost.
+      ? `<div id="tableauEmbedHost" class="tableau-embed" aria-busy="true">
+           <div class="tableau-embed-status stat">Connecting to Salesforce…</div>
+         </div>`
+      : ""}
+    ${shotBlock}
+    ${t.app_url
+      // Owner only: the live dashboard, direct deep link into Salesforce.
+      ? `<div class="desc" style="margin-top:10px">
+          <a class="ghost" href="${esc(t.app_url)}" target="_blank" rel="noopener">Open the live dashboard in Salesforce ↗</a>
+          <span class="stat">Opens the same live zero-copy data Tableau Next dashboard in Salesforce.</span>
+        </div>`
+      : t.app_url_owner_only
+        // The link exists server-side; this caller isn't the owner.
+        ? `<div class="desc" style="margin-top:10px"><span class="stat">The <b>live</b> dashboard is embedded in
+            the in-org <b>A2A Lab</b> Salesforce app. Viewing it requires a Salesforce login, so it is shown
+            only to the lab owner during controlled presentations. The screenshot above is that same dashboard,
+            off the same live Zero-Copy lab observability data.</span></div>`
+        : ""}
+  </div>`;
+}
+
+// WS19/M10: mount the live Tableau Next dashboard inline (owner only). Called
+// after obsTableauNextHtml() is in the DOM. Fetches a fresh frontdoor URL from
+// the owner-gated /api/tableau/frontdoor (the Bearer JWT rides the global fetch
+// wrapper), lazy-imports the pinned SDK, initializes with the frontdoor URL as
+// authCredential, and renders the dashboard element. The frontdoor URL never
+// touches localStorage or the page longer than initialize needs it — Salesforce
+// frontdoor URLs are short-lived and single-use, so this runs per mount.
+let _tableauSdkPromise = null;   // the module import — once per page load
+let _tableauSdkInit = null;      // initializeAnalyticsSdk() — once per page load
+async function mountTableauEmbed() {
+  const cfg = (labConfig && labConfig.tableau_next && labConfig.tableau_next.embed) || null;
+  const host = document.getElementById("tableauEmbedHost");
+  if (!cfg || !host) return;   // not the owner, or ECA not wired
+  const fail = (msg) => {
+    host.setAttribute("aria-busy", "false");
+    host.classList.add("tableau-embed-failed");
+    // The screenshot fold is the graceful fallback: open it so the still image
+    // is visible without a click, and explain the gap.
+    document.querySelector(".snapfold")?.setAttribute("open", "");
+    const s = host.querySelector(".tableau-embed-status");
+    if (s) s.innerHTML = `<span class="stat">Inline dashboard unavailable — ${esc(msg)}
+      The <b>Dashboard snapshot</b> below is a still image of the same dashboard off the same live data;
+      the live dashboard link opens it in Salesforce.</span>`;
+  };
+  try {
+    if (!_tableauSdkPromise) _tableauSdkPromise = import(/* @vite-ignore */ cfg.sdk_url);
+    const sdk = await _tableauSdkPromise;
+    // Initialize the SDK exactly ONCE per page load. initializeAnalyticsSdk mints
+    // the framed Salesforce session; calling it again on a re-mount (navigate to
+    // Details and back re-runs this function against a fresh #tableauEmbedHost)
+    // throws — and the frontdoor URL is single-use, so a second fetch+init can't
+    // succeed either. That is why the re-visit errored while a full page refresh
+    // (fresh module state) loaded fine. Cache the init promise so subsequent mounts
+    // reuse the already-established session; once initialized, each new
+    // <analytics-dashboard> element authenticates off the session cookie, not the
+    // frontdoor URL. Only a FAILED init is reset, so a later mount can retry.
+    if (!_tableauSdkInit) {
+      _tableauSdkInit = (async () => {
+        const r = await fetch(apiUrl(cfg.frontdoor_endpoint));
+        if (!r.ok) throw new Error("frontdoor " + r.status);
+        const { frontdoor_uri } = await r.json();
+        if (!frontdoor_uri) throw new Error("no frontdoor URL");
+        const resp = await sdk.initializeAnalyticsSdk({
+          orgUrl: cfg.org_url,
+          authCredential: frontdoor_uri,
+        });
+        if (resp && sdk.Status && resp.status !== sdk.Status.SUCCESS) {
+          throw new Error(resp.message || "SDK init did not succeed");
+        }
+      })();
+      _tableauSdkInit.catch(() => { _tableauSdkInit = null; });
+    }
+    await _tableauSdkInit;
+    // Render the dashboard custom element into the host.
+    host.querySelector(".tableau-embed-status")?.remove();
+    const el = document.createElement("analytics-dashboard");
+    el.setAttribute("id-or-api-name", cfg.dashboard);
+    // Size via the SDK's own `height`/`width` ATTRIBUTES, not inline style: the
+    // component's connectedCallback overwrites `style.height` with its stored
+    // attribute value (default "100%"), so an inline style.height is clobbered on
+    // mount and the internal overflow:auto iframe collapses into a tiny scroll box.
+    el.setAttribute("height", "1000px");
+    el.setAttribute("width", "100%");
+    // Grow the host to match so the container (overflow:hidden) doesn't clip it.
+    host.classList.add("tableau-embed-loaded");
+    el.addEventListener(sdk.EventName.COMPONENT_LOADED, () => host.setAttribute("aria-busy", "false"));
+    el.addEventListener(sdk.EventName.ERROR, (ev) => fail("the Tableau Next runtime returned an error."));
+    host.appendChild(el);
+  } catch (e) {
+    fail((e && e.message ? e.message + "." : "connection failed."));
+  }
+}
+
+function obsTableauNextDetailsHtml() {
+  const md = `### What this dashboard shows
+
+The **Agent Interop Traffic** dashboard visualizes the lab's own wire hops — the same
+\`trace_events\` the console records raw — in **Tableau Next**, over **Salesforce Data 360**.
+It is the M10/WS19 exhibit: an AWS-resident observability store surfaced in a Salesforce
+analytics tool with **no ETL and no copy**.
+
+### How the data gets there — Zero Copy, two grains
+
+Two Aurora views are federated as two Zero-Copy DMOs (Direct_Access — Data 360 queries
+Aurora on demand; nothing is materialized into the Salesforce tenant):
+
+- \`lab.trace_events_zc\` → **A2A_Lab_Trace_Event__dlm** — the **hop grain**, one row per wire hop
+  (scalars only, no jsonb, so residency is structural).
+- \`lab.trace_rollup_zc\` → **A2A_Lab_Trace_Rollup__dlm** — the **trace grain**, one row per trace_id
+  with the aggregation pushed into Aurora. This second DMO exists because the Tableau Semantics
+  calc dialect has **no FIXED/LOD** (D71) — two-level trace-latency aggregation can't be a
+  semantic-model calc, so the rollup is computed in Postgres and federated as its own grain.
+
+A semantic model over both DMOs declares the measures (each an explicit UserAgg); the dashboard
+reads the semantic model. The federation stays **live**: a render fires a real cross-region query
+from the tenant (eu-central-1) back to Aurora (us-east-1). That EU→US round trip is the honest
+latency this exhibit measures — the **L5.8** number in plan/03-results.md.
+
+### Where it runs, and who can open the live view
+
+Two live surfaces, both **owner-only**, plus a screenshot for everyone else:
+
+- **Inline embed (in this tab).** For the owner, the console renders the dashboard *in the page* with
+  the **Tableau Next Embedding SDK** (loaded from a pinned CDN build). The SDK needs a Salesforce
+  session; the console's AWS backend mints one **server-side** so there is no login step: a
+  **JWT-bearer** assertion (signed *as* the Tableau-Next-licensed admin, the ECA's run-as user) is
+  exchanged at \`/services/oauth2/token\` for a token, then at \`/services/oauth2/singleaccess\` for a
+  short-lived **frontdoor URL**, which the SDK takes as its \`authCredential\`. JWT-bearer is required
+  because the exchange needs the **\`web\`** scope and Salesforce's client-credentials flow only ever
+  issues \`api\` — the JWT flow runs in the run-as user's context and so carries the ECA's \`web\` grant.
+  The Salesforce credential never reaches the browser — only the single-use frontdoor URL does — and
+  \`/api/tableau/frontdoor\` that mints it is owner-gated, called fresh per render (frontdoor URLs are
+  short-lived and single-use). The dedicated \`a2a_lab_tab_embed\` External Client App carries that
+  \`web\` scope. Getting the frame to actually render took four separate gates, below (D72).
+- **Deep link (Open in Salesforce).** The in-org **A2A Lab** app's \`/lightning/n/A2A_Lab_Traffic\`
+  tab — an App Builder page that renders the same live dashboard behind a normal Salesforce login.
+  It points at the tab, not the raw dashboard view, because the tab carries the licence + asset-share
+  context the runtime needs: a viewer needs a **Tableau Next** perm set *and* **Data Cloud User**,
+  and the dashboard asset must be shared in Tableau Next, or the runtime throws a generic error.
+
+Both are scrubbed server-side in \`/api/config\` (they name the org my-domain and open a live admin
+session) — the operator and viewers see only the screenshot, the same posture the public component
+links follow (D36).
+
+### Embedding a Tableau Next dashboard on a non-Salesforce site — the four gates that bit
+
+The Embedding SDK reports **"SDK Initialization Complete"** and then shows nothing — a misleading
+success, because the SDK renders through **Lightning Out** (it frames a Salesforce Lightning app in
+an iframe on your origin), and every real gate is downstream of SDK init. In order of discovery, and
+useful for **any** Tableau Next or Lightning Out external embed (D72):
+
+- **1 · TWO CSP allowlists, opposite directions — you need both.** The browser blocks the iframe with
+  \`Refused to frame … violates … frame-ancestors\`. The trap is assuming one CSP lever does the whole
+  job; there are two, on opposite sides of the frame boundary. **\`frame-ancestors\`** (who may *frame
+  the org*) is the one that clears this error, and it is set **only** in **Setup → Session Settings →
+  Clickjack Protection → Trusted Domains for Inline Frames**, origin added with **IFrame Type =
+  LightningOut** — **UI-only**, *not* a field on the \`SecuritySettings\` metadata type. Separately, a
+  **\`CspTrustedSite\` (\`context = LightningOut\`)** governs \`frame-src\`/\`connect-src\`/\`img-src\`/etc.
+  on the framed content — what the dashboard *itself* may load — and ships as metadata. They are
+  complementary, not redundant: Salesforce's own built-in **Slack** Lightning Out embed ships both (a
+  \`*.slack.com\` CspTrustedSite **and** the \`*.slack.com\`/\`*.slack-gov.com\` Trusted-Domains entries),
+  and this lab mirrors it exactly.
+- **2 · Third-party cookies are mandatory.** The framed Salesforce origin is *third-party* to your
+  site, so it can only hold its session if the browser allows third-party cookies. Blocked (Safari
+  default; Chrome phase-out) → the iframe can't authenticate and stays blank. This makes the inline
+  embed **inherently fragile** on locked-down browsers — which is why the deep link + snapshot remain
+  the durable owner path here.
+- **3 · A real Salesforce session, minted server-side.** With no session the SDK falls back to framing
+  bare \`www.salesforce.com\` (which blocks itself via \`X-Frame-Options\`). The console mints one per
+  render — see the JWT-bearer/\`web\`-scope path above — so the failure never reaches the browser.
+- **4 · The SDK clobbers \`style.height\`; size via the *attribute*.** Once framing works the dashboard
+  renders — but tiny, inside its own \`overflow:auto\` scroll box, ignoring the host height. The
+  \`<analytics-dashboard>\` element's \`connectedCallback\` **overwrites inline \`style.height\`** with its
+  stored attribute value (default \`100%\`), so CSS/inline height is wiped on mount. Set the element's
+  **\`height\` attribute** (\`el.setAttribute("height","1000px")\`) — the SDK's own sizing API — not a
+  style, and grow the container to match.
+
+Only gate 1's two allowlists (Trusted Domains for Inline Frames + the LightningOut CspTrustedSite),
+plus CORS and the run-as licence, are org config; gates 2–4 are the embedding client's problem. Same-user proof the pipeline was healthy throughout: the dashboard renders
+fully in the in-org Lightning app for the exact user the frontdoor runs as.
+
+### Provenance
+
+Built headless via the Data 360 SSOT REST API (streams, DMOs, mappings); the connection and
+semantic model were the UI-only steps (D70, D71). The full build record is in
+plan/09-deployment-map.md and the WS19 groundwork notes.`;
+  return `<div class="flow">
+    ${figureHtml("obsTableauFig", "Aurora → Zero Copy → Semantic Model → Tableau Next")}
     ${mdToHtml(md)}
   </div>`;
 }
@@ -2999,8 +3285,8 @@ window.harvestObs = async ev => {
 
 // Watch lab.obs_harvest for platforms whose last_harvest_at is newer than the
 // moment we fired. Each one lands independently, so the panel fills in as they
-// finish rather than all at once — which is also the honest picture of what a
-// seven-source sweep is doing.
+// finish rather than all at once — which is also the honest picture of what an
+// eight-source sweep is doing.
 // Read a JSON response, or explain what actually answered.
 //
 // When something upstream replies instead of the app — the load balancer's 504
@@ -3378,6 +3664,8 @@ function obsSessionDetailHtml() {
 // badge from /api/config (which runtimes /api/run really hits).
 // ---------------------------------------------------------------------------
 let insightsData = { insights: [], categories: [] };  // from /api/insights
+let whatsNextData = { plans: [] };                    // from /api/whats-next
+let whatsNextSub = "run";                             // 'run' (the plans) | 'details'
 let labConfig = null;                                 // from /api/config
 
 // Folded YAML scalars (`evidence: >`) fold a wrapped paragraph to one line and
@@ -3397,6 +3685,16 @@ async function loadInsights() {
     insightsData = await r.json();
     renderInsightsSide();
     if (view && view.type === "insights") renderMain(true);
+  } catch { /* transient — sidebar shows the empty state */ }
+}
+
+async function loadWhatsNext() {
+  try {
+    const r = await fetch(apiUrl("/api/whats-next"));
+    if (r.status === 404) return; // console server predates the What's Next API
+    whatsNextData = await r.json();
+    renderWhatsNextSide();
+    if (view && view.type === "whatsnext") renderMain(true);
   } catch { /* transient — sidebar shows the empty state */ }
 }
 
@@ -4224,6 +4522,40 @@ const OBS_ANALYST_DIAGRAM = `flowchart TB
   MCP <-->|"the agent asks, the server answers"| AG
   AG -->|"save_brief"| BR
   BR --> UI["Console — Observability Analysis"]`;
+
+// WS19/M10: the lab's own wire hops leave Aurora as a live federation, never a
+// copy. The two Zero-Copy DMOs are two GRAINS of the same trace_events table
+// (hop grain + a rollup view, because Tableau Semantics has no FIXED/LOD, D71);
+// the dashboard renders in Tableau Next, in-org, over that live federation. The
+// EU→US arrow is the honest cross-region hop the whole exhibit measures (L5.8).
+const TABLEAU_NEXT_DIAGRAM = `flowchart TB
+  subgraph AWS["AWS — us-east-1 (the lab's cloud)"]
+    TE[("Aurora Postgres · lab.trace_events<br/>every wire hop, raw bytes")]
+    V1["view lab.trace_events_zc<br/>hop grain · scalars only, no jsonb"]
+    V2["view lab.trace_rollup_zc<br/>trace grain · rollup pushed into Aurora"]
+  end
+  subgraph SF["Salesforce Data 360 (tenant · eu-central-1)"]
+    ZC["Zero-Copy federation<br/>Direct_Access — nothing materialized"]
+    D1["DMO A2A_Lab_Trace_Event__dlm<br/>hop grain"]
+    D2["DMO A2A_Lab_Trace_Rollup__dlm<br/>trace grain"]
+    SDM["Semantic model<br/>UserAgg measures (no FIXED/LOD)"]
+  end
+  subgraph CONSOLE["Lab console (AWS — us-east-1)"]
+    FDOOR["/api/tableau/frontdoor (owner-only)<br/>JWT-bearer token (web scope) → /singleaccess<br/>→ short-lived frontdoor URL"]
+    EMBED["Embedding SDK (pinned CDN)<br/>&lt;analytics-dashboard&gt; inline"]
+  end
+  DASH["Tableau Next — 'Agent Interop Traffic'<br/>the dashboard's four tiles"]
+  TE --> V1
+  TE --> V2
+  V1 -->|"federated query, live"| ZC
+  V2 -->|"federated query, live"| ZC
+  ZC --> D1
+  ZC --> D2
+  D1 --> SDM
+  D2 --> SDM
+  SDM --> DASH
+  FDOOR -->|"authCredential (never in browser as a token)"| EMBED
+  DASH -->|"EU→US federated read on render (L5.8)"| EMBED`;
 
 const COST_SENTINEL_DIAGRAM = `flowchart TB
   subgraph LOCAL["Coding agents — any checkout, any machine"]
@@ -6365,6 +6697,150 @@ window.openInsights = cat => {
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 };
 
+// ---------------------------------------------------------------------------
+// What's Next — roadmap-horizon plans (config/whats_next.yaml). A tile grid
+// like Insights (not a tab-per-plan, which wouldn't scale), with a Details
+// sub-tab per D57. Each tile carries logo-marked platform chips, spec chips,
+// and D<n>/WS chips that open the decision or the workstream — the graduation
+// trail from "idea" to "workstream". The section is deliberately LAST in the
+// nav: it is where the lab goes, not what it has already delivered.
+// ---------------------------------------------------------------------------
+const WN_HORIZON_ORDER = ["in-flight", "planned", "exploring"];
+const WN_HORIZON_LABEL = {
+  "in-flight": "in flight", planned: "planned", exploring: "exploring",
+};
+
+window.whatsNextNav = ev => {
+  const here = !!(view && view.type === "whatsnext");
+  if (!sectionHeaderClick(ev, "accWhatsNext", here) || here) return;
+  pushNav();
+  whatsNextSub = "run";   // a tab opens on its content, never on Details (D57)
+  view = { type: "whatsnext" };
+  renderSidebar(); renderMain(true);
+};
+
+window.setWhatsNextSub = s => { whatsNextSub = s; renderMain(true); };
+
+function wnPlansByHorizon() {
+  const groups = {};
+  for (const p of whatsNextData.plans || [])
+    (groups[p.horizon || "exploring"] ||= []).push(p);
+  const known = WN_HORIZON_ORDER.filter(h => groups[h]);
+  const extra = Object.keys(groups).filter(h => !WN_HORIZON_ORDER.includes(h));
+  return [...known, ...extra].map(h => [h, groups[h]]);
+}
+
+function renderWhatsNextSide() {
+  const el = document.getElementById("whatsNextSide");
+  if (!el) return;
+  const groups = wnPlansByHorizon();
+  el.innerHTML = groups.map(([h, items]) => `
+    <div class="ins-cat" onclick="whatsNextNav()" title="Open What's Next">
+      <span class="cname"><span class="wn-dot ${esc(h)}"></span>${esc(WN_HORIZON_LABEL[h] || h)}</span>
+      <span class="cnum">${items.length}</span>
+    </div>`).join("") || `<div class="empty" style="padding:12px">No plans yet — config/whats_next.yaml.</div>`;
+  const count = document.getElementById("whatsNextCount");
+  const total = (whatsNextData.plans || []).length;
+  if (count) count.textContent = total ? String(total) : "";
+}
+
+// D<n> chips linkify via the MutationObserver for free; WS ids do not, so a
+// workstream ref is rendered as an explicit doc chip that opens plan/07.
+function wnPlanCardHtml(p) {
+  const chips = tagChipsHtml(p.platforms) + tagChipsHtml(p.specs);
+  const wsChip = p.workstream
+    ? `<button type="button" class="dchip docchip" data-doc="plan/07-workstreams.md"
+         title="Open the workstream">${esc(p.workstream)}</button>` : "";
+  const refChips = (p.refs || []).map(r =>
+    r.endsWith(".md")
+      ? `<button type="button" class="dchip docchip" data-doc="${esc(r)}">${esc(r)}</button>`
+      // D<n> tokens: rendered as plain text and upgraded to a real decision
+      // chip by linkifyDecisions, so the popover matches every other D-chip.
+      : `<span class="wn-ref">${esc(r)}</span>`).join("");
+  return `
+  <div class="ins-card">
+    <div class="head">
+      <h4>${withLogos(p.title || p.id || "untitled")}</h4>
+      <span class="ins-status wn-${esc(p.horizon || "exploring")}">${esc(WN_HORIZON_LABEL[p.horizon] || p.horizon || "exploring")}</span>
+    </div>
+    <div class="evid md">${mdToHtml(prose(p.pitch))}</div>
+    ${p.payoff ? `<div class="take">
+      <div class="lbl">What the lab would learn</div>
+      <div class="md">${mdToHtml(prose(p.payoff))}</div>
+    </div>` : ""}
+    ${chips ? `<div class="refs">${chips}</div>` : ""}
+    ${(wsChip || refChips) ? `<div class="refs">${wsChip}${refChips}</div>` : ""}
+  </div>`;
+}
+
+function whatsNextSubTabs() {
+  return `<div class="tabs" style="margin:10px 0 4px">
+    <button class="tab ${whatsNextSub !== "details" ? "on" : ""}" onclick="setWhatsNextSub('run')">What's Next</button>
+    <button class="tab ${whatsNextSub === "details" ? "on" : ""}" onclick="setWhatsNextSub('details')">Details</button>
+  </div>`;
+}
+
+function whatsNextHtml() {
+  const bar = `
+  <div class="crumbs">${backBtnHtml()}<span class="crumb here">What's Next</span></div>
+  <div class="tabbar"><h2>What's Next — where this lab goes from here</h2></div>
+  ${whatsNextSubTabs()}`;
+  if (whatsNextSub === "details") return bar + whatsNextDetailsHtml();
+  const groups = wnPlansByHorizon();
+  return bar + `
+  ${groups.length ? groups.map(([h, items]) => `
+  <div class="flow" id="wnhz-${esc(h)}">
+    <h3><span class="wn-dot ${esc(h)}"></span>${esc(WN_HORIZON_LABEL[h] || h)}
+      <span style="text-transform:none;letter-spacing:0"> · ${items.length} plan${items.length === 1 ? "" : "s"}</span></h3>
+    <div class="ins-grid">${items.map(wnPlanCardHtml).join("")}</div>
+  </div>`).join("") : `<div class="empty">No plans recorded yet — add them to config/whats_next.yaml.</div>`}`;
+}
+
+function whatsNextDetailsHtml() {
+  return `
+  <div class="detail">
+  <div class="hint" style="margin:10px 0 16px">What the What's Next section is, how a plan becomes a
+  workstream, and where its content comes from.</div>
+
+  <h3>What this section is</h3>
+  <p class="hint">The lab's roadmap HORIZON — the answer to "what else are you going to do here?".
+  It sits apart from DevOps on purpose: DevOps (This A2A Lab Project, WS17/D60) is how the lab is
+  built and delivered — the committed workstreams and the board generated from them. This is where it
+  GOES next, at a higher altitude than any single workstream, and less detailed by design.</p>
+
+  <h3>How a plan graduates</h3>
+  <p class="hint">A plan starts as <b>exploring</b> (an idea being pressure-tested, no workstream yet),
+  becomes <b>planned</b> once it is accepted as a workstream, and <b>in flight</b> while it is being
+  built. As it graduates it picks up a workstream in plan/07-workstreams.md and decisions in
+  plan/00-decisions.md — the WS and D chips on each tile are that trail. Two of the current plans are
+  already workstreams: the MuleSoft Agent Fabric comparison (WS10) and the Data 360 Zero Copy →
+  Tableau Next build (WS19, in flight, D69/D70).</p>
+
+  <h3>What produces this section</h3>
+  <div class="tbl-card"><div class="tbl-scroll">
+  <table class="obs-table">
+    <thead><tr><th>concern</th><th>answer</th></tr></thead>
+    <tbody>
+      <tr><td><b>Source of truth</b></td>
+          <td>the plans are authored in <code>config/whats_next.yaml</code> — one entry per plan, with
+              its horizon, pitch, payoff, platforms, specs and refs</td></tr>
+      <tr><td><b>Who reads it, as what</b></td>
+          <td>the console serves it at <code>GET /api/whats-next</code> (loader
+              <code>src/console/whats_next.py</code>), read from config on every request so an operator
+              adding a plan sees it on refresh; no auth gate — it is public roadmap</td></tr>
+      <tr><td><b>Where it is stored</b></td>
+          <td>nowhere else — there is no database row. The yaml file IS the record, and
+              <code>config/</code> is baked into the console image by the Dockerfile's COPY</td></tr>
+      <tr><td><b>Chips</b></td>
+          <td>platform/spec chips reuse the console's badge + logo primitives; <code>D&lt;n&gt;</code>
+              and <code>plan/*.md</code> refs linkify to the ADR and doc popovers automatically</td></tr>
+      <tr><td><b>What bounds it</b></td>
+          <td>a plan here is a stated intention, not a measured result — the moment it produces
+              measurements they belong in the Insights feed (plan/08-insights.md), not here</td></tr>
+    </tbody></table></div></div>
+  </div>`;
+}
+
 function renderInsightsSide() {
   const el = document.getElementById("insightsSide");
   if (!el) return;
@@ -6779,7 +7255,7 @@ function renderWarmPanel() {
     </div>`;
 }
 
-function renderSidebar() { renderScenarios(); renderTargets(); renderList(); renderObsSide(); renderInsightsSide(); renderProjectSide(); renderRegistrySide(); }
+function renderSidebar() { renderScenarios(); renderTargets(); renderList(); renderObsSide(); renderInsightsSide(); renderWhatsNextSide(); renderProjectSide(); renderRegistrySide(); }
 
 // Two-step clear (no native confirm() dialog): first click arms the button,
 // second click within 4s deletes traces/*.jsonl via the API.
@@ -7132,6 +7608,28 @@ window.openTrace = tid => {
   pushNav();
   view = { type: "trace" }; selected = tid; renderSidebar(); renderMain();
 };
+
+// Fetch ONE trace by id, windowless (/api/traces/{id}), for links from old
+// Observations whose trace predates the recent /api/traces window. Idempotent:
+// dedups in-flight fetches and records a confirmed miss so the "not found" state
+// is a real 404, never an un-fetched window gap. Re-renders only if the trace
+// view is still showing this id when the fetch lands.
+async function ensureTrace(tid) {
+  if (!tid || traceFetchInFlight.has(tid) || traceFetchMisses.has(tid)) return;
+  if (traces.some(t => t.trace_id === tid)) return;
+  traceFetchInFlight.add(tid);
+  try {
+    const r = await fetch(apiUrl("/api/traces/" + encodeURIComponent(tid)));
+    if (r.ok) {
+      const data = await r.json();
+      if (data.trace && !traces.some(t => t.trace_id === tid)) traces.unshift(data.trace);
+    } else if (r.status === 404) {
+      traceFetchMisses.add(tid);
+    }
+  } catch { /* transient — a later click retries (not marked a miss) */ }
+  finally { traceFetchInFlight.delete(tid); }
+  if (view && view.type === "trace" && selected === tid) { renderList(); renderMain(); }
+}
 window.setTab = tab => { activeTab = tab; renderMain(); };
 window.selectTurn = tid => {
   selected = tid;
@@ -7541,16 +8039,37 @@ function renderMain(force) {
   if (view.type === "trace") {
     mainKey = "trace";
     const t = traces.find(x => x.trace_id === selected);
-    el.innerHTML = t ? `
-      <div class="detail-head">${backBtnHtml()}<div class="tid">trace ${t.trace_id}</div></div>
-      ${traceSectionHtml(t, "Call path")}` :
-      `<div class="crumbs">${backBtnHtml()}</div><div class="empty">Trace not found.</div>`;
+    if (t) {
+      el.innerHTML = `
+        <div class="detail-head">${backBtnHtml()}<div class="tid">trace ${t.trace_id}</div></div>
+        ${traceSectionHtml(t, "Call path")}`;
+    } else if (traceFetchMisses.has(selected)) {
+      // Confirmed absent from BOTH stores (windowless lookup 404'd) — a real
+      // "not found", not just outside the recent trace list.
+      el.innerHTML =
+        `<div class="crumbs">${backBtnHtml()}</div><div class="empty">Trace not found.</div>`;
+    } else {
+      // Linked traces from old Observations predate /api/traces' recent window,
+      // so they aren't in the in-memory list. Fetch the one trace by id
+      // (windowless) and re-render when it lands. This runs at first paint AND
+      // on nav-restore, so it must be idempotent — ensureTrace dedups in-flight.
+      el.innerHTML =
+        `<div class="crumbs">${backBtnHtml()}</div><div class="empty">Loading trace…</div>`;
+      ensureTrace(selected);
+    }
     return;
   }
 
   if (view.type === "insights") {
     mainKey = "insights";
     el.innerHTML = insightsHtml();
+    return;
+  }
+
+  if (view.type === "whatsnext") {
+    mainKey = `whatsnext:${whatsNextSub}`;
+    el.innerHTML = whatsNextHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
     return;
   }
 
@@ -7610,31 +8129,47 @@ function renderMain(force) {
       el.innerHTML = obsCrumbsHtml() + obsSessionDetailHtml();
     } else if (view.platform) {
       el.innerHTML = obsCrumbsHtml() + obsDashboardHtml() + obsSessionsHtml(view.platform);
-    } else if (!obsHasData()) {
-      // First-run: explain the pipeline instead of an empty dashboard.
+    } else if (!obsHasData() && (obs.tab || "dashboard") !== "tableau") {
+      // First-run: explain the pipeline instead of an empty dashboard. The
+      // Tableau Next tab is exempt — its exhibit is the Zero-Copy federation,
+      // not the harvest store, so it has content even before the first sweep.
       el.innerHTML = obsCrumbsHtml() + obsPipelineHtml(false);
     } else {
       const tab = obs.tab || "dashboard";
       const kind = OBS_TAB_KIND[tab];
       const details = obs.sub === "details";
-      const pane = kind
-        ? (details ? obsBriefDetailsHtml(kind) : obsBriefsHtml(kind))
+      let pane;
+      if (tab === "tableau") {
+        // WS19/M10: not a brief and not the harvest dashboard — its own thing
+        // (the Zero-Copy → Tableau Next exhibit), with its own Details pane.
+        pane = details ? obsTableauNextDetailsHtml() : obsTableauNextHtml();
+      } else if (kind) {
+        pane = details ? obsBriefDetailsHtml(kind) : obsBriefsHtml(kind);
+      } else {
         // "How observability works" belongs in Details — that is what Details
         // is for. The dashboard tab shows the numbers; Details explains the
         // pipeline that produced them.
-        : (details
-            // The high-level flow first — the four stages at a glance — then
-            // the architecture beneath it, then the prose. They answer
-            // different questions: what happens, what it runs on, what limits
-            // it. Additive on purpose.
+        //
+        // The high-level flow first — the four stages at a glance — then
+        // the architecture beneath it, then the prose. They answer
+        // different questions: what happens, what it runs on, what limits
+        // it. Additive on purpose.
+        pane = details
             ? obsPipelineHtml(true) + obsDashboardDetailsHtml()
-            : obsDashboardHtml() + obsSessionsHtml(null));
+            : obsDashboardHtml() + obsSessionsHtml(null);
+      }
       el.innerHTML = obsCrumbsHtml() + obsTabsHtml() + obsSubTabsHtml()
         + `<div class="tabpanel">${pane}</div>`;
       // The Details pane carries an architecture figure; mermaid renders after
       // the markup is in the DOM.
+      if (!details && tab === "tableau") {
+        // Owner-only inline embed; no-op for everyone else / when unwired.
+        mountTableauEmbed();
+      }
       if (details) {
-        if (kind) {
+        if (tab === "tableau") {
+          renderMermaidInto("obsTableauFig", TABLEAU_NEXT_DIAGRAM, "obsfig-tableau");
+        } else if (kind) {
           const meta = BRIEF_META[kind];
           if (meta && meta.diagram) renderMermaidInto("obsBriefFig", meta.diagram(), `obsfig-${kind}`);
         } else {

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExternalClientApplication xmlns="http://soap.sforce.com/2006/04/metadata">
+    <contactEmail>congmingwudi+a2alab@gmail.com</contactEmail>
+    <description>A2A lab: Tableau Next inline embed in the lab console. Client-credentials token, exchanged at /services/oauth2/singleaccess for a frontdoor URL (needs the `web` scope). Owner-only, WS19/M10.</description>
+    <distributionState>Local</distributionState>
+    <isProtected>false</isProtected>
+    <label>a2a_lab_tab_embed</label>
+</ExternalClientApplication>

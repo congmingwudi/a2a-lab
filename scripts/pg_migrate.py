@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from dotenv import load_dotenv  # noqa: E402
 
 from observability.pg import DDL as OBS_DDL  # noqa: E402
-from observability.pg import SCHEMA, PgClient  # noqa: E402
+from observability.pg import ROLE_GRANTS, SCHEMA, PgClient  # noqa: E402
 
 MASTER_SECRET_ENV = "A2ALAB_PG_MASTER_SECRET_ARN"
 
@@ -57,6 +57,12 @@ def _all_ddl() -> list[str]:
     from fanout_mcp.tasks import DDL_INDEX as FANOUT_INDEX
 
     ddl.extend([FANOUT_DDL, FANOUT_INDEX])
+    # lab_reader's federation posture (D69/WS19) runs AFTER the tables exist —
+    # GRANT SELECT ON ALL TABLES and the DEFAULT PRIVILEGES only bind tables the
+    # CREATE statements above have already made. Same owner identity, same
+    # idempotent one-statement-per-entry shape as DDL, so it belongs in the same
+    # apply loop rather than a second script nobody remembers to run (D46).
+    ddl.extend(ROLE_GRANTS)
     return ddl
 
 

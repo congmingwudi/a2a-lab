@@ -1,0 +1,118 @@
+# What's Next — the lab's roadmap horizon, published in the console's
+# "What's Next" section. These are the answer to "where do you go from
+# here?" — higher-altitude than a workstream and deliberately less detailed:
+# a plan graduates INTO a workstream (plan/07-workstreams.md) and picks up
+# decisions (plan/00-decisions.md) as it gets built, and the chips below track
+# that graduation. An entry with a `workstream:` has already crossed that line.
+#
+# This file is the single source of truth for the section (served at
+# GET /api/whats-next); config/ is COPYd into the console image, so a new plan
+# here ships with the next console rebuild — no code change needed.
+#
+# horizon legend — HOW FAR ALONG the plan is, not how important it is:
+#   exploring   an idea being pressure-tested; no workstream yet
+#   planned     accepted into the roadmap as a workstream, build not started
+#   in-flight   actively being built right now
+#
+# Each entry:
+#   title      the plan, one line
+#   pitch      what it is (the one-line statement of the plan)
+#   payoff     what the lab would LEARN from it — the reason it's on the list
+#   platforms  vendor/platform tags → rendered as logo-marked chips (withLogos
+#              / tagChipsHtml); use the same tag ids the rest of the console
+#              does (claude, openai, adk, foundry, salesforce, aws, ...)
+#   specs      relevant protocols/specifications → chips (a2a, mcp, ...)
+#   workstream (optional) the WS id once it has graduated; renders a chip that
+#              opens plan/07-workstreams.md
+#   refs       (optional) D<n> and plan/*.md tokens — chip automatically via the
+#              console's linkifier, same as insights refs
+
+plans:
+  - id: mulesoft-agent-fabric
+    title: MuleSoft Agent Fabric vs the lab's own AWS control plane
+    horizon: planned
+    pitch: >
+      Stand up MuleSoft's Agent Fabric against the agents this lab already
+      built and point a bought "manage-your-A2A" product — registry, security,
+      governance, observability — at the same fleet the lab governs with custom
+      AWS plumbing.
+    payoff: >
+      A like-for-like read on build-vs-buy for agent-to-agent operations: where
+      a productised fabric already does what the lab hand-rolled (Agent Fabric
+      has independently productised four mechanisms the lab built), and where
+      its own shape — an Omni Gateway that cannot easily present the SigV4-only
+      AWS control plane — meets the seams the lab exists to expose.
+    platforms: [salesforce, aws]
+    specs: [a2a, mcp]
+    workstream: WS10
+    refs: [plan/07-workstreams.md]
+
+  - id: agent-memory-across-platforms
+    title: How each agent platform does agent memory
+    horizon: exploring
+    pitch: >
+      Run the same "remember this across turns / across sessions" probe against
+      every platform in the lab and record what each actually persists, where it
+      lives, and who can read it back.
+    payoff: >
+      Memory is the next axis the lab has not measured. The same cross-vendor
+      seam that makes delegation interesting applies here: whose store, under
+      whose trust boundary, surviving which hops — and whether memory travels
+      with a delegated request or stays stranded on the platform that holds it.
+    platforms: [claude, openai, adk, foundry, salesforce]
+    specs: []
+
+  - id: agent-plugins-spec
+    title: Agent Plugins spec support across the platforms
+    horizon: exploring
+    pitch: >
+      Track how Anthropic, OpenAI, Google and AWS support — or plan to support —
+      the vendor-neutral Agent Plugins specification (agentplugins/
+      agent-plugins-spec), and test whether a plugin authored once loads across
+      more than one platform in the lab.
+    payoff: >
+      A live read on whether a shared plugin/skill package is real portability
+      or paper agreement. It also lets the lab watch how these standards actually
+      form — the spec was structurally derived from Claude Code's plugin format,
+      which is de-facto adoption of whoever's format was concrete enough to copy,
+      the same pattern SKILL.md is riding.
+    platforms: [anthropic, openai, gcloud, aws]
+    specs: [agent-plugins, mcp]
+
+  - id: datacloud-tableau-next
+    title: Zero Copy the obs store into Data Cloud → Tableau Next + Analytics Agent
+    horizon: in-flight
+    pitch: >
+      Federate the lab's observability database into Salesforce Data 360 with
+      Zero Copy — no ETL, no second copy — put a semantic model over it, and
+      analyse the cross-platform traces in Tableau Next and with the native
+      Salesforce Analytics Agent.
+    payoff: >
+      Two readings of the same truth that Zero Copy guarantees can never
+      diverge: the trace viewer is the wire-level, per-hop record; Data 360 plus
+      Tableau is the business-analytics rollup a Salesforce analyst would use —
+      federated in place so rows never leave us-east-1.
+    platforms: [salesforce, aws]
+    specs: []
+    workstream: WS19
+    refs: [D69, D70, plan/03-results.md, plan/07-workstreams.md]
+
+  - id: claude-science-overlays
+    title: Claude Science patterns overlaid on the lab's insights + method
+    horizon: planned
+    pitch: >
+      Borrow the provenance and review ideas from Anthropic's Claude Science
+      workbench and apply them to the lab: derive an insight's evidence tier
+      from whether its backing artifact re-executes, run an actor-critic
+      reviewer over insights.yaml, and name session-forking as a repeatable
+      experiment method.
+    payoff: >
+      Claude Science is a reference architecture for a vertical workbench applied
+      to a domain nobody has packaged. What transfers is the epistemics, not the
+      biology: a claim's tier should be a property you can test by re-running,
+      not a label an author typed — the same trust-under-pressure move as the
+      cost sentinel refusing a comparison it could not back.
+    platforms: [anthropic]
+    specs: []
+    workstream: WS20
+    refs: [plan/07-workstreams.md, plan/08-insights.md]

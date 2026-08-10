@@ -431,17 +431,20 @@ flowchart LR
         SC["a2alab/runtime/claude"]
         SO["a2alab/runtime/openai"]
         SS["a2alab/runtime/shim"]
+        SCON["a2alab/runtime/console"]
     end
 
     ACC["AgentCore: Claude"] --> SC
     ACO["AgentCore: OpenAI"] --> SO
     HSHIM["Hosted A2A shim"] --> SS
+    CON["Console"] --> SCON
     HARV["Obs harvest"] --> SH["harvest secret (D23)"]
 
     SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
     SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
+    SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
 ```
 
 ### Agent-to-agent graphs grow edges nobody drew — govern the actual topology, not the diagram
@@ -565,28 +568,33 @@ flowchart LR
         SC["a2alab/runtime/claude"]
         SO["a2alab/runtime/openai"]
         SS["a2alab/runtime/shim"]
+        SCON["a2alab/runtime/console"]
     end
 
     ACC["AgentCore: Claude"] --> SC
     ACO["AgentCore: OpenAI"] --> SO
     HSHIM["Hosted A2A shim"] --> SS
+    CON["Console"] --> SCON
     HARV["Obs harvest"] --> SH["harvest secret (D23)"]
 
     SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
     SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
+    SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
 ```
 
 ## Observability
 
 ### Cross-platform agent observability is radically uneven — federate agents and you own the audit trail
 
-*Status: observed · refs: D7, D18, D22, D31, plan/05-observability.md, plan/07-workstreams.md*
+*Status: observed · refs: D7, D18, D22, D31, D67, plan/05-observability.md, plan/07-workstreams.md*
 
-**What the lab showed:** Harvested side by side, five platforms give five different answers to "what did my agent do?". Salesforce exposes the richest queryable telemetry (full SQL over sessions/steps/LLM calls, but requires Data Cloud); Anthropic exposes the deepest per-session detail (thinking and tool events, but no aggregation API and pagination-walk discovery only); and OpenAI's trace dashboard is write-only with no read API, so your own tracing is the system of record.
+**What the lab showed:** Harvested side by side, six platforms give six different answers to "what did my agent do?". Salesforce exposes the richest queryable telemetry (full SQL over sessions/steps/LLM calls, but requires Data Cloud); Anthropic exposes the deepest per-session detail (thinking and tool events, but no aggregation API and pagination-walk discovery only); and OpenAI's trace dashboard is write-only with no read API, so your own tracing is the system of record.
 
 Google's column (2026-07-20) is the inverse shape — no session/turn API on the preview A2A surface, but Cloud Monitoring hands over token counts per model AND the literal billing meters (vCPU/GiB-seconds), so the lab can estimate a daily dollar cost the rich-session platforms expose no surface for. Microsoft's (2026-07-23) is the field's best so far: connect App Insights and every run emits agent-semantic OpenTelemetry gen_ai spans over KQL — invoke_agent, chat (per-call tokens and full messages), execute_tool — and the response id doubles as the lab's platform_ref, joining platform-interior spans to wire traces with no extra plumbing.
+
+AWS Strands (2026-08-04, D67/WS5) is a sixth shape again: no vendor session API at all, so it is observed only through its HOST cloud — CloudWatch/Bedrock meters — with a null platform_ref and a runtime-level rollup rather than a per-turn trail. Where you run the agent, not who built it, decides what you can see.
 
 **Advisor take:** "Can you audit what your agents did across platforms?" is usually unanswerable today. Any multi-platform agent estate needs its own trace layer: a correlation id on every hop, raw payloads recorded, platform logs harvested where APIs exist. Budget for this on day one.
 

@@ -9,6 +9,7 @@ launching experiments.
 - GET  /api/targets   runnable targets from config/targets.yaml
 - GET  /api/scenarios primary demo scenarios + nav groups from config/scenarios.yaml
 - GET  /api/insights  trusted-advisor findings from config/insights.yaml
+- GET  /api/whats-next roadmap-horizon plans from config/whats_next.yaml
 - GET  /api/config    active deployment mode (A2ALAB_MODE) + target remaps
 - POST /api/run       run a scenario or one cell (custom prompt, live trace)
 - POST /api/warmup/{name} pre-warm a hosted runtime; every duration recorded
@@ -34,6 +35,7 @@ import yaml
 
 from console import reviews
 from console.insights import by_category, load_insights, to_markdown
+from console.whats_next import load_plans
 from interop import af_channel, delegation
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, new_trace_id
@@ -547,6 +549,143 @@ def _lightning_domain() -> str | None:
     return "https://" + dom.replace(".my.salesforce.com", ".lightning.force.com")
 
 
+def _my_salesforce_domain() -> str | None:
+    """The `*.my.salesforce.com` instance domain — the OAuth/token host, NOT
+    the Lightning domain. `/services/oauth2/token` and `/singleaccess` live
+    here (Single Access rejects login.salesforce.com / test.salesforce.com)."""
+    dom = os.environ.get("SF_MY_DOMAIN", "").replace("https://", "").rstrip("/")
+    if not dom:
+        return None
+    return "https://" + dom
+
+
+# WS19/M10: the Tableau Next Embedding SDK is loaded from this pinned CDN build
+# (Salesforce's own reference example pins the same 2.0.0). It is a bare ES
+# module the browser imports directly — our console is static, no bundler — so
+# the version lives here, not in a package.json. The dashboard's API name is
+# fixed in the org (New_Dashboard); orgUrl must be the LIGHTNING domain.
+TABLEAU_SDK_URL = (
+    "https://cdn.jsdelivr.net/npm/@salesforce/analytics-embedding-sdk@2.0.0"
+    "/dist/sdk-bundle.module.js"
+)
+TABLEAU_DASHBOARD_API_NAME = os.environ.get("TABLEAU_DASHBOARD_API_NAME", "New_Dashboard")
+# The "open in Salesforce" deep link points at the in-org custom TAB
+# (CustomTab A2A_Lab_Traffic) rather than the raw /tableau/dashboard view: the
+# tab is an App Builder page that carries the licence/perm-set + asset-share
+# context the dashboard needs to render, so it is the surface that actually
+# works for a signed-in admin. Tab api-name from env so the org is never a
+# literal here.
+TABLEAU_APP_TAB = os.environ.get("TABLEAU_APP_TAB", "A2A_Lab_Traffic")
+
+
+# The JWT `aud` for the token exchange is the login authorization server, NOT
+# the My Domain host — the JWT-bearer assertion is validated against
+# login.salesforce.com. Overridable for a sandbox (test.salesforce.com).
+TAB_EMBED_JWT_AUD = os.environ.get("SF_LOGIN_URL", "https://login.salesforce.com")
+# Local fallback path for the signing key (hosted uses the env var below, shipped
+# through Secrets Manager like the lab JWT key — never on the task definition).
+TAB_EMBED_KEY_ENV = "A2ALAB_TAB_EMBED_JWT_KEY"
+TAB_EMBED_KEY_FILE = Path(".a2alab/tab_embed_jwt_private.pem")
+
+
+def _tab_embed_signing_key() -> str | None:
+    """The RSA private key that signs the JWT-bearer assertion. Env wins (hosted,
+    via Secrets Manager), else the gitignored local keypair — same precedence as
+    interop.identity._private_key."""
+    from_env = os.environ.get(TAB_EMBED_KEY_ENV)
+    if from_env:
+        return from_env.replace("\\n", "\n")
+    if TAB_EMBED_KEY_FILE.exists():
+        return TAB_EMBED_KEY_FILE.read_text()
+    return None
+
+
+def _tableau_embed_configured() -> bool:
+    """True when the console can mint a frontdoor URL for the inline embed.
+
+    The frontdoor exchange (/singleaccess) needs a token carrying the `web`
+    scope, and Salesforce's client-credentials flow only ever issues `api` — so
+    the embed uses the JWT-BEARER flow against the dedicated `a2a_lab_tab_embed`
+    ECA, which runs in the `sub` user's context and so carries the ECA's `web`
+    grant (proven 2026-08-09: token scope `web api`, /singleaccess → 200). That
+    needs three things: the ECA consumer key (`iss`), the run-as username
+    (`sub`), and the signing key whose public cert is on the ECA. Absent any of
+    them the embed is not offered — the deep link and screenshot stand on their
+    own (D37/F6 per-caller identity)."""
+    have = bool(
+        os.environ.get("SF_CLIENT_ID_TAB_EMBED")
+        and os.environ.get("SF_TAB_EMBED_RUNAS_USER")
+        and _tab_embed_signing_key()
+    )
+    return have and bool(_my_salesforce_domain())
+
+
+async def _mint_frontdoor_url() -> str:
+    """Mint a fresh, short-lived Salesforce frontdoor URL for the embed (WS19).
+
+    Two hops, both server-side so no SF credential reaches the browser:
+    a JWT-BEARER token (grant_type urn:ietf:params:oauth:grant-type:jwt-bearer),
+    signed locally as the run-as user, exchanged at /services/oauth2/token →
+    that token carries the ECA's `web` scope (the JWT flow runs in the `sub`
+    user's context, unlike client-credentials which only ever gets `api`) →
+    POST /services/oauth2/singleaccess → the `frontdoor_uri`. That URL logs the
+    browser into the run-as user's session and is what the SDK takes as
+    `authCredential`. Frontdoor URLs are short-lived and single-use, so this is
+    called PER render — never cached.
+    """
+    import time
+
+    import jwt as pyjwt
+
+    domain = _my_salesforce_domain()
+    if not domain:
+        raise HTTPException(status_code=503, detail="SF_MY_DOMAIN not set")
+    client_id = os.environ.get("SF_CLIENT_ID_TAB_EMBED")
+    run_as = os.environ.get("SF_TAB_EMBED_RUNAS_USER")
+    key = _tab_embed_signing_key()
+    if not (client_id and run_as and key):
+        raise HTTPException(status_code=503, detail="Tableau embed JWT credentials not set")
+    now = int(time.time())
+    assertion = pyjwt.encode(
+        {"iss": client_id, "sub": run_as, "aud": TAB_EMBED_JWT_AUD, "exp": now + 180},
+        key,
+        algorithm="RS256",
+    )
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        tok = await http.post(
+            f"{domain}/services/oauth2/token",
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": assertion,
+            },
+        )
+        if tok.status_code != 200:
+            raise HTTPException(
+                status_code=502, detail=f"SF token exchange failed: {tok.text[:200]}"
+            )
+        payload = tok.json()
+        access = payload["access_token"]
+        instance = payload.get("instance_url", domain).rstrip("/")
+        fd = await http.post(
+            f"{instance}/services/oauth2/singleaccess",
+            headers={
+                "Authorization": f"Bearer {access}",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+        )
+        if fd.status_code != 200:
+            raise HTTPException(
+                status_code=502, detail=f"SF frontdoor exchange failed: {fd.text[:200]}"
+            )
+        uri = fd.json().get("frontdoor_uri")
+        if not uri:
+            raise HTTPException(
+                status_code=502, detail="SF frontdoor response had no frontdoor_uri"
+            )
+        return uri
+
+
 def _managed_agent_id() -> str | None:
     aid = os.environ.get("CLAUDE_MANAGED_AGENT_ID")
     if aid:
@@ -887,6 +1026,67 @@ def _merged_events() -> list[dict]:
         if key not in seen:
             events.append(ev)
     return events
+
+
+def _read_remote_trace(trace_id: str) -> list[dict]:
+    """Fetch ONE trace's hops from Aurora by id, with NO time window — the
+    windowless companion to _read_remote_events(). /api/traces caps its Aurora
+    read at a recent window (full jsonb payloads under the Data API's 1 MB
+    result ceiling), so a trace linked from an OLD execution — Observations
+    span days, that window is hours — is absent from the trace list and the UI
+    renders "Trace not found". A single trace is small and its id is exact, so
+    keying on trace_id alone stays well under the result cap regardless of age."""
+    try:
+        from observability.pg import SCHEMA, PgClient
+
+        if not PgClient.configured():
+            return []
+        if _remote["client"] is None:
+            _remote["client"] = PgClient.from_env()
+        rows = _remote["client"].execute(
+            f"""SELECT trace_id, hop_seq, ts, source, target, protocol,
+                       transport_detail, status, latency_ms, platform_ref,
+                       request_payload_raw::text AS request_payload_raw,
+                       response_payload_raw::text AS response_payload_raw
+                FROM {SCHEMA}.trace_events
+                WHERE trace_id = :tid ORDER BY hop_seq, ts""",
+            {"tid": trace_id},
+        )
+    except Exception:
+        return []
+    for row in rows:
+        for key in ("request_payload_raw", "response_payload_raw"):
+            if isinstance(row.get(key), str):
+                try:
+                    row[key] = json.loads(row[key])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+    return rows
+
+
+def _trace_by_id(trace_id: str) -> dict | None:
+    """One trace's hops, local jsonl + Aurora, deduped — same entry shape as
+    /api/traces returns, but windowless (see _read_remote_trace). Returns None
+    when neither store holds the id."""
+    local = [e for e in _read_events() if e.get("trace_id") == trace_id]
+    seen = {
+        (e.get("hop_seq"), round(e.get("ts") or 0, 4), e.get("source"), e.get("target"))
+        for e in local
+    }
+    evs = list(local)
+    for ev in _read_remote_trace(trace_id):
+        key = (ev.get("hop_seq"), round(ev.get("ts") or 0, 4), ev.get("source"), ev.get("target"))
+        if key not in seen:
+            evs.append(ev)
+    if not evs:
+        return None
+    evs.sort(key=lambda e: (e.get("ts", 0), e.get("hop_seq", 0)))
+    return {
+        "trace_id": trace_id,
+        "started": evs[0].get("ts"),
+        "hops": evs,
+        "protocols": sorted({e.get("protocol", "?") for e in evs}),
+    }
 
 
 # ---- role enforcement (WS6 U3, console half; role model per D36) -----------
@@ -1375,6 +1575,20 @@ def create_console_app(registry: Registry | None = None):
         role = identity.load_users().get(sub, {}).get("role")
         return identity.is_operator_role(role)
 
+    def _is_owner(request: Request) -> bool:
+        """The lab OWNER alone (role 'master of the universe') — narrower than
+        _is_operator. Gates the in-org "A2A Lab" app deep link, which names the
+        org my-domain and lands on a Salesforce login only the owner can pass;
+        the operator (Ana) sees the dashboard screenshot but not the link."""
+        from interop import identity
+
+        claims = request.scope.get("state", {}).get("lab_user") or {}
+        sub = claims.get("sub")
+        if not sub:
+            return False
+        role = identity.load_users().get(sub, {}).get("role")
+        return identity.is_owner_role(role)
+
     def _is_reviewer(request: Request) -> bool:
         """Sign-off is a named person's act: a verified lab user carrying
         `reviewer: true` in config/users.yaml. The shared service token
@@ -1423,6 +1637,19 @@ def create_console_app(registry: Registry | None = None):
             media_type="text/markdown; charset=utf-8",
             headers={"content-disposition": 'attachment; filename="a2a-lab-insights.md"'},
         )
+
+    @app.get("/api/whats-next")
+    async def whats_next():
+        """The roadmap-horizon plans (config/whats_next.yaml) for the console's
+        "What's Next" section — the answer to "where do you go from here?".
+
+        Read from config on every request, like /api/architecture: the file is
+        the source of truth, and an operator adding a plan should see it on
+        refresh, not after a restart. Gated like the Insights feed (NOT on the
+        middleware's exempt list): the Control Panel that reaches it is itself
+        behind sign-in, so the section loads via SIGNED_IN_LOADERS, same as
+        /api/insights."""
+        return {"plans": load_plans()}
 
     @app.get("/healthz")
     async def healthz():
@@ -1700,11 +1927,56 @@ def create_console_app(registry: Registry | None = None):
         return {"name": name, "markdown": candidate.read_text(encoding="utf-8")}
 
     @app.get("/api/config")
-    async def config():
+    async def config(request: Request):
         reg = get_registry()
+        # WS19/M10: the in-org "A2A Lab" Lightning app holds the live Tableau
+        # Next dashboard over the Zero-Copy observability data. Everyone sees
+        # the screenshot (static/components/tableau-next-traffic.png); only the
+        # OWNER gets the deep link, because it names the org my-domain and lands
+        # on a Salesforce login that only the owner can pass during a controlled
+        # presentation. Scrubbed HERE (server-side), not just hidden in the UI —
+        # same posture as public_components (2026-07-27) and the D36 role gates.
+        ld = _lightning_domain()
+        # Deep link to the in-org custom TAB (/lightning/n/<tab>) rather than the
+        # raw /tableau/dashboard view: the tab is an App Builder page carrying the
+        # licence + asset-share context the runtime needs, so it is the surface
+        # that renders for a signed-in admin. Built from env so the org my-domain
+        # is never a literal. This is the "open in Salesforce" target; the inline
+        # embed below renders the same dashboard in-page.
+        tableau_app_url = f"{ld}/lightning/n/{TABLEAU_APP_TAB}" if ld else None
+        owner = _is_owner(request)
+        # The inline embed: for the OWNER only, the console mints a frontdoor
+        # URL server-side (see _mint_frontdoor_url) so the dashboard renders in
+        # the tab with no login step. Everyone else gets the screenshot. `embed`
+        # carries only non-secret rendering params — the SDK source, the org
+        # LIGHTNING url (orgUrl), the dashboard api-name; the frontdoor URL is
+        # NOT here, it is fetched per-render from /api/tableau/frontdoor, which
+        # is itself owner-gated. `embed` is present only when both the owner is
+        # asking AND the embed ECA is wired, so the UI never offers a control
+        # that would 503.
+        embed = None
+        if owner and ld and _tableau_embed_configured():
+            embed = {
+                "sdk_url": TABLEAU_SDK_URL,
+                "org_url": ld,
+                "dashboard": TABLEAU_DASHBOARD_API_NAME,
+                "frontdoor_endpoint": "/api/tableau/frontdoor",
+            }
+        tableau_next = {
+            "app_url": tableau_app_url if owner else None,
+            "app_url_owner_only": bool(tableau_app_url),
+            "embed": embed,
+            "embed_owner_only": bool(ld and _tableau_embed_configured()),
+            "shot": (
+                "/static/components/tableau-next-traffic.png"
+                if (SHOTS_DIR / "tableau-next-traffic.png").exists()
+                else None
+            ),
+        }
         return {
             "mode": reg.mode,
             "modes": reg.modes,
+            "tableau_next": tableau_next,
             # Lab Guide chat: how many past chats the drawer keeps
             # (client-side localStorage; the server just sets the cap).
             "guide_history_limit": int(os.environ.get("GUIDE_CHAT_HISTORY", "10")),
@@ -1766,6 +2038,20 @@ def create_console_app(registry: Registry | None = None):
                 "routing_block": af_channel.topology_block("serial"),
             },
         }
+
+    @app.get("/api/tableau/frontdoor")
+    async def tableau_frontdoor(request: Request):
+        """Mint a fresh Salesforce frontdoor URL for the inline Tableau Next
+        embed (WS19/M10). OWNER-ONLY — same gate as the app deep link: the URL
+        opens a live session as the Tableau-Next-licensed admin, so it is never
+        handed to the operator or a viewer. Called per-render (frontdoor URLs
+        are short-lived/single-use), so it is not cached. Returns 403 for
+        non-owners, 503 if the embed ECA is unwired, 502 if Salesforce rejects
+        the exchange (e.g. the `web` scope is missing → Invalid_Scope)."""
+        if not _is_owner(request):
+            raise HTTPException(status_code=403, detail="owner only")
+        uri = await _mint_frontdoor_url()
+        return {"frontdoor_uri": uri}
 
     # ---- Runtime warm-up ---------------------------------------------------
     # AgentCore-hosted runtimes cold-start in ~30-60s (claude ~56s, openai
@@ -2193,6 +2479,17 @@ def create_console_app(registry: Registry | None = None):
             )
         out.sort(key=lambda t: t["started"] or 0, reverse=True)
         return {"traces": out}
+
+    @app.get("/api/traces/{trace_id}")
+    async def trace_by_id(trace_id: str):
+        # Windowless single-trace lookup: the linked-trace click from an
+        # Observations row (spanning days) must resolve even when the trace
+        # predates /api/traces' recent Aurora window. Blocking store read off
+        # the event loop, like /api/traces.
+        trace = await asyncio.to_thread(_trace_by_id, trace_id)
+        if trace is None:
+            raise HTTPException(status_code=404, detail="trace not found")
+        return {"trace": trace}
 
     @app.get("/api/stream")
     async def stream():

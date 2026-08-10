@@ -2559,3 +2559,293 @@ backend/platform/protocol" rule this extends), D26 (the AgentCore runtime pair
 and the deployment-mode seam), D66/D67 (the Strands agent and its observability),
 D25 (one Agentforce twin per platform pair), D27 (the delegation rider stamped on
 the reverse leg), and plan/07-workstreams.md WS5 (the experiment this scopes).
+
+## 2026-08-07 — D69: M10 lands on the Aurora Zero Copy connector, and it needs the ONE ingress path the store deliberately never had
+
+**Context.** The lab has always meant to close the loop back onto Salesforce:
+D13 (2026-07-10) named the DynamoDB trace table as the Data 360 zero-copy
+integration point, and the M10 note the same day scoped "Data 360 zero-copy →
+TableauNext reporting on cross-platform agent traffic." D23 then moved the store
+to Aurora Postgres and, in doing so, **retargeted M10 onto Data 360's AWS Aurora
+PostgreSQL connector** (GA for Zero Copy query federation) — recording that
+"Postgres now serves M10 too and the second tier buys nothing," naming the
+`lab_reader` role for "Data 360 and the analyst MCP server," and noting the
+connector's constraints (cluster endpoint over TLS, Salesforce IP allowlist,
+schema-scoped read-only role). `PostgresSink`'s own docstring calls
+`lab.trace_events` "the table Data 360's Aurora Postgres zero-copy connector
+federates for M10," and payloads were stored as **jsonb scalars** (D13's flat
+shape, improved) precisely so connector field-mapping is trivial. WS19 executes
+this approved direction; it is a build, not a new decision about *whether*.
+
+**The one thing that IS a new decision.** Everything the hosted store does today
+reaches Aurora through the **RDS Data API** — IAM-authed HTTPS — so the cluster's
+**5432 ingress stays closed** (`pg.py` documents exactly this: "the cluster's
+5432 ingress stays closed to them entirely"). Zero Copy federation cannot use the
+Data API: the connector authenticates **username/password to the cluster
+endpoint over 5432 from Salesforce's published IP ranges**. So M10 requires the
+lab to open the one network path its whole hosted design avoided. That is a real
+change to the store's security posture and the reason this gets an ADR rather
+than an item line.
+
+**Decision.**
+
+1. **Federate the Aurora obs store directly; do not build an ETL.** "Zero copy"
+   is the point — Data 360 queries `lab.trace_events` (and, where useful,
+   `lab.obs_sessions`/`obs_events`/`obs_briefs`) live over the connector. No copy
+   job, no second schema, no transform. The jsonb payload columns are exposed as
+   scalars where Tableau needs to group/filter (protocol, target, status,
+   latency_ms are already top-level columns — the flat shape D13 chose is why).
+2. **A scoped, TLS-only 5432 path, and nothing wider.** A new security group
+   allows 5432 **only** from Salesforce's documented Data Cloud IP ranges (and
+   the existing MCP server), TLS required, to the cluster endpoint. The Data API
+   remains the path for every lab component; the endpoint ingress exists solely
+   for the connector. This is the successor to `pg.py`'s "5432 ingress stays
+   closed" note, and that note must be updated in the same change so the code
+   does not still claim a posture it no longer has.
+
+   **The ranges, and the topology.** ⚠️ **Superseded on two counts by D70 —
+   read this paragraph as what was believed on 2026-08-07, not current fact:**
+   (a) the tenant is **eu-central-1** (`CDP2-AWS-PROD3-EUCENTRAL1`), NOT
+   ca-central-1 — the ca-central-1 reading below came from a *different* org set
+   up by mistake; org and tenant are co-located in the EU, and only the tenant↔store
+   hop is cross-region; and (b) the allowlist source is the **Data 360 Services**
+   article, not `ip-ranges.salesforce.com`. Original text follows.
+   The
+   allowlist is region-specific, and this lab spans regions that must
+   not be conflated: the core Salesforce org is on instance **EU55** (EU), the
+   Aurora obs cluster is **us-east-1**, and the **Data Cloud tenant** — the thing
+   that actually originates the federation traffic — is
+   **`CDP2-AWS-PROD8-CACENTRAL1`, i.e. AWS ca-central-1**. So the egress CIDRs
+   are ca-central-1's, NOT us-east-1's, and the federation is deliberately
+   cross-region (ca-central-1 → us-east-1 over the public cluster endpoint). From
+   Salesforce's authoritative manifest `https://ip-ranges.salesforce.com/ip-ranges.json`
+   (syncToken 1783342800), ca-central-1 is a single IPv4 prefix
+   **`155.226.152.0/23`** (+ IPv6 `2a03:5d67:fe58::/45`, relevant only if the
+   endpoint is dual-stack — Aurora is IPv4, so IPv4 is the operative rule). The
+   SG script pins these from config, re-derivable from the manifest, never
+   hardcoded as a magic literal without the provenance comment. The lesson worth
+   keeping: **the region that determines the allowlist is the Data Cloud tenant's,
+   read from its home-org instance name, not the core org's instance and not
+   where the database happens to live.**
+3. **`lab_reader`, not a new credential.** The connector authenticates as the
+   read-only role D23 already defined for "Data 360 and the analyst MCP server,"
+   with `statement_timeout` and row caps enforced in DB grants — so a runaway
+   Tableau query cannot pin the cluster. Its password is a Secrets Manager
+   value, synced like every other (D39/D45); no new human login.
+4. **The connector connection IS API-creatable — verified live 2026-08-07, so
+   it is scripted, not an operator click.** The initial scope assumed the Data
+   360 connector was UI-only (as the runbook §8 note said). Live discovery
+   against the prod org's Data 360 SSOT REST API disproved that:
+   `GET /services/data/v66.0/ssot/connectors` lists **`AwsRdsAuroraPostgres`**
+   (GA), `GET .../ssot/connectors/AwsRdsAuroraPostgres` returns the create
+   schema — `connectionAttributes` = `user`, `password`, `jdbc_connection_url`
+   (regex-bound to `*.rds.amazonaws.com[:port]`), `SCHEMA` (default `public` —
+   we set `lab`), `database` — and its `features` include
+   **`featureType: BYOL`** (`accessCheck: Gater.com.salesforce.cdp.unifiedIngestZeroCopy`,
+   `beta: false`) alongside `Batch`. BYOL ("bring your own lake") **is** Zero
+   Copy federation, GA and gated by the `unifiedIngestZeroCopy` org perm. So
+   `POST /services/data/v66.0/ssot/connections` with that `connectorType` +
+   attributes creates the connection programmatically, and WS19 ships a script
+   for it (a2a-lab code, `lab_reader` creds from Secrets Manager). **What stays
+   UI-only** is downstream: the Zero Copy **method selection is made on the DMO
+   mapping / data stream** built on top of the connection (not a connection
+   attribute), and Tableau Next authoring has no REST API the lab drives — those
+   two are the honest operator-action steps (the M11 precedent), the connection
+   itself is not. A caveat that travels with the numbers: the connector's URL
+   field is plain `user`/`password` (no TLS toggle in the schema) — TLS is a
+   property of the cluster + the 5432 path (item 2), not a connector field.
+5. **No account/identifier leaks the repo (D-scrub rules hold).** The Salesforce
+   org id, the Data Cloud instance, and the cluster endpoint are `.env`/Secrets
+   Manager values; the Salesforce IP ranges are config, not a hardcode. The
+   dashboard is a Salesforce-side artifact — nothing about it names the AWS
+   account.
+
+**What this deliberately is NOT.** Not a live proxy — Data 360 federates the
+store the harvest already fills on a schedule (D18 harvest-and-cache holds; the
+connector reads the durable superset, it does not reach the platform APIs). Not a
+replacement for the console's Observability section — that stays the lab's own
+wire-level view; Tableau Next is the **Salesforce-side, business-analytics** view
+of the same rows, and having both *is* a finding (the lab's viewer shows raw
+protocol payloads; Data 360 + Tableau shows aggregate cross-platform traffic to a
+Salesforce analyst, over the identical table, with no ETL between them).
+
+See D13 (the original zero-copy integration point and the flat scalar shape),
+D23 (the Aurora store, the connector retarget, `lab_reader`, and the connector
+constraints), D18 (harvest-and-cache), D39/D45 (credentials as service
+identities, off-machine), the M10 note (2026-07-10), plan/05-observability.md
+(the harvest that fills the store), and plan/07-workstreams.md WS19 (the build).
+
+## 2026-08-08 — D70: the Zero Copy connector egresses from a DIFFERENT Salesforce IP source than D69 pinned, and it is a UI create, not a REST script
+
+**Context.** D69 scoped WS19 with two specifics that the actual build disproved.
+Both are corrected here rather than by editing D69, because both cost real
+debugging and the wrong belief is worth recording next to the right one. The
+connection is now **live in prod** — Data 360 → `A2A_Lab_Obs_Aurora` → the
+`lab.*` obs store — so these are settled facts, not open questions.
+
+**Correction 1 — the IP allowlist source. D69 item 2 pinned the WRONG manifest.**
+D69 said the connector egresses "from Salesforce's published IP ranges" and item
+2 read them from `https://ip-ranges.salesforce.com/ip-ranges.json`, whose only
+ca-central-1 prefix is `155.226.152.0/23`. We opened exactly that, and the
+connector's **Test Connection failed** — "Could not connect to url provided" /
+"Connection failed. Check your credentials" — while every other layer proved
+correct: the cluster endpoint resolves to a public IP (`54.88.237.32`), the DB
+subnets have a `0.0.0.0/0 → igw` route and `PubliclyAccessible=true`, `force_ssl`
+was on, the URL was the documented bare `host:port` (the `jdbc:postgresql://…`
+form is rejected as "Invalid Format"), and the `lab_reader` credential
+authenticated fine through the RDS Data API (`SELECT current_user` → `lab_reader`,
+server-side). The two UI error strings are a generic wrapper over a **TCP reject**;
+neither is a real auth or URL error.
+
+The cause, **proven by a temporary VPC flow log** on the cluster: the
+connection-test probe arrived from AWS-native **NAT egress** IPs, **REJECTed** by
+the security group and **absent** from `ip-ranges.salesforce.com`, but present
+verbatim as `/32`s in a **different** Salesforce source — the help article **"IP
+Addresses Used by Data 360 Services"** (`data.c360_a_data_cloud_ip_address_allowlist.htm`),
+which is the list the Aurora connector's own "Before you begin" links to. The two
+manifests are not interchangeable:
+
+- `ip-ranges.salesforce.com/ip-ranges.json` = the Salesforce **core/app-fabric**
+  ranges (the `155.226.x` block). The external-database connector does **not**
+  egress from it.
+- the **"IP Addresses Used by Data 360 Services"** article = the AWS-native
+  **Hyperforce NAT egress** IPs Data 360 uses to reach external services (S3,
+  Snowflake, SFTP, and the DB connectors) — published as per-region `/32`s, which
+  is why they resolve into AWS's own regional EC2 ranges. **This is the
+  authoritative source for allowlisting a customer DB.**
+
+**The region twist (the part that cost the most).** The METHOD above was first
+proven against the **wrong org**: an operator mistake set the connection up in a
+different project's org, whose Data Cloud tenant is in **ca-central-1**. The
+flow log there captured `3.98.79.254` / `15.223.107.129` — ca-central-1 NAT
+`/32`s — REJECTed, absent from `ip-ranges.json`, present in the article. That
+proved the article is the source, but the IPs and region were the wrong org's.
+The lab's **actual** tenant (home-org instance `CDP2-AWS-PROD3-EUCENTRAL1`) is in
+**eu-central-1** (Frankfurt). After repinning to the article's eu-central-1
+`/32`s and applying them, the connection test succeeded and a fresh flow log
+captured the real eu-central-1 probe egressing from **`3.64.2.81`** and
+**`18.198.9.100`** — both in the pinned set, both **ACCEPTed**, "Connection was
+established." So the eu-central-1 `/32`s are now empirically confirmed for this
+tenant, not merely documented.
+
+The refinement to D69's lesson has **two** parts: (1) the region must be the
+**Data Cloud tenant's** — read from its home-org instance name, not the core
+org's instance, not where the Aurora cluster lives — and confirm which org you
+are even in before trusting a capture; (2) the **source manifest** must be the
+Data 360 Services article, not the app-fabric `ip-ranges.json`.
+`config/salesforce_ip_ranges.yaml` is repinned to the article's 12 eu-central-1
+`/32`s, the stale `/23` (and the interim ca-central-1 set) revoked, and
+`deploy/obs/deploy_datacloud_ingress.sh --verify` — which used to fetch the JSON
+manifest and diff it — now checks that every pinned `/32` is actually authorized
+on the SG (the article has no machine-readable manifest to diff against; drift is
+re-checked by hand).
+
+**Correction 2 — the connection is UI-only, not REST-scriptable. D69 item 4 was
+wrong.** D69 item 4 reversed the original "UI-only" scope after live discovery
+showed `GET /ssot/connectors/AwsRdsAuroraPostgres` returns a create schema, and
+concluded WS19 would ship `scripts/create_datacloud_connection.py` posting to
+`POST /ssot/connections`. In the build that path proved a dead end: there is **no
+documented request-body wrapper** for this connector, the one external example
+(`dc-cli`) uses `credentials[]`/`parameters[]` of `{paramName,value}` that
+**contradicts** the org's own `connectionAttributes` schema term, a lone
+`connectionName` is rejected, and probing the shape blindly against a **production**
+org risks orphaning a real connection. The connector's *documented, supported*
+create path is the Setup UI (Data Cloud Setup → External Integrations → Other
+Connectors → New → AWS Aurora PostgreSQL Source), which has **two** name fields —
+Connection Name (label) and Connection API Name (auto-derived) — explaining the
+body rejection. No script was written; the connection was created in the UI. D69
+item 4's downstream claims still hold: **Zero Copy vs Batch is chosen at the
+data-stream step, not connection-create**, and Tableau Next authoring has no REST
+API the lab drives.
+
+**What stands from D69.** The direction (federate, don't ETL), the scoped
+TLS-only 5432 path as the store's one deliberate ingress, `lab_reader` as the
+identity, and the tenant-region rule are all unchanged and correct. This ADR
+narrows two implementation specifics, it does not reopen the decision.
+
+See D69 (the connector decision this corrects), D23 (`lab_reader`, the store),
+`config/salesforce_ip_ranges.yaml` and `deploy/obs/deploy_datacloud_ingress.sh`
+(the repinned source + reworked verify), and plan/07-workstreams.md WS19 (the
+build).
+
+## 2026-08-10 — D72: embedding a Tableau Next dashboard on a non-Salesforce origin took FOUR distinct gates behind a misleading "SDK Initialization Complete" — and the CSP surface is TWO complementary allowlists, not one
+
+**The symptom.** With the JWT-bearer frontdoor flow (the console's `/api/tableau/frontdoor`) working
+— token minted, SDK reporting **"SDK Initialization Complete"** — the inline dashboard still failed
+to render for the owner. That message is a misleading success: the **Tableau Next Embedding SDK
+renders through Lightning Out**, which frames a Salesforce Lightning app in an **iframe** on the host
+origin, and every real gate is *downstream* of SDK init. It took four separate fixes, each masking the
+next. This ADR records all four because they generalize to **any Tableau Next / Lightning Out embed on
+an external site**.
+
+**Gate 1 — the CSP surface is TWO allowlists governing OPPOSITE directions; you need BOTH.** The
+browser blocked the iframe:
+
+```
+Framing 'https://<my-domain>.my.salesforce.com/' violates the CSP directive:
+  "frame-ancestors 'self' *.slack-gov.com *.slack.com" — request blocked.
+→ LightningOutError: unable to load the iframe.
+```
+
+The trap — and the correction this makes to my own earlier reasoning — is assuming one CSP lever does
+the whole job. There are two, on opposite sides of the frame boundary:
+
+- **`frame-ancestors`** — who may *frame the org*. Populated by **Setup → Session Settings → Clickjack
+  Protection → Trusted Domains for Inline Frames**, origin added with **IFrame Type = LightningOut**.
+  This is the one that fixed the blocked-iframe error above. It is **UI-only**: the domain list is
+  *not* a field on the `SecuritySettings` metadata type (which carries the clickjack toggles but not
+  the list), so — unlike almost everything else in this lab — it genuinely cannot ship as metadata.
+- **`frame-src` / `connect-src` / `img-src` / `style-src` / `font-src` / `media-src`** on the
+  Lightning Out content — what the *framed dashboard itself* may load (its own iframes, XHR/data
+  calls, images, fonts, styles). Populated by a **`CspTrustedSite` with `context = LightningOut`**
+  (the six `isApplicableTo*` booleans map one-to-one to these directives). This ships as metadata:
+  `salesforce/.../cspTrustedSites/A2A_Lab_Console.cspTrustedSite`.
+
+**The evidence they are complementary, not redundant.** Salesforce's own reference Lightning Out embed
+— the built-in **Slack** integration — ships **both**: a `CspTrustedSite` (`*.slack.com`,
+`Context=LightningOut`, all six directives) **and** the `*.slack.com`/`*.slack-gov.com` entries in
+Trusted Domains for Inline Frames. Our `A2A_Lab_Console` CspTrustedSite is structurally identical to
+it. **Earlier in this session I wrongly called the CspTrustedSite "dead" and pulled it** — the reasoning
+error was proving only that it doesn't drive `frame-ancestors` (true: `*.slack-gov.com` was in that
+header with no matching CspTrustedSite, and our record never appeared there) and over-generalizing that
+to "does nothing." In fact it was **active throughout every successful render**, including the one where
+the embed finally worked; it governs the *other* directives. It was restored. Removing either allowlist
+risks breaking a working embed, and the Slack precedent says keep both.
+
+**Gate 2 — third-party cookies are mandatory.** The framed Salesforce origin is *third-party* to the
+console origin, so it can only hold its session if the browser permits third-party cookies. Blocked
+(Safari default, Chrome's phase-out) → the iframe can't authenticate and stays blank. This makes the
+inline embed **inherently fragile** on locked-down browsers and is the standing reason the deep link +
+snapshot remain the durable owner path (D36).
+
+**Gate 3 — a real Salesforce session, minted server-side.** With no session the SDK falls back to
+framing bare `www.salesforce.com` (which blocks *itself* via `X-Frame-Options: sameorigin`). The
+console mints a session per render via the JWT-bearer → `/singleaccess` frontdoor flow (needs the
+`web` scope, which client-credentials never grants — hence JWT-bearer as the run-as user), so this
+failure never reaches a signed-in owner. An unauthenticated console session (e.g. incognito, or after
+a hard-reload dropped the login) reproduces the `www.salesforce.com` fallback and is a false alarm.
+
+**Gate 4 — the SDK clobbers `style.height`; size via the *attribute*.** Once framing worked the
+dashboard rendered, but *tiny*, inside its own `overflow:auto` scroll box, ignoring the host height.
+Reading the pinned SDK bundle: the `<analytics-dashboard>` element's `connectedCallback` does
+`this.style.height = <stored attribute value>` (default `100%`), **overwriting any inline
+`style.height`** on mount. The fix is the element's **`height` attribute** —
+`el.setAttribute("height", "1000px")`, the SDK's own sizing API — not an inline style or CSS on the
+element, plus growing the container to match.
+
+**What this means going forward.** For an external Tableau Next / Lightning Out embed, THREE org
+allowlists are in play, each a different direction — plus browser and sizing:
+- **`CorsWhitelistOrigin`** (metadata) — the SDK's `fetch`/XHR calls *out* to the org (why the token
+  exchange worked all along).
+- **Trusted Domains for Inline Frames / LightningOut** (UI-only) — `frame-ancestors`: who may frame
+  the org.
+- **`CspTrustedSite` `context=LightningOut`** (metadata) — `frame-src`/`connect-src`/etc. on the
+  framed content: what the dashboard may load.
+Then: the viewer's browser must allow **third-party cookies**; the console must supply a **real
+session** (server-minted `web`-scope frontdoor); and the SDK element is sized via its **`height`
+attribute**. Same-user proof the data pipeline was healthy the whole time: the dashboard renders fully
+in the in-org Lightning app for the exact user the frontdoor runs as.
+
+See D36 (owner-only embed posture), D70/D71 (the UI-only build steps), WS19 (the M10 build), the
+`a2a_lab_tab_embed` ECA, the `CorsWhitelistOrigin`, the `A2A_Lab_Console` CspTrustedSite, and
+plan/09-deployment-map.md L6.

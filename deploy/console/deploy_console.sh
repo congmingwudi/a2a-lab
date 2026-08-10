@@ -74,6 +74,13 @@ keys = [
     # identity) and was missed on the first run: both landed in plaintext on
     # the task definition, which is exactly what this secret exists to prevent.
     "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+    # WS19/M10: the a2a_lab_tab_embed ECA consumer key (JWT `iss`) that mints the
+    # Tableau Next frontdoor URL for the owner-only inline dashboard. The frontdoor
+    # is minted with a JWT-BEARER assertion (client-credentials can't reach
+    # /singleaccess — it never grants `web`), so the CONSUMER SECRET is not used
+    # for this seam; the RS256 signing key (A2ALAB_TAB_EMBED_JWT_KEY) is loaded
+    # from the local PEM below, exactly like the lab JWT keypair.
+    "SF_CLIENT_ID_TAB_EMBED",
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
@@ -105,6 +112,17 @@ for name, filename in (("A2ALAB_JWT_PRIVATE_KEY", "lab_jwt_private.pem"),
     path = key_dir / filename
     if path.exists():
         payload[name] = path.read_text()
+
+# WS19/M10: the RS256 key that signs the Tableau Next frontdoor JWT-bearer
+# assertion. Same shape as the lab keypair — a .a2alab/ file no container has, so
+# it must ride the secret. Without it the console offers the embed (the consumer
+# key + run-as user are present in plain env) and then 503s on every frontdoor
+# mint. Env var wins if already set; else the local PEM.
+_embed_key = key_dir / "tab_embed_jwt_private.pem"
+if os.environ.get("A2ALAB_TAB_EMBED_JWT_KEY"):
+    payload["A2ALAB_TAB_EMBED_JWT_KEY"] = os.environ["A2ALAB_TAB_EMBED_JWT_KEY"]
+elif _embed_key.exists():
+    payload["A2ALAB_TAB_EMBED_JWT_KEY"] = _embed_key.read_text()
 print(json.dumps(payload))
 PY
 )
@@ -246,6 +264,11 @@ for path in pathlib.Path("src").rglob("*.py"):
 
 SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+           # The embed consumer key (JWT `iss`) is kept off the plain task def
+           # like the other SF_CLIENT_ID*; the signing key (…JWT_KEY) is caught
+           # by the KEY-name rule; the run-as username is not secret-shaped and
+           # rides plain env so the code can read it.
+           "SF_CLIENT_ID_TAB_EMBED",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
 

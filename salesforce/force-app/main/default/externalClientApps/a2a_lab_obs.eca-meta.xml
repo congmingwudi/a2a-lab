@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExternalClientApplication xmlns="http://soap.sforce.com/2006/04/metadata">
+    <contactEmail>congmingwudi+a2alab@gmail.com</contactEmail>
+    <description>A2A lab: M11 observability harvest reading Data Cloud agent-session DMOs (per-caller identity, F6).</description>
+    <distributionState>Local</distributionState>
+    <isProtected>false</isProtected>
+    <label>a2a_lab_obs</label>
+    <orgScopedExternalApp>00DKB000002U3Fs:a2a_lab_obs</orgScopedExternalApp>
+</ExternalClientApplication>

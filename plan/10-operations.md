@@ -211,8 +211,8 @@ runtimes, Observability reads the real Aurora store, the Lab Guide answers from
 the repo prose on disk. Nothing else needs to be running on the laptop, and
 nothing you do locally touches the deployed console.
 
-**`scripts/run_local.sh` is no longer the default.** It starts thirteen
-processes — eleven protocol faces, the bridge, the console — and twelve of them
+**`scripts/run_local.sh` is no longer the default.** It starts sixteen
+processes — fourteen protocol faces, the bridge, the console — and fifteen of them
 are now hosted. Reach for it when you are changing an **adapter** rather than
 the console (`src/platforms/**`, `src/interop/servers/**`, the delegation guard)
 and want to exercise it before deploying, because those are the faces' own code

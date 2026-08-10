@@ -653,6 +653,121 @@ def test_owner_role_keeps_the_full_operator_privilege_set(tmp_path, monkeypatch)
     assert r.status_code == 200, f"owner role blocked from operator surface: {r.status_code}"
 
 
+def test_tableau_next_app_link_is_owner_only(tmp_path, monkeypatch):
+    """WS19/M10: the in-org 'A2A Lab' app deep link launches the live Tableau
+    Next dashboard behind a Salesforce login, so it is shown to the OWNER alone
+    (role 'master of the universe'). The operator (Ana) — who has every
+    experiment surface — must NOT get the link, and neither must an anonymous
+    caller; all three still get the screenshot slug and the owner-only flag so
+    the UI can explain itself. The scrub is server-side (it names the org
+    my-domain), same posture as public_components."""
+    from interop import identity
+
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    # Embed ECA unwired for this test — the deep link stands on its own.
+    monkeypatch.delenv("SF_CLIENT_ID_TAB_EMBED", raising=False)
+    monkeypatch.delenv("SF_TAB_EMBED_RUNAS_USER", raising=False)
+    monkeypatch.delenv("A2ALAB_TAB_EMBED_JWT_KEY", raising=False)
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+
+    # _is_owner reloads the real config/users.yaml: ryan=owner, ana=operator,
+    # vic=viewer. Tokens are minted against the same real roles.
+    owner = {"authorization": f"Bearer {identity.issue_token('ryan')}"}
+    operator = {"authorization": f"Bearer {identity.issue_token('ana')}"}
+
+    owner_tn = client.get("/api/config", headers=owner).json()["tableau_next"]
+    # Deep link to the in-org custom TAB, built from SF_MY_DOMAIN (no hardcode).
+    assert owner_tn["app_url"] == (
+        "https://example.lightning.force.com/lightning/n/A2A_Lab_Traffic"
+    )
+    assert owner_tn["app_url_owner_only"] is True
+
+    op_tn = client.get("/api/config", headers=operator).json()["tableau_next"]
+    assert op_tn["app_url"] is None, "operator (Ana) must not receive the owner-only deep link"
+    assert op_tn["app_url_owner_only"] is True
+
+    anon_tn = client.get("/api/config", headers={"x-lab-token": "sekrit"}).json()["tableau_next"]
+    assert anon_tn["app_url"] is None, "the shared service token identifies no owner"
+    assert anon_tn["app_url_owner_only"] is True
+
+
+def test_tableau_embed_config_and_frontdoor_are_owner_only(tmp_path, monkeypatch):
+    """WS19/M10: the inline embed is owner-only in TWO places that must agree —
+    the `embed` block in /api/config (which tells the UI to render inline) and
+    the /api/tableau/frontdoor endpoint (which mints the session). Both require
+    the dedicated a2a_lab_tab_embed credential (consumer key + run-as user +
+    signing key for the JWT-bearer mint); neither is offered to the operator,
+    a viewer, or the shared token. When the ECA is unwired the embed is absent
+    even for the owner (offering it would 502 on every render)."""
+    from interop import identity
+
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    # JWT-bearer path (2026-08-09): the embed is offered when the ECA consumer
+    # key, the run-as username, AND the signing key are all present. No consumer
+    # secret — client-credentials can't reach /singleaccess (only grants `api`),
+    # so the frontdoor is minted with a JWT-bearer assertion instead.
+    monkeypatch.setenv("SF_CLIENT_ID_TAB_EMBED", "cid")
+    monkeypatch.setenv("SF_TAB_EMBED_RUNAS_USER", "admin@example.demo")
+    monkeypatch.setenv(
+        "A2ALAB_TAB_EMBED_JWT_KEY", "-----BEGIN PRIVATE KEY-----\\nx\\n-----END PRIVATE KEY-----"
+    )
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+
+    owner = {"authorization": f"Bearer {identity.issue_token('ryan')}"}
+    operator = {"authorization": f"Bearer {identity.issue_token('ana')}"}
+    service = {"x-lab-token": "sekrit"}
+
+    owner_tn = client.get("/api/config", headers=owner).json()["tableau_next"]
+    assert owner_tn["embed"] is not None, "owner with the ECA wired gets the embed config"
+    assert owner_tn["embed"]["org_url"] == "https://example.lightning.force.com"
+    assert owner_tn["embed"]["dashboard"] == "New_Dashboard"
+    assert owner_tn["embed"]["frontdoor_endpoint"] == "/api/tableau/frontdoor"
+    assert "cdn.jsdelivr.net" in owner_tn["embed"]["sdk_url"]
+    # The frontdoor URL (a live credential) is NEVER in the config payload.
+    assert "frontdoor" not in str(owner_tn["embed"]).lower() or "endpoint" in str(owner_tn["embed"])
+    assert owner_tn["embed_owner_only"] is True
+
+    op_tn = client.get("/api/config", headers=operator).json()["tableau_next"]
+    assert op_tn["embed"] is None, "operator must not receive the embed config"
+    svc_tn = client.get("/api/config", headers=service).json()["tableau_next"]
+    assert svc_tn["embed"] is None, "the shared service token identifies no owner"
+
+    # The frontdoor endpoint itself is owner-gated — 403 for non-owners even
+    # though the ECA is wired. (Owner path is not exercised here: it makes a
+    # real Salesforce call; that is proven by the live spike, not a unit test.)
+    assert client.get("/api/tableau/frontdoor", headers=operator).status_code == 403
+    assert client.get("/api/tableau/frontdoor", headers=service).status_code == 403
+
+
+def test_tableau_embed_absent_when_eca_unwired(tmp_path, monkeypatch):
+    """No SF_CLIENT_ID_TAB_EMBED → the embed is not offered to anyone, including the
+    owner, and the frontdoor endpoint 503s rather than minting against the
+    scope-lacking shared app (which would 403 Invalid_Scope at Salesforce)."""
+    from interop import identity
+
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    monkeypatch.delenv("SF_CLIENT_ID_TAB_EMBED", raising=False)
+    monkeypatch.delenv("SF_TAB_EMBED_RUNAS_USER", raising=False)
+    monkeypatch.delenv("A2ALAB_TAB_EMBED_JWT_KEY", raising=False)
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+
+    owner = {"authorization": f"Bearer {identity.issue_token('ryan')}"}
+    tn = client.get("/api/config", headers=owner).json()["tableau_next"]
+    assert tn["embed"] is None
+    assert tn["embed_owner_only"] is False
+    # Owner, but no credential to mint with → 503, not a 502 from a bad exchange.
+    assert client.get("/api/tableau/frontdoor", headers=owner).status_code == 503
+
+
 def test_service_token_unaffected_by_role_gate(tmp_path, monkeypatch):
     # The header-borne shared token carries no user — full access (it's the
     # service credential for matrix.py, the bridge, and scripts).

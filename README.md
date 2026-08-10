@@ -457,7 +457,7 @@ its own construction. Claude Code and the Codex CLI both export OpenTelemetry,
 and CloudWatch ingests OTLP on a managed endpoint — no collector — so
 `src/observability/coding_source.py` reads their metrics back through the same
 harvest seam every platform uses, behind that section's own **Harvest** button.
-Deliberately *not* a sixth column in the Observability coverage panel: every
+Deliberately *not* a column in the Observability coverage panel: every
 column there is an agent platform whose interior the lab harvests, and the tool
 that BUILT the lab is not one of those.
 
@@ -620,17 +620,20 @@ flowchart LR
         SC["a2alab/runtime/claude"]
         SO["a2alab/runtime/openai"]
         SS["a2alab/runtime/shim"]
+        SCON["a2alab/runtime/console"]
     end
 
     ACC["AgentCore: Claude"] --> SC
     ACO["AgentCore: OpenAI"] --> SO
     HSHIM["Hosted A2A shim"] --> SS
+    CON["Console"] --> SCON
     HARV["Obs harvest"] --> SH["harvest secret (D23)"]
 
     SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
     SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
+    SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
 ```
 
 Runtime configs carry only the secret's **ARN**; `interop.secret_env` resolves

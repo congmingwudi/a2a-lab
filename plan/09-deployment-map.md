@@ -25,6 +25,7 @@ artifacts. Read down until you have the detail you need, then stop.
 - **L5** — observability: five interiors, one store
 - **L5.5** — DNS: the four hostnames, and what each one is for
 - **L5.7** — scheduled and long-running processes (the async inventory)
+- **L5.8** — the cross-region Zero Copy path: data residency and a real latency measurement
 - **L6** — code → deployment: which file becomes which running thing
 
 **What this is written from.** The deploy scripts in this repo and the measured
@@ -51,6 +52,7 @@ flowchart TB
     SF2["In: Agent API · MCP shim · A2A shim"]
     SF3["Out: Apex invocable to the bridge"]
     SF4["Obs: Data Cloud session-tracing DMOs"]
+    SF5["Data 360 Zero Copy + Tableau Next<br/>federates the obs store (WS19/D69)"]
   end
 
   subgraph ANT["ANTHROPIC — Managed Agents"]
@@ -97,6 +99,7 @@ flowchart TB
   G3 -.-> A5
   Z3 -.-> A5
   A5 -.->|"reads"| DRV
+  A5 -.->|"Zero Copy, 5432/TLS"| SF5
 ```
 
 **What you are looking at.** The console at the top is not a viewer — it is the
@@ -114,15 +117,18 @@ bridge Path A depends on, the fourteen protocol faces, the shims, the fan-out
 server, the Postgres store every observability number comes from, and the
 scheduled jobs that keep it current. The dotted lines are that store filling up:
 each platform's *interior* record of the runs the console drove, harvested back
-into one place.
+into one place. The one dotted line running the *other* way — Aurora back to
+Salesforce — is WS19/D69: Data 360 federates that same store by **Zero Copy**
+(no ETL) so a Tableau Next dashboard can show cross-platform agent traffic to a
+Salesforce analyst, over the identical rows the console reads at the wire level.
 
 **Why spread across four clouds at all.** Not for redundancy — because the
 subject *is* cross-platform interop. An agent on each vendor's own home turf is
 the experiment; running everything as containers in one cloud would test our
 containers, not the platforms. The levels below take this apart: L0.5 the same estate
 as a call graph, L1 the four AWS hosting shapes and why each, L2 and L3 the two call paths end to end, L4
-identity, L5 observability, L5.5 DNS, L5.7 the scheduled processes, L6 which
-file becomes which running thing.
+identity, L5 observability, L5.5 DNS, L5.7 the scheduled processes, L5.8 the
+cross-region Zero Copy path, L6 which file becomes which running thing.
 
 ## L0.5 — The same estate as a call graph: who reaches whom
 
@@ -292,7 +298,7 @@ flowchart LR
   APEX -->|"Named Credential<br/>A2ALab_Bridge"| DNS["bridge-lab.agenticthings.com<br/>Cloudflare proxied, Full strict"]
   DNS --> ALBX["ALB a2alab-bridge<br/>idle timeout 120s"]
   ALBX --> BRX["Fargate task :8100<br/>bridge client timeout 45s"]
-  BRX -->|"per config/targets.yaml"| T1["claude-rest / openai-rest<br/>AgentCore, SigV4"]
+  BRX -->|"per config/targets.yaml"| T1["claude-rest / openai-rest<br/>Fargate faces, x-lab-token"]
   BRX --> T2["google-adk-a2a<br/>Agent Engine, federated"]
   BRX --> T3["foundry-*-a2a<br/>Entra service principal"]
   BRX --> T4["agentforce-rest<br/>Agent API"]
@@ -585,6 +591,7 @@ flowchart LR
   LITE --> CONSOLE
   PG --> ANALYST["Hosted analyst agent<br/>nightly, reads via a2alab-obs-mcp"]
   PG --> SENT["Cost sentinel (WS12)<br/>daily, same MCP server<br/>brief kind=cost"]
+  PG -. "Zero Copy, 5432/TLS<br/>as lab_reader (WS19/D69)" .-> DC["Salesforce Data 360<br/>+ Tableau Next<br/>(eu-central-1 tenant)"]
 ```
 
 **What you are looking at.** Harvest-and-cache (D18): the console **never**
@@ -643,9 +650,101 @@ console cannot read a laptop's filesystem (WS13):
   frozen between invocations, so a submit/check pair that keeps state in the
   process is broken in two separate ways.
 
+**The store is being given a second reader that is not a lab component
+(WS19/D69), and its AWS-side prerequisites are in.** Salesforce **Data 360** will
+federate `lab.trace_events` (and the other `lab.*` tables) by **Zero Copy** — no
+ETL, no second schema — so **Tableau Next** can draw the aggregate,
+Salesforce-side view of the same rows the console shows at the wire level. This
+is the one reader that does **not** use the RDS Data API: the Zero Copy connector
+logs in with username/password over **5432**, so it needs network reach the
+hosted design deliberately never granted. State as of 2026-08-07:
+- **Done.** `lab_reader`'s federation posture (read-only, 15s
+  `statement_timeout`, a 15-connection cap) is codified in
+  `observability.pg.ROLE_GRANTS` and applied live by `pg_migrate.py` — so a
+  runaway Tableau query is bounded and a query storm cannot exhaust the
+  scale-to-zero cluster.
+- **Applied live (2026-08-08).** `deploy/obs/deploy_datacloud_ingress.sh` opened a
+  **scoped, TLS-only** 5432 rule on `a2alab-aurora-sg` for the **Data Cloud
+  tenant's** egress IPs only — the tenant is in **eu-central-1** (Frankfurt,
+  co-located with the EU55 org), so the federation runs cross-region
+  (eu-central-1 → the us-east-1 cluster) and the allowlisted CIDRs are the
+  tenant's, not the core org's (EU55) nor the cluster's. Server-side TLS
+  (`rds.force_ssl=1`) is enforced via a custom cluster parameter group (`--tls`).
+  **The IP source is NOT `ip-ranges.salesforce.com`** (that is the Salesforce
+  app-fabric range — `155.226.152.0/23` — which the connector does not egress
+  from; pinning it was D69's error, corrected in **D70**). The connector egresses
+  from the AWS-native Hyperforce NAT `/32`s published in the **"IP Addresses Used
+  by Data 360 Services"** article — 12 eu-central-1 `/32`s now pinned in
+  `config/salesforce_ip_ranges.yaml` and on the SG, two of them (`3.64.2.81`,
+  `18.198.9.100`) confirmed by a VPC flow-log capture of the successful test's
+  probe.
+- **Done (WS19 item 5).** The Data 360 connection `A2A_Lab_Obs_Aurora` is created
+  and live (Setup UI — the connector has no documented create-body REST path,
+  D70).
+- **Done (WS19 item 6 data layer, 2026-08-09).** The whole Zero-Copy chain was
+  built **headless** via the Data 360 SSOT REST API (`sf api request rest`, Core
+  token) — DMO creation is not UI-only. **Two** Zero-Copy DMOs, two grains of the
+  same `lab.trace_events` table, both **Direct_Access** (Data 360 queries Aurora
+  on demand; nothing materialized into the tenant):
+  - **Hop grain** — view `lab.trace_events_zc` (scalars only, no jsonb → residency
+    is structural) → stream `A2A_Lab_Trace_Events_K` → DMO
+    `A2A_Lab_Trace_Event__dlm` (PK `event_key__c`), federating the raw wire hops.
+  - **Trace grain** — view `lab.trace_rollup_zc` (one row per trace_id, aggregation
+    pushed into Aurora) → stream `A2A_Lab_Trace_Rollup` → DMO
+    `A2A_Lab_Trace_Rollup__dlm` (PK `trace_id__c`), federating 960 traces. This
+    second DMO exists because the Tableau Semantics calc dialect has **no
+    FIXED/LOD** (D71) — two-level trace-latency aggregation can't be a
+    semantic-model calc, so it is computed in Postgres and federated as its own
+    grain. Both views live in `observability.pg.DDL` and ship via `pg_migrate.py`.
+    **Gotcha:** the DLO→DMO mapping API refuses a composite PK and reflects the
+    base table's real PK regardless of what is declared, so a PK-free **view** is
+    the only streamable shape (D71).
+- **Done (WS19 item 6, in-org surface, 2026-08-09).** The Tableau Next dashboard
+  is embedded in a new in-org Lightning app, **A2A Lab** (`CustomApplication
+  A2A_Lab` → `CustomTab A2A_Lab_Traffic` → `FlexiPage A2A_Lab_Traffic`, AppPage,
+  native `analytics_embedding:dashboard` component). Deployed to the production org
+  via `sf project deploy`. The console's "Open in Salesforce" deep link points at
+  the in-org tab `<my-domain>.lightning.force.com/lightning/n/A2A_Lab_Traffic` — an
+  App Builder page that carries the licence + asset-share context the runtime needs
+  (a viewer needs a Tableau Next perm set *and* Data Cloud User, and the asset must
+  be shared in Tableau Next), so it renders where the raw dashboard view can 504.
+- **Done (WS19 item 6, inline embed, 2026-08-09).** The console renders the
+  dashboard **inline** for the owner via the **Tableau Next Embedding SDK** (pinned
+  CDN build), no login step. The console backend mints the session server-side:
+  a **JWT-bearer assertion** (signed *as* the Tableau-Next-licensed admin — the
+  `a2a_lab_tab_embed` ECA's run-as user) is exchanged at `/services/oauth2/token`
+  for a token, then at `/services/oauth2/singleaccess` for a short-lived
+  **frontdoor URL**, which the SDK takes as `authCredential`. The SF credential
+  never reaches the browser; only the single-use frontdoor URL does. JWT-bearer is
+  required because `/singleaccess` needs the **`web`** scope and Salesforce's
+  client-credentials flow only ever issues `api` (passing `scope=web` is rejected) —
+  the JWT flow runs in the run-as user's context and so carries the ECA's `web`
+  grant. `a2a_lab_tab_embed` is the ECA holding that scope. Owner-only in two
+  agreeing places — the `embed` block in `/api/config` and the
+  `/api/tableau/frontdoor` endpoint that mints per-render — same D36 posture as the
+  deep link; the operator and viewers get the screenshot. The console's external
+  origin is on the org **CORS allowlist** (`CorsWhitelistOrigin` metadata).
+  **Headless:** the ECA (settings, scopes, policies, and the JWT public cert on the
+  global-OAuth settings) deploys as metadata; the RS256 signing key is a local PEM
+  shipped into the console's Secrets Manager secret. The one manual part is
+  retrieving the consumer secret from Setup → App Manager, and JWT-bearer no longer
+  uses it — so this seam is effectively fully headless.
+- **Pending (items 6–7):** the remaining semantic model + Tableau viz build-out
+  (UI-only, D71) and the **EU→US** cold-render latency measurement (L5.8 number →
+  plan/03).
+
+**This federation is cross-region — see L5.8.** The store is in us-east-1, and
+the Data Cloud tenant that federates it is in eu-central-1, co-located with the
+core org on EU55 (both EU). L5.8 takes that apart: org and tenant are in-region
+(the normal customer shape), only the tenant↔store hop is cross-region (and it is
+the customer-representative one), why Zero Copy makes a cross-region shape a data-residency
+*story* rather than a violation, and why the dashboard's load time is a real
+end-to-end latency measurement worth showing.
+
 **Schema changes go through `scripts/pg_migrate.py`**, which connects as the
-table owner. `pg_backfill.py` moves rows and cannot ALTER — the split that D46
-exists to record.
+table owner and now also applies `ROLE_GRANTS` (WS19) right after the DDL.
+`pg_backfill.py` moves rows and cannot ALTER — the split that D46 exists to
+record.
 
 ---
 
@@ -670,7 +769,7 @@ flowchart LR
 
   ALB -->|"default action, no rule"| BR["a2alab-bridge<br/>Path A"]
   ALB -->|"host-header rule, prio 20"| CON["a2alab-console"]
-  ALB -->|"host-header rule, prio 30"| FAC["a2alab-faces<br/>11 faces by path"]
+  ALB -->|"host-header rule, prio 30"| FAC["a2alab-faces<br/>14 faces by path"]
 ```
 
 Every public entrance to the lab is a **CNAME in Cloudflare, proxied (orange),
@@ -779,6 +878,79 @@ not", which is the reason to write them down.
 
 ---
 
+## L5.8 — The cross-region Zero Copy path: data residency, and a real latency measurement
+
+```mermaid
+flowchart LR
+  subgraph EU["EU — Frankfurt"]
+    ORG["Core Salesforce org<br/>a2a-lab prod (instance EU55)"]
+    DC["Data Cloud tenant<br/>CDP2-AWS-PROD3-EUCENTRAL1<br/>(AWS eu-central-1)<br/>Data 360 Zero Copy connection"]
+    TAB["Tableau Next dashboard"]
+    ORG --- DC
+    DC --- TAB
+  end
+
+  subgraph US["AWS us-east-1 (Virginia)"]
+    PG[("Aurora Postgres<br/>lab.* obs store<br/>as lab_reader, 5432/TLS")]
+  end
+
+  TAB -->|"query, in-region<br/>org ↔ tenant, both EU"| DC
+  DC -->|"Zero Copy federation<br/>EU → US, live SQL<br/>NO ETL, NO copy"| PG
+  PG -.->|"rows, US → EU<br/>the return trip the<br/>dashboard waits on"| TAB
+```
+
+**What you are looking at.** One dashboard render crosses **two regions on two
+continents**: a Tableau Next query originates in the **EU** (the core org on
+EU55 and its Data Cloud tenant in eu-central-1, co-located in Frankfurt), which
+federates the rows live by **Zero Copy** from Aurora in the **US** (us-east-1) —
+no ETL, no second copy, the query reaches the source table over 5432/TLS as
+`lab_reader`. The dotted line is the return trip, and its round-trip time is the
+number this level exists to measure.
+
+**Org and tenant are co-located; only the store is cross-region — and that is
+the customer-representative leg.** Being precise here is what makes the story
+credible rather than a happy accident:
+
+- **Org (EU) and tenant (EU) are co-located — the normal customer shape.** A real
+  customer's Data Cloud tenant is provisioned in, or aligned to, its org's region
+  for residency; an EU org gets an EU tenant. This lab matches that: the core org
+  is on EU55 and the Data Cloud tenant is `CDP2-AWS-PROD3-EUCENTRAL1`
+  (eu-central-1), both in Europe. (An earlier read of this estate mistakenly
+  placed the tenant in ca-central-1 — that was a *different* org used to prove the
+  IP-source method; see D70. The lab's real tenant is EU, and org↔tenant is
+  in-region.) **The D69/D70 lesson still bites:** the 5432 allowlist targets the
+  *tenant's* region (eu-central-1), read from its home-org instance name — not the
+  org's EU55 label and not the cluster's us-east-1 — and the IPs come from the
+  *Data 360 Services* article, not the `ip-ranges.salesforce.com` app-fabric
+  manifest.
+- **Tenant (EU) ↔ store (US) is the real, customer-representative hop.** Customer
+  source systems live wherever they live; a tenant federating a cross-region data
+  source over Zero Copy is a normal production shape. This leg is the genuine
+  cross-continent round trip worth generalising from — one honest hop, not a
+  provisioning artifact.
+
+**Why this supports a data-residency conversation.** The point Zero Copy makes is
+that the rows **never leave us-east-1** — Data Cloud does not ingest or store a
+copy in the EU; it queries the source table in place and streams results for the
+life of the query. So a customer with "the data stays in region X" as a hard
+constraint can still get a Salesforce-native tenant and Tableau dashboards on top
+of data physically pinned to another region. The lab is a concrete instance of
+that conversation: an EU-run dashboard over data that is physically in the US, no
+copy made.
+
+**Why the latency number is worth showing.** "How does *your* product perform
+across regions?" is one of the most common customer questions, and it is usually
+answered with a diagram and a shrug. This estate answers it with a **measurement**
+nobody has to model: the wall-clock time for the Tableau Next dashboard to render
+is the true EU → US → back round trip, over a live Zero Copy federation
+rather than a pre-materialised extract. If that render is *reasonable* — and it is
+this setup's whole bet that it will be — then it is direct evidence that
+cross-region, even cross-continent, agent-observability federation is not the
+latency problem it is assumed to be. **Record the measured render time in
+`plan/03-results.md`** once the dashboard exists (WS19 item 6), the same way every
+other budget number in this file is measured rather than assumed — a modelled
+number would defeat the entire point of having a real environment.
+
 ## L6 — Code → deployment: which file becomes which running thing
 
 ```mermaid
@@ -823,7 +995,8 @@ flowchart LR
 | `src/fanout_mcp/` | `build_zip.sh` then `deploy_fanout.sh` | Lambda `a2alab-fanout-mcp` + API Gateway + secret `a2alab/runtime/fanout-mcp` | AWS |
 | `src/observability/` | `deploy/obs/build_zips.sh` then `deploy_harvest.sh` / `expose_mcp.sh` | Lambdas `a2alab-obs-harvest` (EventBridge 6h) and `a2alab-obs-mcp` (+ API Gateway), secret `a2alab/obs/harvest`, role policy `a2alab-obs-promql`. **WS16:** the harvest role also needs `logs:FilterLogEvents` on `/a2alab/coding-agents/otlp` for the `coding-logs` source (owned by `deploy_harvest.sh`) — same shape as the PromQL grant. **WS5/D67:** and `a2alab-obs-strands` (`cloudwatch:GetMetricStatistics` for the `AWS/Bedrock` meters + `logs:FilterLogEvents` on `/aws/bedrock-agentcore/runtimes/*` for the Strands runtime access log) | AWS |
 | `src/obs_mcp/` | `deploy/obs/expose_mcp.sh` (`--code` for code alone) | Function code for `a2alab-obs-mcp`. **Nothing pushed this zip until 2026-07-27** — `expose_mcp.sh` built the API and left the code to a hand-run `update-function-code` | AWS |
-| `observability/pg.py` `DDL` | `scripts/pg_migrate.py` | Schema changes in Aurora `a2alab`, run as the **table owner**. `pg_backfill.py` (rows only) connects as `lab_writer`, which cannot ALTER | AWS |
+| `observability/pg.py` `DDL` + `ROLE_GRANTS` | `scripts/pg_migrate.py` | Schema changes in Aurora `a2alab`, run as the **table owner**, plus (WS19/D69) `lab_reader`'s federation posture — read-only, 15s `statement_timeout`, `CONNECTION LIMIT 15`, SELECT on `lab.*` + default privileges. `pg_backfill.py` (rows only) connects as `lab_writer`, which cannot ALTER | AWS |
+| `config/salesforce_ip_ranges.yaml` | `deploy/obs/deploy_datacloud_ingress.sh` | WS19/D69+D70: a scoped, TLS-only **5432 ingress** rule on SG `a2alab-aurora-sg` for the Data Cloud tenant's egress `/32`s (eu-central-1 → the us-east-1 cluster) — the one path the Data API design avoided, for the Zero Copy connector only. The IPs come from the **"IP Addresses Used by Data 360 Services"** article, NOT `ip-ranges.salesforce.com` (D70). `--verify` checks every pinned `/32` is authorized on the SG (the article has no JSON manifest to diff); `--tls` associates a custom cluster parameter group (`rds.force_ssl=1`); `--revoke` takes it back down. The Data 360 connection itself is created in the Setup UI (WS19 item 5, D70), not here | AWS |
 | `src/platforms/adk/` | `deploy/adk/deploy_adk.py` | Agent Engine deployments `a2alab-adk-researcher`, `a2alab-supply-orchestrator-adk`, `a2alab-logistics-agent` | GCP |
 | — | `deploy/adk/provision_aws_federation.py` | GCP→AWS trust: one IAM role | AWS |
 | — | `deploy/fanout/provision_gcp_federation.py` | AWS→GCP: pool, provider, mapping, condition, impersonation | GCP |
@@ -836,6 +1009,14 @@ flowchart LR
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator` | `sf agent validate\|publish\|activate` | Agent Script orchestrator bundle in the prod org (WS8 variant 3, D61). Fans out by **delegating** to the bridge's `fanout:` route; reuses `A2ALabInvokeRemoteAgent` — no new Apex, no new Named Credential | Salesforce |
 | `src/bridge/app.py` `_fanout()` | (part of `deploy/bridge/deploy_bridge.sh`) | The bridge's `fanout:<scenario>` verb route — one Apex callout runs the three legs off-platform via `orchestration.dispatch()`. Ships with the bridge image; not a separate deploy (D61) | AWS |
+| `salesforce/.../applications/A2A_Lab.app` + `tabs/A2A_Lab_Traffic.tab` + `flexipages/A2A_Lab_Traffic.flexipage` | `sf project deploy` | The in-org **A2A Lab** Lightning app: an AppPage embedding the Tableau Next dashboard (native `analytics_embedding:dashboard`) over the live Zero-Copy federation (WS19/M10). Opened at `/lightning/app/A2A_Lab`; the console shows the live link to the owner alone | Salesforce |
+| `observability.pg.DDL` views `lab.trace_events_zc` + `lab.trace_rollup_zc` | `scripts/pg_migrate.py` (Aurora) then SSOT REST (`sf api request rest`) | Two **Zero-Copy DMOs** (`A2A_Lab_Trace_Event__dlm` hop grain, `A2A_Lab_Trace_Rollup__dlm` trace grain), Direct_Access — Data 360 federates Aurora live, nothing materialized (WS19/D71). The second grain exists because Tableau Semantics has no FIXED/LOD | Aurora → Salesforce Data 360 |
+| `src/console/app.py` `/api/tableau/frontdoor` + `tableau_next.embed` in `/api/config` | (part of `deploy/console/deploy_console.sh`) | WS19 owner-only **inline** Tableau Next embed: signs a **JWT-bearer** assertion *as* the ECA run-as user → `/services/oauth2/token` → `/singleaccess` → short-lived frontdoor URL → SDK `authCredential`. JWT-bearer because `/singleaccess` needs the `web` scope client-credentials never issues. Needs `SF_CLIENT_ID_TAB_EMBED` + `SF_TAB_EMBED_RUNAS_USER` in plain env + the RS256 key (`A2ALAB_TAB_EMBED_JWT_KEY`, from the local PEM) in the console secret. Ships in the console image; full rebuild (static baked by `COPY`) | AWS |
+| `salesforce/.../externalClientApps/a2a_lab_tab_embed.eca` + `extlClntAppGlobalOauthSets` (carries the JWT public cert) + `extlClntAppOauth{Settings,Policies}` | `sf project deploy` (all four files) | The `web`-scoped ECA whose JWT-bearer-as-user token drives the frontdoor exchange (WS19). Run-as = the Tableau-Next-licensed admin. **Fully headless** — the cert attaches via the `certificate` field on global-OAuth settings (Metadata API v60+); JWT-bearer needs no consumer secret | Salesforce |
+| `salesforce/.../flexipages/A2A_Lab_Home.flexipage` | `sf project deploy` | The in-org **A2A Lab Home** App Builder page (default tab of the A2A Lab app): lab intro, the in-org supporting components (Agentforce agents; Zero-Copy observability → Tableau Next), and a link out to the console (WS19). Deploys headless | Salesforce |
+| `salesforce/.../corsWhitelistOrigins/https_console_lab_agenticthings_com.corsWhitelistOrigin` | `sf project deploy` | CORS allowlist entry for the console origin so the Embedding SDK's browser calls to the org are permitted (WS19). Deploys headless | Salesforce |
+| Setup → Session Settings → Clickjack Protection → **Trusted Domains for Inline Frames** (IFrame Type = **LightningOut**), console origin | **UI-only** (not `sf project deploy`) | Adds the console origin to Salesforce's **`frame-ancestors`** CSP so the Embedding SDK — which renders via Lightning Out in an **iframe** — is not browser-blocked (who may *frame the org*). NOT a field on `SecuritySettings` metadata, so this one is genuinely UI-only. One of three allowlists for the embed; see D72 | Salesforce |
+| `salesforce/.../cspTrustedSites/A2A_Lab_Console.cspTrustedSite` | `sf project deploy` | CSP Trusted Site (`context=LightningOut`) governing **`frame-src`/`connect-src`/`img-src`/`style-src`/`font-src`/`media-src`** on the framed Lightning Out content — what the dashboard *itself* may load (its own iframes, data calls, images, fonts). A DIFFERENT direction than the `frame-ancestors` row above; the embed needs both, exactly as the built-in Slack integration ships both (WS19, **D72**). Deploys headless | Salesforce |
 | `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; **metrics** land in CloudWatch (read by `coding`) | laptop → AWS |
 | `.cursor/hooks.json` + `scripts/cursor_otel.sh` | `cursor_otel.sh` (once, per credential rotation) | Cursor has no native exporter — hooks forward to the **cursorscope** ingestor, which exports **metrics** to the same CloudWatch endpoint (read by `coding` as `tool=cursor`, D64). Cumulative counters | laptop → AWS |
 | `scripts/setup_cw_logs_otlp.py` + `scripts/claude_otel.sh` | `setup_cw_logs_otlp.py --apply` (once) | `logs.amazonaws.com` service credential + CloudWatch **log group** `/a2alab/coding-agents/otlp` (bearer auth) + token in Secrets Manager `a2alab/telemetry/cw-logs-api-key`; the launch wrapper exports Claude Code's **log** events there (read by `coding-logs`, WS16) | laptop → AWS |
@@ -930,6 +1111,7 @@ The choices above that look inconsistent until you know what drove them:
 | …give the console its own load balancer? | A second ALB is ~$16/month for nothing. The bridge's already terminates TLS on :443 with the `*.agenticthings.com` origin cert, so an extra face costs a target group, a **host-header rule** and a task. The bridge stays the listener's default action and carries no rule, so a wrong host pattern can only make the console unreachable — it cannot break Path A. |
 | …trust that a deploy which passes its own runbook is verified? | D48. The console's first hosted run passed every check — image, secret, rule, stable service, `/healthz` 200 — while serving every `/api` surface unauthenticated, because its runtime secret was created, shipped and never loaded, and the auth middleware treats a missing token as *auth is off*. A valid-token check proves nothing when all tokens are accepted; the negative test is the one that finds it. |
 | …make the credential analyst a Managed Agent like the other two? | It was one, and it was demoted (D44). Its work is one round trip over a report a person just collected — no tools, no schedule, no state. The agent object, setup step and state file were surface with nothing behind them. |
+| …keep the Aurora 5432 ingress closed, since everything uses the Data API? | It was, for the store's whole life, and that closed posture is the design (WS19/D69). The Salesforce Data 360 Zero Copy connector is the one reader that *cannot* use the Data API — it logs in with username/password over 5432 — so M10 opens exactly one scoped path: TLS-only, the Data Cloud tenant's eu-central-1 CIDRs only, as `lab_reader` with a 15s timeout and a 15-connection cap. No lab code opens a 5432 socket; the exception exists solely for the connector, and `pg.py`'s posture note was rewritten in the same change so the code no longer claims a closed door it no longer has. |
 
 ## Presenter notes
 

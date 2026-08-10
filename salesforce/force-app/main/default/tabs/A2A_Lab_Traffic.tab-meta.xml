@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomTab xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>Agent Interop Traffic</label>
+    <description>Tableau Next dashboard over the lab's Zero-Copy observability data (WS19/M10).</description>
+    <flexiPage>A2A_Lab_Traffic</flexiPage>
+    <motif>Custom57: Bar Chart</motif>
+</CustomTab>

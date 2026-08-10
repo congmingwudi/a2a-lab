@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CspTrustedSite xmlns="http://soap.sforce.com/2006/04/metadata">
+    <context>LightningOut</context>
+    <description>A2A Lab console origin. LightningOut CSP grant so the framed Lightning Out content (how the Tableau Next Embedding SDK renders inline) may load its own resources and data — frame-src/connect-src/img-src/style-src/font-src/media-src. Governs DIFFERENT CSP directives than frame-ancestors (that is the Session Settings "Trusted Domains for Inline Frames" entry, UI-only); an external LO embed needs BOTH. Parallels the built-in Slack trusted site (WS19/M10, D72).</description>
+    <endpointUrl>https://console-lab.agenticthings.com</endpointUrl>
+    <isActive>true</isActive>
+    <isApplicableToConnectSrc>true</isApplicableToConnectSrc>
+    <isApplicableToFontSrc>true</isApplicableToFontSrc>
+    <isApplicableToFrameSrc>true</isApplicableToFrameSrc>
+    <isApplicableToImgSrc>true</isApplicableToImgSrc>
+    <isApplicableToMediaSrc>true</isApplicableToMediaSrc>
+    <isApplicableToStyleSrc>true</isApplicableToStyleSrc>
+</CspTrustedSite>

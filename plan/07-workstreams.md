@@ -2613,3 +2613,178 @@ section renders unique/returning visitors, country/locale, and sections/
 experiments viewed over a selectable timeframe, with a `Details` pane that states
 the anonymity bounds. No IP or payload is stored; a logging failure never blocks
 the UI.
+
+## WS19 — Data 360 zero-copy over Aurora → Tableau Next observability dashboard (raised 2026-08-07, D69)
+
+**What this is, and why it is not new.** Close the loop the lab was built to
+close: land the cross-platform agent telemetry the harvest already collects into
+**Data 360** with **no ETL**, then build a **Tableau Next** dashboard on it for a
+Salesforce-side, business-analytics view of agent traffic. This is **M10** — the
+"Data 360 zero-copy → TableauNext reporting" scoped 2026-07-10 (plan/00 M10
+note), then retargeted by D23 from the DynamoDB connector onto Data 360's **AWS
+Aurora PostgreSQL connector** (GA for Zero Copy query federation). The store was
+built to feed it: `PostgresSink`'s docstring names `lab.trace_events` as "the
+table Data 360's Aurora Postgres zero-copy connector federates for M10," payloads
+are flat **jsonb scalars** (D13) so connector field-mapping is trivial, and the
+`lab_reader` role D23 defined is explicitly "for Data 360 and the analyst MCP
+server." So WS19 executes an approved direction — the design work is done in D13,
+D23 and D69.
+
+**The two views are the finding, not a duplication.** The console's Observability
+section stays the lab's **wire-level** view — raw request/response payloads per
+hop, the thing the lab exists to show. Tableau Next is the **aggregate,
+Salesforce-side** view of the *same rows* — cross-platform traffic, protocol mix,
+latency and status by target — reached with **zero copy** between them. Having
+both, over one Aurora table, with no transform in between, is itself the M10
+result: the same telemetry serves an engineer reading wire bytes and a Salesforce
+analyst reading a dashboard.
+
+**The one genuinely new cost (D69).** Everything hosted reaches Aurora through
+the IAM'd **RDS Data API**, so the cluster's **5432 ingress is closed** (`pg.py`
+says so). The Zero Copy connector cannot use the Data API — it authenticates
+**username/password to the cluster endpoint over 5432 from Salesforce's IP
+ranges**. So M10 opens the one network path the hosted design avoided: a scoped,
+TLS-only 5432 security-group rule for Salesforce Data Cloud IPs (and the MCP
+server), authenticating as `lab_reader` with statement_timeout + row caps. That
+is a real security-posture change, which is why it has an ADR.
+
+**What is UI-only, and honestly recorded as such (D69/M11 precedent).** The Data
+360 connector setup, the DLO→DMO mapping, and Tableau Next authoring have no REST
+API the lab drives — the same shape M11 recorded for Agentforce's own dashboards
+("UI-only, recorded as gaps"). WS19 automates the AWS side (security group, role,
+endpoint reachability) and **declares** the console-clicked steps as operator
+actions with screenshots, rather than pretending a script did them.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Confirm the Aurora tables feed the connector cleanly and document which jsonb fields Tableau needs flattened | **done** (2026-08-07) — survey of the live store: `lab.trace_events` is 2,977 rows over 8 protocols / 53 targets, and every column Tableau groups/filters on is already a top-level scalar (protocol, target, status, latency_ms, ts_at, source, D13). The only jsonb columns are `request/response_payload_raw` — raw wire payloads for drill-down, which the aggregate dashboard does not flatten. No schema change |
+| 2 | **Scoped 5432 ingress (D69):** a TLS-only security group opening the cluster endpoint to Salesforce Data Cloud IP ranges + the MCP server only | **done** (scripted 2026-08-07, IP source corrected 2026-08-08 per D70; apply is a deliberate operator action) — `deploy/obs/deploy_datacloud_ingress.sh` opens 5432 on `a2alab-aurora-sg` to the tenant's **eu-central-1** egress `/32`s only, pinned in `config/salesforce_ip_ranges.yaml` from the **"IP Addresses Used by Data 360 Services"** help article — NOT `ip-ranges.salesforce.com`, whose `/23` app-fabric range the connector does not egress from (D70); `--verify` checks every pinned `/32` is authorized on the SG (the article has no JSON manifest to diff), `--tls` enforces `rds.force_ssl=1`, `--revoke` reverses. Sources `aws_preflight.sh`. NOTE: the MCP server uses the Data API, so 5432 opens to the Data Cloud CIDRs alone, not the MCP server |
+| 3 | `lab_reader` role hardening for federation: schema-scoped read-only grants over `lab.*`, `statement_timeout` + row caps in DB settings, password in Secrets Manager (D39/D45); applied via `scripts/pg_migrate.py` as owner (D46) | **done** (2026-08-07) — posture codified in `observability.pg.ROLE_GRANTS` and applied live by `pg_migrate.py`: read-only, 15s statement_timeout (Postgres has no per-role ROW cap — the honest control), and a new `CONNECTION LIMIT 15` (was unlimited). Reuses the D23 role, no new credential. This also fixed the D46 gap: the reader's posture existed only by hand, un-reproducible from the repo |
+| 4 | Update `src/observability/pg.py` posture note + `plan/09-deployment-map.md` in the SAME change as the SG — the store no longer claims closed ingress | **done** (2026-08-07) — `pg.py` docstring rewritten (the Data API path no longer claims a closed door); `plan/09` updated across L0 estate (a return edge + Data 360/Tableau box), L5 obs (the second reader + its state), the L6 code→deploy table (two rows), and "Why not, in one place" (the 5432 exception). Runbook §8 also updated |
+| 5 | Create the Data 360 `AwsRdsAuroraPostgres` connection to the Aurora store as `lab_reader` | **done** (2026-08-08) — connection `A2A_Lab_Obs_Aurora` created and Test Connection returns "Connection was established." Created in the **Setup UI**, not by REST: the connector has no documented `POST /ssot/connections` body (D69 item 4's "API-creatable" claim was wrong — corrected in D70), and blind body-probing a prod org risks orphaning a real connection. The long failure was the IP-source/region diagnosis in item 2 / D70, not the connection itself |
+| 6 | **Operator action:** select the Zero Copy (BYOL) method on the DLO→DMO mapping / data stream built on the connection, then build the Tableau Next dashboard — traffic volume, protocol mix, latency/status by target/platform | **operator action** — the method-selection + Tableau authoring are UI-only (no REST the lab drives); record with screenshots. The *connection* (item 5) is scripted; only this downstream step is manual |
+| 7 | Console entry point/screenshot for the dashboard + `plan/02-matrix.md` finding (two views over one table, zero copy) | **not started** — closes the delivery-record loop (D58/D60); a component row with a "sign in to open" deep link per D-scrub, and this WS19 marked `N. ✅`/state-table for the next `jira_sync.py` run |
+
+### Exit criteria
+
+A Salesforce Data 360 Zero Copy connection federates `lab.trace_events` from the
+hosted Aurora store with **no ETL job**; a Tableau Next dashboard renders
+cross-platform agent traffic (volume, protocol mix, latency, status by
+target/platform) over that federated data; the 5432 ingress is scoped to
+Salesforce IP ranges + the MCP server over TLS and authenticates as `lab_reader`
+with enforced statement/row limits; `pg.py` and `plan/09` no longer describe a
+closed-ingress posture the store no longer has; and the console + `plan/02-matrix`
+record the finding that the lab's wire-level view and the Salesforce-side
+Tableau view read the **same rows** with zero copy between them. The UI-only
+connector/mapping/dashboard steps are declared as operator actions, not claimed
+as automated.
+
+## WS20 — Claude Science patterns: provenance + actor-critic over the lab's own insights (raised 2026-08-09)
+
+**What this is.** Overlay the transferable ideas from Anthropic's **Claude
+Science** workbench (the AI-for-science beta, June 30 2026) onto the lab's own
+insights feed and method. The disqualifying mismatch is why this is an *overlay*
+and not an adoption: Claude Science orchestrates a generalist coordinator
+spawning sub-agents inside **one session, one machine, one trust boundary**,
+every sub-agent a Claude — the exact property this lab exists to *not* have, so
+its harness has none of the cross-vendor, cross-trust-boundary seam under test.
+What transfers is not the harness or the biology; it is the **epistemics** — how
+a claim earns its evidence tier, and how a reviewer agent demotes claims it
+cannot back. Working note: `tmp-docs/claude-science.md` (a local note, not a
+checked-in doc).
+
+**Why it is worth building.** The lab already has the weaker, hand-rolled
+version of Claude Science's provenance contract — `config/insights.yaml`'s
+`measured / observed / hypothesis` ladder — but the tier is **author-declared**:
+a human typed "measured". Claude Science's model is **structural** — a figure
+ships with the code and environment, so "reproducible" is a property you test by
+re-running, not a label. Making the lab's ladder derive from whether the backing
+artifact re-executes turns the demotion check mechanical, and that is exactly the
+failure class behind the four-bucket token finding (120K reported for a day that
+processed 4.42M — a 36× understatement that raised no error and looked entirely
+plausible). The **cost sentinel already behaves like the critic** (it refused a
+week-over-week comparison rather than invent one, WS12/D44); this generalises
+that trust-under-pressure move across the whole insights feed.
+
+**The defensible framing (guards the lab's own honesty bar).** These are
+**conventions and a vocabulary, not a standard** — nothing in Claude Science is a
+published spec with other implementers, and calling it one would trip the lab's
+own editorial rule. Climb at most one rung above the measurements and stay
+attached to them: the scarce asset is the specific number (join rate 1-of-4, the
+36× understatement), not an abstract "reproducible-workbench pattern" any
+architect could write in an afternoon. This also surfaces in the console's
+What's Next section as the `claude-science-overlays` plan (`config/whats_next.yaml`),
+which graduates to this workstream.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Redefine the insights evidence ladder as artifact-derived: `measured` = names a run id / trace file that still exists and re-executes; `observed` = a trace exists but is not reproducible (endpoint moved, credential rotated); `hypothesis` = no artifact. Document the rule in `config/insights.yaml`'s legend and mirror it in the console Insights legend | not started |
+| 2 | Add a reference-integrity check over `config/insights.yaml`: an entry citing a run id / trace / `plan/*.md` anchor that no longer resolves auto-demotes one tier. Fold into `insights-audit` (the existing skill) rather than a new tool | not started |
+| 3 | Build the actor-critic reviewer: an agent whose only job is to DEMOTE insight claims it cannot back, run over the feed, reporting what it did as the artifact ("demoted N of M, caught K citing a run that no longer exists") — the same shape as the cost sentinel refusing a comparison (D44) | not started |
+| 4 | Name session-forking as a repeatable method: one scenario, one baseline, N variants, differences reported against the shared origin — the move already run by hand building the supplier-disruption fan-out three times on three orchestrators (WS8). Write it up in `plan/01-architecture.md` as a lab method | not started |
+| 5 | Extend the honest-status vocabulary (`native / via-bridge / via-shim / blocked-beta`) to provenance and observability claims, as a *vocabulary* not a standard; record the finding in `plan/02-matrix.md` and surface the pattern in the console | not started |
+
+### Exit criteria
+
+An insight's evidence tier is derived from whether its backing artifact
+re-executes, not asserted by its author; `insights-audit` auto-demotes any entry
+whose cited run/trace/doc no longer resolves; an actor-critic reviewer runs over
+`config/insights.yaml` and reports the demotions it made as a checkable number;
+session-forking is documented as a named lab method in `plan/01-architecture.md`;
+and the honest-status vocabulary is applied to provenance claims and recorded in
+`plan/02-matrix.md`. Framed throughout as conventions and a vocabulary borrowed
+from Claude Science, never as a standard the lab defines.
+
+## WS21 — Rename the `anthropic-*` trace targets to `claude-*` at source (raised 2026-08-09)
+
+**What this is.** Two trace-event `target` strings read `anthropic-managed-agents`
+and `anthropic-api`; they should read `claude-managed-agents` and `claude-api` to
+match the lab's own naming (the Claude platform, its Managed Agents backend, and
+the Claude API are the vocabulary everywhere else). Today the WS19 Tableau
+`Target Platform` calc relabels them **at the dashboard only** — the underlying
+data and every other surface still say `anthropic-*`.
+
+**Why it is (maybe) worth building.** Consistency: a visitor reading the console
+trace viewer sees `anthropic-managed-agents` while the Tableau dashboard says
+`claude-managed-agents` — the same hop, two names. **Why it may not be worth it
+now** (the operator's call, 2026-08-09: "not sure it's worth the effort"): it is a
+genuine cross-cutting rename with a data-migration tail, and the dashboard remap
+already gives the analytics surface the right names. Low value, non-trivial cost —
+parked as a potential workstream, not scheduled.
+
+**Scope if built** — the string is stamped and matched in several places (grep
+`anthropic-managed-agents` / `anthropic-api` before starting):
+- **Source (new rows):** `src/platforms/claude/managed_backend.py`,
+  `src/platforms/guide/core.py`, `src/observability/analyst.py`,
+  `src/briefs/runner.py`, `src/orchestration/cma.py`, `src/console/app.py`.
+- **Console display + badge matching:** `src/console/static/index.html`
+  (vendor-badge logic keys on `anthropic-managed-agents`).
+- **Existing data:** ~120 rows in Aurora `lab.trace_events` (98 + 22 as of
+  2026-08-09) carry the old `target` — a one-shot `UPDATE` (via `pg_migrate.py` as
+  owner) OR accept that historical rows keep the old name and only new rows change.
+- **Downstream that reads the string:** the WS19 Tableau calc's two remap arms
+  become unnecessary and should be removed in the same change; check
+  `config/scenarios.yaml` / diagrams for the literal.
+- **Delete-and-recreate is wrong** — this is a relabel, so an in-place `UPDATE`
+  (or leave-history) is the only safe shape; the generated `event_key` does not
+  include `target`, so the PK is unaffected.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Rename `anthropic-managed-agents`→`claude-managed-agents` and `anthropic-api`→`claude-api` at every source site (managed_backend, guide/core, analyst, briefs, cma, console/app) | not started |
+| 2 | Update console badge/vendor matching in `index.html` and any diagram/config literal | not started |
+| 3 | Decide + apply the historical-row policy: one-shot `UPDATE` on `lab.trace_events` via `pg_migrate.py`, or leave history and change new rows only | not started |
+| 4 | Remove the now-redundant two remap arms from the WS19 Tableau `Target Platform` calc | not started |
+
+### Exit criteria
+
+`grep anthropic- src/ config/` returns nothing that names a trace target; the
+console trace viewer and the Tableau dashboard show the same `claude-*` names for
+the same hop; the WS19 `Target Platform` remap arms are gone; and the historical-
+row policy is decided and recorded. Parked until judged worth the effort.

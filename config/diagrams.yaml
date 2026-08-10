@@ -25,17 +25,20 @@ diagrams:
               SC["a2alab/runtime/claude"]
               SO["a2alab/runtime/openai"]
               SS["a2alab/runtime/shim"]
+              SCON["a2alab/runtime/console"]
           end
 
           ACC["AgentCore: Claude"] --> SC
           ACO["AgentCore: OpenAI"] --> SO
           HSHIM["Hosted A2A shim"] --> SS
+          CON["Console"] --> SCON
           HARV["Obs harvest"] --> SH["harvest secret (D23)"]
 
           SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
           SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
           SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
           SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
+          SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
   - id: platform-map
     title: "The platform map"
     caption: >

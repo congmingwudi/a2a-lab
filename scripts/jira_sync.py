@@ -331,7 +331,11 @@ def main() -> int:
         created.append(key)
         print(f"  {key:8} EPIC  {summary[:64]}")
         for it in w["items"]:
-            s = f"{w['ws']}.{it['n']} — {it['summary']}"
+            # Jira caps a summary at 255 chars. The item text is already
+            # truncated to 250, but the "WS20.10 — " prefix can push the
+            # composed summary over, so bound the whole thing (the full text
+            # lives in the description regardless).
+            s = f"{w['ws']}.{it['n']} — {it['summary']}"[:255]
             links = repo_links(it["state"], root)
             d = (
                 f"Work item {it['n']} of {w['ws']}, imported from "
