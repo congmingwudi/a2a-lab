@@ -3,12 +3,26 @@
 # (scripts/export_insights.py -> plan/08-insights.md).
 #
 # status legend — an evidence ladder by WHAT BACKS THE CLAIM, not a workflow
-# (this key is mirrored in the console's Insights legend; keep them in step):
-#   measured    backed by recorded lab runs — a number you can point to
-#               (e.g. a latency in plan/03-results.md)
-#   observed    seen and documented in the lab, but not yet reduced to a number
-#               (the behaviour happened and was written down; nothing was timed)
-#   hypothesis  framed by the lab, measurement still planned (say where)
+# (this key is mirrored in the console's Insights legend; keep them in step).
+#
+# WS20: the tier is a property of the ARTIFACT, not a label the author typed.
+# This is the one convention worth borrowing from Anthropic's Claude Science
+# workbench — a claim's evidence tier should be something you can TEST by
+# re-running, not something a human asserted. It is a convention and a
+# vocabulary, not a standard (nothing in Claude Science is a published spec).
+# The rungs, defined by whether the backing artifact still resolves:
+#   measured    names a recorded number AND a live artifact behind it — a run
+#               id, a trace file, or a plan/*.md anchor that still exists and
+#               (for a number) could be re-produced. Re-runnable, not just
+#               written down. (e.g. a latency in plan/03-results.md)
+#   observed    an artifact existed and was documented, but is no longer
+#               reproducible — a beta endpoint moved, a credential rotated, a
+#               trace was pruned. The behaviour happened and was written down;
+#               you can no longer re-run it to the same number.
+#   hypothesis  no backing artifact — reasoning the lab expects to hold and
+#               intends to test (say where). A ref that no longer resolves
+#               drops an entry to this rung; that demotion is mechanical, not a
+#               judgment call (insights-audit auto-demotes — WS20).
 #
 # Each entry: headline (the claim), evidence (what the lab showed),
 # advisory (the talking point you'd give a customer), refs (ADRs/docs).

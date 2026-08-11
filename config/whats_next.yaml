@@ -99,7 +99,7 @@ plans:
 
   - id: claude-science-overlays
     title: Claude Science patterns overlaid on the lab's insights + method
-    horizon: planned
+    horizon: in-flight
     pitch: >
       Borrow the provenance and review ideas from Anthropic's Claude Science
       workbench and apply them to the lab: derive an insight's evidence tier
@@ -115,4 +115,4 @@ plans:
     platforms: [anthropic]
     specs: []
     workstream: WS20
-    refs: [plan/07-workstreams.md, plan/08-insights.md]
+    refs: [plan/01-architecture.md, plan/02-matrix.md, plan/07-workstreams.md, plan/08-insights.md]

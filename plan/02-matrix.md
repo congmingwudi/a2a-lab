@@ -204,3 +204,23 @@ interop.
   column yet: one probe per endpoint on one day is thin evidence for a
   standing claim, and Agent Engine's cause is unresolved rather than
   established. plan/03-results.md carries the numbers.
+- **The honest-status vocabulary extends past protocol support — to
+  provenance and observability claims** (WS20, convention adopted
+  2026-08-10). The `native / via-bridge / via-shim / blocked-beta` ladder
+  above answers "how does this platform speak the protocol"; the same
+  discipline answers "how is this claim backed". An insight's evidence tier
+  is the provenance analogue: `measured` = a live artifact re-produces the
+  number, `observed` = the artifact existed but no longer reproduces (endpoint
+  moved, credential rotated, trace pruned), `hypothesis` = no artifact
+  resolves — the artifact-derived ladder now defined in `config/insights.yaml`
+  and enforced by the actor-critic reviewer (`insights-audit`), which demotes
+  any tier its artifact no longer backs. Observability harvest state reads the
+  same way: a platform's logs are `native` (its own read API, e.g. Agentforce
+  Session Tracing), `via-shim` (captured at a seam the lab inserted, e.g. the
+  A2A wiretap), or `blocked` (write-only, no read path — OpenAI's trace
+  dashboard). This is a **vocabulary, not a standard**: it is smaller and more
+  defensible than a "provenance schema" precisely because it is borrowed
+  phrasing applied consistently, not a spec the lab claims others should
+  implement. The move is the same trust-under-pressure one the cost sentinel
+  already makes — name what backs a claim, and refuse the claim the backing
+  cannot support (WS12/D44).

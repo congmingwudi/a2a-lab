@@ -80,3 +80,34 @@ turn, plus managed-session cold start; 40s proved too tight in practice and
 Path A pins `CLAUDE_BACKEND=sdk` while Path B and direct calls keep
 exercising managed). Speed levers: Haiku-tier `CLAUDE_AGENT_MODEL`, concise
 system prompt, warm long-running servers.
+
+## Lab method: session-forking (WS20)
+
+A named, repeatable way the lab compares approaches: **one scenario, one
+baseline, N variants, all differences reported against the shared origin.**
+Fix everything the comparison is *not* about — the same task, the same input,
+the same trace correlation — fork only the one axis under test, and read the
+results as deltas from the common baseline rather than as N independent runs.
+The shared origin is what makes a difference attributable: a number that is not
+measured against a fixed baseline is a number you cannot defend.
+
+This is not a new capability — it is the naming of a move the lab already ran
+by hand. The supplier-disruption fan-out was built three times over three
+orchestrators (model-scheduled MCP, deterministic script, and the A2A
+fire-then-poll variant — WS8), same scenario each time, and the interesting
+result was the *difference* between them, not any single run. Naming the move
+turns three one-off builds into a method you can point at and re-run: it is how
+the matrix compares protocols (one cell per protocol, one scenario, D-referenced
+deltas in `plan/02-matrix.md`), and how a future "which orchestrator/model/
+prompt is better" question should be posed.
+
+The convention is borrowed from Anthropic's Claude Science workbench, where a
+figure ships with the exact code, environment, and message history so a
+comparison re-executes rather than being asserted — **a convention and a
+vocabulary, not a standard** (nothing in Claude Science is a published spec).
+What transfers is the epistemics: the baseline is the artifact, and a variant's
+claim earns its evidence tier by being re-runnable against that baseline, not by
+a label an author typed. See the artifact-derived evidence ladder in
+`config/insights.yaml` and the actor-critic reviewer (`insights-audit`) that
+demotes any claim its artifact no longer backs — the same trust-under-pressure
+move as the cost sentinel refusing a comparison it could not support (WS12/D44).

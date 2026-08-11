@@ -2722,11 +2722,11 @@ which graduates to this workstream.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Redefine the insights evidence ladder as artifact-derived: `measured` = names a run id / trace file that still exists and re-executes; `observed` = a trace exists but is not reproducible (endpoint moved, credential rotated); `hypothesis` = no artifact. Document the rule in `config/insights.yaml`'s legend and mirror it in the console Insights legend | not started |
-| 2 | Add a reference-integrity check over `config/insights.yaml`: an entry citing a run id / trace / `plan/*.md` anchor that no longer resolves auto-demotes one tier. Fold into `insights-audit` (the existing skill) rather than a new tool | not started |
-| 3 | Build the actor-critic reviewer: an agent whose only job is to DEMOTE insight claims it cannot back, run over the feed, reporting what it did as the artifact ("demoted N of M, caught K citing a run that no longer exists") — the same shape as the cost sentinel refusing a comparison (D44) | not started |
-| 4 | Name session-forking as a repeatable method: one scenario, one baseline, N variants, differences reported against the shared origin — the move already run by hand building the supplier-disruption fan-out three times on three orchestrators (WS8). Write it up in `plan/01-architecture.md` as a lab method | not started |
-| 5 | Extend the honest-status vocabulary (`native / via-bridge / via-shim / blocked-beta`) to provenance and observability claims, as a *vocabulary* not a standard; record the finding in `plan/02-matrix.md` and surface the pattern in the console | not started |
+| 1 | ✅ Redefine the insights evidence ladder as artifact-derived: `measured` = names a run id / trace file that still exists and re-executes; `observed` = a trace exists but is not reproducible (endpoint moved, credential rotated); `hypothesis` = no artifact. Document the rule in `config/insights.yaml`'s legend and mirror it in the console Insights legend | done |
+| 2 | ✅ Add a reference-integrity check over `config/insights.yaml`: an entry citing a run id / trace / `plan/*.md` anchor that no longer resolves auto-demotes one tier. Folded into `insights-audit` (the existing workflow) — the Audit agent now computes `artifact_tier` + `dead_refs` per entry | done |
+| 3 | ⏳ Build the actor-critic reviewer: an agent whose only job is to DEMOTE insight claims it cannot back, run over the feed, reporting what it did as the artifact ("demoted N of M, caught K citing a run that no longer exists") — the same shape as the cost sentinel refusing a comparison (D44). MECHANISM built (`insights-audit` Critic phase emits the demotion artifact); the demotion RUN over the live feed is left for the operator, since it edits published statuses | in progress |
+| 4 | ✅ Name session-forking as a repeatable method: one scenario, one baseline, N variants, differences reported against the shared origin — the move already run by hand building the supplier-disruption fan-out three times on three orchestrators (WS8). Written up in `plan/01-architecture.md` as a lab method | done |
+| 5 | ✅ Extend the honest-status vocabulary (`native / via-bridge / via-shim / blocked-beta`) to provenance and observability claims, as a *vocabulary* not a standard; recorded the finding in `plan/02-matrix.md` findings ledger | done |
 
 ### Exit criteria
 
