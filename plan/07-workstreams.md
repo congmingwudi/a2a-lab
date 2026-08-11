@@ -81,7 +81,7 @@ Rules that apply to every workstream:
 
 ---
 
-## WS1 — Finish the AgentCore pair (in flight)
+## WS1 — Finish the AgentCore pair (complete)
 
 **Goal:** OpenAI *and* Claude agents live on Bedrock AgentCore via a
 scripted, repeatable deploy; one-flip switching between local servers and
@@ -117,10 +117,19 @@ Status 2026-07-19 (deployed live this session):
    (`A2ALAB_MODE=hosted` resolved claude-rest→claude-agentcore, live
    answer, hops in Aurora — including container→Agentforce agent-api hops:
    the AWS runtime calling Salesforce works).
-5. ⏳ Remaining: full Agentforce→bridge hosted-mode pass (needs a stack
-   restart with A2ALAB_MODE=hosted and Zscaler OFF — deploys needed it ON,
-   the local app needs it off); managed vs sdk-local vs sdk-agentcore
-   latency table; M6 timeout probes.
+5. ✅ Managed vs sdk-local vs sdk-agentcore latency table recorded
+   (plan/03-results.md, `scripts/probe_backend_latency.py` — managed 5.2s
+   cold / sdk 11.7s / sdk-agentcore 7.3s p50 / 25.1s p95).
+6. ✅ M6 timeout probes recorded (plan/03-results.md,
+   `scripts/probe_action_timeout.py`).
+7. ✅ Full Agentforce→bridge hosted-mode pass — the stack is fully hosted
+   now (WS13), so the old "restart with A2ALAB_MODE=hosted, Zscaler OFF"
+   premise is gone: Path A verified end-to-end hosted with no laptop in the
+   path, 27.5s (trace `dfb600f6`, plan/03-results.md). CAVEAT (D68): under
+   `A2ALAB_MODE=hosted` the bridge now resolves `claude-rest` →
+   `claude-rest-hosted` (the ECS faces task, managed backend), NOT the
+   `claude-agentcore` runtime this WS originally targeted — D55 removed that
+   remap. The `*-agentcore` cells are exercised directly by IAM invoke.
 
 Known flake (recorded honestly): the sdk agent occasionally delegates the
 matrix question to Agentforce and burns its 3-turn cap
@@ -834,9 +843,14 @@ WS7.**
    counterpart lands, so one flip really does move the whole stack.
 6. **Retire or re-scope the tunnel.** Once 1–2 land, cloudflared should be a
    convenience for local development, not the lab's public front door.
-7. **Host the bridge — on Fargate behind an ALB, NOT behind API Gateway.**
-   See the section below; this item was missing from the plan until the
-   45s/30s conflict was noticed on 2026-07-26.
+7. ✅ **Host the bridge — on Fargate behind an ALB, NOT behind API Gateway.**
+   Done 2026-07-26 (commit `ccc9934`); `deploy/bridge/deploy_bridge.sh`. Path A
+   verified hosted end-to-end, no laptop in the path — 27.5s (trace
+   `dfb600f6`), the 45s budget defended live by a 39.8s cold ADK leg
+   (plan/03-results.md). See the section below for why it does not get the
+   shim's API-Gateway treatment. (Items 1, 2, 3, 5 and 6 were completed under
+   WS13 — D51/D52 — so they are recorded as stories there, not duplicated
+   here.)
 
 ### Item 7: hosting the bridge, and why it does not get the shim's treatment
 
@@ -895,15 +909,23 @@ resolving to the ALB, and a recorded latency showing the 45s budget intact.
 50.7s serial equivalent, and the partial-failure contract verified against a
 real dead leg rather than an injected one (plan/03-results.md).
 
-| Item | State |
-|---|---|
-| `src/orchestration/` — legs, parallel dispatch, partial-failure contract | ✅ built, 10 unit tests |
-| `scripts/run_fanout.py` — CLI runner, exits non-zero on a partial run | ✅ built, run live |
-| Scenario + business case + mermaid diagram + `fan-out` nav group | ✅ |
-| Insight `orchestration-topology` | ✅ `observed`, `review: required` |
-| **Five dedicated per-leg agents** | ⬜ **not deployed** — see below |
-| Claude (AWS) ↔ ADK pair | ⬜ blocked on AWS auth |
-| Four-platform join-rate measurement | ⬜ needs all legs + a harvest |
+| # | Item | State |
+|---|---|---|
+| 1 | `src/orchestration/` parallel dispatch layer with an honest partial-failure contract (`runner.py`: `asyncio.gather`, per-leg hop under one trace_id, `[leg unavailable: …]` marker) | done — 13 unit tests |
+| 2 | Three business-unit legs with lazy env-resolved targets (`legs.py`: exposure/commercial/customer-comms; `A2ALAB_LEG_*_TARGET` read at call time) | done |
+| 3 | `scripts/run_fanout.py` CLI runner, exits non-zero on a partial run | done — live 36.7s vs 50.7s serial, real dead leg (plan/03-results.md) |
+| 4 | Dedicated per-leg agents: `a2alab-logistics-agent` (ADK/Agent Engine) and `a2alab-commercial-agent` (Foundry); customer-comms deliberately reuses shared `openai-agentcore` (OpenAI traces are write-only) | done — `src/orchestration/agents.py` |
+| 5 | CMA orchestrator (variant 1) — real Managed Agent, 3/3 legs, reports its own coverage | done — 37.4s wall (plan/03-results.md) |
+| 6 | ADK orchestrator (variant 2) — declared `ParallelAgent` graph, deployed via `deploy_adk.py --role orchestrator` | done — 3/3 legs, 16.8s wall |
+| 7 | Agentforce orchestrator (variant 3, D61) in Agent Script — delegated topology via the bridge `fanout:` route + a serial-constraint toggle, no new Apex | done — bundle live, `config/scenarios.yaml` |
+| 8 | Fan-out legs exposed as a remote MCP server (D41) — `src/fanout_mcp/` Lambda behind API Gateway; the model schedules the three tools itself | done — 17+6 tests |
+| 9 | GCP workload-identity federation so the AWS Lambda holds a Google identity keylessly (`deploy/fanout/provision_gcp_federation.py`) | done |
+| 10 | Orchestrator delegation through `interop/delegation.py` under the D27 guard — the guard survives fan-out (depth-1 ×3) | done |
+| 11 | Fan-out join rate measured and recorded (`scripts/fanout_join_rate.py`) | done — 1 of 4 join cleanly; the others documented (ADK structurally unjoinable, OpenAI/Foundry bookkeeping) |
+| 12 | Scenario entries + business-case descriptions + `config/diagrams.yaml` fan-out diagram + `fan-out` nav group | done — `supplier-disruption-{cma,adk,agentforce}` all `status: live` |
+| 13 | Insight `orchestration-topology` published | done — `observed`, `review: required` |
+| 14 | Console call-path renderer draws parallel legs (not just chains), incl. SERIAL-topology fold | done — `src/console/static/index.html` |
+| 15 | Agentforce orchestrator recorded run | not done — the bundle + bridge route exist, but no measured run for it is recorded in plan/03-results.md yet (the CMA and ADK runs are) |
 
 **Read this before continuing: the live run used the lab's EXISTING
 general-purpose research agents, not the dedicated per-leg agents this
@@ -1123,17 +1145,26 @@ Claude(AWS)↔ADK pair (~0.5 day) which lands first as a warm-up.
 **Status 2026-07-26 (overnight build).** Everything that does not need AWS is
 done; the one step that does is the one that matters most.
 
-| Item | State |
-|---|---|
-| `src/observability/coding_source.py` + 6 tests | ✅ built; namespaces discovered, not hardcoded |
-| Registered in local harvest, Lambda map, and bundle (the Obs rule) | ✅ |
-| `/api/build-telemetry` + Build Telemetry console section | ✅ built, 3 tests |
-| Coding telemetry excluded from the Observability coverage panel | ✅ test-locked |
-| **Exporters switched on** | ✅ 2026-07-26 — key issued, helper wired, ingestion verified |
-| `observability/promql.py` | ✅ **the harvest was reading the wrong API** — see below |
-| First real coding metrics | ✅ 2026-07-26 — `1 tool-day, $2.82 modelled`, after a second query fix |
-| Per-repository attribution, read end to end | ✅ 2026-07-27 — two repos and both tools in one view; see below |
-| Harvest button in the console's telemetry section | ✅ posts `/api/obs/harvest?platform=coding` |
+| # | Item | State |
+|---|---|---|
+| 1 | OTLP exporters switched on into CloudWatch's managed endpoint — Claude Code telemetry live, ingestion verified at destination | done 2026-07-26 |
+| 2 | `src/observability/coding_source.py` implementing `PlatformLogSource` — namespaces discovered, not hardcoded | done — 21 tests |
+| 3 | Registered per the Obs rule in all three places (`obs_harvest.py`, `lambda_handlers.py`, `build_zips.sh` bundle) | done |
+| 4 | Corrected the read path to the Prometheus-compatible API (`observability/promql.py`) — `ListMetrics` does not surface OTLP metrics | done |
+| 5 | Fixed step alignment + aggregation — 300s period, daily rollup, `sum_over_time` for delta Sums, `increase()` for cumulative counters | done |
+| 6 | First real coding metrics recorded — `1 tool-day, $2.82 modelled`, labelled "modelled at list price, not an invoice" | done 2026-07-26 |
+| 7 | Per-repository attribution read end to end — two repos, both tools, one view; `normalize_repos()` folds placeholder-owner labels | done 2026-07-27 |
+| 8 | By-model breakdown fixed for Codex — session counts carry model, so a tool with no cost metric still reports a model breakdown | done |
+| 9 | `/api/build-telemetry` endpoint + Build Telemetry console section | done — 3 tests |
+| 10 | Coding telemetry excluded from the Observability coverage panel, test-locked both directions | done |
+| 11 | Harvest button in the console's telemetry section (posts `coding`/`coding-logs`) | done |
+| 12 | Credentials followed D39, not the vendor quickstart — IAM user + 90-day service-specific credential in Secrets Manager, fetched at runtime | done |
+| 13 | Codex OTel exporter wired to the same endpoint (`scripts/codex_otel.sh`); a `metrics_exporter` mismatch found and fixed | done |
+| 14 | Static-key follow-up resolved via macOS Keychain — hooks read a Keychain service, env fallback warns on stderr | done |
+| 15 | Insight published — "a telemetry config that parses is not evidence of telemetry" | done — `measured`, `review: required` |
+| 16 | IAM-auth for the `/log` route (the true keyless D39 shape) | not started — still API-key auth (~half a day) |
+| 17 | Usage-plan scoping / rate-limit on the `/log` route | not started |
+| 18 | Rotate the logging key | not started — assuming it stayed contained is not free |
 
 ### The section can now refresh itself
 
@@ -1661,6 +1692,18 @@ model that backs off politely makes its own run slower. The dispatcher and the
 worker are in place and tested; wiring them into the registry and redeploying
 the fan-out bundle is the next step.
 
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | A2A async client — `submit()` (sets `configuration.return_immediately`) and `poll()` on `tasks/get`, alongside the blocking `ask()` (`src/interop/clients/a2a.py`) | done |
+| 2 | E2E shape proof against a deterministic slow adapter — submit-returns-early, poll-walks-to-completion, polling-is-traced, blocking-ask-still-waits (`tests/e2e/test_a2a_async.py`) | done |
+| 3 | Per-platform async-lifecycle measurement (D47) via `scripts/a2a_async_probe.py` — Foundry honours the full lifecycle, Agent Engine is submit-only, Lambda advances only while polled; the 31.1s-of-work / 1.18s-longest-request gateway-ceiling result recorded | done — plan/03-results.md |
+| 4 | Durable task store — Aurora-backed `lab.fanout_tasks` + separate-invocation worker (`src/fanout_mcp/tasks.py`, `InvocationType='Event'`; DDL run by `pg_migrate.py`) | done |
+| 5 | Six property tests pinning the durable-store guarantees (submit-does-no-work, state-in-store-not-process, cross-instance read, worker-failure-is-terminal, run-id-joins-units, redelivered-task-is-a-no-op) | done |
+| 6 | Register the submit/check MCP tools on the fan-out server | not started — dispatcher + worker exist and are tested but are not wired into the served registry |
+| 7 | Orchestrator prompt + measurement of poll-vs-busy-wait behaviour | not started — depends on item 6; sharper now that on Lambda polling is what advances the work |
+
 
 **Why this exists.** D41 measured the cost of putting agent work behind a
 managed gateway: the fan-out MCP server's legs inherit API Gateway's 30s
@@ -1866,6 +1909,19 @@ Resume** and **Brief now** buttons on the Run tab. The first daily-prompt firing
 (brief id 100) led with 07-29 vs 07-28 (‑32%, attributed to a token-mix
 collapse), correctly discounted the partial current day, and noted the trend was
 only five points — the day-over-day shape working as intended.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Setup script — Managed Agent + scheduled deployment, created **paused**, with its own vault so revocation stays per-agent (`scripts/setup_cost_sentinel.py`) | done |
+| 2 | Operator CLI — run / status / latest / reconcile / pause / resume; `latest` reads the store directly without Anthropic creds (`scripts/cost_sentinel.py`) | done |
+| 3 | `kind` discriminator so cost and observability briefs share one table + reader (`ADD COLUMN IF NOT EXISTS kind`, `save_brief`/`list_briefs` filter) | done |
+| 4 | Console API + two-tab UI — `/api/cost-brief`, operator-gated `/api/cost-brief/run`, `/api/cost-brief/schedule` pause/resume; the list-price caveat shared across both cost surfaces | done |
+| 5 | Moved to daily + resumed + console controls (D44 addendum) — in-place `deployments.update` to `0 7 * * *` America/New_York, repointed to agent v2; Pause/Resume/Brief-now buttons | done |
+| 6 | `reconcile` links briefs → billed sessions after the fact (the runtime never tells the agent its own session id); recovered the first firing's session at +73s | done |
+| 7 | First firings produced correct briefs — the 2026-07-28 manual brief refused a too-thin week-over-week and attributed the move to session count; daily brief id 100 led with day-over-day and discounted the partial day | done — author-attested in the plan, not a checked-in results file |
+| 8 | Exit criterion — a real week-over-week read verifiable from the by-day table | in progress — a data-accumulation gate: needs two full weeks of history, not missing build work |
 
 **Exit criteria.** One scheduled firing produces a brief that correctly explains
 a cost movement the operator can independently verify from the by-day table —
@@ -2724,7 +2780,7 @@ which graduates to this workstream.
 |---|---|---|
 | 1 | ✅ Redefine the insights evidence ladder as artifact-derived: `measured` = names a run id / trace file that still exists and re-executes; `observed` = a trace exists but is not reproducible (endpoint moved, credential rotated); `hypothesis` = no artifact. Document the rule in `config/insights.yaml`'s legend and mirror it in the console Insights legend | done |
 | 2 | ✅ Add a reference-integrity check over `config/insights.yaml`: an entry citing a run id / trace / `plan/*.md` anchor that no longer resolves auto-demotes one tier. Folded into `insights-audit` (the existing workflow) — the Audit agent now computes `artifact_tier` + `dead_refs` per entry | done |
-| 3 | ⏳ Build the actor-critic reviewer: an agent whose only job is to DEMOTE insight claims it cannot back, run over the feed, reporting what it did as the artifact ("demoted N of M, caught K citing a run that no longer exists") — the same shape as the cost sentinel refusing a comparison (D44). MECHANISM built (`insights-audit` Critic phase emits the demotion artifact); the demotion RUN over the live feed is left for the operator, since it edits published statuses | in progress |
+| 3 | ✅ Build the actor-critic reviewer: an agent whose only job is to DEMOTE insight claims it cannot back, run over the feed, reporting what it did as the artifact ("demoted N of M, caught K citing a run that no longer exists") — the same shape as the cost sentinel refusing a comparison (D44). MECHANISM built (`insights-audit` Critic phase emits the demotion artifact) AND run over the live feed 2026-08-10: 37 audited, 36 backed, 1 demotion applied — `credential-locality` measured→observed (its one figure is a since-fixed Aurora state, no longer reproducible), 0 dead refs; the demotion survived the adversarial Verify pass | done |
 | 4 | ✅ Name session-forking as a repeatable method: one scenario, one baseline, N variants, differences reported against the shared origin — the move already run by hand building the supplier-disruption fan-out three times on three orchestrators (WS8). Written up in `plan/01-architecture.md` as a lab method | done |
 | 5 | ✅ Extend the honest-status vocabulary (`native / via-bridge / via-shim / blocked-beta`) to provenance and observability claims, as a *vocabulary* not a standard; recorded the finding in `plan/02-matrix.md` findings ledger | done |
 

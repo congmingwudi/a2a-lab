@@ -415,7 +415,7 @@ flowchart LR
 
 ### Where partner credentials live is a design decision most agent architectures make by accident — and whose identity they resolve to is one nobody makes at all
 
-*Status: measured · refs: plan/01-architecture.md, D9*
+*Status: observed · refs: plan/01-architecture.md, D9*
 
 **What the lab showed:** Two patterns, deliberately contrasted: the managed path keeps Salesforce credentials host-side (the sandboxed agent calls a custom tool; secrets never enter the LLM runtime), while the self-hosted containers carry credentials in their runtime environment. Both work; the blast radius differs.
 

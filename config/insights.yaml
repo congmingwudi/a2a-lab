@@ -331,10 +331,14 @@ insights:
 
   - id: credential-locality
     category: Security & trust
-    # Extended 2026-07-25 with the DefaultAzureCredential finding — a materially
-    # new claim, so back in front of the reviewer.
-    review: required
-    status: measured
+    # Extended 2026-07-25 with the DefaultAzureCredential finding.
+    # WS20 demotion (2026-08-10, insights-audit actor-critic): measured -> observed.
+    # The one figure this rested on — "Aurora held zero rows for two of five
+    # platforms" — is a historical store state from a since-fixed incident (D39);
+    # the endpoint/harvest was corrected, so the number no longer re-produces.
+    # Behaviour documented and true; not reproducible to the same number now =
+    # observed under the artifact-derived ladder.
+    status: observed
     headline: Where partner credentials live is a design decision most agent architectures make by accident — and whose identity they resolve to is one nobody makes at all
     evidence: >
       Two patterns, deliberately contrasted: the managed path keeps Salesforce
