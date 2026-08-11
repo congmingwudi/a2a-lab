@@ -253,6 +253,12 @@
   .dpopover pre { overflow-x: auto; background: var(--code); border: 1px solid var(--border);
                   border-radius: 8px; padding: 10px; }
   .dpopover pre code { background: none; border: none; padding: 0; }
+  /* Raw source view (config YAML, a .claude workflow .js): a verbatim file, so
+     let it use the full clamp width and keep every line intact — wrap long
+     lines rather than force a horizontal scrollbar across the whole file. */
+  .dpop-src { width: min(1040px, calc(100vw - 48px)); }
+  .dpopover pre.src { margin: 6px 0 4px; padding: 12px 14px; font-size: 12px; line-height: 1.55;
+                      white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
   .dpopover hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   .dpopover ul, .dpopover ol { margin: 4px 0 8px; padding-left: 20px; }
   .dpop-head { position: sticky; top: 0; display: flex; align-items: center;
@@ -2019,7 +2025,12 @@ const D_REF_RE = /\b(D\d{1,2})\b/;
 // docs, the build notes, docs/, and the README. Keep the two patterns in step —
 // DOC_REF_RE tests, REF_SPLIT_RE splits, and a path matching one but not the
 // other either renders as a dead chip or stays plain text.
-const DOC_PATH_SRC = "(?:plan|docs)\\/[\\w.-]+\\.md|build-notes\\/[\\w.-]+\\/[\\w.-]+\\.md|README\\.md";
+// Markdown docs render THROUGH mdToHtml; the two source trees below (config
+// YAML + Claude Code workflow scripts) render as RAW source in a <pre> — see
+// openDocPopover. insights-audit.js is full of backtick template literals, so
+// running it through the ``` fence logic would mangle it. `.claude` is scoped
+// to workflows/*.js only — settings.local.json must never be served.
+const DOC_PATH_SRC = "(?:plan|docs)\\/[\\w.-]+\\.md|build-notes\\/[\\w.-]+\\/[\\w.-]+\\.md|config\\/[\\w.-]+\\.ya?ml|\\.claude\\/workflows\\/[\\w.-]+\\.js|README\\.md";
 // The lookbehind is load-bearing: `\b` matches between `-` and `d`, so
 // `tmp-docs/07.25.2026-AD3-….md` (a real reference in plan/07) matched as
 // `docs/…` and produced a chip pointing at a file /api/docs will not serve.
@@ -2101,6 +2112,13 @@ function openDecisionPopover(chip) {
 // body is the whole whitelisted doc fetched from /api/docs (cached).
 const docCache = {};
 
+// A markdown doc renders through mdToHtml; a source file (config/*.yaml, a
+// .claude workflow .js) renders as raw source in a <pre> — mdToHtml would
+// mangle a file full of backtick template literals (insights-audit.js) and a
+// YAML's leading-# lines would read as headings. The chip label's extension
+// decides which.
+const isSourceDoc = name => /\.(ya?ml|js)$/.test(name || "");
+
 async function openDocPopover(chip) {
   const name = chip.dataset.doc;
   if (!(name in docCache)) {
@@ -2110,15 +2128,19 @@ async function openDocPopover(chip) {
     } catch { docCache[name] = null; }
   }
   if (docCache[name] == null) return;
-  showPopover(chip, name, docCache[name]);
+  showPopover(chip, name, docCache[name], { raw: isSourceDoc(name) });
 }
 
-function showPopover(chip, label, markdown) {
+function showPopover(chip, label, body, opts) {
   const pop = document.createElement("div");
-  pop.className = "dpopover";
+  pop.className = "dpopover" + (opts && opts.raw ? " dpop-src" : "");
+  // raw: show the file verbatim in a scrollable <pre>; else render markdown.
+  const rendered = opts && opts.raw
+    ? `<pre class="src"><code>${esc(body)}</code></pre>`
+    : mdToHtml(body);
   pop.innerHTML = `<div class="dpop-head"><span class="dchip">${esc(label)}</span>`
     + `<button type="button" class="dpop-close" title="Close">×</button></div>`
-    + mdToHtml(markdown);
+    + rendered;
   pop.addEventListener("click", ev => ev.stopPropagation());
   pop.querySelector(".dpop-close").addEventListener("click", closeDecisionPopover);
   document.body.appendChild(pop);

@@ -46,6 +46,12 @@ COPY scripts ./scripts
 COPY plan ./plan
 COPY docs ./docs
 COPY build-notes ./build-notes
+# The Claude Code workflow scripts — the WS20 actor-critic exhibit. The Insights
+# Details view links .claude/workflows/insights-audit.js as a source chip, which
+# /api/docs reads from disk at request time; without this the chip 404s hosted
+# while working locally. ONLY the workflows subdir — settings.local.json (sibling
+# under .claude/) is not copied and is not on the /api/docs whitelist.
+COPY .claude/workflows ./.claude/workflows
 COPY README.md CLAUDE.md ./
 
 ENV PYTHONPATH=/app/src \

@@ -1906,9 +1906,15 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/docs/{name:path}")
     async def doc(name: str):
-        """Whitelisted lab docs (plan/*.md + README.md) as raw markdown —
-        the UI renders insight file-ref chips into popovers from these,
-        same pattern as the decision chips."""
+        """Whitelisted lab docs + source files as raw text — the UI renders
+        reference chips into popovers from these, same pattern as the decision
+        chips. Markdown docs (plan/docs/build-notes/README) render through the
+        client's markdown renderer; the two SOURCE trees (config/*.yaml and the
+        Claude Code workflow scripts under .claude/workflows) render verbatim in
+        a <pre>. All are public repo content — config YAMLs carry no secrets
+        (the repo keeps those in .env / Secrets Manager) and the workflows are
+        the WS20 exhibit. `.claude` is scoped to workflows/*.js so
+        settings.local.json is never served."""
         repo = Path.cwd().resolve()
         candidate = (repo / name).resolve()
         allowed = (
@@ -1921,6 +1927,15 @@ def create_console_app(registry: Registry | None = None):
             # as plan/. `is_relative_to` rather than a parent check because the
             # tree is nested one level (build-notes/claude/…).
             or (candidate.is_relative_to(repo / "build-notes") and candidate.suffix == ".md")
+            # config/*.yaml — the lab's own inputs (insights, targets, scenarios,
+            # what's-next). Most are already served in PARSED form elsewhere; the
+            # Insights Details view links the raw source so a reader sees the file
+            # the insights-audit workflow actually reads.
+            or (candidate.parent == repo / "config" and candidate.suffix in (".yaml", ".yml"))
+            # .claude/workflows/*.js — the Claude Code orchestration scripts, the
+            # WS20 exhibit (an actual actor-critic workflow). Scoped to this dir
+            # and .js ONLY: settings.local.json alongside it must never be served.
+            or (candidate.parent == repo / ".claude" / "workflows" and candidate.suffix == ".js")
         )
         if not allowed or not candidate.exists():
             raise HTTPException(status_code=404, detail=f"unknown doc: {name}")
