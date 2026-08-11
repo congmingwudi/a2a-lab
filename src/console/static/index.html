@@ -1337,6 +1337,16 @@
     .turn { max-width: 92%; }
     .obs-search { float: none; width: 100%; margin-top: 6px; }
 
+    /* Insight / What's Next tile grid: the desktop track floor is minmax(380px)
+       — WIDER than a phone's usable width, so a card overflows its column and
+       its text clips. Collapse to a single column and tighten the card padding
+       so the tiles fit cleanly. Backs both the Insights and What's Next grids. */
+    .ins-grid { grid-template-columns: 1fr; gap: 12px; }
+    .ins-card { padding: 15px 15px; }
+    /* Title + status pill share a row; let them wrap so a long title doesn't
+       squeeze the pill off the edge. */
+    .ins-card .head { flex-wrap: wrap; }
+
     /* Header dropdowns / drawers go full-bleed so they fit a phone. */
     .warm-panel, .user-panel { position: fixed; left: 8px; right: 8px; top: 96px;
             width: auto; max-height: 76vh; overflow-y: auto; }
