@@ -14,6 +14,7 @@ either performed or discovered on 2026-07-28, when the lab moved off the laptop
 - [Rotate a platform credential](#rotate-a-platform-credential)
 - [Deploy a code change vs a config change](#deploy-a-code-change-vs-a-config-change)
 - [Move the brief watcher between hosts](#move-the-brief-watcher-between-hosts)
+- [Keep the demo warm before a live run](#keep-the-demo-warm-before-a-live-run)
 - [Sign off an insight, and keep the repo copy](#sign-off-an-insight-and-keep-the-repo-copy)
 - [Iterate on the console without deploying](#iterate-on-the-console-without-deploying)
 - [When the console looks broken](#when-the-console-looks-broken)
@@ -166,6 +167,51 @@ aws ecs update-service --region us-east-1 --cluster a2alab --service a2alab-brie
 
 Nothing is lost while it is down — sessions idle awaiting the tool result and
 are picked up on the next poll.
+
+---
+
+## Keep the demo warm before a live run
+
+The hosted twins cold-start ~31–56s (`config/targets.yaml`), and a cold face
+mid-demo blows the Path-A action budget — Agentforce returns 200 with an *empty*
+delegated section, which looks like a bug on stage. So before an attended demo,
+keep them warm:
+
+```sh
+uv run python scripts/demo_watch.py            # one warm pass over every warmup:true target
+uv run python scripts/demo_watch.py --json     # machine-readable
+uv run python scripts/demo_watch.py --targets claude-agentcore,openai-agentcore
+```
+
+One pass is one-shot. To hold the lab warm for the length of a demo, wrap it in a
+**bounded, session-scoped loop** from inside a live Claude Code session:
+
+```
+/loop 8m uv run python scripts/demo_watch.py
+```
+
+`/loop` is a Claude Code session command — it re-runs the command every 8 minutes
+**in the current session**, so it stops the moment you close the terminal. That is
+exactly right for a pre-demo/attended watch and exactly **wrong** for standing
+monitoring: an unattended, always-on watch is not this command's job. That job
+belongs to the scheduled deployments — the obs analyst (D23) and the cost sentinel
+(WS12/D44), EventBridge-fired Lambdas that run with no human present. Use `/loop`
+when you are *there*; use a schedule when you are not.
+
+**What it actually does, and why it is a thin wrapper.** The console already knows
+how to warm a target: `POST /api/warmup/{name}` composes the correct delegated
+ping and records the duration to `warmups.jsonl` for the cross-platform cold-start
+comparison. `demo_watch.py` only drives those existing endpoints — it discovers
+the warmable set from `GET /api/warmup`, fires each, and checks `/healthz`. It
+reimplements no warm-up logic, because a second copy would fork the very numbers
+the console publishes. A failed warm-up exits non-zero, so a Stop-hook wired to
+Slack turns each loop pass into a walk-away signal.
+
+**Point it at the right console.** It defaults to `http://localhost:8200` (the
+`run_console.sh` port); set `A2ALAB_CONSOLE_URL` to the hosted console to warm the
+deployed twins. When the target console has `A2ALAB_TOKEN` set, `/api/warmup` is
+gated — the script sends that token as `X-Lab-Token` (it loads `.env`, so a value
+there is picked up; a `401` means the token it sent does not match the console's).
 
 ---
 

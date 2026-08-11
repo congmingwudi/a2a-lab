@@ -96,6 +96,56 @@ work-items table shape (D58); Phase 0 is labelled a hard gate in its own state
 cell, so the board shows *why* the later phases are blocked rather than leaving
 them as bare open tickets.
 
+## Re-syncing after the plan changes, and pruning what that orphans
+
+The sync matches issues **by exact summary** — `load_index` keys the board on the
+summary string and keeps only the first issue of any duplicate. That is what makes
+re-runs idempotent (§the top of this file), and it is also the one sharp edge:
+**an epic or story whose text is reworded in the plan no longer matches its old
+Jira issue, so the sync creates a NEW one and leaves the old sitting there.** A
+renamed `## WS<n>` heading orphans the epic *and* strips its children of a parent;
+a reworded `N. ✅ …` line orphans that story. Nothing deletes the stale issue,
+because the sync only ever creates and updates — it never removes (D58: the plan
+is the source of truth, but the board is a place a human also works, so the
+importer will not delete what it did not just fail to recognise).
+
+So editing the plan for honesty — which is the normal reason to touch
+`plan/07-workstreams.md` — leaves a board that is *correct plus some ghosts*. The
+2026-08-10 status pass created seven such orphans (a renamed WS1 epic and its
+child, plus reworded stories) on top of pre-existing ones from earlier renames.
+
+**Reconcile, then prune — and prune only an enumerated, reviewed list.** The safe
+procedure, in order:
+
+1. **Re-sync first** so every currently-named issue exists and is up to date:
+   `uv run python scripts/jira_sync.py` (read the dry-run diff), then `--apply`.
+2. **Compute the expected board from the plan** using the *same parser the sync
+   uses* — walk `parse_workstreams()` and collect every epic and story summary it
+   would emit. This is the set the board is allowed to contain. Do not hand-list
+   it; deriving it from `jira_sync`'s own parser is what proves nothing unique is
+   about to be lost.
+3. **Diff the live board against that set.** An issue on the board whose summary
+   is *not* in the expected set is a stale orphan. Before trusting the list,
+   confirm **missing = 0** (every expected summary is present) — a non-zero
+   missing count means step 1 did not fully apply, and deleting now would remove
+   something that has no replacement yet.
+4. **Delete only the enumerated stale keys, each guarded.** Jira deletion is an
+   outward, irreversible publish, so it is **not** a heuristic sweep: produce the
+   specific list of `A2A-<n>` keys, get explicit approval for that exact set
+   (the auto-mode classifier will — correctly — refuse an open-ended
+   "delete everything that doesn't match"), then delete key by key, re-checking
+   each is still orphaned immediately before removing it.
+
+The end state is verified by re-running the step-3 diff: **stale 0, missing 0,
+duplicate summaries 0**. That the board and the plan then hold the same counts is
+the check that the prune removed ghosts and nothing else.
+
+**The cheaper habit that avoids most of this:** when a workstream's wording only
+needs a *tweak*, prefer editing the state cell over renaming the heading or the
+item line — the summary is the join key, so keeping it stable updates the existing
+issue instead of orphaning it. Renames are sometimes right (the WS1 title genuinely
+changed meaning); just know each one is a prune waiting to happen.
+
 ## Credentials
 
 `JIRA_SITE_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN` live in `.env` like every
