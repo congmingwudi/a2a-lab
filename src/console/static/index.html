@@ -1282,6 +1282,74 @@
   .crumb:hover { color: var(--fg); text-decoration: underline; }
   .crumb.here { color: var(--fg); cursor: default; font-weight: 600; }
   .crumb.here:hover { text-decoration: none; }
+
+  /* ---------------------------------------------------------------------------
+     Mobile / narrow-viewport layout (≤760px). The console is built desktop-first
+     around a fixed `380px 1fr` grid locked to 100vh, with the Control Panel
+     living in a grid column that PUSHES the canvas. On a phone that column has
+     no room, so here the canvas goes single-column full-width and the Control
+     Panel becomes an OFF-CANVAS overlay drawer over a backdrop (default closed —
+     see the JS: on mobile the drawer never auto-opens and closes after a nav
+     tap). Content grids (.tiles/.intro-grid/.obs-grid/…) are already fluid via
+     auto-fit/minmax; tables already scroll in .tbl-scroll/.tabpanel; diagrams
+     already scale to width — so this block is layout + chrome, not per-widget.
+  --------------------------------------------------------------------------- */
+  .side-backdrop { display: none; }
+  @media (max-width: 760px) {
+    /* Header: let the controls wrap onto a second line; drop the long
+       descriptive subtitle (it needs a full desktop row to read). */
+    header { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+    header .sub { display: none; }
+    header .live { margin-left: auto; }
+    .theme-switch { margin-left: 8px; }
+
+    /* Canvas is a single full-width column; the sidebar leaves the grid. */
+    main, main.side-closed { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 50px); }
+    /* Control Panel as an overlay drawer, not a grid column. Fixed to the
+       left edge, its own scroll, above the canvas and its backdrop. Shown
+       only when the drawer is OPEN (main not .side-closed). */
+    #side { position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
+            width: min(340px, 86vw); border-right: 1px solid var(--border);
+            box-shadow: 6px 0 32px var(--shadow-lg); }
+    main.side-closed #side { display: none; }
+    main:not(.side-closed) .side-backdrop { display: block; position: fixed; inset: 0;
+            z-index: 39; background: rgba(2, 8, 20, .5); }
+    /* The edge handle is the open affordance on mobile (same as desktop). */
+    .side-handle { top: auto; bottom: 18px; transform: none; }
+
+    /* Tighter canvas padding — 22–48px gutters waste a phone's width. */
+    #detail { padding: 14px 13px; }
+    .hero { padding: 40px 20px 32px; }
+    .landing section { padding: 30px 18px 8px; }
+    .landing section:last-child { padding-bottom: 36px; }
+    .tabpanel { padding: 16px 14px 8px; }
+
+    /* Tab strips scroll sideways rather than wrap into a tall ragged block. */
+    .tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch;
+            scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tabs .tab { white-space: nowrap; flex: none; }
+    .tabbar h2 { flex-basis: 100%; }
+
+    /* Trace hop panes and other 2-up splits stack. */
+    .hop.open .hop-body { grid-template-columns: 1fr; }
+    .frow { grid-template-columns: 1fr; gap: 3px; }
+    .turn { max-width: 92%; }
+    .obs-search { float: none; width: 100%; margin-top: 6px; }
+
+    /* Header dropdowns / drawers go full-bleed so they fit a phone. */
+    .warm-panel, .user-panel { position: fixed; left: 8px; right: 8px; top: 96px;
+            width: auto; max-height: 76vh; overflow-y: auto; }
+    .guide-drawer { width: 100vw; }
+
+    /* D-chip popover already uses calc(100vw - 48px); pin it near the top so a
+       tall popover isn't centered off-screen on a short viewport. */
+    .dpopover { top: 60px !important; left: 12px !important; right: 12px;
+                width: auto; max-height: 80vh; overflow-y: auto; }
+
+    /* Comfortable touch targets on the controls a visitor taps most. */
+    .tab, .guide-btn, .hero-cta, .side-head .x { min-height: 34px; }
+  }
 </style>
 </head>
 <body>
@@ -1330,6 +1398,9 @@
   </div>
 </div>
 <main>
+  <!-- Mobile: tapping the dimmed backdrop closes the overlay drawer. Hidden on
+       desktop (the sidebar is a grid column there, never an overlay). -->
+  <div class="side-backdrop" onclick="closeSideMobile()" aria-hidden="true"></div>
   <button class="side-handle" onclick="toggleSide()" title="Open the Control Panel"
     aria-label="Open the Control Panel"><span class="hicon">☰</span><span class="hlabel">Control Panel</span></button>
   <div id="side">
@@ -2657,6 +2728,11 @@ const fmtAgo = ts => {
 let navStack = [];
 
 function pushNav() {
+  // Mobile: a section change means the operator is done with the drawer — drop
+  // the overlay so the canvas they navigated to is visible. No-op on desktop
+  // (the panel is a column there, kept open across navs). This is the single
+  // choke point every open* routes through, so one call covers them all.
+  window.closeSideMobile();
   if (!view) return;
   const snap = { view: { ...view }, selected };
   const top = navStack[navStack.length - 1];
@@ -7566,7 +7642,10 @@ function landingHtml() {
 window.goHome = () => { view = null; renderSidebar(); renderMain(); };
 
 window.browseCells = () => {
-  ensureSideOpen();
+  // Protocol calls is a LIST that lives inside the Control Panel, so this one
+  // must open the drawer even on mobile (where ensureSideOpen is a no-op) —
+  // otherwise the button appears to do nothing on a phone.
+  document.querySelector("main").classList.remove("side-closed");
   openAcc("accCells");               // opens Experiments too — Protocol calls nests in it
   document.getElementById("accCells").scrollIntoView({ behavior: "smooth", block: "nearest" });
 };
@@ -8422,16 +8501,38 @@ window.setTheme = theme => {
   applyTheme(saved === "dark" ? "dark" : "light");
 })();
 
+// Narrow-viewport test — mirrors the ≤760px media query. The Control Panel is
+// a pushing grid column on desktop but an OVERLAY drawer on mobile, so the
+// open/close semantics below differ by width.
+window.isMobileViewport = () => window.matchMedia("(max-width: 760px)").matches;
+
 // Control Panel drawer: closed on first visit (the landing page is the
 // whole story); the operator opens it at will and the choice persists.
 window.toggleSide = () => {
   const closed = document.querySelector("main").classList.toggle("side-closed");
-  try { localStorage.setItem("a2a-side-open", closed ? "0" : "1"); } catch (e) { /* ignore */ }
+  // On mobile the drawer is an overlay whose default is closed each visit, so
+  // don't persist an "open" that would drop the overlay over the next load's
+  // canvas; the desktop column preference is the only one worth remembering.
+  if (!window.isMobileViewport()) {
+    try { localStorage.setItem("a2a-side-open", closed ? "0" : "1"); } catch (e) { /* ignore */ }
+  }
+};
+
+// Close the overlay drawer — mobile only. On desktop the panel is a grid
+// column, not an overlay, so a nav should LEAVE it open; no-op there. Called
+// after every section change (via pushNav) and by the backdrop tap, so a nav
+// from inside the drawer reveals the canvas it navigated to.
+window.closeSideMobile = () => {
+  if (!window.isMobileViewport()) return;
+  document.querySelector("main").classList.add("side-closed");
 };
 
 // Navigation from the landing canvas implies wanting the panel: opening an
-// experiment or browsing protocol calls auto-opens the Control Panel.
+// experiment or browsing protocol calls auto-opens the Control Panel — but only
+// on desktop, where it pushes a column. On mobile the panel is an overlay, so
+// forcing it open would COVER the thing just navigated to; leave it closed.
 window.ensureSideOpen = () => {
+  if (window.isMobileViewport()) return;
   const main = document.querySelector("main");
   if (main.classList.contains("side-closed")) {
     main.classList.remove("side-closed");
@@ -8441,7 +8542,11 @@ window.ensureSideOpen = () => {
 (() => {
   let saved = null;
   try { saved = localStorage.getItem("a2a-side-open"); } catch (e) { /* ignore */ }
-  if (saved !== "1") document.querySelector("main").classList.add("side-closed");
+  // Mobile always boots closed (the drawer is an overlay); desktop honors the
+  // saved column preference.
+  if (saved !== "1" || window.isMobileViewport()) {
+    document.querySelector("main").classList.add("side-closed");
+  }
 })();
 
 // ---------------------------------------------------------------------------
