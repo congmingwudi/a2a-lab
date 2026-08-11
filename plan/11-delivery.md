@@ -140,6 +140,12 @@ The end state is verified by re-running the step-3 diff: **stale 0, missing 0,
 duplicate summaries 0**. That the board and the plan then hold the same counts is
 the check that the prune removed ghosts and nothing else.
 
+Steps 1–3 are automated read-only by the **workstream-honesty** workflow
+(`.claude/workflows/workstream-honesty.js`, plan/04-runbooks.md §9): it audits
+the item states against the build, re-runs the parser to compute the expected
+board, and reports `stale` / `missing` / duplicate summaries. It stops there —
+step 4 (the delete) stays the operator's, over the reviewed key list.
+
 **The cheaper habit that avoids most of this:** when a workstream's wording only
 needs a *tweak*, prefer editing the state cell over renaming the heading or the
 item line — the summary is the join key, so keeping it stable updates the existing

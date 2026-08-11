@@ -312,10 +312,26 @@ they fan out many subagents, so they cost real tokens):
   two evidence bases produces findings nobody knows how to act on. Run it after
   anything moves host; the CLAUDE.md rule is what stops the drift in the first
   place, and this catches what the rule missed.
+- **workstream-honesty** — one agent per `## WS<n>` in plan/07-workstreams.md,
+  each item's recorded state checked against BUILD evidence (code/config,
+  deploy scripts, git, measured runs in plan/03) — drift in either direction
+  (a shipped item still marked in-progress, or a done mark the code does not
+  back). Drifts pass an adversarial refute stage that keeps the plan's original
+  claim when uncertain. Then a **read-only** Jira reconcile: it derives the
+  expected board from `jira_sync.parse_plan()` and diffs it against the live
+  board to enumerate orphans (`stale` / `missing` / duplicate summaries), the
+  first half of the prune loop in plan/11-delivery.md. Deliberately NOT part of
+  matrix-honesty-sweep — that audits protocol claims, this audits DELIVERY
+  state against the build. It proposes plan edits and lists board orphans; it
+  never edits plan/07 and never deletes a Jira issue (both are operator steps —
+  correct the plan, re-run jira_sync `--apply`, then prune the reviewed key
+  list per plan/11). Run it after a build push or before a demo.
 
-Both are read-only (report, don't edit) and best run before demos or
-publishing. Headless subagents can't do interactive auth, so keep deploys
-and org operations out of workflow scripts.
+All four are read-only against the repo and the board (they report and, for
+workstream-honesty, PROPOSE — they don't edit the plan or write Jira); best run
+before demos or publishing. Headless subagents can't do interactive auth, so
+keep deploys and org operations out of workflow scripts. The reconcile stage
+here only reads Jira (search/GET); applying the sync and pruning stay manual.
 
 ## 10. Lab Guide (D35)
 
@@ -468,3 +484,64 @@ a2a_lab_shim      1
 Before the split every one of those rows read `a2a_lab_app`. That table is
 E3's raw data — and the cheapest demo of why per-caller identity matters:
 the org can finally answer "which agent asked?" without the lab telling it.
+
+## 12. Keep the lab warm for a demo (`scripts/demo_watch.py` + `/loop`)
+
+The hosted twins are `min_instances=0` and cold-start ~31–56s
+(`config/targets.yaml`), which blows the tight Path-A action budget (~85–90s,
+plan/03-results.md) if the first call of a demo lands cold. The console already
+knows how to warm them; this keeps them warm on an interval so nothing goes cold
+between the setup and the live call.
+
+`scripts/demo_watch.py` is a thin driver over the console's own endpoints:
+`GET /api/warmup` lists the `warmup: true` targets, `POST /api/warmup/{name}`
+fires each and records its duration to `warmups.jsonl`, `GET /healthz` is the
+liveness probe. It reuses those rather than composing its own ping, so its
+cold-start numbers are the same ones the console publishes. One warm pass:
+
+```sh
+uv run python scripts/demo_watch.py            # table; --json for machine output
+```
+
+Wrap it in a bounded, attended watch for the length of the demo (see
+build-notes/claude/13-recurring-tasks.md — a `/loop` is a *watch*, not a
+*monitor*: it lives in the session and dies when you close it, which is right
+here and wrong for standing SRE, that's what the scheduled analyst §8 / cost
+sentinel are for):
+
+```
+/loop 10m uv run python scripts/demo_watch.py
+```
+
+Two things that will silently 401 or refuse-connect if missed (both bit on
+2026-08-11):
+- **The console must be running.** Against the **dev console**
+  (`scripts/run_console.sh`, which sets `A2ALAB_MODE=hosted`) `:8200` warms the
+  *hosted twins* a demo actually hits — the honest target, and it sidesteps any
+  corporate proxy in front of the public hostname. Point elsewhere with
+  `A2ALAB_CONSOLE_URL`.
+- **`A2ALAB_TOKEN` must be resolvable.** `/api/warmup` is gated by
+  `TokenAuthMiddleware` (unlike `/healthz`, which is exempt); the script sends
+  the shared token as `X-Lab-Token` and `load_dotenv()`s so `.env` is picked up
+  automatically. From a machine off the proxy against the public console (no
+  `.env` there), pass both:
+  ```sh
+  A2ALAB_CONSOLE_URL=https://<console-host> A2ALAB_TOKEN=<token> \
+    uv run python scripts/demo_watch.py
+  ```
+
+**Interval:** a full pass over the seven warmable targets is ~3.5 min (serial;
+cold starts ranged 6.7s–59.4s in one measured run). Set `/loop` **above** the
+pass time — `10m` keeps everything hot with headroom, and an overlapping pass is
+handled anyway (a warm-up already in flight returns 409, reported as "already
+warming", not a failure). `8m` rounds to `10m` under `/loop` because it does not
+divide the hour cleanly.
+
+The script exits non-zero on any failure, so a Stop-hook wired to Slack
+(build-notes/claude/05) turns each pass into a walk-away signal: silence means
+warm, a ping means a target went cold before you did.
+
+**Verify:**
+```sh
+uv run python scripts/demo_watch.py    # exit 0 + "ALL OK", one row per target
+```
