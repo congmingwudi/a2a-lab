@@ -27,6 +27,11 @@ import httpx
 from a2a.client import ClientConfig, create_client
 from a2a.types import GetTaskRequest, Message, Part, Role, SendMessageRequest, TaskState
 from a2a.utils import TransportProtocol
+from a2a.utils.errors import (
+    MethodNotFoundError,
+    TaskNotFoundError,
+    VersionNotSupportedError,
+)
 
 from interop.clients.base import RemoteAgentClient, auth_headers
 from interop.models import AgentRequest, AgentResponse, new_trace_id
@@ -107,6 +112,7 @@ class A2AClient(RemoteAgentClient):
         timeout: float = DEFAULT_TIMEOUT,
         card_path: str | None = None,
         transport: str | None = None,
+        protocol_version: str | None = None,
     ):
         # endpoint is the agent's base URL; the card is discovered at
         # /.well-known/agent-card.json unless the platform serves it
@@ -115,6 +121,17 @@ class A2AClient(RemoteAgentClient):
         # Vertex AI Agent Engine's preview A2A serves messages fine but its
         # public card route 404s, so the card is built locally via
         # minimal_agent_card).
+        #
+        # protocol_version pins the A2A-Version request header. The a2a-python
+        # REST/JSON-RPC handlers are decorated @validate_version(...), and a
+        # MISSING header is read as "0.3" (a2a.utils.constants) — so a 1.0-only
+        # handler rejects our header-less request with 400 FAILED_PRECONDITION
+        # "A2A version '0.3' is not supported by this handler. Expected '1.0'.".
+        # That was measured live against Vertex AI Agent Engine 2026-08-11: its
+        # managed A2A endpoint pins 1.0, so submit AND poll must carry
+        # A2A-Version: 1.0 or every call 400s (WS11, plan/03-results.md). Set
+        # per-target, never globally — our own Agentforce A2A shim speaks 0.3
+        # (a2a_compat.py), so a blanket 1.0 would break it.
         self.endpoint = endpoint.rstrip("/")
         self.auth = auth or {}
         self.target_name = target_name
@@ -122,6 +139,7 @@ class A2AClient(RemoteAgentClient):
         self.timeout = timeout
         self.card_path = card_path
         self.transport = transport
+        self.protocol_version = protocol_version
 
     def _httpx_auth(self) -> httpx.Auth | None:
         """Refreshing cloud-IAM bearer auth for platform endpoints with an
@@ -176,6 +194,23 @@ class A2AClient(RemoteAgentClient):
             return _EntraAuth()
         return None
 
+    def _base_headers(self, adc_auth) -> dict[str, str]:
+        """Default headers for every httpx request this client makes.
+
+        auth_headers() only when there is no refreshing IAM auth object (that
+        one sets Authorization itself, per request). The A2A-Version header, if
+        pinned, rides on ALL of them — send, get_task, card fetch — because the
+        server validates the version on each handler independently, not once at
+        connect (a2a.utils.version_validator)."""
+        headers = {} if adc_auth else auth_headers(self.auth)
+        if self.protocol_version:
+            from a2a.utils.constants import VERSION_HEADER
+
+            # str() because YAML parses an unquoted 1.0 as a float, and httpx
+            # requires header values to be strings.
+            headers[VERSION_HEADER] = str(self.protocol_version)
+        return headers
+
     @asynccontextmanager
     async def _connected(self):
         """Card discovery + transport selection, shared by ask/submit/poll.
@@ -185,7 +220,7 @@ class A2AClient(RemoteAgentClient):
         process entirely (the fan-out Lambda's whole point), so nothing may
         depend on a connection surviving between them."""
         adc_auth = self._httpx_auth()
-        headers = {} if adc_auth else auth_headers(self.auth)
+        headers = self._base_headers(adc_auth)
         async with httpx.AsyncClient(timeout=self.timeout, headers=headers, auth=adc_auth) as hc:
             config = ClientConfig(streaming=False, httpx_client=hc)
             if self.transport:
@@ -279,9 +314,20 @@ class A2AClient(RemoteAgentClient):
                 text="\n".join(texts),
             )
 
-    async def poll(self, task_id: str, *, trace_id: str | None = None) -> TaskSnapshot:
+    async def poll(
+        self, task_id: str, *, trace_id: str | None = None, expect_transient: bool = False
+    ) -> TaskSnapshot:
         """Then-poll: one `tasks/get`. The caller decides the cadence — for the
-        fan-out orchestrator that caller is the model, which is the point."""
+        fan-out orchestrator that caller is the model, which is the point.
+
+        `expect_transient` marks a poll that MAY 404 benignly because the task
+        store has not caught up yet (the eventually-consistent window right
+        after submit, WS11). When set, a not-found/version error records the hop
+        as `pending` rather than a red `error` and is still raised for the
+        caller's grace loop to ride through — so the console does not show a
+        string of ✗ failures for a leg that completes. The runner clears the
+        flag the moment it first reads the task, so a real failure after that
+        still records as an error."""
         trace_id = trace_id or new_trace_id()
         with Hop(
             trace_id,
@@ -290,6 +336,11 @@ class A2AClient(RemoteAgentClient):
             protocol="a2a",
             transport_detail=f"GetTask @ {self.endpoint}",
             request_payload={"taskId": task_id},
+            expected_exc=(
+                (MethodNotFoundError, TaskNotFoundError, VersionNotSupportedError)
+                if expect_transient
+                else None
+            ),
         ) as hop:
             async with self._connected() as client:
                 task = await client.get_task(GetTaskRequest(id=task_id))
@@ -332,7 +383,7 @@ class A2AClient(RemoteAgentClient):
         request = SendMessageRequest(message=message)
 
         adc_auth = self._httpx_auth()
-        headers = {} if adc_auth else auth_headers(self.auth)
+        headers = self._base_headers(adc_auth)
 
         start = time.perf_counter()
         with Hop(

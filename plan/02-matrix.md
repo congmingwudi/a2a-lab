@@ -195,15 +195,18 @@ interop.
   `configuration.return_immediately` and serves `tasks/get` — and the
   agent card does not say either, because the spec's "MAY continue
   asynchronously" lets a blocking implementation be fully conformant.
-  Measured: the hosted Agentforce shim and both Foundry agents implement
-  it; **Vertex AI Agent Engine is submit-only** — it returns a task id in
-  826ms that no tried request shape reads back (`GET /tasks/{id}` →
-  *"A2A version '0.3' is not supported by this handler"*), so an async
-  submit there silently loses the answer and its legs must keep the
-  blocking `ask()`. The matrix deliberately does NOT grow an "async"
-  column yet: one probe per endpoint on one day is thin evidence for a
-  standing claim, and Agent Engine's cause is unresolved rather than
-  established. plan/03-results.md carries the numbers.
+  Measured: the hosted Agentforce shim, both Foundry agents, **and Vertex
+  AI Agent Engine** implement it. Agent Engine *appeared* submit-only at
+  first — its `GET /tasks/{id}` came back *"A2A version '0.3' is not
+  supported by this handler. Expected '1.0'."* — but that was OUR bug: the
+  managed handler pins protocol 1.0 and reads a missing `A2A-Version`
+  header as 0.3, and the a2a-sdk never sends the header. Pinning
+  `options.protocol_version: "1.0"` on the ADK targets (a per-request
+  `A2A-Version: 1.0`, scoped so the 0.3 Agentforce shim is untouched) makes
+  fire-then-poll work end-to-end there, verified live 2026-08-11 (WS11 item
+  12). The matrix deliberately does NOT grow an "async" column yet: one
+  probe per endpoint is thin evidence for a standing claim.
+  plan/03-results.md carries the numbers.
 - **The honest-status vocabulary extends past protocol support — to
   provenance and observability claims** (WS20, convention adopted
   2026-08-10). The `native / via-bridge / via-shim / blocked-beta` ladder

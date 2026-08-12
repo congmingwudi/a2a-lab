@@ -91,6 +91,48 @@ def test_hop_records_error(isolated_traces):
     assert "boom" in event["response_payload_raw"]
 
 
+def test_hop_expected_exception_records_pending_not_error(isolated_traces):
+    """An exception the caller EXPECTS (e.g. a not-yet-visible task 404 during
+    the eventually-consistent window right after an async submit, WS11) records
+    the hop as `pending`, not a red `error` — and is still raised so the
+    caller's grace loop runs. This is what stops the console showing a string of
+    ✗ failures for an async leg that in fact completes."""
+    trace_id = new_trace_id()
+    with pytest.raises(ValueError):
+        with Hop(
+            trace_id,
+            source="orchestrator",
+            target="google-adk-a2a",
+            protocol="a2a",
+            transport_detail="GetTask @ https://.../a2a",
+            request_payload={"taskId": "t-1"},
+            expected_exc=(ValueError,),
+        ):
+            raise ValueError("Resource not found: .../a2a/tasks/t-1")
+    event = json.loads(list(isolated_traces.glob("*.jsonl"))[0].read_text().strip())
+    assert event["status"] == "pending"
+    # An UNEXPECTED exception type still records as error even with the flag set.
+    trace_id2 = new_trace_id()
+    with pytest.raises(KeyError):
+        with Hop(
+            trace_id2,
+            source="orchestrator",
+            target="google-adk-a2a",
+            protocol="a2a",
+            transport_detail="GetTask @ https://.../a2a",
+            request_payload={"taskId": "t-2"},
+            expected_exc=(ValueError,),
+        ):
+            raise KeyError("something genuinely wrong")
+    events = [
+        json.loads(line)
+        for f in isolated_traces.glob("*.jsonl")
+        for line in f.read_text().splitlines()
+    ]
+    err = [e for e in events if e["trace_id"] == trace_id2][0]
+    assert err["status"] == "error"
+
+
 def test_hop_seq_increments_per_trace(isolated_traces):
     recorder = get_recorder()
     assert recorder.next_hop_seq("t1") == 0

@@ -21,6 +21,7 @@ class FakePg:
     def __init__(self, by_fragment: dict[str, list] | None = None):
         self.by_fragment = by_fragment or {}
         self.calls: list[tuple[str, dict]] = []
+        self.batch_calls: list[tuple[str, list]] = []
 
     def execute(self, sql, params=None):
         self.calls.append((sql, params or {}))
@@ -28,6 +29,10 @@ class FakePg:
             if fragment in sql:
                 return rows(params) if callable(rows) else rows
         return []
+
+    def execute_batch(self, sql, param_sets):
+        self.batch_calls.append((sql, list(param_sets)))
+        return len(param_sets)
 
 
 def test_summary_rolls_up_sessions_events_harvest_and_tokens():
@@ -379,3 +384,161 @@ def test_usage_stats_breaks_logins_down_by_role_and_country():
     assert out["logins_by_role"][0]["role"] == "master of the universe"
     assert out["logins_by_role"][0]["people"] == 1
     assert out["logins_by_country"][0]["country"] == "US"
+
+
+# --------------------------------------------------------------------------- #
+# infra_metrics write side (Track B) — batched to fit the Data API budget
+# --------------------------------------------------------------------------- #
+
+
+def test_upsert_metrics_batches_one_call_with_shaped_param_sets():
+    """The write goes through execute_batch (one round trip), not a per-row
+    execute loop that overran a two-minute budget over the Data API. Each row's
+    labels are JSON-clipped and harvested_at is stamped once."""
+    store = PgObsStore(client=FakePg())
+    rows = [
+        {
+            "cloud": "aws",
+            "resource": "obs-aurora",
+            "metric": "ACUUtilization",
+            "ts_at": "2026-08-11T00:00:00Z",
+            "value": 12.5,
+            "unit": "Percent",
+            "labels": {"stat": "Average"},
+        },
+        {
+            "cloud": "gcp",
+            "resource": "agent-engine",
+            "metric": "x/cpu",
+            "ts_at": "2026-08-11T00:00:00Z",
+            "value": 1.0,
+        },
+    ]
+    n = store.upsert_metrics(rows)
+    assert n == 2
+    assert len(store.client.batch_calls) == 1  # one batched call, not two executes
+    sql, param_sets = store.client.batch_calls[0]
+    assert "INSERT INTO lab.infra_metrics" in sql and "ON CONFLICT" in sql
+    assert [p["cloud"] for p in param_sets] == ["aws", "gcp"]
+    assert '"stat": "Average"' in param_sets[0]["labels"]
+    assert param_sets[1]["labels"] is None and param_sets[1]["unit"] is None
+    # one harvested_at, stamped once for the whole grid
+    assert param_sets[0]["harvested_at"] == param_sets[1]["harvested_at"]
+
+
+def test_upsert_metrics_empty_is_a_noop():
+    store = PgObsStore(client=FakePg())
+    assert store.upsert_metrics([]) == 0
+    assert store.client.batch_calls == []
+
+
+class _FakeRds:
+    """Captures batch_execute_statement calls to prove chunking."""
+
+    def __init__(self):
+        self.batches: list[list] = []
+
+    def batch_execute_statement(self, **kw):
+        self.batches.append(kw["parameterSets"])
+        return {}
+
+
+def test_execute_batch_chunks_under_the_data_api_ceiling():
+    from observability.pg import PgClient
+
+    client = PgClient(cluster_arn="arn:aws:rds:us-east-1:x:cluster:c", secret_arn="s")
+    client._rds = _FakeRds()
+    param_sets = [{"cloud": "aws", "n": i} for i in range(450)]
+    n = client.execute_batch("INSERT ...", param_sets)
+    assert n == 450
+    # 450 rows / 200-row chunks -> 3 calls (200, 200, 50)
+    assert [len(b) for b in client._rds.batches] == [200, 200, 50]
+    # each parameter set is Data-API-typed name/value pairs
+    first = client._rds.batches[0][0]
+    assert {"name": "cloud", "value": {"stringValue": "aws"}} in first
+
+
+# --------------------------------------------------------------------------- #
+# infra_metrics read side (Track B) — SQL-side downsample, label-only from jsonb
+# --------------------------------------------------------------------------- #
+
+
+def test_infra_metrics_series_groups_and_shapes_from_rows():
+    """Rows arrive already grouped/ordered (SELECT ... ORDER BY cloud, resource,
+    metric, ts_at); the shared shaper packages them into one entry per series
+    with the metadata the Metrics tab needs — no second query."""
+    store = PgObsStore(
+        client=FakePg(
+            {
+                "FROM lab.infra_metrics": [
+                    {
+                        "cloud": "aws",
+                        "resource": "obs-aurora",
+                        "metric": "ACUUtilization",
+                        "ts_at": "2026-08-11T00:00:00Z",
+                        "value": 10.0,
+                        "unit": "Percent",
+                        "label": "ACU utilization",
+                        "harvested_at": 1.0,
+                    },
+                    {
+                        "cloud": "aws",
+                        "resource": "obs-aurora",
+                        "metric": "ACUUtilization",
+                        "ts_at": "2026-08-11T00:05:00Z",
+                        "value": 12.0,
+                        "unit": "Percent",
+                        "label": "ACU utilization",
+                        "harvested_at": 1.0,
+                    },
+                    {
+                        "cloud": "gcp",
+                        "resource": "agent-engine",
+                        "metric": "x/cpu",
+                        "ts_at": "2026-08-11T00:00:00Z",
+                        "value": None,
+                        "unit": None,
+                        "label": None,
+                        "harvested_at": 1.0,
+                    },
+                ]
+            }
+        )
+    )
+    out = store.infra_metrics_series()
+    assert [s["cloud"] for s in out] == ["aws", "gcp"]
+    aws = out[0]
+    assert aws["count"] == 2
+    assert aws["first_at"] == "2026-08-11T00:00:00Z"
+    assert aws["last_at"] == "2026-08-11T00:05:00Z"
+    assert aws["last_value"] == 12.0
+    assert aws["label"] == "ACU utilization"
+    assert aws["points"] == [
+        {"t": "2026-08-11T00:00:00Z", "v": 10.0},
+        {"t": "2026-08-11T00:05:00Z", "v": 12.0},
+    ]
+    # a null-only series still appears, with last_value None
+    assert out[1]["last_value"] is None
+
+
+def test_infra_metrics_series_downsamples_in_sql_not_twice():
+    """The Data API refuses results over 1 MB, so the SELECT strides each series
+    to ~max_points server-side. The Python shaper must NOT thin again — that
+    would drop the evenly-strided rows to a second, misaligned grid. The SQL
+    carries a stride expression and binds max_points."""
+    store = PgObsStore(client=FakePg({"FROM lab.infra_metrics": []}))
+    store.infra_metrics_series(max_points=50)
+    sql, params = store.client.calls[0]
+    assert "row_number() OVER" in sql
+    assert "PARTITION BY cloud, resource, metric" in sql
+    assert params["maxpoints"] == 50
+    assert "since" not in params  # no window -> no WHERE
+    assert "ts_at >=" not in sql
+
+
+def test_infra_metrics_series_windows_when_given_a_since():
+    store = PgObsStore(client=FakePg({"FROM lab.infra_metrics": []}))
+    store.infra_metrics_series(since_iso="2026-08-10T00:00:00Z")
+    sql, params = store.client.calls[0]
+    assert "ts_at >= :since" in sql
+    assert params["since"] == "2026-08-10T00:00:00Z"

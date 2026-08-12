@@ -444,6 +444,7 @@ class Hop:
         transport_detail: str,
         request_payload: Any,
         recorder: TraceRecorder | None = None,
+        expected_exc: tuple[type[BaseException], ...] | type[BaseException] | None = None,
     ):
         self.recorder = recorder or get_recorder()
         self.event = TraceEvent(
@@ -460,6 +461,21 @@ class Hop:
         # Set by the caller once the platform-native execution id is known
         # (e.g. the CMA session id) — lands on the event at exit (M11.1).
         self.platform_ref: str | None = None
+        # Exceptions the caller EXPECTS and handles — recorded as "pending"
+        # (a benign, non-terminal outcome) rather than "error", and still
+        # re-raised so the caller's own control flow runs. The motivating case:
+        # a `tasks/get` poll during the eventually-consistent window right after
+        # an async submit 404s until the task store catches up (WS11, measured
+        # against Vertex AI Agent Engine 2026-08-11). The runner rides through
+        # those transient 404s deliberately, so recording each as a red ✗ error
+        # hop was noise that misread as failure — the leg completes. A genuine
+        # failure once the task IS visible is passed WITHOUT this flag and still
+        # records red.
+        self.expected_exc = (
+            expected_exc
+            if expected_exc is None or isinstance(expected_exc, tuple)
+            else (expected_exc,)
+        )
 
     def __enter__(self) -> "Hop":
         self._start = time.perf_counter()
@@ -470,7 +486,10 @@ class Hop:
         self.event.response_payload_raw = self.response_payload
         self.event.platform_ref = self.platform_ref
         if exc is not None:
-            self.event.status = "error"
+            expected = self.expected_exc and isinstance(exc, self.expected_exc)
+            # "pending" for an expected, handled outcome (e.g. a not-yet-visible
+            # task right after submit); "error" for a genuine failure.
+            self.event.status = "pending" if expected else "error"
             if self.response_payload is None:
                 self.event.response_payload_raw = f"{exc_type.__name__}: {exc}"
         self.recorder.record(self.event)

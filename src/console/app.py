@@ -1674,9 +1674,18 @@ def create_console_app(registry: Registry | None = None):
         PROPAGATION and authorization, not credential UX."""
         from interop import identity
 
+        labels = identity.load_role_labels()
         return {
             "users": [
-                {"username": u, "name": e.get("name") or u, "role": e.get("role") or "viewer"}
+                {
+                    "username": u,
+                    "name": e.get("name") or u,
+                    "role": e.get("role") or "viewer",
+                    # Display-only softening for the picker (config/users.yaml
+                    # role_labels). The real role rides `role`; every gate keys
+                    # off that, never this.
+                    "role_label": identity.role_label(e.get("role") or "viewer", labels),
+                }
                 for u, e in identity.load_users().items()
             ]
         }
@@ -1698,7 +1707,12 @@ def create_console_app(registry: Registry | None = None):
             # One generic 401 — no probing which of user/password was wrong.
             raise HTTPException(status_code=401, detail="wrong user or password") from None
         claims = identity.verify_token(token) or {}
-        return {"token": token, "user": identity.user_context(claims)}
+        user = identity.user_context(claims)
+        # Display-only label for the browser's signed-in badge — kept OUT of
+        # the JWT and user_context (those carry the real role for gating and
+        # the delegation wire); this is only how it reads on screen.
+        user["role_label"] = identity.role_label(user.get("role"))
+        return {"token": token, "user": user}
 
     # WS18 — console usage analytics. The browser posts anonymous interaction
     # events (a visit before sign-in, a persona login, a top-level section nav)
@@ -1995,6 +2009,11 @@ def create_console_app(registry: Registry | None = None):
             # Lab Guide chat: how many past chats the drawer keeps
             # (client-side localStorage; the server just sets the cap).
             "guide_history_limit": int(os.environ.get("GUIDE_CHAT_HISTORY", "10")),
+            # Experiment chat: how many past chats per experiment the Run tab
+            # lets you switch back to within this browser session. Kept in the
+            # tab's memory only (not persisted, not server-side) — the server
+            # just sets the cap, like guide_history_limit above.
+            "experiment_history_limit": int(os.environ.get("A2ALAB_EXPERIMENT_CHAT_HISTORY", "3")),
             "remapped": {
                 name: reg.resolve_name(name)
                 for name in reg.targets
@@ -2279,9 +2298,15 @@ def create_console_app(registry: Registry | None = None):
                 # and lets it schedule them (D41). The operator picks per run,
                 # because the interesting comparison is same-agent-same-prompt.
                 variant = "mcp" if body.get("variant") == "mcp" else "tool"
+                # How the host-side legs are dispatched (WS11): "sync" is the
+                # blocking ask() every run used before; "async" fires the A2A
+                # submit+poll lifecycle on the legs that implement it. Only the
+                # "tool" variant dispatches host-side, so async is a no-op under
+                # "mcp" — the legs run in the Lambda there (follow-up: WS11 6-7).
+                dispatch_mode = "async" if body.get("dispatch_mode") == "async" else "sync"
                 trace_id = body.get("trace_id") or new_trace_id()
                 try:
-                    orch = CmaOrchestrator(variant=variant)
+                    orch = CmaOrchestrator(variant=variant, dispatch_mode=dispatch_mode)
                 except OrchestratorNotProvisioned as exc:
                     # Same class as the jira_sync gap: a console feature reaching
                     # for .a2alab/ state the hosted container doesn't carry. The
@@ -2309,12 +2334,18 @@ def create_console_app(registry: Registry | None = None):
                     coverage = "the orchestrator never called consult_business_units"
                 else:
                     coverage = f"{fan.ok_count}/{len(fan.results)} business units answered"
+                    # Surface the async dimension in the operator-facing line
+                    # when any leg ran async — so a fire-then-poll run does not
+                    # read identically to a blocking one (WS11).
+                    if fan.dispatch_summary:
+                        coverage += f" · {fan.dispatch_summary}"
                 return {
                     "ok": True,
                     "trace_id": result.get("trace_id", trace_id),
                     "text": f"{result.get('brief') or '(empty brief)'}\n\n---\n_{coverage}_",
                     "latency_ms": result.get("wall_ms"),
                     "variant": variant,
+                    "dispatch_mode": result.get("dispatch_mode", dispatch_mode),
                 }
             if spec.get("mode") == "async":
                 # Fire-and-return: the research session runs for minutes in
@@ -3626,6 +3657,11 @@ and console never present a combined dollar total across tools (WS12/D44).
         from observability.anthropic_source import AnthropicSource
         from observability.coding_logs_source import CodingLogsSource
         from observability.coding_source import CodingSource
+        from observability.infra_source import (
+            AwsInfraSource,
+            AzureInfraSource,
+            GcpInfraSource,
+        )
         from observability.openai_source import OpenAISource
         from observability.salesforce_source import SalesforceSource
         from observability.strands_source import StrandsSource
@@ -3643,12 +3679,26 @@ and console never present a combined dollar total across tools (WS12/D44).
             # (cost/tokens); `coding-logs` is the behavioural log signal.
             BUILD_TELEMETRY_PLATFORM: CodingSource,
             BUILD_LOGS_PLATFORM: CodingLogsSource,
+            # Track B (plan/explore-moirai-timeseries-forecasting.md): cross-cloud
+            # infrastructure metrics — reachable by name only, never in the sweep,
+            # for the same reason as the coding sources (they are not agent
+            # platforms). These write lab.infra_metrics, not obs_sessions.
+            "infra-aws": AwsInfraSource,
+            "infra-gcp": GcpInfraSource,
+            "infra-azure": AzureInfraSource,
         }
-        wanted = (
-            [platform]
-            if platform
-            else [n for n in sources if n not in (BUILD_TELEMETRY_PLATFORM, BUILD_LOGS_PLATFORM)]
-        )
+        INFRA = ("infra-aws", "infra-gcp", "infra-azure")
+        NON_PLATFORM = (BUILD_TELEMETRY_PLATFORM, BUILD_LOGS_PLATFORM, *INFRA)
+        # `infra` is a group alias for the three cross-cloud sources — the same
+        # one the harvest Lambda honours (lambda_handlers), so the button's one
+        # call fans out whether it runs here or hosted. The Infrastructure
+        # Metrics section's Harvest button posts platform=infra.
+        if platform == "infra":
+            wanted = list(INFRA)
+        elif platform:
+            wanted = [platform]
+        else:
+            wanted = [n for n in sources if n not in NON_PLATFORM]
         if any(w not in sources for w in wanted):
             return {"ok": False, "error": f"unknown platform '{platform}'"}
 
@@ -3731,6 +3781,58 @@ and console never present a combined dollar total across tools (WS12/D44).
 
         results = await asyncio.get_event_loop().run_in_executor(None, run)
         return {"ok": all(r.get("status") != "error" for r in results), "results": results}
+
+    @app.get("/api/infra-metrics")
+    async def infra_metrics(hours: int | None = None):
+        """The Track B cross-cloud infrastructure grid (Infrastructure Metrics).
+
+        One entry per (cloud, resource, metric) series — count, first/last
+        sample time, last non-null value, unit, human label and a downsampled
+        point list for the sparkline — read from lab.infra_metrics through the
+        normal store selector (Aurora hosted, sqlite as the local fallback,
+        D49). `hours` windows the read; omit it for everything held.
+
+        The harvest STATUS per infra source travels alongside so the tab can
+        distinguish "not harvested yet" from "harvested and the source returned
+        nothing" (an idle project, or a metric CloudWatch is not emitting) —
+        both render as zero series otherwise, and only one is a problem.
+        """
+        since_iso = None
+        if hours:
+            since_iso = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - int(hours) * 3600)
+            )
+        store = _obs_store()
+        try:
+            series = store.infra_metrics_series(since_iso=since_iso)
+            summary = store.summary()
+        finally:
+            store.close()
+
+        # The infra sources record their harvest status under these platform
+        # keys (set_harvest_status in each *InfraSource); pull just those.
+        harvest = {
+            key: summary.get("platforms", {}).get(key, {}).get("harvest", {})
+            for key in ("infra-aws", "infra-gcp", "infra-azure")
+        }
+        # Group the flat series list by cloud → resource for the grid, without
+        # threading that shape through the store (the console owns layout).
+        by_cloud: dict[str, dict] = {}
+        for s in series:
+            cloud = by_cloud.setdefault(s["cloud"], {"cloud": s["cloud"], "resources": {}})
+            res = cloud["resources"].setdefault(s["resource"], {"resource": s["resource"], "series": []})
+            res["series"].append(s)
+        clouds = [
+            {"cloud": c["cloud"], "resources": list(c["resources"].values())}
+            for c in by_cloud.values()
+        ]
+        return {
+            "clouds": clouds,
+            "series_count": len(series),
+            "point_count": sum(s["count"] for s in series),
+            "harvest": harvest,
+            "window_hours": hours,
+        }
 
     # ---- Hosted analyst (D23): briefs feed + ad-hoc analysis runs ---------
     # The analyst is a paused scheduled deployment on the Claude platform;

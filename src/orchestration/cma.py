@@ -139,11 +139,20 @@ class CmaOrchestrator:
         client: Any = None,
         state: dict[str, Any] | None = None,
         variant: str = "tool",
+        dispatch_mode: str = "sync",
     ):
         if variant not in ("tool", "mcp"):
             raise ValueError(f"unknown variant '{variant}' — known: tool, mcp")
+        if dispatch_mode not in ("sync", "async"):
+            raise ValueError(f"unknown dispatch_mode '{dispatch_mode}' — known: sync, async")
         self._client = client
         self._variant = variant
+        # How the host-side fan-out calls each leg (WS11). Only meaningful for
+        # the "tool" variant, where the host runs `dispatch()`; under "mcp" the
+        # legs run inside the Lambda's MCP tools and this host never dispatches
+        # them, so the choice does not reach them (a follow-up wires the durable
+        # submit/check store into those tools — WS11 items 6-7).
+        self._dispatch_mode = dispatch_mode
         self._state = state or (load_mcp_state() if variant == "mcp" else load_state())
         self.fanout: FanOutResult | None = None
         self.call_path = CallPath()
@@ -169,6 +178,7 @@ class CmaOrchestrator:
                 caller="a2alab-supply-orchestrator",
                 caller_platform="claude",
                 trace_id=trace_id,
+                dispatch_mode=self._dispatch_mode,
             )
             result_text = self.fanout.render()
 
@@ -307,6 +317,7 @@ class CmaOrchestrator:
             "trace_id": trace_id,
             "session_id": session.id,
             "variant": self._variant,
+            "dispatch_mode": self._dispatch_mode,
             "wall_ms": int((time.perf_counter() - start) * 1000),
             "fanout": self.fanout,
             "call_path": self.call_path,

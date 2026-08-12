@@ -258,3 +258,341 @@ async def test_leg_timeout_is_read_at_call_time_not_import_time(monkeypatch):
     assert leg_timeout_s() == LEG_TIMEOUT_DEFAULT_S
     monkeypatch.setenv("A2ALAB_LEG_TIMEOUT_S", "25")
     assert leg_timeout_s() == 25.0
+
+
+# ── WS11: async (fire-then-poll) dispatch mode ──────────────────────────────
+#
+# The point of these is the COMPARISON the workstream set out to take, expressed
+# as assertions: a leg whose protocol implements the async half runs submit +
+# poll (and the poll count is recorded), while a leg whose protocol does not
+# falls back to a blocking call and SAYS so — never silently reads as async.
+
+
+class AsyncFakeClient:
+    """An A2A-capable fake: submit() returns a handle, poll() walks WORKING →
+    COMPLETED after `poll_to_done` checks, so the poll count is deterministic."""
+
+    def __init__(self, name, answer, *, poll_to_done=2, sink=None):
+        self.name = name
+        self._answer = answer
+        self._poll_to_done = poll_to_done
+        self._polls = 0
+        self._sink = sink if sink is not None else []
+        self.closed = False
+        self.asked = False
+
+    async def submit(self, req):
+        self._sink.append((self.name, req))
+
+        class _Handle:
+            task_id = f"task-{self.name}"
+            answered_immediately = False
+            text = ""
+
+        return _Handle()
+
+    async def poll(self, task_id, *, trace_id=None, expect_transient=False):
+        self._polls += 1
+        done = self._polls >= self._poll_to_done
+
+        class _Snap:
+            state = "TASK_STATE_COMPLETED" if done else "TASK_STATE_WORKING"
+            text = self._answer if done else ""
+            detail = ""
+
+            def __init__(inner):
+                inner.done = done
+                inner.interrupted = False
+
+        return _Snap()
+
+    async def ask(self, req):
+        # Present so a capability check that only looked at ask() would be wrong;
+        # the async path must NOT call it.
+        self.asked = True
+        return AgentResponse(text="SHOULD NOT BE CALLED", session_id=req.session_id)
+
+    async def aclose(self):
+        self.closed = True
+
+
+async def test_async_dispatch_submits_and_polls_a2a_legs(monkeypatch):
+    """Every leg is A2A-capable here, so an async run submits + polls each and
+    never blocks — and the poll count lands on the result."""
+    monkeypatch.setenv("A2ALAB_ASYNC_POLL_INTERVAL_S", "0.001")
+    sink = []
+    clients = {
+        leg.target: AsyncFakeClient(leg.target, f"{leg.role} answer", poll_to_done=2, sink=sink)
+        for leg in LEGS
+    }
+    result = await dispatch(
+        "A port strike has halted traffic.",
+        caller="a2alab-supply-orchestrator",
+        caller_platform="claude",
+        registry=_registry(clients),
+        dispatch_mode="async",
+    )
+    assert result.complete and result.ok_count == 3
+    # every leg genuinely ran the async lifecycle, and none fell through to ask()
+    assert all(r.dispatch_mode == "async" for r in result.results)
+    assert all(r.polls >= 2 for r in result.results)
+    assert not any(c.asked for c in clients.values())
+    # the coverage line surfaces the async dimension, so a fire-then-poll run
+    # cannot read like a blocking one
+    rendered = result.render()
+    assert "3/3 legs async" in rendered
+    assert "dispatch:" in rendered
+    # the async legs are NAMED (business unit + target), not just counted, so
+    # the reader can see WHICH platforms served the asynchronous half (WS11)
+    for leg in LEGS:
+        assert f"{leg.business_unit} ({leg.target})" in rendered
+
+
+async def test_async_falls_back_to_sync_when_a_leg_has_no_task_lifecycle():
+    """A leg whose client has no submit/poll (an AgentCore / Agent API leg) is
+    not an error under async — it runs sync and is recorded async→sync, the WS11
+    per-platform finding. The base-class FakeClient has ask() only."""
+    sink = []
+    clients = {
+        leg.target: AsyncFakeClient(leg.target, f"{leg.role} answer", sink=sink) for leg in LEGS
+    }
+    no_async = LEGS[2]  # customer_comms — the AgentCore leg in the real config
+    clients[no_async.target] = FakeClient(no_async.target, answer="sync answer", sink=sink)
+
+    result = await dispatch(
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        registry=_registry(clients),
+        dispatch_mode="async",
+    )
+    assert result.ok_count == 3
+    by_role = {r.leg.role: r for r in result.results}
+    assert by_role[no_async.role].dispatch_mode == "async→sync"
+    assert by_role["exposure"].dispatch_mode == "async"
+    # the fallback is named in the output, never hidden — and it names the
+    # SPECIFIC leg that fell back (business unit + target), not just a count
+    rendered = result.render()
+    assert "fell back to sync" in rendered
+    assert f"{no_async.business_unit} ({no_async.target})" in rendered
+
+
+class SubmitOnlyFakeClient(AsyncFakeClient):
+    """An A2A-capable fake whose remote is submit-only: submit() hands back a
+    task id, but EVERY poll raises. The runner must treat that as "no async
+    lifecycle reachable here" and fall back — NOT fail the leg.
+
+    Note this is now a hypothetical shape, not Agent Engine: as of 2026-08-11,
+    pinning A2A-Version: 1.0 made Agent Engine serve fire-then-poll end-to-end
+    (the original "submit-only" verdict was our missing header, plan/03-results
+    .md). The fallback path still has to exist and stay correct for any remote
+    that genuinely takes a submit and then will not return the task, so this
+    exercises it — a poll that fails FROM THE FIRST ATTEMPT AND NEVER RECOVERS,
+    distinct from the transient-then-success case
+    (test_async_rides_through_a_transient_not_found_after_submit).
+
+    `poll_error_cls` selects which failure shape to raise, each an a2a REST
+    mapping: a 404 (MethodNotFoundError), a 400 version mismatch
+    (VersionNotSupportedError), and a structured task-not-found
+    (TaskNotFoundError) — all three must degrade identically.
+
+    ask() returns a REAL answer, because the whole point of the fallback is that
+    the leg still gets answered — a blocking call to a submit-only endpoint
+    works fine, it is only the task READ that is unreachable."""
+
+    def __init__(self, name, answer, *, poll_error_cls=None, sink=None):
+        super().__init__(name, answer, sink=sink)
+        self._sync_answer = answer
+        if poll_error_cls is None:
+            from a2a.utils.errors import MethodNotFoundError
+
+            poll_error_cls = MethodNotFoundError
+        self._poll_error_cls = poll_error_cls
+
+    async def poll(self, task_id, *, trace_id=None, expect_transient=False):
+        raise self._poll_error_cls(f"unretrievable task https://.../a2a/tasks/{task_id}")
+
+    async def ask(self, req):
+        self.asked = True
+        return AgentResponse(text=self._sync_answer, session_id=req.session_id)
+
+
+@pytest.mark.parametrize("error_name", ["MethodNotFoundError", "VersionNotSupportedError", "TaskNotFoundError"])
+async def test_async_falls_back_to_sync_when_the_remote_will_not_serve_the_poll(
+    monkeypatch, error_name
+):
+    """The runtime half of the fallback: a client HAS submit + poll, so it looks
+    async-capable, but the remote accepts the submit and then will not return the
+    task (Agent Engine is submit-only, WS11). The leg must degrade to a blocking
+    ask() — recorded async→sync and answered — not be reported unavailable.
+
+    Parametrised over ALL THREE measured poll-failure shapes: the 2026-08-11 bug
+    was the 404 (MethodNotFoundError), but the probe also recorded a 400 version
+    mismatch and a task-not-found, and each must fall back identically — catching
+    only the 404 would leave the run failing under a different status code.
+    """
+    import a2a.utils.errors as a2a_errors
+
+    error_cls = getattr(a2a_errors, error_name)
+    monkeypatch.setenv("A2ALAB_ASYNC_POLL_INTERVAL_S", "0.001")
+    # No grace: this client's poll NEVER recovers, so the not-yet-visible window
+    # would only delay the inevitable fallback. The transient case is covered
+    # separately below.
+    monkeypatch.setenv("A2ALAB_ASYNC_NOT_FOUND_GRACE_S", "0")
+    sink = []
+    clients = {
+        leg.target: AsyncFakeClient(leg.target, f"{leg.role} answer", sink=sink) for leg in LEGS
+    }
+    submit_only = LEGS[0]  # exposure — the ADK/Agent Engine leg in the real config
+    clients[submit_only.target] = SubmitOnlyFakeClient(
+        submit_only.target, "logistics answer via sync", poll_error_cls=error_cls, sink=sink
+    )
+
+    result = await dispatch(
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        registry=_registry(clients),
+        dispatch_mode="async",
+    )
+    # the submit-only leg ANSWERED — the run is complete, not degraded
+    assert result.complete and result.ok_count == 3
+    by_role = {r.leg.role: r for r in result.results}
+    assert by_role[submit_only.role].dispatch_mode == "async→sync"
+    assert by_role[submit_only.role].polls == 0  # no successful polls happened
+    assert by_role[submit_only.role].ok
+    assert "logistics answer via sync" in by_role[submit_only.role].text
+    # the fallback client's blocking path was actually used
+    assert clients[submit_only.target].asked
+    # the other legs still ran the real async lifecycle
+    assert by_role["commercial"].dispatch_mode == "async"
+    # and the output names the fallback rather than hiding it
+    assert "fell back to sync" in result.render()
+
+
+class TransientNotFoundClient(AsyncFakeClient):
+    """A2A-capable, and the remote DOES serve the task — but the first few polls
+    for a just-submitted task 404 while the task store catches up, then it
+    resolves. This is Vertex AI Agent Engine's real behaviour measured live
+    2026-08-11: submit returns a task id, poll[0..n] 404, a later poll returns
+    COMPLETED. The runner must ride through the early not-found window and finish
+    async — NOT fall back to sync, because the async lifecycle genuinely works
+    here. The 404 shape is MethodNotFoundError (the SDK maps a bare 404 there).
+
+    `not_found_first` polls raise before the task becomes visible; after that it
+    behaves like the base AsyncFakeClient and walks WORKING → COMPLETED."""
+
+    def __init__(self, name, answer, *, not_found_first=2, sink=None):
+        super().__init__(name, answer, poll_to_done=1, sink=sink)
+        self._not_found_first = not_found_first
+        self._attempts = 0
+
+    async def poll(self, task_id, *, trace_id=None, expect_transient=False):
+        self._attempts += 1
+        if self._attempts <= self._not_found_first:
+            from a2a.utils.errors import MethodNotFoundError
+
+            raise MethodNotFoundError(f"Resource not found: https://.../a2a/tasks/{task_id}")
+        return await super().poll(task_id, trace_id=trace_id, expect_transient=expect_transient)
+
+
+async def test_async_rides_through_a_transient_not_found_after_submit(monkeypatch):
+    """The other half of the 404 story: a task that is not visible YET (the store
+    is eventually consistent right after submit) must not be mistaken for a
+    submit-only remote. As long as we have never successfully read the task and
+    the grace window has not elapsed, an unretrievable poll is retried — and once
+    the task appears the leg completes async, with the transient polls NOT
+    counted as successful reads.
+
+    Distinguishes position, not exception class: the SAME MethodNotFoundError is
+    ridden through here (never-seen, still early) and falls back immediately in
+    the submit-only test above (grace 0). This is the regression guard for the
+    2026-08-11 fix — without the grace window the ADK leg fell back to sync on
+    the first transient 404 even though async worked."""
+    monkeypatch.setenv("A2ALAB_ASYNC_POLL_INTERVAL_S", "0.001")
+    monkeypatch.setenv("A2ALAB_ASYNC_NOT_FOUND_GRACE_S", "30")  # ample; polls are ~instant
+    sink = []
+    clients = {
+        leg.target: AsyncFakeClient(leg.target, f"{leg.role} answer", sink=sink) for leg in LEGS
+    }
+    adk_leg = LEGS[0]  # exposure — the Agent Engine leg in the real config
+    clients[adk_leg.target] = TransientNotFoundClient(
+        adk_leg.target, "logistics answer via async", not_found_first=2, sink=sink
+    )
+
+    result = await dispatch(
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        registry=_registry(clients),
+        dispatch_mode="async",
+    )
+    assert result.complete and result.ok_count == 3
+    by_role = {r.leg.role: r for r in result.results}
+    # rode through the transient 404s and finished ASYNC, not async→sync
+    assert by_role[adk_leg.role].dispatch_mode == "async"
+    assert by_role[adk_leg.role].ok
+    assert "logistics answer via async" in by_role[adk_leg.role].text
+    # the transient not-founds were not counted as reads; exactly one real poll
+    # returned the completed task
+    assert by_role[adk_leg.role].polls == 1
+    # and the blocking path was never touched — this leg did NOT fall back
+    assert not clients[adk_leg.target].asked
+    assert "fell back to sync" not in result.render()
+
+
+async def test_async_does_NOT_swallow_a_genuine_task_failure(monkeypatch):
+    """The fallback is narrow on purpose: a task that reaches TASK_STATE_FAILED
+    is a real failure of the remote agent, NOT an unreachable poll, so it must
+    fail the leg — degrading it to a sync retry would hide broken agents behind a
+    second attempt. Only "took the submit, won't return the task" degrades."""
+    monkeypatch.setenv("A2ALAB_ASYNC_POLL_INTERVAL_S", "0.001")
+    sink = []
+    clients = {
+        leg.target: AsyncFakeClient(leg.target, f"{leg.role} answer", sink=sink) for leg in LEGS
+    }
+    failing = LEGS[0]
+
+    class _FailsClient(AsyncFakeClient):
+        async def poll(self, task_id, *, trace_id=None, expect_transient=False):
+            class _Snap:
+                state = "TASK_STATE_FAILED"
+                text = ""
+                detail = "the agent crashed"
+                done = True
+                interrupted = False
+
+            return _Snap()
+
+        async def ask(self, req):
+            self.asked = True
+            return AgentResponse(text="should not be reached", session_id=req.session_id)
+
+    clients[failing.target] = _FailsClient(failing.target, "x", sink=sink)
+    result = await dispatch(
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        registry=_registry(clients),
+        dispatch_mode="async",
+    )
+    by_role = {r.leg.role: r for r in result.results}
+    # the failing leg is UNAVAILABLE, not silently retried sync
+    assert not by_role[failing.role].ok
+    assert "the agent crashed" in by_role[failing.role].error
+    assert not clients[failing.target].asked  # no sneaky sync retry
+
+
+async def test_sync_mode_is_unchanged_and_records_sync():
+    """The default path is exactly today's behaviour: blocking ask(), no polls,
+    and no async wording leaks into the coverage line."""
+    sink = []
+    result = await dispatch(
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        registry=_registry(_all_ok(sink)),
+    )
+    assert all(r.dispatch_mode == "sync" and r.polls == 0 for r in result.results)
+    assert "dispatch:" not in result.render()
+    assert "async" not in result.render()

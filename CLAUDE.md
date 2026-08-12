@@ -37,6 +37,14 @@ uv run python scripts/obs_harvest.py coding coding-logs  # the coding-agent tele
                                      # Coding Agents Telemetry section (DevOps category → Cost /
                                      # Behaviour tabs). NEITHER is in the unqualified sweep — they
                                      # are the tools that built the lab, not agent platforms.
+uv run python scripts/obs_harvest.py infra  # Track B (Moirai exploration): cross-cloud
+                                     # INFRASTRUCTURE metrics → lab.infra_metrics. Three sources
+                                     # (infra-aws/gcp/azure) read config/infra_metrics.yaml and
+                                     # pull CloudWatch / GCP Cloud Monitoring / Azure Monitor
+                                     # RUNTIME metrics (Fargate/Aurora/Lambda, Vertex, Foundry) as
+                                     # a dense regular grid — the SRE sibling of the M11 agent-log
+                                     # harvest. Like coding, opt-in and NOT in the unqualified
+                                     # sweep (infrastructure is not a platform column).
 scripts/claude_otel.sh               # launch Claude Code with the behavioural LOGS exporter on
                                      # (WS16): opt-in wrapper, content flags OFF, own logs
                                      # credential; a plain `claude` exports metrics only.

@@ -898,7 +898,9 @@ the request, near 1 means the request *was* the work.
 | `agentforce-a2a-shim` (Lambda + API GW) | **async** | 1180ms | 31084ms | 0.04 | 21 | SUBMITTED → COMPLETED |
 | `foundry-a2a` (Azure Foundry) | **async** | 4731ms | 19169ms | 0.25 | 6 | SUBMITTED → COMPLETED |
 | `foundry-commercial-a2a` | **async** | 3231ms | 9817ms | 0.33 | 3 | SUBMITTED → COMPLETED |
-| `google-adk-a2a` (Agent Engine) | **submit-only** | 826ms | — | — | 0 | SUBMITTED → *unreachable* |
+| `google-adk-a2a` (Agent Engine), header missing | **submit-only** | 826ms | — | — | 0 | SUBMITTED → *400 version mismatch* |
+| `google-adk-a2a` (Agent Engine), `A2A-Version: 1.0` | **async** | ~500ms | ~4.2s | 0.12 | 1–2 | SUBMITTED → COMPLETED |
+| `adk-logistics-a2a` (Agent Engine, warm), `A2A-Version: 1.0` | **async** | ~500ms | ~4.2s | 0.12 | 1 | SUBMITTED → COMPLETED |
 
 **The headline: the API Gateway ceiling is gone, on the component that hit it.**
 D41 measured the fan-out legs inheriting API Gateway's 29s integration timeout.
@@ -930,29 +932,51 @@ held the response. The lab had the asynchronous half switched on the whole time
 and was calling it with `return_immediately` unset — which is a sharper version
 of the published `a2a-async-at-heart` finding than the one it replaces.
 
-### Agent Engine accepts a task it will not give back
+### Agent Engine's "submit-only" was OUR missing header (resolved 2026-08-11)
 
-Warm, Vertex AI Agent Engine returns a task in **826ms** with
-`TASK_STATE_SUBMITTED` and no artifact — a textbook async submit. The task then
-could not be retrieved by any shape tried:
+The first probe recorded Agent Engine as **submit-only**: it returned a task in
+826ms with `TASK_STATE_SUBMITTED`, and every attempt to read the task back
+failed. That verdict was wrong, and the cause was ours. Re-probed live
+2026-08-11:
 
-- `GET {endpoint}/tasks/{id}` — the 1.0 REST binding for `GetTask` — returns
-  400 `FAILED_PRECONDITION`: **"A2A version '0.3' is not supported by this
-  handler"**.
-- `GET {endpoint}/v1/tasks/{id}`, suggested by the documented resource name
-  `projects.locations.reasoningEngines.a2a.v1.tasks`, returns 400 with the
-  container's own `{"detail":"Not Found"}`.
-- JSON-RPC `tasks/get` and `GetTask` posted at the endpoint both 404 at the
-  Google front door (this endpoint is pinned to `http_json` precisely because
-  its agent card route 404s).
+- `GET {endpoint}/tasks/{id}` with **no** `A2A-Version` header → 400
+  `FAILED_PRECONDITION`: **"A2A version '0.3' is not supported by this handler.
+  Expected version '1.0'."** The a2a-python REST handlers are decorated
+  `@validate_version("1.0")`, and a *missing* header is interpreted as "0.3"
+  (`a2a.utils.constants`) — so the header-less request our client sent was
+  rejected as an old-version call. The SDK never sends this header on its own.
+- `GET {endpoint}/tasks/{id}` **with `A2A-Version: 1.0`** → the request is
+  accepted; a task that exists returns `TASK_STATE_COMPLETED` with its artifact,
+  and a task that does not returns a structured 404 `TASK_NOT_FOUND`. **This is
+  the fix.**
+- `GET {endpoint}/v1/tasks/{id}` (the `/v1`-prefixed path in Google's newer
+  Agent Runtime docs) returns 404 on our `v1beta1` reasoningEngines deployment —
+  the deployed app serves the **unprefixed** `/tasks/{id}`, which is exactly what
+  the a2a-sdk's native REST transport builds. So no path change was needed,
+  only the header.
 
-Recorded as **submit-only, cause unresolved** rather than "not implemented":
-Google documents a get-task method, so the honest statement is that the lab
-could not reach it, not that it is absent. **The operational consequence holds
-either way — an asynchronous submit to Agent Engine loses the answer**, so its
-legs must keep using the blocking `ask()`. This is the first measured cost of
-the A2A version spectrum that `a2a_compat.py` was written for: the same server
-that requires 1.0 for messages rejects a 1.0 task read as 0.3.
+The fix is one line of config: `options.protocol_version: "1.0"` on the
+`google-adk-a2a` and `adk-logistics-a2a` targets, which the A2A client turns
+into an `A2A-Version: 1.0` header on **every** request (submit, poll, card) —
+scoped per-target, never global, because our own Agentforce A2A shim speaks 0.3.
+With it, fire-then-poll works end-to-end against the managed Agent Engine: the
+supplier-disruption async run now shows **exposure (ADK) → async, 1 poll**
+alongside Foundry, with only the OpenAI AgentCore leg falling back (it exposes no
+A2A task lifecycle at all — a genuine platform difference, not our bug).
+
+One live-measured wrinkle the header alone did not cover: right after submit, the
+first `tasks/get` can still 404 while Agent Engine's task store catches up (the
+store is eventually consistent), and a later poll succeeds — a *warm* logistics
+deployment took two transient 404s, a cold one takes many more during the ~34s
+cold start. The runner rides through a not-yet-visible task for a bounded grace
+window (`POLL_NOT_FOUND_GRACE_S`, 45s, wide enough to cover a cold start) before
+treating an unretrievable poll as the genuine submit-only degradation. The
+distinction is *position*, not error code: the same 404 means "not visible yet"
+right after submit and "will never appear" once the task has been read once.
+
+This is still a measured cost of the A2A version spectrum `a2a_compat.py` exists
+for — but the cost is "the SDK client must know to send `A2A-Version: 1.0`", not
+"Agent Engine cannot serve the async half". It can, and does.
 
 ### On Lambda, polling is not free — it is what buys the CPU
 

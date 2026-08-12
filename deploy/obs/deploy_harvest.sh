@@ -124,6 +124,18 @@ for key in (
     "AZURE_CLIENT_SECRET",
     "STRANDS_AGENTCORE_ARN",      # strands: runtime id -> AgentCore access log group
     "STRANDS_MODEL_ID",           # strands: ModelId dimension for AWS/Bedrock meters
+    # WS22 (Track B): infra_source expands these into config/infra_metrics.yaml's
+    # CloudWatch dimensions and the Azure resource_uri. Without them the AWS and
+    # Azure infra series are all skipped and both clouds report `blocked` hosted
+    # (GCP worked only because its ids were already carried above). Names/ids,
+    # not credentials, but carried through the one secret like the rest (D39 —
+    # no new secret; .env is the source, never a literal).
+    "A2ALAB_ECS_CLUSTER",         # aws: ClusterName for the Fargate face/bridge meters
+    "A2ALAB_CONSOLE_SERVICE",     # aws: ServiceName (console)
+    "A2ALAB_BRIDGE_SERVICE",      # aws: ServiceName (bridge)
+    "A2ALAB_PG_CLUSTER_ID",       # aws: DBClusterIdentifier for the Aurora meters
+    "A2ALAB_HARVEST_FUNCTION",    # aws: FunctionName for the Lambda meters
+    "AZURE_FOUNDRY_RESOURCE_ID",  # azure: resource_uri (ARM id) for the Foundry meters
 ):
     if os.environ.get(key):
         env[key] = os.environ[key]

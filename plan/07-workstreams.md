@@ -193,7 +193,9 @@ Work items:
 both sync directions live in the console; ADK obs source harvesting;
 insights updated (native-A2A reality, A2A auth story, Cloud Trace column).
 
-Status 2026-07-19 (first leg live):
+Status 2026-07-19 (COMPLETE — see the "WS2 COMPLETE" note after item 11; two
+dated post-completion additions followed: the 2026-07-20 market-signals tool and
+the D30 direct route):
 1. ✅ GCP project created (billing linked, APIs enabled, ADC); its id lives
    in `.env` as `GOOGLE_CLOUD_PROJECT`, not in this repo;
    user's duplicate a2a-lab-503000 deleted (recoverable ~30d).
@@ -539,6 +541,11 @@ Work items (stories):
 8. ✅ Strands observability source `src/observability/strands_source.py` — `AWS/Bedrock` model meters (tokens/cost/latency) + AgentCore runtime access log (invocation/error counts); registered in the 6h harvest Lambda and the CLI sweep as the eighth harvest source (D67).
 9. ✅ Console: AWS Strands added to the title-bar platform list, the obs coverage card + logo, and both observability diagrams (harvest + analyst); Experiments nav orders the live Strands pair ahead of the upcoming LangGraph group.
 10. ✅ Deployment map + architecture diagrams updated — Strands runtime in the AgentCore estate/L1, the scheduled harvest reaching it, and the L6 code→deploy rows (`plan/09`, `config/diagrams.yaml`, console `*_DIAGRAM` constants).
+11. ✅ Cross-hyperscaler cell `AWS Strands → Google ADK` (2026-08-11) — the second Cross-hyperscalers experiment, the AWS→GCP mirror of `Google ADK → Foundry`. Two sibling scenarios so the TRUST MODELS read side by side: `strands-to-google-adk` (native-direct — the runtime role federates into GCP keyless, no lab server in the path) and `strands-to-google-adk-bridge` (via the already-federated bridge, both cross-cloud wire payloads captured).
+12. ✅ Backend tools `ask_google_adk` + `ask_google_adk_bridge` in `strands_backend.py` (D27-guarded), system-prompt awareness in `core.py`, and `google-auth` added to `strands.Dockerfile` (not pulled by the `strands`/`aws` extras — the direct route's federation would `ModuleNotFoundError` without it).
+13. ✅ Deploy wiring — `deploy/agentcore/gcp_federation.sh strands` binds the runtime execution role into the existing `a2alab-aws` pool (one more `principalSet` member, no new pool); `deploy.sh strands` ships `ADK_A2A_ENDPOINT`/`A2ALAB_BRIDGE_URL`/`BRIDGE_TOKEN` and renames the `A2ALAB_STRANDS_GCP_*` pair to the generic federation vars in the runtime env.
+
+**Cross-hyperscaler cell (2026-08-11).** WS5 was a framework-isolation pair (Strands vs Claude/OpenAI on one runtime); this extends it outward to the cell the lab is named for — an AWS agent calling a GCP agent, native A2A, no shim. It deliberately ships BOTH routes because the interesting variable is the trust boundary: the direct route is least-privilege end-to-end but records nothing lab-side, while the bridge route trades a shared broker identity and one extra hop for full raw-payload capture. Same destination agent (`google-adk-a2a`), same protocol; what changes is who is trusted and what is observable.
 
 One honest caveat rides the live cells: `platform_ref` (Bedrock request-id) comes back null at this SDK version, so obs sessions correlate to the runtime, not to individual lab traces.
 
@@ -680,6 +687,21 @@ laptop). Next: U3 enforcement.
    bridge (the standards-shaped version of what U2 hand-rolls), A2A
    cards advertising securitySchemes. Each one becomes a
    convention-vs-standard comparison cell.
+
+### Work items
+
+The milestones above are the design; this table is the delivery record (the
+shape `jira_sync.py` imports). U1/U2 shipped 2026-07-24; U3–U6 are the
+roadmap the status paragraph names as still ahead.
+
+| # | Item | State |
+|---|---|---|
+| 1 | U1 — lab identity provider: `config/users.yaml` (demo users + roles, owner role D63), RS256 keypair under `.a2alab/`, lab-issued JWTs, console login, `TokenAuthMiddleware` accepts JWT or the legacy shared token | done 2026-07-24 (commit da99a1d), loopback-tested in `tests/unit/test_identity.py` |
+| 2 | U2 — user context on the wire: `metadata["user_context"]` + the JWT in each protocol's native slot (REST `Authorization: Bearer`, MCP tool argument, A2A message metadata), rider gains `on-behalf-of:`, every delegation seam forwards both channels; deploy scripts ship `A2ALAB_JWT_PUBLIC_KEY` to the runtimes (verify-only) | done 2026-07-24 (commit 66c33d8), proven over all three protocols in `tests/e2e/test_loopback.py` |
+| 3 | U3 — enforcement + data scoping: seams verify the JWT when present (invalid → refuse; text-only → `asserted-only`), `TraceEvent` gains a `user` field, guide/console/obs reads filter by role, `A2ALAB_REQUIRE_USER=1` strict mode | not started |
+| 4 | U4 — platform on-behalf-of cells (the measured comparison): Salesforce per-user JWT bearer flow, Foundry Entra OBO, Google Agent Engine per-user impersonation (expected blocked, recorded honestly), Anthropic/OpenAI metadata-only `asserted-only` | not started |
+| 5 | U5 — matrix + insights: new "user-context propagation" matrix section (platform × protocol × verified/asserted/dropped) + new **Identity & authorization** insights category | not started |
+| 6 | U6 (stretch) — standards alignment: MCP OAuth 2.1 resource-server auth on the guide's MCP server, RFC 8693 token exchange at the bridge, A2A cards advertising `securitySchemes` | not started |
 
 **Hygiene folded in (from the antipattern analysis) — all landed ahead of
 WS6, 2026-07-24:** browser auth moved from `?token=` query strings to the
@@ -1450,6 +1472,13 @@ scheduled.
 
 ## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
 
+**Status: NOT STARTED.** Research and planning only — no Agent Fabric build,
+no code, config, deploy script or ADR yet. Gated on the Phase 0 entitlement
+check below, and scheduled last. (This line is explicit so the delivery record
+does not inherit the status of the `## Lab Guide` section that follows: both are
+un-numbered sub-sections inside WS10's span, and `jira_sync.py` would otherwise
+read the Lab Guide's "built" status as WS10's.)
+
 **Goal.** Stand up Agent Fabric against the lab's own agents and produce a
 customer-facing **build-vs-buy comparison matrix**.
 
@@ -1667,10 +1696,10 @@ in plan/03-results.md. Three results, in order of importance:
    `configuration.return_immediately` and keeps consuming in a background task.
    The lab had the async half switched on and had simply never asked for it.
 3. **Support is uneven, and Lambda is not free.** Foundry implements the async
-   lifecycle properly; Agent Engine returns a task id it will not give back
-   (submit-only — an async submit there loses the answer); and on Lambda the
-   background work only advances while the client polls, because the runtime
-   freezes between invocations.
+   lifecycle properly; Agent Engine *appeared* submit-only until item 12 traced
+   it to our missing `A2A-Version: 1.0` header — with the header it serves
+   fire-then-poll fully; and on Lambda the background work only advances while
+   the client polls, because the runtime freezes between invocations.
 
 **Build item 3 — the durable half, written 2026-07-28.** `src/fanout_mcp/tasks.py`
 plus `lab.fanout_tasks` (migrated, live). The obvious submit/check would have
@@ -1692,17 +1721,73 @@ model that backs off politely makes its own run slower. The dispatcher and the
 worker are in place and tested; wiring them into the registry and redeploying
 the fan-out bundle is the next step.
 
+**Build items 8–10 — host-side async dispatch as a per-experiment choice, built
+2026-08-11.** The fire-then-poll pattern is now a run-time control on the
+host-side fan-out, not only a probe: `orchestration.dispatch()` takes a
+`dispatch_mode` of `"sync"` (today's blocking `ask()`) or `"async"` (A2A submit
++ poll to a terminal state), the supplier-disruption CMA experiment carries a
+`dispatch_mode_toggle`, and the console renders a synchronous / async radio
+gated on the host-side "tool" variant (async is a no-op under the "mcp" variant,
+whose legs run in the Lambda — that is build item 6's territory). Capability is
+detected per leg: the two A2A legs (ADK, Foundry) run the real lifecycle, while
+the AgentCore comms leg has no `submit`/`poll` and is recorded **async→sync** —
+the WS11 per-platform finding, now surfaced live in the fan-out coverage line,
+the operator-facing run summary, and a turn badge, rather than only in a probe
+table.
+
+**Item 11 (2026-08-11) — the "submit-only" verdict was wrong, and we found out
+by implementing the pattern the spec claims.** The first cut of item 11 caught
+the ADK Logistics leg's poll failure and degraded it to `async→sync`, framed as
+"Agent Engine accepts the submit and then will not return the task". That is the
+kind of finding the lab exists to produce — *except it was our bug, not the
+platform's.* Before capturing it as an insight we researched the A2A spec and the
+ADK/Agent Engine docs (as the lab's own method demands), then probed the live
+endpoint. Agent Engine's managed A2A handler is pinned to protocol **1.0** and
+reads a **missing** `A2A-Version` header as "0.3" (a2a-python's
+`@validate_version` + `constants`), so the header-less `tasks/get` our client
+sent came back 400 "A2A version '0.3' is not supported by this handler. Expected
+version '1.0'." The a2a-sdk never sends that header on its own. Pinning
+`options.protocol_version: "1.0"` on the ADK targets (`config/targets.yaml`) — a
+per-target `A2A-Version: 1.0` on every request, scoped so our own 0.3-speaking
+Agentforce shim is untouched — **makes fire-then-poll work end-to-end against the
+managed Agent Engine**, verified live: the exposure (ADK) leg now runs `async, 1
+poll` alongside Foundry, and only the OpenAI AgentCore leg falls back (it has no
+A2A task lifecycle at all — a real platform difference).
+
+One live wrinkle the header did not cover: right after submit, the first
+`tasks/get` can 404 while Agent Engine's task store catches up (eventually
+consistent), and a later poll succeeds. `_run_leg_async` now rides through a
+not-yet-visible task for a bounded grace window (`POLL_NOT_FOUND_GRACE_S`, 45s —
+wide enough for a ~34s cold start) before treating the poll as the genuine
+"took the submit, won't serve the task" degradation. The distinction is
+*position*, not error code: the same 404 (`MethodNotFoundError`, the SDK's map of
+a bare 404) means "not visible yet" right after submit and "never will be" once
+the task has been read once. The `_POLL_UNRETRIEVABLE` tuple stays narrow and the
+`AsyncLifecycleUnsupported` fallback stays — a genuine `TASK_STATE_FAILED`, a
+500, or an auth error still fails the leg, and any *other* remote that is truly
+submit-only degrades honestly to `async→sync`. But the Agent Engine legs no
+longer take that path. **The finding flips from "the A2A-flagship platform can't
+serve its own async half" to "the SDK client must know to send `A2A-Version:
+1.0` — once it does, two of three platforms serve fire-then-poll and the third
+has no task lifecycle to serve."** Folding the poll count and per-leg mode into
+the obs store, and extending the toggle to the other experiments, follows.
+
 ### Work items
 
 | # | Item | State |
 |---|---|---|
 | 1 | A2A async client — `submit()` (sets `configuration.return_immediately`) and `poll()` on `tasks/get`, alongside the blocking `ask()` (`src/interop/clients/a2a.py`) | done |
 | 2 | E2E shape proof against a deterministic slow adapter — submit-returns-early, poll-walks-to-completion, polling-is-traced, blocking-ask-still-waits (`tests/e2e/test_a2a_async.py`) | done |
-| 3 | Per-platform async-lifecycle measurement (D47) via `scripts/a2a_async_probe.py` — Foundry honours the full lifecycle, Agent Engine is submit-only, Lambda advances only while polled; the 31.1s-of-work / 1.18s-longest-request gateway-ceiling result recorded | done — plan/03-results.md |
+| 3 | Per-platform async-lifecycle measurement (D47) via `scripts/a2a_async_probe.py` — Foundry honours the full lifecycle, Agent Engine *appeared* submit-only (later found to be our missing `A2A-Version` header, item 12), Lambda advances only while polled; the 31.1s-of-work / 1.18s-longest-request gateway-ceiling result recorded | done — plan/03-results.md |
 | 4 | Durable task store — Aurora-backed `lab.fanout_tasks` + separate-invocation worker (`src/fanout_mcp/tasks.py`, `InvocationType='Event'`; DDL run by `pg_migrate.py`) | done |
 | 5 | Six property tests pinning the durable-store guarantees (submit-does-no-work, state-in-store-not-process, cross-instance read, worker-failure-is-terminal, run-id-joins-units, redelivered-task-is-a-no-op) | done |
 | 6 | Register the submit/check MCP tools on the fan-out server | not started — dispatcher + worker exist and are tested but are not wired into the served registry |
 | 7 | Orchestrator prompt + measurement of poll-vs-busy-wait behaviour | not started — depends on item 6; sharper now that on Lambda polling is what advances the work |
+| 8 | Host-side async dispatch in the fan-out — `dispatch_mode` of sync/async on `orchestration.dispatch()`/`run_one()`/`CmaOrchestrator`, submit+poll per leg with capability detection and async→sync fallback recorded per leg (`src/orchestration/runner.py`, `cma.py`) | done |
+| 9 | Per-experiment sync/async toggle — `dispatch_mode_toggle` on `supplier-disruption-cma`, console radio gated on the host-side "tool" variant, coverage line + run summary + turn badge surfacing the async dimension (`config/scenarios.yaml`, `src/console/app.py`, `index.html`) | done |
+| 10 | Unit tests for host-side async dispatch — submit+poll on A2A legs, async→sync fallback for a leg with no task lifecycle, sync path unchanged (`tests/unit/test_orchestration.py`) | done |
+| 11 | Runtime submit-only fallback (2026-08-11) — an A2A leg whose remote genuinely accepts the submit but will not return the task through the poll is caught across all three measured shapes (`MethodNotFoundError` / `VersionNotSupportedError` / `TaskNotFoundError` → `AsyncLifecycleUnsupported`) and degraded to blocking `ask()` recorded async→sync, instead of failing the leg — while a genuine `TASK_STATE_FAILED`/500/auth error still fails it; console `describeTrace` now narrates a fan-out as N concurrent legs rather than mislabelling it a single "Direct cell", and the "remote MCP tools" hint states the API Gateway ceiling that times out cold legs (`src/orchestration/runner.py`, `index.html`) | done |
+| 12 | **Agent Engine's "submit-only" was our missing `A2A-Version` header** (2026-08-11) — researched the A2A spec + ADK/Agent Engine docs and probed the live endpoint: the managed handler pins 1.0 and reads a missing header as 0.3, 400ing every header-less poll. Added `A2AClient.protocol_version` → per-request `A2A-Version` header, wired `options.protocol_version` through the registry, pinned `"1.0"` on `google-adk-a2a`/`adk-logistics-a2a` (scoped, so the 0.3 Agentforce shim is untouched). Added a not-yet-visible grace window (`POLL_NOT_FOUND_GRACE_S`) for the eventually-consistent task store. Verified live: exposure (ADK) leg now runs async end-to-end. Header/registry/transient-404 tests added (`src/interop/clients/a2a.py`, `registry.py`, `config/targets.yaml`, `runner.py`, tests) | done |
 
 
 **Why this exists.** D41 measured the cost of putting agent work behind a
@@ -1801,8 +1886,15 @@ deployment exist. The schedule was `0 7 * * 1` and paused as designed; it is now
 day-over-day. This was done because the paused-weekly shape meant no scheduled
 brief ever fired, so the console's newest cost brief was the 2026-07-28 manual
 one and a demo viewer read the panel as "not provisioned". Pause/Resume/Run are
-now console buttons. The exit criteria below (a week-over-week read) still need
-more history to be met, but the daily brief and its day-over-day are live.
+now console buttons. The daily brief and its day-over-day are live. On the exit
+criterion below (a week-over-week read): as of 2026-08-11 the store has 16 days
+of history (2026-07-26→08-11), so the data-accumulation gate is now met — but the
+kickoff prompt was deliberately redirected to lead with day-over-day + a single
+trailing-7d trend line (D44 addendum), so no brief has yet attempted the
+trailing-7d-sum vs prior-trailing-7d-sum comparison the criterion names. The
+remaining gap is therefore *design*, not data: either revise the exit criterion
+to the day-over-day shape that shipped, or extend the kickoff prompt to also run
+the original week-sum-vs-week-sum read now that the history exists.
 
 **What provisioning found — three gaps between built and running, now D46.**
 Getting from code-complete to a working firing was not one setup script. The
@@ -1921,7 +2013,7 @@ only five points — the day-over-day shape working as intended.
 | 5 | Moved to daily + resumed + console controls (D44 addendum) — in-place `deployments.update` to `0 7 * * *` America/New_York, repointed to agent v2; Pause/Resume/Brief-now buttons | done |
 | 6 | `reconcile` links briefs → billed sessions after the fact (the runtime never tells the agent its own session id); recovered the first firing's session at +73s | done |
 | 7 | First firings produced correct briefs — the 2026-07-28 manual brief refused a too-thin week-over-week and attributed the move to session count; daily brief id 100 led with day-over-day and discounted the partial day | done — author-attested in the plan, not a checked-in results file |
-| 8 | Exit criterion — a real week-over-week read verifiable from the by-day table | in progress — a data-accumulation gate: needs two full weeks of history, not missing build work |
+| 8 | Exit criterion — a real week-over-week read verifiable from the by-day table | in progress — the data-accumulation gate is now MET (16 days of history as of 2026-08-11); what remains is a design call, since the kickoff prompt was redirected to day-over-day (D44 addendum) and never attempts the trailing-7d-sum comparison the criterion names |
 
 **Exit criteria.** One scheduled firing produces a brief that correctly explains
 a cost movement the operator can independently verify from the by-day table —
@@ -2356,7 +2448,7 @@ Path A. That property is why the work is safe to do incrementally.
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Console on Fargate** behind the bridge ALB | **deployed and serving 2026-07-28**, DNS not yet cut over |
+| 1 | **Console on Fargate** behind the bridge ALB | **deployed and serving 2026-07-28**; `console-lab` DNS cut over to the ALB the same day (plan/09 L5.5), first run hardened per D48 |
 | 2 | Nine local protocol faces (Lab Guide ×3, Claude MCP/A2A, OpenAI MCP/A2A, Agentforce shim ×2) | **done 2026-07-28** (D51) — one Fargate service, addressed by path |
 | 3 | **Hosted watcher** — servicing Managed Agents custom tool calls | **done 2026-07-28** (D52) — an ECS service reusing the faces image, not the assumed EventBridge Lambda |
 | 4 | Widen `modes:` in `config/targets.yaml` as each face lands | **done 2026-07-28** — nine `*-hosted` twins, nine mode mappings |
@@ -2430,14 +2522,16 @@ unauthenticated requests still 401.
   `postgres` there would have the unit suite writing hop rows into the hosted
   store.
 
-**Item 1 is written and unrun.** The script is modelled line-for-line on
-`deploy/bridge/deploy_bridge.sh`, including its two hard-won details: env vars
-derived from *both* `targets.yaml` and a scan of what the code reads (a client
-can read `os.environ` for something in no config file — `SF_AGENT_ID` taught
-that), and the ambient-shell exclusion that keeps the laptop's
-`AWS_DEFAULT_REGION` from misdirecting the container's secret lookup. The first
-run needs a person watching, because its one risky step touches the load
-balancer Salesforce depends on.
+**How item 1's script was built (it has since been run — see "What the first
+run of item 1 actually found" above, and D48).** The script is modelled
+line-for-line on `deploy/bridge/deploy_bridge.sh`, including its two hard-won
+details: env vars derived from *both* `targets.yaml` and a scan of what the code
+reads (a client can read `os.environ` for something in no config file —
+`SF_AGENT_ID` taught that), and the ambient-shell exclusion that keeps the
+laptop's `AWS_DEFAULT_REGION` from misdirecting the container's secret lookup.
+The first run needed a person watching, because its one risky step touches the
+load balancer Salesforce depends on — that run happened 2026-07-28, surfaced the
+fail-open auth gap (D48), and was hardened and re-verified the same day.
 
 ### What had to change in the console before it could be hosted
 
@@ -2704,12 +2798,25 @@ TLS-only 5432 security-group rule for Salesforce Data Cloud IPs (and the MCP
 server), authenticating as `lab_reader` with statement_timeout + row caps. That
 is a real security-posture change, which is why it has an ADR.
 
-**What is UI-only, and honestly recorded as such (D69/M11 precedent).** The Data
-360 connector setup, the DLO→DMO mapping, and Tableau Next authoring have no REST
-API the lab drives — the same shape M11 recorded for Agentforce's own dashboards
-("UI-only, recorded as gaps"). WS19 automates the AWS side (security group, role,
-endpoint reachability) and **declares** the console-clicked steps as operator
-actions with screenshots, rather than pretending a script did them.
+**What is UI-only — narrower than first assumed (D70).** D69 called the connector
+setup, the DLO→DMO mapping *and* Tableau authoring all UI-only. The build proved
+only two of those true. The **connection** is UI-only (the `AwsRdsAuroraPostgres`
+connector has no documented `POST /ssot/connections` body, and blind-probing a
+prod org risks orphaning a live connection — D70). The **Tableau Next semantic
+model + dashboard** are UI-only (four headless surfaces ruled out — no
+`SemanticModel` Metadata type, SSOT `/semantic-models` 404s, both Tableau/360 MCP
+servers are read-only). But the **entire Zero-Copy data layer in between** —
+federation views, data streams, DLOs, DMOs and DLO→DMO mappings, at both hop and
+trace grain — was built **headless via the Data Cloud SSOT REST API** (the wrong
+"no Metadata type ⇒ UI-only" call, corrected on the check-headless rule). WS19
+automates the AWS side and the whole data layer; only the connection and the
+dashboard tiles are declared operator actions.
+
+**The full build record is `plan/13-tableau-next-obs-dashboard.md`** — the
+consolidated plan doc (SSOT REST payloads, the view-not-base-table fix, every
+Tableau calc-field formula, verified numbers, the D70 IP/region diagnosis, and the
+inline-embed JWT-bearer auth). This section is the delivery-record summary; plan/13
+is the how.
 
 ### Work items
 
@@ -2720,22 +2827,29 @@ actions with screenshots, rather than pretending a script did them.
 | 3 | `lab_reader` role hardening for federation: schema-scoped read-only grants over `lab.*`, `statement_timeout` + row caps in DB settings, password in Secrets Manager (D39/D45); applied via `scripts/pg_migrate.py` as owner (D46) | **done** (2026-08-07) — posture codified in `observability.pg.ROLE_GRANTS` and applied live by `pg_migrate.py`: read-only, 15s statement_timeout (Postgres has no per-role ROW cap — the honest control), and a new `CONNECTION LIMIT 15` (was unlimited). Reuses the D23 role, no new credential. This also fixed the D46 gap: the reader's posture existed only by hand, un-reproducible from the repo |
 | 4 | Update `src/observability/pg.py` posture note + `plan/09-deployment-map.md` in the SAME change as the SG — the store no longer claims closed ingress | **done** (2026-08-07) — `pg.py` docstring rewritten (the Data API path no longer claims a closed door); `plan/09` updated across L0 estate (a return edge + Data 360/Tableau box), L5 obs (the second reader + its state), the L6 code→deploy table (two rows), and "Why not, in one place" (the 5432 exception). Runbook §8 also updated |
 | 5 | Create the Data 360 `AwsRdsAuroraPostgres` connection to the Aurora store as `lab_reader` | **done** (2026-08-08) — connection `A2A_Lab_Obs_Aurora` created and Test Connection returns "Connection was established." Created in the **Setup UI**, not by REST: the connector has no documented `POST /ssot/connections` body (D69 item 4's "API-creatable" claim was wrong — corrected in D70), and blind body-probing a prod org risks orphaning a real connection. The long failure was the IP-source/region diagnosis in item 2 / D70, not the connection itself |
-| 6 | **Operator action:** select the Zero Copy (BYOL) method on the DLO→DMO mapping / data stream built on the connection, then build the Tableau Next dashboard — traffic volume, protocol mix, latency/status by target/platform | **operator action** — the method-selection + Tableau authoring are UI-only (no REST the lab drives); record with screenshots. The *connection* (item 5) is scripted; only this downstream step is manual |
-| 7 | Console entry point/screenshot for the dashboard + `plan/02-matrix.md` finding (two views over one table, zero copy) | **not started** — closes the delivery-record loop (D58/D60); a component row with a "sign in to open" deep link per D-scrub, and this WS19 marked `N. ✅`/state-table for the next `jira_sync.py` run |
+| 6 | Build the Zero-Copy data layer headless: federation views (`lab.trace_events_zc`, `lab.trace_rollup_zc`), data streams, DLOs, DMOs and DLO→DMO mappings at both hop and trace grain | **done** (2026-08-09) — all built via the Data Cloud **SSOT REST API** (not the UI D69 assumed). Federating a **view** not the base table sidesteps the composite-PK block and keeps the raw-payload jsonb out of the object Data Cloud sees (residency is now structural); a surrogate `event_key` generated column is the single hop-grain PK; the trace-grain rollup pushes the two-level `GROUP BY` down into Aurora (Tableau Semantics has no LOD). Acceleration OFF on both — rows stay in us-east-1. Live-verified via `/ssot/queryv2`: hop DMO federates 3,021 hops, rollup DMO 960 traces, every figure matching the pre-build numbers. See plan/13 §1 |
+| 7 | **Operator action:** build the Tableau Next semantic model + dashboard (visualizations, tiles) on the DMOs, and measure the L5.8 cold cross-region federation render | **operator action, partially built** — the `A2A_Lab` workspace, `New_Dashboard`, and **5 of 9 hop-grain visualizations** are live in the org (created 2026-08-09, confirmed via `sf org list metadata`: Hops_by_Protocol_Platform, Status_by_Platform, Traffic_Over_Time, Hop_Latency_Distribution, Direction_Matrix). **Remaining:** the 4 rollup-grain KPI tiles (Avg Trace Latency, Trace Success Rate, Avg/Max Hops per Trace, plan/13 §3d) and the **L5.8 cold cross-region federation render measurement** (not yet in plan/03-results.md). Still UI-only for authoring (four headless surfaces ruled out — no `SemanticModel` Metadata type, SSOT `/semantic-models` 404s, both Tableau/360 MCP servers read-only, plan/13 §3); the L5.8 number can go through the read-only Tableau Next MCP `analyze_data` |
+| 8 | Inline Tableau Next embed in the console (owner-only, server-side JWT-bearer auth) | **built headless** (2026-08-09) — `/api/tableau/frontdoor` (owner-gated) mints a `web`-scoped session via JWT-bearer → `/singleaccess`; SDK mount + `CorsWhitelistOrigin` + the `a2a_lab_tab_embed` ECA (four metadata files, JWT cert on global OAuth) all created headlessly. Resolved: client-credentials can't get `web` scope (JWT-bearer runs in user context and can), and the auraCmpDef 504 was a perms + asset-sharing gap not a platform bug (plan/13 §5). **Pending operator publish:** console full-rebuild redeploy, a dedicated minimal-privilege integration user as JWT `sub`, and the CORS origin deploy (plan/13 §6) |
+| 9 | Console entry point + `plan/02-matrix.md` finding (two views over one table, zero copy) | **console surface shipped (in a different spot than scoped); matrix finding + final nav placement after item 7** — a full working canvas + Details pane already ships as a **Tableau Next top tab inside Observability** (`index.html` `obsTableauNextHtml`/`obsTableauNextDetailsHtml`, citing D69–D72/plan/09), NOT the dedicated **Data 360** nav item under Infrastructure plan/13 §4b recommends. Still to do: paste the drafted matrix finding into `plan/02-matrix.md`'s Findings ledger (one `[N]` bracket = the item-7 L5.8 number) and decide whether to relocate the console entry to the scoped nav location. Closes the delivery-record loop (D58/D60) |
 
 ### Exit criteria
 
 A Salesforce Data 360 Zero Copy connection federates `lab.trace_events` from the
-hosted Aurora store with **no ETL job**; a Tableau Next dashboard renders
-cross-platform agent traffic (volume, protocol mix, latency, status by
-target/platform) over that federated data; the 5432 ingress is scoped to
-Salesforce IP ranges + the MCP server over TLS and authenticates as `lab_reader`
-with enforced statement/row limits; `pg.py` and `plan/09` no longer describe a
-closed-ingress posture the store no longer has; and the console + `plan/02-matrix`
-record the finding that the lab's wire-level view and the Salesforce-side
-Tableau view read the **same rows** with zero copy between them. The UI-only
-connector/mapping/dashboard steps are declared as operator actions, not claimed
-as automated.
+hosted Aurora store with **no ETL job** — the connection is live and the whole
+data layer (views, streams, DLOs, DMOs, mappings at both grains) is **built
+headless via SSOT REST** and verified federating 3,021 hops / 960 traces with
+acceleration off; a Tableau Next dashboard renders cross-platform agent traffic
+(volume, protocol mix, latency, status by target/platform) over that federated
+data; the 5432 ingress is scoped to Salesforce IP ranges + the MCP server over TLS
+and authenticates as `lab_reader` with enforced statement/row limits; `pg.py` and
+`plan/09` no longer describe a closed-ingress posture the store no longer has; and
+the console + `plan/02-matrix` record the finding that the lab's wire-level view
+and the Salesforce-side Tableau view read the **same rows** with zero copy between
+them. The genuinely UI-only steps — the connection, and the Tableau semantic
+model + dashboard — are declared as operator actions, not claimed as automated.
+**Remaining:** the Tableau dashboard tiles + the L5.8 render measurement (item 7),
+then finalize the matrix finding + console entry point (item 9). Full build record
+in `plan/13-tableau-next-obs-dashboard.md`.
 
 ## WS20 — Claude Science patterns: provenance + actor-critic over the lab's own insights (raised 2026-08-09)
 
@@ -2844,3 +2958,60 @@ parked as a potential workstream, not scheduled.
 console trace viewer and the Tableau dashboard show the same `claude-*` names for
 the same hop; the WS19 `Target Platform` remap arms are gone; and the historical-
 row policy is decided and recorded. Parked until judged worth the effort.
+
+## WS22 — Track B: cross-cloud infrastructure metrics — harvest, store, surface (raised 2026-08-11)
+
+**What this is.** The forecasting-ready half of the Moirai exploration
+(`plan/explore-moirai-timeseries-forecasting.md`), Track B: land the runtime's own
+infrastructure metrics — CloudWatch (AWS Fargate/Aurora/Lambda), Cloud Monitoring
+(GCP Vertex), Azure Monitor (Foundry) — as a **dense regular grid** in the obs store,
+and surface them in the console. This is the M11 *sibling*: M11 harvests platform
+*agent* execution logs; WS22 harvests the *infrastructure underneath* them. It fills a
+standalone observability gap the lab had regardless of forecasting — AWS runtime
+metrics and Azure Monitor were **not harvested at all** — and it is the data feed the
+(not-yet-built) Moirai forecast runner needs.
+
+**Why it is worth building.** It is the better TSFM data fit and needs no load harness
+(these metrics emit on a fixed cadence whether or not an experiment runs), so it is the
+faster path to a real forecasting result — but even before any forecast, dense
+cross-cloud runtime series are a genuine SRE coverage improvement. The forecast runner
+itself is **held**, gated on the exploration doc's graduation criteria (Q5: a zero-shot
+forecast must beat a seasonal-naive baseline on one real harvested series before Moirai
+graduates). So this workstream ships the *plumbing and the surface*; the *forecast* is
+a deliberately separate, later step.
+
+**Scope boundary (kept honest).** Infrastructure is **not a sixth platform column** —
+`infra` (like the coding-agent telemetry) is kept OUT of the unqualified five-platform
+coverage sweep; it is opt-in via `uv run python scripts/obs_harvest.py infra` and the
+console Harvest button. Reads go through `make_obs_store()` (Aurora hosted, sqlite
+fallback, D49); the Aurora read downsamples IN SQL (window-function stride) to stay
+under the RDS Data API 1 MB result cap. No environment identifier is hardcoded —
+`config/infra_metrics.yaml` is `${VAR}`-expanded through the registry's own expander.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | `src/observability/infra_source.py` — three sources (AWS CloudWatch `GetMetricData`, GCP Cloud Monitoring `timeSeries.list` reusing `adk_source.py` auth, Azure Monitor) reading `config/infra_metrics.yaml`, each degrading honestly (unset series skipped, credential-less cloud → `blocked`) | done |
+| 2 | `lab.infra_metrics` on both stores (sqlite `store.py` + Aurora `pg.py`, duck-typed parity D49), keyed `(cloud, resource, metric, ts_at)` so an overlapping re-harvest is idempotent; DDL applied via `pg_migrate.py` as owner | done |
+| 3 | Wire `infra` into `scripts/obs_harvest.py` and the hosted harvest Lambda as a group alias (infra-aws/gcp/azure), kept out of the five-platform sweep | done |
+| 4 | Aurora read path: `PgObsStore.infra_metrics_series()` downsampling in SQL (window-function stride) under the Data API 1 MB cap; shared `_shape_infra_series`/`_downsample` helpers with sqlite | done |
+| 5 | `/api/infra-metrics` endpoint (windowed by `hours`) + `infra` group alias on `/api/obs/harvest` | done |
+| 6 | Console **Infrastructure Metrics** child under Infrastructure (D57 canvas): Metrics tab (grouped cloud→resource→metric grid with sparklines + harvest-status pills), Details sub-tab (markdown citing sources + D-refs), Forecast tab (honest empty-state — no runner yet), Harvest button | done |
+| 7 | Run the infra harvest against the live estate and confirm the finest grid each cloud actually returns at the configured resolution (exploration Q4 tail) | done 2026-08-11 — the hosted harvest Lambda ran clean (~10s) against Fargate/Aurora/Lambda + Vertex + Foundry, landing 2,463 `lab.infra_metrics` rows across aws/gcp/azure (2026-08-10→08-11); spot-checked native cadence (aws 60s / Aurora 120s / ACUUtilization 180s gaps) confirms CloudWatch's own per-metric floor, not the configured 300s Period, sets the finest grid |
+| 8 | Moirai forecast runner over `lab.infra_metrics` (Q5 gating experiment → `obs_briefs.kind='forecast'`, reusing the analyst/sentinel brief seam) + Forecast tab wired to real bands | not started — gated on graduation criteria in the exploration doc |
+| 9 | ADR for the non-commercial-model (CC-BY-NC) decision and the metric-harvest access model, written when item 8 graduates | not started — gated |
+
+### Exit criteria
+
+Plumbing + surface (items 1–6): **met** — `uv run python scripts/obs_harvest.py infra`
+lands regular-grid series in `lab.infra_metrics`, and the console Infrastructure Metrics
+section renders them grouped with sparklines, harvest-status pills, a self-explaining
+Forecast empty-state, and a Details pane citing its sources. Live-estate confirmation
+(item 7): **met** 2026-08-11 — the hosted harvest ran against the real estate and
+confirmed each cloud's native grid (CloudWatch's per-metric cadence, not the requested
+Period, is the floor). The forecast half (items
+8–9) stays open and gated: it graduates only when the exploration doc's Q5 shows a
+zero-shot forecast beats a seasonal-naive baseline on one real harvested series, at
+which point the runner, its brief kind, and the CC-BY-NC ADR are built and this
+workstream's Forecast tab shows real bands.

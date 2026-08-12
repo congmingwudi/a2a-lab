@@ -18,7 +18,9 @@ import yaml
 WHATS_NEXT_PATH = Path("config/whats_next.yaml")
 
 # Presentation order for the horizon buckets; anything unlisted sorts after.
-HORIZON_ORDER = ["in-flight", "planned", "exploring"]
+# "done" is last on purpose: the console renders it below a "What's Done"
+# divider at the BOTTOM of the section, so the roadmap reads idea → shipped.
+HORIZON_ORDER = ["in-flight", "planned", "exploring", "done"]
 
 
 def load_plans(path: str | Path = WHATS_NEXT_PATH) -> list[dict]:

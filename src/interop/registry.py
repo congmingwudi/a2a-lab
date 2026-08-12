@@ -118,7 +118,7 @@ class Registry:
         if target.protocol == "a2a":
             from interop.clients.a2a import A2AClient
 
-            for opt in ("card_path", "transport"):
+            for opt in ("card_path", "transport", "protocol_version"):
                 if target.options.get(opt):
                     kwargs[opt] = target.options[opt]
             return A2AClient(target.endpoint, **kwargs)

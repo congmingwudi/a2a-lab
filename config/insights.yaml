@@ -153,8 +153,13 @@ insights:
       shim completed 31.1s of work behind API Gateway's 29s integration
       timeout, longest single request 1.18s. Vendor support for the async half
       is uneven and only measurement reveals it: Azure Foundry implements it,
-      while Vertex AI Agent Engine returns a task id in 826ms that no request
-      shape reads back. Streaming stays genuinely unexercised — the servers
+      and Vertex AI Agent Engine does too — but its managed handler pins A2A
+      **1.0** and reads a *missing* `A2A-Version` header as `0.3`, so it 400s
+      every header-less poll. That first looked submit-only and read like an
+      Agent Engine gap; MEASURED against the spec and the live endpoint
+      (2026-08-11, WS11 item 12), the cause was ours — the a2a-sdk never sends
+      that header on its own. Pinning `A2A-Version: 1.0` on the ADK targets
+      makes fire-then-poll work end to end. Streaming stays genuinely unexercised — the servers
       advertise `AgentCapabilities(streaming=True)`, the client hard-codes
       `streaming=False`, and D11's SSE demo never ran.
     advisory: >
@@ -1182,11 +1187,16 @@ insights:
       bounded by API Gateway's 29s timeout to 31.1s of work completed behind it,
       longest single request 1.18s — dissolving the ceiling D41 had costed a
       gateway migration to raise. Submit latency is flat at 13–29ms while work
-      grows 2s→45s. Support is uneven and only measurement reveals it: Azure
-      Foundry implements the async half properly (ratio 0.25–0.33), while Vertex
-      AI Agent Engine is submit-only, returning a task id in 826ms that no
-      request shape reads back — so an async submit there silently loses the
-      answer.
+      grows 2s→45s. Support looked uneven at first: Azure Foundry implemented the
+      async half properly (ratio 0.25–0.33), while Vertex AI Agent Engine
+      appeared submit-only — a task id in 826ms that no request shape read back.
+      RE-MEASURED live 2026-08-11, that verdict was ALSO a client default: Agent
+      Engine's managed handler pins protocol 1.0 and reads a missing
+      `A2A-Version` header as 0.3, so the a2a-sdk's header-less `tasks/get` came
+      back 400 "A2A version '0.3' is not supported by this handler". Pinning one
+      client field — `A2A-Version: 1.0`, scoped per target — makes fire-then-poll
+      work end-to-end there too. TWO apparent platform limits, both one unset
+      client field.
     advisory: >-
       Before you re-platform to escape a timeout, check whether your client is
       using the asynchronous half of the protocol you already speak. Async task
@@ -1196,9 +1206,13 @@ insights:
       migration they scope to fix it is usually unnecessary. Then verify support
       per platform rather than per specification: "MAY continue asynchronously"
       permits a conformant implementation to block, and nothing in an agent card
-      tells you which one you are talking to. The measurement is cheap — submit,
-      then compare the response time against the total — and the answer changes
-      your architecture.
+      tells you which one you are talking to. But when a platform SEEMS not to
+      support the async half, suspect your client before the platform: the lab
+      recorded Agent Engine as "submit-only" for two weeks when the real cause
+      was a missing protocol-version header the SDK never sent. Read the error —
+      a 400 "version not supported" is a header bug, not a capability gap. The
+      measurement is cheap — submit, compare the response time against the total,
+      and read the failures literally — and the answer changes your architecture.
     refs:
       - D47
       - D41

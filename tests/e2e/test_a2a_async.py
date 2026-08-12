@@ -136,3 +136,28 @@ async def test_blocking_ask_still_waits(slow_server, isolated_traces):
     assert resp.text == "slow answer: ping"
     assert elapsed >= SLOW_S * 0.9, f"ask() returned in {elapsed:.2f}s — it stopped waiting"
     assert adapter.finished == 1
+
+
+def test_protocol_version_sets_the_a2a_version_header_only_when_pinned():
+    """The 2026-08-11 fix: Vertex AI Agent Engine's managed A2A handler pins
+    protocol 1.0 and reads a MISSING A2A-Version header as 0.3, 400ing every
+    submit/poll. `protocol_version` puts the header on every request the client
+    makes; unset, no header is sent so a 0.3 endpoint (our Agentforce shim) is
+    untouched. Assert both directions, since forcing the header globally would
+    break the shim."""
+    from a2a.utils.constants import VERSION_HEADER
+
+    pinned = A2AClient("http://x", target_name="adk", protocol_version="1.0")
+    assert pinned._base_headers(None)[VERSION_HEADER] == "1.0"
+
+    default = A2AClient("http://x", target_name="shim")
+    assert VERSION_HEADER not in default._base_headers(None)
+
+
+def test_protocol_version_coerces_a_yaml_float_to_string():
+    """YAML parses an unquoted 1.0 as a float; httpx requires str header values.
+    The client str()s it so a mis-quoted target config fails soft, not at send."""
+    from a2a.utils.constants import VERSION_HEADER
+
+    client = A2AClient("http://x", target_name="adk", protocol_version=1.0)  # float on purpose
+    assert client._base_headers(None)[VERSION_HEADER] == "1.0"

@@ -1449,12 +1449,19 @@ not even a server limitation. It is one unset field on the client.
    against a 2s adapter, and `ask()` must still take the full 2s.
 2. **The async half is measured per platform, not read off an agent card.**
    `scripts/a2a_async_probe.py` discriminates on `submit / total`. Recorded:
-   the hosted shim and both Foundry agents implement it; **Agent Engine is
-   submit-only** — it returns a task in 826ms that no tried shape can read back
-   (`GET /tasks/{id}` → *"A2A version '0.3' is not supported by this handler"*).
-   Recorded as *cause unresolved*, since Google documents a get-task method;
-   the operational consequence is unambiguous either way, so Agent Engine legs
-   keep using `ask()`.
+   the hosted shim and both Foundry agents implement it; Agent Engine
+   *appeared* submit-only — it returned a task in 826ms that no tried shape read
+   back (`GET /tasks/{id}` → *"A2A version '0.3' is not supported by this
+   handler"*), recorded at the time as *cause unresolved*.
+   **Correction, 2026-08-11 (WS11 item 12):** the cause was ours. Agent Engine's
+   managed handler pins protocol 1.0 and reads a *missing* `A2A-Version` header
+   as 0.3 (a2a-python's `@validate_version` + `constants`); the a2a-sdk never
+   sends the header, so our header-less poll was rejected as a 0.3 call. Pinning
+   `options.protocol_version: "1.0"` on the ADK targets — a per-request
+   `A2A-Version: 1.0`, scoped so the 0.3 Agentforce shim is untouched — makes
+   fire-then-poll work end-to-end against the managed endpoint, verified live.
+   So Agent Engine legs run **async** now; only a genuinely submit-only remote
+   (or a no-lifecycle one, like the AgentCore comms leg) falls back to `ask()`.
 3. **A polling client on a freeze-between-invocations runtime must poll
    steadily, not back off.** On Lambda the background consumer gets CPU only
    while an invocation is in flight. Submitting and staying quiet for 45s left

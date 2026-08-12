@@ -13,6 +13,12 @@
 #   exploring   an idea being pressure-tested; no workstream yet
 #   planned     accepted into the roadmap as a workstream, build not started
 #   in-flight   actively being built right now
+#   done        built and incorporated into the lab — kept here on purpose,
+#               rendered under a "What's Done" divider at the BOTTOM of the
+#               section so the roadmap reads as a story from idea to shipped
+#               rather than losing the finished ones. A done plan graduated
+#               through the horizons above; it is not deleted, it is retired
+#               into the record.
 #
 # Each entry:
 #   title      the plan, one line
@@ -26,8 +32,36 @@
 #              opens plan/07-workstreams.md
 #   refs       (optional) D<n> and plan/*.md tokens — chip automatically via the
 #              console's linkifier, same as insights refs
+#   landing    (optional, done only) true if this finished capability should
+#              also surface on the public landing page as something the lab
+#              shows. The mechanism reads this flag; nothing is promoted until
+#              an entry sets it (today none do — the flag ships empty on
+#              purpose, so the landing page changes deliberately, not as a
+#              side effect of a plan reaching done).
 
 plans:
+  - id: other-agent-frameworks
+    title: Introduce experiments for other agent platforms
+    horizon: planned
+    pitch: >
+      Add lab experiments for the orchestration frameworks the estate does not
+      yet cover — LangGraph (WS4), CrewAI, and AutoGen (Microsoft) — each hosted
+      the same way the existing platforms are and wired into the same delegation
+      and trace seams, so a new framework is a directory under src/platforms/,
+      not a change to the core.
+    payoff: >
+      The lab's claim is that adding a platform touches nothing in interop/ or the
+      other platforms — these are the entries that keep testing it, and each
+      framework answers the same questions the others already have: does it speak
+      A2A natively or need a shim, where does it carry the trace id, and what does
+      its own execution log say it did. LangGraph is the closest (already a roadmap
+      workstream); CrewAI and AutoGen widen the sample to the multi-agent
+      orchestrators.
+    platforms: [langgraph, crewai, autogen, microsoft]
+    specs: [a2a, mcp]
+    workstream: WS4
+    refs: [plan/07-workstreams.md]
+
   - id: mulesoft-agent-fabric
     title: MuleSoft Agent Fabric vs the lab's own AWS control plane
     horizon: planned
@@ -97,9 +131,33 @@ plans:
     workstream: WS19
     refs: [D69, D70, plan/03-results.md, plan/07-workstreams.md]
 
+  - id: async-long-running-tasks
+    title: A2A async long-running tasks — fire the work, poll it to done
+    horizon: in-flight
+    pitch: >
+      Add a per-experiment dispatch choice — synchronous (one blocking call per
+      agent, every run to date) or asynchronous (the A2A long-running-task
+      pattern: submit the work, get a task id back in ~1s, then poll tasks/get
+      until it reaches a terminal state) — and build it end to end in one
+      orchestrator experiment first, so the pattern is understood before it
+      spreads to the others.
+    payoff: >
+      The realistic shape of cross-platform work: nobody holds an HTTP request
+      open while another company's agent thinks for minutes. Asking WHO actually
+      implements the asynchronous half of A2A is itself the finding — the two
+      A2A legs (ADK, Foundry) run the real submit/poll lifecycle, while the
+      AgentCore leg has no task lifecycle and falls back to a blocking call,
+      recorded as async→sync rather than hidden. Folding the poll count and the
+      per-leg mode into the lab's observability turns "async is supported" from
+      a spec claim into a measured, per-platform account.
+    platforms: [claude, openai, adk, foundry]
+    specs: [a2a]
+    workstream: WS11
+    refs: [D47, plan/07-workstreams.md]
+
   - id: claude-science-overlays
     title: Claude Science patterns overlaid on the lab's insights + method
-    horizon: in-flight
+    horizon: done
     pitch: >
       Borrow the provenance and review ideas from Anthropic's Claude Science
       workbench and apply them to the lab: derive an insight's evidence tier
@@ -116,3 +174,27 @@ plans:
     specs: []
     workstream: WS20
     refs: [plan/01-architecture.md, plan/02-matrix.md, plan/07-workstreams.md, plan/08-insights.md]
+
+  - id: moirai-timeseries-forecasting
+    title: Moirai time-series foundation model + MoiraiAgent over the lab's telemetry
+    horizon: exploring
+    pitch: >
+      Point Salesforce AI Research's Moirai time-series foundation model — and
+      the context-aware MoiraiAgent around it — at the lab's telemetry, on two
+      tracks: the A2A experiment traces (latency, volume, error, cost), and the
+      lab's own INFRASTRUCTURE metrics (CloudWatch across the AWS runtime, GCP
+      Vertex, Azure Monitor for Foundry) for a predictive site-reliability read.
+    payoff: >
+      Learned anomaly bands instead of hand-set thresholds; predictive capacity
+      for the scale-to-zero Aurora/Fargate estate; a cross-cloud read the matrix
+      can't give — whose runtime is most PREDICTABLE, not just fastest; and one
+      differentiated test few others can run: feeding the dated ADR log (plan/00)
+      as MoiraiAgent's natural-language context channel so a forecast reasons
+      over "on this date the backend swapped." The infra track is the better data
+      fit (dense, regular, no load harness needed) and also fills a real gap — AWS
+      and Azure runtime metrics aren't harvested today. Honest meta-finding
+      throughout: does a TSFM pretrained on electricity and retail generalize to
+      this telemetry at all?
+    platforms: [salesforce, aws, gcloud, microsoft]
+    specs: []
+    refs: [plan/explore-moirai-timeseries-forecasting.md, plan/05-observability.md, plan/09-deployment-map.md, D23, D44]

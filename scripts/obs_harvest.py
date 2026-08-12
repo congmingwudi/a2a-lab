@@ -23,25 +23,47 @@ from observability.anthropic_source import AnthropicSource
 from observability.coding_logs_source import CodingLogsSource
 from observability.coding_source import CodingSource
 from observability.foundry_source import FoundrySource
+from observability.infra_source import AwsInfraSource, AzureInfraSource, GcpInfraSource
 from observability.openai_source import OpenAISource
 from observability.salesforce_source import SalesforceSource
 from observability.strands_source import StrandsSource
 
-SOURCES = {
+# The five agent-platform sources — the coverage sweep and its "harvested from
+# all platforms" claim. Everything below the divider shares only the harvest
+# seam and the store; each is reachable by name but NEVER in the unqualified
+# sweep, so the five columns keep meaning what they say.
+PLATFORM_SOURCES = {
     "claude": AnthropicSource,
     "salesforce": SalesforceSource,
     "openai": OpenAISource,
     "adk": AdkSource,
     "foundry": FoundrySource,
     "strands": StrandsSource,
-    # WS9/WS16: not agent platforms — the coding agents that BUILT the lab. Kept
-    # out of the five-platform coverage panel and rendered in their own console
-    # section; they share only this harvest seam and the store. `coding` is the
-    # metrics (cost/tokens); `coding-logs` is the behavioural log signal
-    # (edit-acceptance, tool mix, latency, reliability, prompt cadence).
+}
+
+# WS9/WS16: the coding agents that BUILT the lab, rendered in their own console
+# section. `coding` is the metrics (cost/tokens); `coding-logs` the behavioural
+# log signal (edit-acceptance, tool mix, latency, reliability, prompt cadence).
+BUILD_SOURCES = {
     "coding": CodingSource,
     "coding-logs": CodingLogsSource,
 }
+
+# Track B (plan/explore-moirai-timeseries-forecasting.md): cross-cloud
+# INFRASTRUCTURE metrics — the SRE-grade runtime telemetry sibling of the
+# agent-log harvest, written to lab.infra_metrics. Not agent platforms, so kept
+# out of the coverage sweep; harvest with `infra` (all three clouds) or by name
+# (infra-aws / infra-gcp / infra-azure).
+INFRA_SOURCES = {
+    "infra-aws": AwsInfraSource,
+    "infra-gcp": GcpInfraSource,
+    "infra-azure": AzureInfraSource,
+}
+
+SOURCES = {**PLATFORM_SOURCES, **BUILD_SOURCES, **INFRA_SOURCES}
+
+# `infra` is a convenience alias expanding to all three infra sources.
+GROUP_ALIASES = {"infra": list(INFRA_SOURCES)}
 
 
 def make_store():
@@ -65,10 +87,18 @@ def main() -> int:
     if loaded:
         print(f"credentials: {len(loaded)} key(s) from the harvest secret (Secrets Manager)")
 
-    wanted = sys.argv[1:] or list(SOURCES)
+    # No args = the prior default sweep (agent platforms + the coding agents),
+    # NOT infra: Track B is dense runtime telemetry with a different cadence and
+    # is opt-in via `infra` or a named infra-* source, so a bare harvest keeps
+    # its old scope. Expand any group alias (`infra`) to its members.
+    args = sys.argv[1:]
+    wanted: list[str] = []
+    for a in args or list(PLATFORM_SOURCES) + list(BUILD_SOURCES):
+        wanted.extend(GROUP_ALIASES.get(a, [a]))
+    choices = list(SOURCES) + list(GROUP_ALIASES)
     unknown = [w for w in wanted if w not in SOURCES]
     if unknown:
-        print(f"unknown platform(s): {', '.join(unknown)} — choose from {', '.join(SOURCES)}")
+        print(f"unknown platform(s): {', '.join(unknown)} — choose from {', '.join(choices)}")
         return 2
     store = make_store()
     print(f"obs store: {getattr(store, 'db_path', 'postgres (D23 hosted store)')}")

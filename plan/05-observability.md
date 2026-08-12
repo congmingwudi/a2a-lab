@@ -207,6 +207,35 @@ six agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands — th
 last WS5/D67), because that button reports "harvested from all
 platforms". Details and measurements live in WS9 (plan/07-workstreams.md).
 
+### The other sibling: cross-cloud INFRASTRUCTURE metrics (Track B)
+
+Same plumbing, opposite subject. Where M11 harvests each platform's *agent-
+semantic* interior (sessions, turns, tokens), the infra harvester
+(`src/observability/infra_source.py`, added 2026-08-11) pulls the runtime
+*underneath* those agents — the CloudWatch, GCP Cloud Monitoring and Azure
+Monitor metrics the estate emits whether or not an experiment runs: Fargate
+CPU/memory, Aurora ACU/connections, Lambda duration/invocations, the Vertex
+Agent Engine's compute meters, the Foundry endpoint's request/latency counters.
+It lands them in `lab.infra_metrics` as a **dense, regular time grid** (one row
+per `(cloud, resource, metric, ts_at)`), the shape a time-series foundation
+model actually fits — the motivating use is Track B of the Moirai exploration
+(`plan/explore-moirai-timeseries-forecasting.md`), but it stands on its own as a
+coverage gap the lab had regardless: AWS runtime metrics and Azure Monitor were
+not harvested at all before this.
+
+Series live in `config/infra_metrics.yaml` (per cloud, `${VAR}`-expanded so no
+environment identifier is hardcoded), and each of the three sources
+(`infra-aws` / `infra-gcp` / `infra-azure`) degrades honestly — a series whose
+resource id is unset is skipped with a reason, a whole cloud with none is
+`blocked`. Like the coding sources, they are **kept out of the coverage sweep**
+(infrastructure is not a seventh platform) and reachable by name or the `infra`
+group: `uv run python scripts/obs_harvest.py infra`. Credentials follow the same
+rule as the log harvest (credentials.py): AWS auth is the only human login; the
+GCP key and Entra principal come from the harvest secret. The hosted harvest
+Lambda carries all three sources; its execution role already holds the
+CloudWatch grant (from `coding`), and the GCP/Azure identities are the ones
+`prepare()` materialises.
+
 ## Work items
 
 - **M11.1 — ids + store** ✅ (2026-07-17): `platform_ref` on `TraceEvent`; persist CMA and

@@ -5,9 +5,12 @@
 #   deploy/console/deploy_console.sh                # build, push, create-or-update
 #   deploy/console/deploy_console.sh --skip-build   # redeploy the current image
 #
-# ⚠️  NOT YET RUN. Written 2026-07-28 from the proven deploy/bridge script but
-# never executed — the first run needs a person watching. Its risky step is the
-# listener rule (below), which touches a load balancer Salesforce depends on.
+# Written 2026-07-28 from the proven deploy/bridge script. First run happened
+# 2026-07-28 (it surfaced the fail-open auth gap, hardened per D48) and it is the
+# routine console-deploy path since. Its one risky step is the listener rule
+# (below), which touches a load balancer Salesforce depends on — the rule is
+# idempotent and leaves the bridge on the listener's DEFAULT action, so a
+# re-run cannot break Path A.
 #
 # WHY THE BRIDGE'S ALB rather than one per service: a second load balancer is
 # ~$16/month for nothing. The bridge ALB already terminates TLS on :443 with

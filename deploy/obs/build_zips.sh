@@ -47,7 +47,13 @@ mkdir -p "$DIST/harvest/interop"
 # only at harvest time, with `No module named 'interop.cloud_auth'` recorded as
 # that platform's status while every other platform reports ok. Found 2026-07-27
 # the first time this bundle was rebuilt after cloud_auth was introduced.
-cp src/interop/trace.py src/interop/cloud_auth.py "$DIST/harvest/interop/"
+# interop/registry.py alongside: WS22's infra_source imports `_expand_env` from
+# it at module load to ${VAR}-expand config/infra_metrics.yaml (no hardcoded
+# identifiers, CLAUDE.md). Its module-level imports are stdlib + yaml only — the
+# heavy client imports are lazy inside .build() — so it loads cleanly here.
+# Without it the whole `infra` harvest dies at import with
+# `No module named 'interop.registry'` (found smoke-testing 2026-08-11).
+cp src/interop/trace.py src/interop/cloud_auth.py src/interop/registry.py "$DIST/harvest/interop/"
 echo '"""packaging shim (deploy/obs/build_zips.sh)"""' > "$DIST/harvest/interop/__init__.py"
 
 # WS14: the credential-expiry collector runs on this same schedule, so the
@@ -59,6 +65,12 @@ echo '"""packaging shim (deploy/obs/build_zips.sh)"""' > "$DIST/harvest/interop/
 mkdir -p "$DIST/harvest/scripts" "$DIST/harvest/config"
 cp scripts/expiry_report.py "$DIST/harvest/scripts/"
 cp config/credentials.yaml "$DIST/harvest/config/" 2>/dev/null || true
+# WS22 (Track B): infra_source reads config/infra_metrics.yaml at harvest time
+# (CONFIG_PATH = config/infra_metrics.yaml relative to /var/task). Without it the
+# `infra` group harvests nothing — load_infra_config returns {} for a missing
+# file, so every cloud reports `blocked` with "no <cloud> series in config" and
+# the console button appears to work while landing zero rows.
+cp config/infra_metrics.yaml "$DIST/harvest/config/" 2>/dev/null || true
 # PyYAML for the declared block, boto3 is already in the Lambda runtime.
 uv pip install --target "$DIST/harvest" \
   --python-platform aarch64-manylinux2014 --python-version 3.12 \

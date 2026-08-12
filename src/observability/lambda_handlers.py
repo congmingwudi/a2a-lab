@@ -23,6 +23,11 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
     from observability.coding_logs_source import CodingLogsSource
     from observability.coding_source import CodingSource
     from observability.foundry_source import FoundrySource
+    from observability.infra_source import (
+        AwsInfraSource,
+        AzureInfraSource,
+        GcpInfraSource,
+    )
     from observability.openai_source import OpenAISource
     from observability.pg import PgObsStore
     from observability.salesforce_source import SalesforceSource
@@ -60,12 +65,32 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         # deploy/obs/deploy_harvest.sh). No new secret (D39): both reads are
         # signed with the Lambda's role.
         "strands": StrandsSource,
+        # Track B (plan/explore-moirai-timeseries-forecasting.md): cross-cloud
+        # INFRASTRUCTURE metrics to lab.infra_metrics. Reads CloudWatch in this
+        # account with the Lambda's role (needs cloudwatch:GetMetricData, the
+        # same grant coding already carries), GCP Cloud Monitoring with the
+        # secret's service-account key, and Azure Monitor with the Entra SP —
+        # every identity this function already holds. Opt-in, never in the
+        # default sweep: infra is a different cadence, so it runs only when
+        # asked for by name or the `infra` group.
+        "infra-aws": AwsInfraSource,
+        "infra-gcp": GcpInfraSource,
+        "infra-azure": AzureInfraSource,
     }
+    # The default sweep is the agent platforms + the coding agents, matching
+    # scripts/obs_harvest.py — infra is opt-in (a different cadence).
+    INFRA = ("infra-aws", "infra-gcp", "infra-azure")
+    default_sweep = [n for n in sources if n not in INFRA]
+
     asked = event.get("platform") if isinstance(event, dict) else None
     if asked == "anthropic":  # legacy alias for hosted invokes
         asked = "claude"
-    wanted = [asked] if asked else None
-    wanted = wanted or list(sources)
+    if asked == "infra":  # group alias: all three infra sources
+        wanted = list(INFRA)
+    elif asked:
+        wanted = [asked]
+    else:
+        wanted = default_sweep
     if any(w not in sources for w in wanted):
         return {"ok": False, "error": f"unknown platform(s): {wanted}"}
 

@@ -56,6 +56,19 @@ CREATE TABLE IF NOT EXISTS obs_harvest (
     status          TEXT,
     detail          TEXT
 );
+CREATE TABLE IF NOT EXISTS infra_metrics (
+    cloud           TEXT NOT NULL,
+    resource        TEXT NOT NULL,
+    metric          TEXT NOT NULL,
+    ts_at           TEXT NOT NULL,
+    value           REAL,
+    unit            TEXT,
+    labels_json     TEXT,
+    harvested_at    REAL,
+    PRIMARY KEY (cloud, resource, metric, ts_at)
+);
+CREATE INDEX IF NOT EXISTS idx_infra_metrics_ts
+    ON infra_metrics (cloud, resource, metric, ts_at);
 """
 
 
@@ -112,6 +125,81 @@ def accumulate_usage(platforms: dict[str, Any], platform: str, usage_json: Any) 
             )
     except (ValueError, TypeError, AttributeError):
         pass
+
+
+def _shape_infra_series(
+    rows: Any, *, max_points: int = 240
+) -> list[dict[str, Any]]:
+    """Group flat infra_metrics rows into one entry per (cloud, resource,
+    metric) series, downsampling each series' points to `max_points`.
+
+    Shared by both stores (D49): each takes its own SELECT (sqlite reads
+    labels_json, Aurora casts labels::text) and hands the rows here as tuples
+    in the fixed order (cloud, resource, metric, ts_at, value, unit, labels,
+    harvested_at), already ORDER BY cloud, resource, metric, ts_at. The caller
+    is the only place that knows the store's column quirks; the grouping and
+    downsampling — the part that must behave identically — lives here once.
+
+    Each returned series carries the metadata the Metrics tab needs without a
+    second query: point count, first/last timestamp, last (most recent) value,
+    unit, the human label from the harvest, and the downsampled points. A
+    series present with zero points cannot occur (a row IS a point), but a
+    harvested series whose window returned nothing simply does not appear —
+    the tab explains that from the harvest status, not from a phantom row."""
+    series: dict[tuple[str, str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str, str]] = []
+    for cloud, resource, metric, ts_at, value, unit, labels_json, _harvested in rows:
+        key = (cloud, resource, metric)
+        s = series.get(key)
+        if s is None:
+            label = None
+            if labels_json:
+                try:
+                    label = (json.loads(labels_json) or {}).get("label")
+                except (ValueError, TypeError):
+                    label = None
+            s = series[key] = {
+                "cloud": cloud,
+                "resource": resource,
+                "metric": metric,
+                "unit": unit,
+                "label": label,
+                "_points": [],
+            }
+            order.append(key)
+        s["_points"].append((ts_at, value))
+
+    out: list[dict[str, Any]] = []
+    for key in order:
+        s = series[key]
+        pts = s.pop("_points")
+        s["count"] = len(pts)
+        s["first_at"] = pts[0][0]
+        s["last_at"] = pts[-1][0]
+        # Last NON-NULL value is the "current" reading; a trailing gap should
+        # not make a live series read as blank.
+        s["last_value"] = next((v for _t, v in reversed(pts) if v is not None), None)
+        s["points"] = _downsample(pts, max_points)
+        out.append(s)
+    return out
+
+
+def _downsample(points: list[tuple[str, Any]], max_points: int) -> list[dict[str, Any]]:
+    """Evenly thin a point list to at most `max_points`, always keeping the
+    last (the freshest reading is the one a viewer checks first). Order is
+    preserved; no averaging — a sparkline shows real samples, not synthetic
+    ones that could hide a spike."""
+    n = len(points)
+    if n <= max_points:
+        kept = points
+    else:
+        # Reserve the final slot for the last point, and stride the remaining
+        # max_points - 1 across the rest — so the result is AT MOST max_points,
+        # never max_points + 1 (a naive union with {n-1} overruns by one).
+        step = n / (max_points - 1)
+        idx = sorted({int(i * step) for i in range(max_points - 1)} | {n - 1})
+        kept = [points[i] for i in idx]
+    return [{"t": t, "v": v} for t, v in kept]
 
 
 class ObsStore:
@@ -207,6 +295,36 @@ class ObsStore:
                 (platform, time.time(), status, detail[:2000]),
             )
             self._conn.commit()
+
+    def upsert_metrics(self, rows: list[dict[str, Any]]) -> int:
+        """Bulk-write infra_metrics points (the Track B metrics harvester).
+
+        Each row: {cloud, resource, metric, ts_at (ISO8601 UTC), value, unit,
+        labels}. Idempotent on (cloud, resource, metric, ts_at) so a re-harvest
+        of an overlapping window is a no-op UPDATE, not a duplicate — the same
+        re-run safety upsert_event has. Returns the count written. Duck-typed
+        with PgObsStore.upsert_metrics so a source is store-agnostic."""
+        now = time.time()
+        with self._lock:
+            for r in rows:
+                self._conn.execute(
+                    """INSERT OR REPLACE INTO infra_metrics
+                       (cloud, resource, metric, ts_at, value, unit,
+                        labels_json, harvested_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        r["cloud"],
+                        r["resource"],
+                        r["metric"],
+                        r["ts_at"],
+                        r.get("value"),
+                        r.get("unit"),
+                        _clip_json(r["labels"]) if r.get("labels") is not None else None,
+                        now,
+                    ),
+                )
+            self._conn.commit()
+        return len(rows)
 
     # ---- reads (console API) ---------------------------------------------
 
@@ -311,6 +429,43 @@ class ObsStore:
             (platform, native_session_id),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def infra_metrics_series(
+        self, *, since_iso: str | None = None, max_points: int = 240
+    ) -> list[dict[str, Any]]:
+        """The Track B grid (lab.infra_metrics) as one entry per
+        (cloud, resource, metric) series, each with its points for a sparkline.
+
+        Duck-typed with PgObsStore.infra_metrics_series (D49) — the console
+        reads whichever store make_obs_store() picked. `since_iso` bounds the
+        window on the ISO8601-text ts_at (lexicographic order == chronological
+        because the format is fixed-width UTC Z). Points are downsampled to
+        `max_points` per series in Python (evenly, keeping the last), so a
+        dense 5-minute grid renders without shipping thousands of rows."""
+        where = "WHERE ts_at >= ?" if since_iso else ""
+        args: list[Any] = [since_iso] if since_iso else []
+        rows = self._conn.execute(
+            f"""SELECT cloud, resource, metric, ts_at, value, unit, labels_json, harvested_at
+                FROM infra_metrics {where}
+                ORDER BY cloud, resource, metric, ts_at""",
+            args,
+        ).fetchall()
+        return _shape_infra_series(
+            (
+                (
+                    r["cloud"],
+                    r["resource"],
+                    r["metric"],
+                    r["ts_at"],
+                    r["value"],
+                    r["unit"],
+                    r["labels_json"],
+                    r["harvested_at"],
+                )
+                for r in rows
+            ),
+            max_points=max_points,
+        )
 
     def openai_response_ids(self, limit: int = 50) -> list[str]:
         """Newest-first OpenAI response ids captured at emit time as

@@ -16,6 +16,14 @@
 # Request changes). It is deliberately NOT implied by any role — running
 # an experiment and vouching for a published claim are different acts, and
 # the second one is the lab owner's alone.
+# Display-only relabelling for the sign-in surface (the badge + the user
+# picker). The role STRING above is the functional identity — every gate,
+# the JWT, the .env password env (identity.ROLE_PASSWORD_ENVS) and the wire
+# user_context key off it, so it must not change. This only softens how a
+# role reads on screen; anything not listed shows its role verbatim.
+role_labels:
+  master of the universe: master of this universe
+
 users:
   ryan:
     name: Ryan Cox

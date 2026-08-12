@@ -58,16 +58,31 @@ case "$PLATFORM" in
     ARN_VAR=STRANDS_AGENTCORE_ARN
     # WS5/D66: Strands is model-agnostic and runs on Amazon Bedrock — no model
     # API key. The runtime's IAM execution role calls bedrock:InvokeModel
-    # (grant added below), so the only credentials in the secret are the
-    # Salesforce pair for the ask_agentforce tool. SF_AGENT_ID must ship too:
+    # (grant added below), so the secret carries no model credential — only the
+    # Salesforce pair for the ask_agentforce tool, plus BRIDGE_TOKEN (SECRET_KEYS
+    # below) for the cross-hyperscaler bridge route and AF_SHIM_TOKEN (injected
+    # from A2ALAB_TOKEN). SF_AGENT_ID must ship too:
     # AgentforceClient.from_env() requires it before the twin id overrides it
     # (same lesson as openai — a scripted redeploy that wiped it broke every
     # hosted Agentforce consult).
-    ENV_KEYS=(STRANDS_MODEL_ID STRANDS_ANSWER_TIMEOUT_S
+    # ADK_A2A_ENDPOINT + A2ALAB_BRIDGE_URL: the cross-hyperscaler Strands -> ADK
+    # cell (WS5). The direct route calls ADK_A2A_ENDPOINT with google-adc auth,
+    # federated by the platform-scoped pair ${A2ALAB_STRANDS_GCP_AUDIENCE} /
+    # ${A2ALAB_STRANDS_GCP_SA} (written by deploy/agentcore/gcp_federation.sh
+    # strands, renamed to the generic A2ALAB_GCP_WORKLOAD_AUDIENCE /
+    # A2ALAB_GCP_IMPERSONATE_SA in the runtime env below). The bridge route POSTs
+    # to A2ALAB_BRIDGE_URL, itself federated into GCP. STRANDS_ADK_TIMEOUT_S
+    # bounds both.
+    ENV_KEYS=(STRANDS_MODEL_ID STRANDS_ANSWER_TIMEOUT_S STRANDS_ADK_TIMEOUT_S
               SF_MY_DOMAIN SF_AGENT_ID SF_STRANDS_AGENT_ID
               AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
+              ADK_A2A_ENDPOINT A2ALAB_BRIDGE_URL
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
-    SECRET_KEYS=(SF_CLIENT_ID SF_CLIENT_SECRET)
+    # BRIDGE_TOKEN: the bridge route (ask_google_adk_bridge) authenticates to
+    # the bridge with X-Bridge-Token, so the runtime needs the shared secret —
+    # without it every bridge-route call 401s while the direct route works, the
+    # same confusing half-failure the Dockerfile's google-auth note guards.
+    SECRET_KEYS=(SF_CLIENT_ID SF_CLIENT_SECRET BRIDGE_TOKEN)
     ;;
   *) echo "unknown platform '$PLATFORM' (claude|openai|strands)"; exit 1 ;;
 esac
@@ -174,9 +189,20 @@ fi
 # The container gets the WRITER secret: local .env carries the reader (for
 # console queries), but the Data API secret IS the role selection (D23) and
 # a runtime inserting hops through the reader fails read-only.
-ENV_JSON=$(A2ALAB_RUNTIME_SECRET_ARN="$SECRET_ARN" python3 - "${ENV_KEYS[@]}" <<'PY'
+ENV_JSON=$(A2ALAB_RUNTIME_SECRET_ARN="$SECRET_ARN" A2ALAB_PLATFORM="$PLATFORM" \
+  python3 - "${ENV_KEYS[@]}" <<'PY'
 import json, os, sys
 env = {k: os.environ[k] for k in sys.argv[1:] if os.environ.get(k)}
+# AWS -> GCP federation for the native-direct cross-hyperscaler leg (WS5):
+# the PLATFORM-scoped pair in .env is renamed to the generic names the
+# container reads (interop.cloud_auth), for the same reason deploy_fanout.sh
+# does — the generic names in .env would put the LAPTOP into federation mode.
+_suffix = os.environ["A2ALAB_PLATFORM"].upper()
+_aud = os.environ.get(f"A2ALAB_{_suffix}_GCP_AUDIENCE")
+_sa = os.environ.get(f"A2ALAB_{_suffix}_GCP_SA")
+if _aud and _sa:
+    env["A2ALAB_GCP_WORKLOAD_AUDIENCE"] = _aud
+    env["A2ALAB_GCP_IMPERSONATE_SA"] = _sa
 if env.get("A2ALAB_PG_CLUSTER_ARN"):
     env["A2ALAB_TRACE_SINK"] = "postgres"
     writer = os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN")

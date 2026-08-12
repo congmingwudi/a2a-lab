@@ -56,24 +56,32 @@ when overstated into product claims.
 | [09-secrets-and-environment-identity.md](09-secrets-and-environment-identity.md) | Environment identity as configuration: no account or project id anywhere in a public repo, a test that enforces it, `.env` in Secrets Manager, an account guard every deploy sources, the twenty other secret files the store never covered (chezmoi/age, D45), the agent's own memory as the third and least recoverable round — and the credential agent we built and then removed |
 | [10-consumption-and-list-price.md](10-consumption-and-list-price.md) | Answering "how much will this cost?" for a metered service: units-per-unit-of-work vs price-per-unit, the four billed token buckets, and the 36x under-report this lab shipped by treating `input_tokens` as the input |
 | [11-rules-and-sweeps.md](11-rules-and-sweeps.md) | Documentation drift as an engineering control: a CLAUDE.md rule for prevention, a multi-agent sweep for detection, and why they stayed separate from each other and from the existing audits |
+| [12-steering-with-context.md](12-steering-with-context.md) | The input side of the loop: screenshots of config screens and vendor docs (ground truth that corrects the model's inferred design), requirements written with their purpose and architectural direction, and the model refusing to guess when an input is missing — fewer turns as the measurable win |
+| [13-recurring-tasks.md](13-recurring-tasks.md) | Four ways Claude "keeps going" — `/loop` (in-session interval watch), background Bash (one-shot + push), the task list (the main loop, not subagents), and scheduled Lambdas (standing monitoring); why `/loop` is a watch not a monitor, and a real pre-demo warm watch (`scripts/demo_watch.py`) |
+| [14-challenging-for-accuracy.md](14-challenging-for-accuracy.md) | The output side of the loop: the model asserting two confident wrong root causes for an async failure, a one-line human challenge collapsing both, and the conventions that turned the pushback into a proof — "reproduce before you conclude," `file:line` citation, a verifying subagent, and the permission gradient as the backstop for a wrong theory that wants to act |
 | [screenshots/](screenshots/README.md) | Terminal screenshots captured at critical decision points — Claude as a thought partner |
 
 ## Recommended presentation arc
 
-1. **Make context durable** (04, 02) — project instructions, ADRs, memory, and
+1. **Steer with context** (12) — a screenshot of the real screen, a requirement
+   carrying its purpose and your architectural calls, a linked doc: the input
+   decides how few turns it takes to get a correct plan out.
+2. **Make context durable** (04, 02) — project instructions, ADRs, memory, and
    contract files stop each session from rediscovering the project.
-2. **Scale judgment without losing evidence** (01) — saved workflows turn a
+3. **Scale judgment without losing evidence** (01) — saved workflows turn a
    subjective claims review into a repeatable adversarial audit.
-3. **Delegate through interfaces** (02) — typed seams and shared tests make
+4. **Delegate through interfaces** (02) — typed seams and shared tests make
    cross-agent ownership workable.
-4. **Choose the right runtime surface** (03) — managed sessions, a self-hosted
+5. **Choose the right runtime surface** (03) — managed sessions, a self-hosted
    agent SDK, and a direct Messages API loop solve different problems.
-5. **Earn autonomy** (05, 07) — hooks make long runs operable; permission
-   layers keep unattended work inside an accepted risk envelope.
-6. **Measure and harden the system** (06, 08, 09) — an external requirements
+6. **Earn autonomy** (05, 07, 13) — hooks make long runs operable; permission
+   layers keep unattended work inside an accepted risk envelope; and knowing
+   which "keep going" mechanism you're on — a `/loop` watch vs. a scheduled
+   monitor — is the difference between attended and unattended work.
+7. **Measure and harden the system** (06, 08, 09) — an external requirements
    corpus, build telemetry, and environment-identity hygiene expose product debt
    and process blind spots.
-7. **Report what it cost, honestly** (10) — separate units-per-unit-of-work from
+8. **Report what it cost, honestly** (10) — separate units-per-unit-of-work from
    price-per-unit, show the four billed token buckets, and name the softness in
    your own number before someone else does. The natural closing slide in a
    presales room.

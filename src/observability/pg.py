@@ -39,7 +39,7 @@ import time
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from observability.store import _clip_json
+from observability.store import _clip_json, _shape_infra_series
 
 CLUSTER_ARN_ENV = "A2ALAB_PG_CLUSTER_ARN"
 SECRET_ARN_ENV = "A2ALAB_PG_SECRET_ARN"
@@ -226,6 +226,30 @@ DDL: list[str] = [
     f"CREATE INDEX IF NOT EXISTS idx_lab_usage_events_at ON {SCHEMA}.usage_events (occurred_at)",
     f"""CREATE INDEX IF NOT EXISTS idx_lab_usage_events_event_at
         ON {SCHEMA}.usage_events (event, occurred_at)""",
+    # Track B (plan/explore-moirai-timeseries-forecasting.md): cross-cloud
+    # infrastructure metrics — a DENSE, regular time grid, the sibling of the
+    # M11 agent-log harvest and the better TSFM fit. One row per (cloud,
+    # resource, metric, timestamp) data point pulled from CloudWatch, GCP Cloud
+    # Monitoring and Azure Monitor by the infra sources. `ts_at` is the metric's
+    # OWN timestamp (the sample's wall clock at the cloud), text ISO8601 UTC to
+    # match the sqlite twin exactly (D49) — distinct from `harvested_at`, the
+    # epoch-seconds moment WE pulled it. `value` is double precision; `labels`
+    # is jsonb for per-series dimensions (statistic, period, any resource tags).
+    # The composite PK makes a re-harvest of an overlapping window idempotent,
+    # the same re-run safety trace_events and obs_events have.
+    f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.infra_metrics (
+        cloud           text NOT NULL,
+        resource        text NOT NULL,
+        metric          text NOT NULL,
+        ts_at           text NOT NULL,
+        value           double precision,
+        unit            text,
+        labels          jsonb,
+        harvested_at    double precision,
+        PRIMARY KEY (cloud, resource, metric, ts_at)
+    )""",
+    f"""CREATE INDEX IF NOT EXISTS idx_lab_infra_metrics_ts
+        ON {SCHEMA}.infra_metrics (cloud, resource, metric, ts_at)""",
 ]
 
 # Federation grants for lab_reader — the role the Data 360 Zero Copy connector
@@ -260,6 +284,14 @@ ROLE_GRANTS: list[str] = [
     # the connector sees them without a re-grant. Scoped to tables the owner
     # creates in this schema — never CREATE, never write.
     f"ALTER DEFAULT PRIVILEGES IN SCHEMA {SCHEMA} GRANT SELECT ON TABLES TO lab_reader",
+    # lab_writer's DML on the Track B table. lab_writer already holds SELECT/
+    # INSERT/UPDATE/DELETE on every OTHER lab table (granted by hand at
+    # provisioning — the D46 gap), but a newly-created table inherits nothing,
+    # so the harvest's INSERT ... ON CONFLICT would fail with a permission
+    # error. Scoped to this one new table on purpose: closing the schema-wide
+    # writer-grant gap is a broader RBAC decision than Track B, left for its own
+    # change. The owner (master) runs this in pg_migrate; harvest stays lab_writer.
+    f"GRANT SELECT, INSERT, UPDATE, DELETE ON {SCHEMA}.infra_metrics TO lab_writer",
 ]
 
 # Keys used in lab.lab_state. Named here so a typo is an ImportError rather
@@ -332,6 +364,58 @@ class PgClient:
         if self.dsn:
             return self._execute_dsn(sql, params or {})
         return self._execute_data_api(sql, params or {})
+
+    def execute_batch(self, sql: str, param_sets: list[dict[str, Any]]) -> int:
+        """Run one write SQL over many parameter sets in a single round trip.
+
+        The Data API's ``batch_execute_statement`` takes N parameter sets per
+        call — a per-row ``execute()`` loop over a full metrics grid (~700
+        points) is ~700 HTTP round trips and blows past a two-minute budget,
+        while one batched call lands in seconds. Chunked under the Data API's
+        per-call limit. Writes only, so no result rows to return — just the
+        count submitted. The pg8000 path has a real connection, so a simple
+        loop there is already cheap."""
+        if not param_sets:
+            return 0
+        if self.dsn:
+            for ps in param_sets:
+                self._execute_dsn(sql, ps)
+            return len(param_sets)
+        return self._batch_data_api(sql, param_sets)
+
+    def _batch_data_api(self, sql: str, param_sets: list[dict[str, Any]]) -> int:
+        if self._rds is None:
+            import boto3
+
+            region = self.cluster_arn.split(":")[3]
+            self._rds = boto3.client("rds-data", region_name=region)
+        CHUNK = 200  # well under the Data API's per-call parameter-set ceiling
+        for start in range(0, len(param_sets), CHUNK):
+            chunk = param_sets[start : start + CHUNK]
+            parameter_sets = [
+                [{"name": k, "value": self._typed(v)} for k, v in ps.items()] for ps in chunk
+            ]
+            for attempt in range(8):
+                try:
+                    self._rds.batch_execute_statement(
+                        resourceArn=self.cluster_arn,
+                        secretArn=self.secret_arn,
+                        database=self.database,
+                        sql=sql,
+                        parameterSets=parameter_sets,
+                    )
+                    break
+                except Exception as exc:  # noqa: BLE001 - same transient classes as execute()
+                    name = type(exc).__name__
+                    transient = name in (
+                        "HttpEndpointNotEnabledException",
+                        "InternalServerErrorException",
+                        "ServiceUnavailableError",
+                    ) or ("resuming" in str(exc).lower() or "starting up" in str(exc).lower())
+                    if not transient or attempt == 7:
+                        raise
+                    time.sleep(5)
+        return len(param_sets)
 
     def ensure_schema(self) -> None:
         for stmt in DDL:
@@ -549,6 +633,105 @@ class PgObsStore:
                   last_harvest_at = EXCLUDED.last_harvest_at,
                   status = EXCLUDED.status, detail = EXCLUDED.detail""",
             {"platform": platform, "at": time.time(), "status": status, "detail": detail[:2000]},
+        )
+
+    def upsert_metrics(self, rows: list[dict[str, Any]]) -> int:
+        """Bulk-write infra_metrics points (Track B). Duck-typed with the
+        sqlite ObsStore.upsert_metrics so an infra source is store-agnostic.
+
+        Batched: a harvest window is a bounded grid (a handful of series × the
+        points in the window) that still runs to hundreds of rows, and a
+        per-row Data API round trip overran a two-minute budget — so the whole
+        grid goes in one batch_execute_statement call (chunked). Idempotent on
+        the composite PK, so a re-harvest of an overlapping window updates in
+        place rather than duplicating. Returns the count written."""
+        if not rows:
+            return 0
+        now = time.time()
+        param_sets = [
+            {
+                "cloud": r["cloud"],
+                "resource": r["resource"],
+                "metric": r["metric"],
+                "ts_at": r["ts_at"],
+                "value": r.get("value"),
+                "unit": r.get("unit"),
+                "labels": _clip_json(r["labels"]) if r.get("labels") is not None else None,
+                "harvested_at": now,
+            }
+            for r in rows
+        ]
+        return self.client.execute_batch(
+            f"""INSERT INTO {SCHEMA}.infra_metrics
+                    (cloud, resource, metric, ts_at, value, unit, labels, harvested_at)
+                VALUES (:cloud, :resource, :metric, :ts_at, :value, :unit,
+                        CAST(:labels AS jsonb), :harvested_at)
+                ON CONFLICT (cloud, resource, metric, ts_at) DO UPDATE SET
+                  value = EXCLUDED.value, unit = EXCLUDED.unit,
+                  labels = EXCLUDED.labels, harvested_at = EXCLUDED.harvested_at""",
+            param_sets,
+        )
+
+    def infra_metrics_series(
+        self, *, since_iso: str | None = None, max_points: int = 240
+    ) -> list[dict[str, Any]]:
+        """The Track B grid as one entry per (cloud, resource, metric) series.
+
+        Duck-typed with ObsStore.infra_metrics_series (D49). Unlike the sqlite
+        twin, this downsamples IN SQL: a dense window across every series can be
+        thousands of rows, and the Data API refuses any result over 1 MB (the
+        same cap list_events pages around). A window function strides each
+        series to ~max_points rows AND always keeps the last, so the result is
+        bounded (~max_points × series) whatever the window holds. Only the label
+        TEXT is pulled from jsonb, never the whole object — labels can carry
+        resource dimensions and would bloat the payload for nothing here.
+
+        The rows come back already grouped and ordered, so the shared shaper
+        just packages them (its Python downsample is a no-op — SQL already
+        thinned them)."""
+        where = "WHERE ts_at >= :since" if since_iso else ""
+        params: dict[str, Any] = {"maxpoints": int(max_points)}
+        if since_iso:
+            params["since"] = since_iso
+        rows = self.client.execute(
+            f"""
+            WITH ranked AS (
+              SELECT cloud, resource, metric, ts_at, value, unit,
+                     labels->>'label' AS label, harvested_at,
+                     row_number() OVER w AS rn,
+                     count(*)     OVER w AS cnt
+              FROM {SCHEMA}.infra_metrics {where}
+              WINDOW w AS (PARTITION BY cloud, resource, metric ORDER BY ts_at)
+            )
+            SELECT cloud, resource, metric, ts_at, value, unit, label, harvested_at
+            FROM ranked
+            WHERE cnt <= :maxpoints
+               OR rn = cnt
+               OR (rn - 1) % GREATEST(1, (cnt / :maxpoints)::int) = 0
+            ORDER BY cloud, resource, metric, ts_at
+            """,
+            params,
+        )
+        # The shared shaper reads a tuple in a fixed order; feed it the label as
+        # a pre-extracted JSON object so its label lookup finds it (it expects a
+        # labels_json string, so wrap the text back into the one key it reads).
+        return _shape_infra_series(
+            (
+                (
+                    r["cloud"],
+                    r["resource"],
+                    r["metric"],
+                    r["ts_at"],
+                    r["value"],
+                    r["unit"],
+                    json.dumps({"label": r["label"]}) if r.get("label") is not None else None,
+                    r["harvested_at"],
+                )
+                for r in rows
+            ),
+            # SQL already thinned each series; do not thin again (that would drop
+            # the evenly-strided points to a second, misaligned grid).
+            max_points=10**9,
         )
 
     def session_updated_at(self, platform: str, native_id: str) -> str | None:

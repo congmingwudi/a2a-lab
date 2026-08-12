@@ -17,6 +17,11 @@ targets:
     platform: echo
     protocol: a2a
     endpoint: http://localhost:9003
+  adk-like-a2a:
+    platform: echo
+    protocol: a2a
+    endpoint: http://localhost:9004
+    options: {transport: http_json, protocol_version: "1.0"}
   with-env:
     platform: echo
     protocol: rest
@@ -70,6 +75,17 @@ def test_client_for_types(registry):
     assert isinstance(registry.client_for("echo-rest"), RestClient)
     assert isinstance(registry.client_for("echo-mcp"), McpClient)
     assert isinstance(registry.client_for("echo-a2a"), A2AClient)
+
+
+def test_a2a_options_reach_the_client(registry):
+    """transport/card_path/protocol_version are the per-target A2A knobs. The
+    protocol_version passthrough is the 2026-08-11 Agent Engine fix: it must
+    arrive on the client so the A2A-Version: 1.0 header actually gets sent."""
+    client = registry.client_for("adk-like-a2a")
+    assert client.transport == "http_json"
+    assert client.protocol_version == "1.0"
+    # a plain a2a target leaves it unset, so no header is forced on a 0.3 peer
+    assert registry.client_for("echo-a2a").protocol_version is None
 
 
 def test_mode_remap(registry, monkeypatch):

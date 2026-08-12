@@ -164,8 +164,11 @@ def test_scenarios_listed(tmp_path, monkeypatch):
 
 
 def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
-    """The two-level Experiments nav: yaml-ordered groups (4 live pairs +
-    2 upcoming workstream placeholders), every scenario bucketed into one."""
+    """The two-level Experiments nav: yaml-ordered groups, every scenario
+    bucketed into one. All groups are live now — the LangGraph/CrewAI/AutoGen
+    frameworks moved from an empty "coming soon" nav placeholder to the What's
+    Next roadmap (config/whats_next.yaml: other-agent-frameworks), so no group
+    carries an `upcoming` flag."""
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
     data = client.get("/api/scenarios").json()
@@ -174,16 +177,15 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "openai-agentforce",
         "adk-agentforce",
         "foundry-agentforce",
+        "strands-agentforce",
         "cross-cloud",
         "fan-out",
-        "strands-agentforce",
-        "langgraph-agentforce",
     ]
-    # strands-agentforce (WS5) is live and now sits above the sole remaining
-    # upcoming placeholder, langgraph-agentforce (WS4) — a live pair reads
-    # ahead of a coming-soon one. Groups order: [...6 live, strands(live),
-    # langgraph(upcoming)].
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 7 + [True])
+    # Every PAIR group reads first — claude/openai/adk/foundry, then
+    # strands-agentforce (WS5, live) and cross-cloud (Cross-hyperscalers) — then
+    # fan-out, the first 1:many group, so the nav stays "all the pairs, then the
+    # fan-out". No upcoming placeholders remain.
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 7)
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
@@ -1204,7 +1206,10 @@ def test_architecture_endpoint_serves_the_deployment_map(tmp_path, monkeypatch):
 def test_docs_endpoint_serves_every_doc_tree_the_ui_chips(tmp_path, monkeypatch):
     """A doc chip that 404s is worse than plain text — it invites a click and
     fails. The UI linkifies plan/, docs/, build-notes/ and the README, so all
-    four must be servable (build-notes was referenced by insights and 404'd)."""
+    must be servable (build-notes was referenced by insights and 404'd). Since
+    cf88743 the two SOURCE exhibits — config/*.yaml (the lab's own inputs) and
+    .claude/workflows/*.js (the WS20 workflow exhibit) — are also served as
+    public repo content, so a raw-source chip renders instead of 404ing."""
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
     for path in (
@@ -1212,11 +1217,14 @@ def test_docs_endpoint_serves_every_doc_tree_the_ui_chips(tmp_path, monkeypatch)
         "plan/09-deployment-map.md",
         "docs/lab-guide-mcp.md",
         "build-notes/claude/04-claude-code-environment.md",
+        # public source exhibits — config inputs and the workflow scripts
+        "config/targets.yaml",
     ):
         assert client.get(f"/api/docs/{path}").status_code == 200, path
 
-    # Still a whitelist, not a file server: source and config stay closed.
-    for path in ("src/console/app.py", "config/targets.yaml", ".env"):
+    # Still a whitelist, not a file server: application source and secrets stay
+    # closed, and .claude is scoped to workflows/*.js so settings never leak.
+    for path in ("src/console/app.py", ".env", ".claude/settings.local.json"):
         assert client.get(f"/api/docs/{path}").status_code == 404, path
 
 

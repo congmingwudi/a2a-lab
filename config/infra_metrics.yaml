@@ -1,0 +1,158 @@
+# Cross-cloud INFRASTRUCTURE metrics — Track B of the Moirai exploration
+# (plan/explore-moirai-timeseries-forecasting.md). The sibling of the M11
+# agent-log harvest: that pulls each platform's AGENT-semantic view (sessions,
+# turns, tokens); this pulls the same estate's SRE-grade RUNTIME telemetry —
+# CPU, memory, request counts, latency, connections — as a dense, regular time
+# grid. Dense-and-regular is the shape a time-series foundation model actually
+# fits (the A2A traces are sparse/episodic), and AWS + Azure runtime metrics
+# are a real coverage gap: nothing harvested them before this.
+#
+# One entry per SERIES. A series is (cloud, resource, metric) pulled as evenly
+# spaced points over the window and written to lab.infra_metrics — one row per
+# point, keyed (cloud, resource, metric, ts_at), so a re-harvest of an
+# overlapping window updates in place rather than duplicating.
+#
+# ${VAR} expands from .env exactly like config/targets.yaml (interop.registry
+# ._expand_env is reused). NO account id, ARN literal, project id or resource
+# name is written here — every environment identifier is an ${VAR} that fails
+# loud if unset. A series whose resource resolves to "" is SKIPPED with a
+# reason, so a partly-provisioned estate degrades honestly (status "blocked")
+# rather than erroring the whole pass.
+#
+# Shared knobs (overridable per series):
+#   window_hours   how far back each pass reads              (default 24)
+#   period_s       spacing between points — the grid step    (default 300 = 5m)
+# The grid step is the resolution the forecaster sees: 5-minute points over 24h
+# is 288 samples/series/day, enough shape for a TSFM without pulling raw 1s data.
+
+defaults:
+  window_hours: 24
+  period_s: 300
+
+# ---- AWS — CloudWatch (GetMetricData) ---------------------------------------
+# The lab's own AWS runtime: the two Fargate services (console, bridge), the
+# Aurora Serverless v2 obs cluster (the scale-to-zero capacity the exploration
+# calls out as the prime predictive-capacity target), and the harvest Lambda.
+# `namespace`/`metric`/`stat`/`dimensions` are the GetMetricData query; `dims`
+# values may be ${VAR}. A series with an unresolved required dimension is
+# skipped (blocked), not guessed.
+aws:
+  - resource: console-service
+    label: Hosted console (Fargate)
+    namespace: ECS/ContainerInsights
+    metric: CpuUtilized
+    stat: Average
+    unit: Percent
+    dims:
+      ClusterName: ${A2ALAB_ECS_CLUSTER}
+      ServiceName: ${A2ALAB_CONSOLE_SERVICE}
+  - resource: console-service
+    label: Hosted console (Fargate)
+    namespace: ECS/ContainerInsights
+    metric: MemoryUtilized
+    stat: Average
+    unit: Megabytes
+    dims:
+      ClusterName: ${A2ALAB_ECS_CLUSTER}
+      ServiceName: ${A2ALAB_CONSOLE_SERVICE}
+  - resource: bridge-service
+    label: Hosted bridge (Fargate)
+    namespace: ECS/ContainerInsights
+    metric: CpuUtilized
+    stat: Average
+    unit: Percent
+    dims:
+      ClusterName: ${A2ALAB_ECS_CLUSTER}
+      ServiceName: ${A2ALAB_BRIDGE_SERVICE}
+  - resource: obs-aurora
+    label: Aurora Serverless v2 (obs store)
+    namespace: AWS/RDS
+    metric: ServerlessDatabaseCapacity
+    stat: Average
+    unit: ACU
+    dims:
+      DBClusterIdentifier: ${A2ALAB_PG_CLUSTER_ID}
+  - resource: obs-aurora
+    label: Aurora Serverless v2 (obs store)
+    namespace: AWS/RDS
+    metric: DatabaseConnections
+    stat: Average
+    unit: Count
+    dims:
+      DBClusterIdentifier: ${A2ALAB_PG_CLUSTER_ID}
+  - resource: obs-aurora
+    label: Aurora Serverless v2 (obs store)
+    namespace: AWS/RDS
+    metric: ACUUtilization
+    stat: Average
+    unit: Percent
+    dims:
+      DBClusterIdentifier: ${A2ALAB_PG_CLUSTER_ID}
+  - resource: harvest-lambda
+    label: Obs harvest Lambda
+    namespace: AWS/Lambda
+    metric: Duration
+    stat: Average
+    unit: Milliseconds
+    dims:
+      FunctionName: ${A2ALAB_HARVEST_FUNCTION}
+  - resource: harvest-lambda
+    label: Obs harvest Lambda
+    namespace: AWS/Lambda
+    metric: Invocations
+    stat: Sum
+    unit: Count
+    dims:
+      FunctionName: ${A2ALAB_HARVEST_FUNCTION}
+
+# ---- GCP — Cloud Monitoring (timeSeries.list) -------------------------------
+# The Vertex AI Agent Engine that runs the ADK agent (WS2). adk_source already
+# pulls a DAILY billing/token ROLLUP; this pulls the same meters as a regular
+# TIME GRID so the forecaster sees the shape, not one summed number. `filter`
+# is the Monitoring metric.type filter; `aligner` the perSeriesAligner.
+# ${GOOGLE_CLOUD_PROJECT} scopes the read; the engine id filters the series.
+gcp:
+  - resource: agent-engine
+    label: Vertex Agent Engine (ADK)
+    filter: metric.type="aiplatform.googleapis.com/reasoning_engine/cpu/allocation_time"
+    aligner: ALIGN_RATE
+    unit: vCPU-s/s
+    engine_dim: ${ADK_AGENT_ENGINE_ID}
+  - resource: agent-engine
+    label: Vertex Agent Engine (ADK)
+    filter: metric.type="aiplatform.googleapis.com/reasoning_engine/memory/allocation_time"
+    aligner: ALIGN_RATE
+    unit: GiB-s/s
+    engine_dim: ${ADK_AGENT_ENGINE_ID}
+  - resource: agent-engine
+    label: Vertex Agent Engine (ADK)
+    filter: metric.type="aiplatform.googleapis.com/reasoning_engine/request_count"
+    aligner: ALIGN_RATE
+    unit: req/s
+    engine_dim: ${ADK_AGENT_ENGINE_ID}
+
+# ---- Azure — Azure Monitor (azure-monitor-query MetricsQueryClient) ---------
+# The Foundry project's model deployment (WS3). resource_uri is the ARM id of
+# the resource whose metrics we read, built from .env parts so no subscription
+# id or resource name is a literal here. `metric` is the Azure Monitor metric
+# name; `aggregation` the statistic; `namespace` the metric namespace when the
+# metric is not on the top-level resource.
+azure:
+  - resource: foundry-project
+    label: Foundry project (Azure AI)
+    resource_uri: ${AZURE_FOUNDRY_RESOURCE_ID}
+    metric: TokenTransaction
+    aggregation: Total
+    unit: Count
+  - resource: foundry-project
+    label: Foundry project (Azure AI)
+    resource_uri: ${AZURE_FOUNDRY_RESOURCE_ID}
+    metric: SuccessfulCalls
+    aggregation: Total
+    unit: Count
+  - resource: foundry-project
+    label: Foundry project (Azure AI)
+    resource_uri: ${AZURE_FOUNDRY_RESOURCE_ID}
+    metric: Latency
+    aggregation: Average
+    unit: Milliseconds

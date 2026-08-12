@@ -116,6 +116,24 @@ def load_users(path: str | Path = USERS_PATH) -> dict[str, dict]:
     return raw.get("users") or {}
 
 
+def load_role_labels(path: str | Path = USERS_PATH) -> dict[str, str]:
+    """Display-only relabels for the sign-in surface (config/users.yaml
+    `role_labels:`). NEVER consulted for authorization — the functional role
+    string is the identity; this only changes how a role reads on screen."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    raw = yaml.safe_load(p.read_text()) or {}
+    return raw.get("role_labels") or {}
+
+
+def role_label(role: str | None, labels: dict[str, str] | None = None) -> str:
+    """The on-screen label for a role — the mapped value, else the role
+    verbatim. Display only; do not gate on the result."""
+    table = labels if labels is not None else load_role_labels()
+    return table.get(role or "", role or "")
+
+
 ROLE_PASSWORD_ENVS = {
     "operator": "A2ALAB_OPERATOR_PASSWORD",
     "viewer": "A2ALAB_VIEWER_PASSWORD",

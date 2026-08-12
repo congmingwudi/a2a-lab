@@ -111,6 +111,46 @@ def test_obs_store_upserts_and_summary(tmp_path):
     store.close()
 
 
+def test_infra_metrics_series_groups_by_series_and_downsamples(tmp_path):
+    """The Track B reader: many (cloud, resource, metric, ts_at) rows collapse to
+    one entry per series with count / first-last / last non-null value / label
+    and a downsampled point list. Duck-typed with the Aurora twin (D49)."""
+    store = ObsStore(db_path=tmp_path / "lab.db")
+    rows = []
+    for i in range(500):
+        rows.append(
+            {
+                "cloud": "aws",
+                "resource": "obs-aurora",
+                "metric": "ACUUtilization",
+                "ts_at": f"2026-08-11T00:{i // 60:02d}:{i % 60:02d}Z",
+                "value": None if i == 499 else float(i),
+                "unit": "Percent",
+                "labels": {"label": "ACU utilization", "stat": "Average"},
+            }
+        )
+    rows.append(
+        {
+            "cloud": "gcp",
+            "resource": "agent-engine",
+            "metric": "x/cpu",
+            "ts_at": "2026-08-11T00:00:00Z",
+            "value": 1.0,
+        }
+    )
+    store.upsert_metrics(rows)
+
+    out = store.infra_metrics_series(max_points=100)
+    assert [s["metric"] for s in out] == ["ACUUtilization", "x/cpu"]
+    aws = out[0]
+    assert aws["count"] == 500
+    assert aws["label"] == "ACU utilization"
+    assert len(aws["points"]) <= 100  # downsampled
+    assert aws["last_value"] == 498.0  # last row was None -> skip to prior
+    assert aws["points"][-1]["t"] == "2026-08-11T00:08:19Z"  # last point always kept
+    store.close()
+
+
 def test_obs_store_joins_lab_traces_via_platform_ref(tmp_path):
     db = tmp_path / "lab.db"
     recorder = TraceRecorder(sinks=[SqliteSink(db_path=db)])

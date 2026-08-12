@@ -293,8 +293,12 @@ targets:
     status: native
     # transport pinned: the preview A2A surface serves messages but its
     # public card route 404s — the client builds a minimal card locally
-    # instead of discovering (honest preview roughness, noted in matrix)
-    options: {timeout: 65, transport: http_json, warmup: true}
+    # instead of discovering (honest preview roughness, noted in matrix).
+    # protocol_version pins A2A-Version: 1.0 — Agent Engine's managed handler
+    # is 1.0-only and reads a missing header as 0.3, 400ing every submit/poll
+    # (measured live 2026-08-11, WS11/plan/03-results.md). This is the fix for
+    # the fire-then-poll GetTask failure, not a self-hosted ADK deployment.
+    options: {timeout: 65, transport: http_json, warmup: true, protocol_version: "1.0"}
     auth: {scheme: google-adc}
   # WS8 fan-out leg: the Logistics business unit's dedicated agent, its OWN
   # Agent Engine deployment (deploy/adk/deploy_adk.py --role logistics) so
@@ -304,7 +308,10 @@ targets:
     protocol: a2a
     endpoint: "${ADK_LOGISTICS_A2A_ENDPOINT}"
     status: native
-    options: {timeout: 65, transport: http_json, warmup: true}
+    # protocol_version: 1.0 for the same reason as google-adk-a2a above — the
+    # Logistics leg is the one whose GetTask poll 404'd in the supplier-
+    # disruption async run; the header is what makes fire-then-poll work here.
+    options: {timeout: 65, transport: http_json, warmup: true, protocol_version: "1.0"}
     auth: {scheme: google-adc}
   # WS8 orchestrator variant 2: the same fan-out with concurrency DECLARED in
   # the agent graph (SequentialAgent[ParallelAgent[3 units], synthesiser])

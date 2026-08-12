@@ -400,6 +400,19 @@
   .intro-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
   .intro-card code { font-size: 11px; background: var(--code); border: 1px solid var(--border);
                      padding: 1px 5px; border-radius: 5px; }
+  /* Hero-scoped variant: the three tiles inside .hero sit on the dark-blue
+     gradient, so they match the archSvg() boxes above them — translucent white
+     fill, blue border, near-white title, blue body — not the gray --card look
+     the lower "what the lab keeps" trio uses on the page canvas. */
+  .hero .intro-card { background: rgba(255, 255, 255, .05); border-color: rgba(143, 192, 232, .4);
+                      cursor: default; }
+  .hero .intro-card:hover { border-color: rgba(143, 192, 232, .7);
+                            background: rgba(255, 255, 255, .07); }
+  .hero .intro-card h3 { color: #f4f9ff; }
+  .hero .intro-card p { color: #8fc0e8; }
+  .hero .intro-card p b { color: #f4f9ff; }
+  .hero .intro-card code { background: rgba(255, 255, 255, .08);
+                           border-color: rgba(143, 192, 232, .35); color: #d9ecff; }
 
   .usecases { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
   .usecase { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
@@ -488,6 +501,15 @@
                text-transform: uppercase; letter-spacing: .8px; font-weight: 600; }
   .chat-head .spacer { flex: 1; }
   .chat-head .sess { text-transform: none; letter-spacing: 0; font: 11px var(--font-mono); }
+  .past-chats { border-bottom: 1px solid var(--border); background: var(--card); padding: 8px 16px; }
+  .past-chats-h { font: 600 10px var(--font-mono); letter-spacing: 1px; text-transform: uppercase;
+                  color: var(--muted); margin-bottom: 6px; }
+  .past-chat { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
+               text-align: left; background: var(--bg); border: 1px solid var(--border);
+               border-radius: 8px; padding: 7px 10px; margin-bottom: 6px; cursor: pointer; }
+  .past-chat:hover { border-color: var(--border-hi); }
+  .past-chat .pc-title { font-size: 12.5px; color: var(--fg); }
+  .past-chat .pc-meta { font: 10.5px var(--font-mono); color: var(--muted); }
   .turns { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
            max-height: 44vh; overflow-y: auto; }
   .turns .hint { color: var(--muted); font-size: 12.5px; text-align: center; padding: 12px; }
@@ -521,6 +543,40 @@
   .chan-row label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
   .chan-row input[type=radio] { accent-color: var(--primary); margin: 0; }
   .chan-row .chan-hint { flex-basis: 100%; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+  /* Per-radio hover help: a small ? disc that pops a real hover/focus box with
+     the choice's explanation. The full prose lives in the Details tab now — this
+     is the at-a-glance reminder next to the control (keeps the Run tab compact).
+     A CSS popover, not a native title=, so it appears instantly, wraps the long
+     copy, and shows on keyboard focus as well as hover. */
+  .chan-row .qhelp { position: relative; display: inline-flex; align-items: center;
+                     justify-content: center; margin-left: 3px; cursor: help;
+                     outline: none; }
+  .chan-row .qmark { display: inline-flex; align-items: center; justify-content: center;
+                     width: 14px; height: 14px; border-radius: 50%;
+                     background: var(--card2); color: var(--muted); font-size: 9px;
+                     font-weight: 700; user-select: none; }
+  .chan-row .qhelp:hover .qmark,
+  .chan-row .qhelp:focus-visible .qmark { background: var(--primary); color: #fff; }
+  /* Opens DOWNWARD: the control rows sit at the top of .chat (overflow:hidden),
+     so a box above the ? disc would be clipped by the panel's top edge; below,
+     it overlays the turns area and stays inside the panel. */
+  .chan-row .qpop { position: absolute; top: calc(100% + 8px); left: 50%;
+                    transform: translateX(-50%); z-index: 30; width: max-content;
+                    max-width: 300px; padding: 9px 11px; border-radius: 8px;
+                    background: var(--elevated); border: 1px solid var(--border-hi);
+                    color: var(--fg); font-size: 11.5px; font-weight: 400;
+                    line-height: 1.5; text-align: left; letter-spacing: normal;
+                    text-transform: none; white-space: normal; box-shadow: 0 8px 28px rgba(0,0,0,.4);
+                    opacity: 0; visibility: hidden; pointer-events: none;
+                    transition: opacity .12s ease; }
+  /* Little arrow above the box, pointing up at the ? disc. */
+  .chan-row .qpop::after { content: ""; position: absolute; bottom: 100%; left: 50%;
+                    transform: translateX(-50%); border: 5px solid transparent;
+                    border-bottom-color: var(--border-hi); }
+  .chan-row .qhelp:hover .qpop,
+  .chan-row .qhelp:focus-visible .qpop { opacity: 1; visibility: visible; }
+  .chan-row .chan-more { flex-basis: 100%; color: var(--muted); font-size: 11px; }
+  .chan-row .chan-more a { color: var(--muted); text-decoration: underline; cursor: pointer; }
 
   /* requires_mode gate — the run is refused in the wrong deployment mode */
   .mode-notice { padding: 9px 16px; border-top: 1px solid var(--border); font-size: 12.5px;
@@ -571,6 +627,10 @@
   /* mdToHtml emits bare <p>/<ul>/<table> with no wrapper, so give them the
      horizontal padding the section-title strips already carry. */
   .flow > p, .flow > ul, .flow > ol { margin: 10px 16px; line-height: 1.7; }
+  /* The scenario "note" — a gray aside about how a run behaves — sits below its
+     own section strip and reads as the smaller muted stat text, spaced clear of
+     the sections above and the hop-count line below. */
+  .flow > p.desc-note { color: var(--muted); font-size: 12px; }
   .flow > table { margin: 10px 16px; }
   .flow > .arch-figure { margin: 12px 16px 14px; }
 
@@ -702,6 +762,16 @@
     border-radius: 4px; padding: 1px 5px; font-family: var(--font-mono); font-size: 11.5px; }
   .brief-md pre { margin: 6px 0 10px; overflow-x: auto; }
   .obs-updated { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
+  /* Infrastructure Metrics (Track B): per-source harvest-status chips + the
+     dependency-free sparkline in the grid rows. */
+  .pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font: 500 11px var(--font-mono); border: 1px solid var(--border);
+    color: var(--muted); background: var(--card); }
+  .pill.ok { color: var(--rest); border-color: color-mix(in srgb, var(--rest) 45%, var(--border)); }
+  .pill.warn { color: #d9973a; border-color: color-mix(in srgb, #d9973a 45%, var(--border)); }
+  .pill.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, var(--border)); }
+  svg.spark { display: block; }
   /* Open story rows read one notch quieter than done ones, so a scan of the
      Stories tab lands on what is still outstanding. */
   .obs-table tr.row-open td { color: var(--muted); }
@@ -1000,6 +1070,11 @@
   .ins-status.wn-in-flight { --ist: var(--rest); }
   .ins-status.wn-planned { --ist: var(--agentforce-api); }
   .ins-status.wn-exploring { --ist: var(--mcp); }
+  /* done=violet: outside the amber→blue→green "how far along" ramp on purpose,
+     because a shipped plan is no longer ON the ramp — it's the record of one
+     that finished. A distinct hue keeps "What's Done" from reading as one more
+     horizon. */
+  .ins-status.wn-done { --ist: var(--a2a); }
   /* horizon dot beside a heading / sidebar row — the chip's colour, minus text */
   .wn-dot { display: inline-block; width: 7px; height: 7px; border-radius: 999px;
             margin-right: 6px; vertical-align: middle;
@@ -1007,6 +1082,16 @@
   .wn-dot.in-flight { --wndot: var(--rest); }
   .wn-dot.planned { --wndot: var(--agentforce-api); }
   .wn-dot.exploring { --wndot: var(--mcp); }
+  .wn-dot.done { --wndot: var(--a2a); }
+  /* "What's Done" divider — the clear break the roadmap earns before its
+     retired plans. A full-width rule with a titled chip sitting on it. */
+  .wn-done-divider { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+            margin: 28px 0 12px; padding-top: 18px; border-top: 2px solid var(--border); }
+  .wn-done-title { font: 700 13px var(--font-ui); text-transform: uppercase;
+            letter-spacing: .08em; color: var(--fg); white-space: nowrap; }
+  .wn-done-note { font: 400 11.5px var(--font-ui); color: var(--muted); }
+  /* the finished cards read one notch quieter than the open roadmap above */
+  .flow.wn-done .ins-card { opacity: .92; }
   /* a D<n> ref before linkifyDecisions upgrades it — reads as a chip either way */
   .wn-ref { font: 600 9.5px var(--font-mono); color: var(--muted); }
   .ins-card .lbl { margin: 10px 0 3px; font: 600 10.5px var(--font-ui); color: var(--muted);
@@ -1514,6 +1599,24 @@
             <div id="monSide"></div>
           </div>
         </details>
+        <!-- Infrastructure Metrics (Track B of the Moirai exploration) — the
+             cross-cloud RUNTIME telemetry of the estate itself (Fargate/Aurora/
+             Lambda on AWS, Vertex on GCP, Foundry on Azure), pulled as a dense
+             regular grid to lab.infra_metrics. Sits under Infrastructure with
+             the other stack-monitoring children; it is the SRE sibling of the
+             M11 agent-log harvest, not an agent platform. -->
+        <details class="acc sub" id="accInfraMetrics">
+          <summary onclick="infraNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.6 12.6h12.8"/><path d="M2.4 12.6V9.4M5.6 12.6V6.2M8.8 12.6V8M12 12.6V4"/><path d="M2.4 9.4 5.6 6.2 8.8 8 12 4"/></svg>Infrastructure Metrics <span class="count" id="infraMetricsCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools">
+              <span class="hint">Cross-cloud runtime metrics of the lab's own estate — a dense time grid for forecasting.</span>
+              <button class="ghost" id="infraHarvestBtn" onclick="harvestInfra(event)"
+                title="Pull fresh cross-cloud runtime metrics (CloudWatch / GCP Cloud Monitoring / Azure Monitor) into lab.infra_metrics — POST /api/obs/harvest?platform=infra. Reads config/infra_metrics.yaml.">Harvest</button>
+            </div>
+            <div class="hint" id="infraMsg" style="display:none; padding: 0 12px 8px"></div>
+            <div id="infraSide"></div>
+          </div>
+        </details>
       </div>
     </details>
     <!-- DevOps category (WS17, D60). Its own expandable section like every
@@ -1602,12 +1705,21 @@ let mainKey = null;       // skeleton identity — rebuilt only when this change
 // Per-experiment chat: key -> {session, turns:[{role, text, trace_id, latency_ms, error}],
 //                              running, selected (this experiment's shown trace)}
 let chats = {};
+// Per-experiment past chats, THIS browser session only (not persisted, not
+// server-side) — "New chat" archives the current one here, capped at
+// experiment_history_limit (A2ALAB_EXPERIMENT_CHAT_HISTORY, default 3). Mirrors
+// the Lab Guide drawer's history, but in memory: an experiment run carries live
+// trace ids that only make sense this session, so persisting them would resurrect
+// dead links on the next load.
+let chatArchives = {};    // key -> [{id, ts, title, chat}]  (most-recent first)
+let chatHistoryOpen = {}; // key -> bool (the past-chats picker is showing)
 let drafts = {};          // key -> composer draft (survives re-renders)
 let afChannels = {};      // key -> "agent-api" | "a2a-shim" (D28 channel radio)
 let afRoutes = {};        // key -> "bridge" | "direct" (Agentforce outbound route radio)
 let afTopologies = {};    // key -> "delegated" | "serial" (D61 fan-out topology radio)
 let viaBridges = {};      // key -> bool (protocol cells: route via the lab bridge)
 let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
+let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
 // turn's call path.
@@ -1694,11 +1806,21 @@ function track(event, section, detail) {
   } catch (e) { /* analytics must never throw into the UI */ }
 }
 
+// The display label for the sign-in surface (badge + picker). The server
+// resolves it from config/users.yaml `role_labels`, so relabelling a role is a
+// config edit, not a code change — see identity.role_label. `role_label` is
+// display-only; the real role rides `.role` and every gate keys off THAT. Fall
+// back to the raw role for a labUser hydrated from an older localStorage object
+// (pre-role_label) or a role with no override.
+function roleLabel(u) {
+  return (u && (u.role_label || u.role)) || "";
+}
+
 function renderUserBtn() {
   const btn = document.getElementById("userBtn");
   if (!btn) return;
   btn.innerHTML = labUser
-    ? `👤 ${esc(labUser.name || labUser.sub)} <span class="badge internal">${esc(labUser.role || "")}</span>`
+    ? `👤 ${esc(labUser.name || labUser.sub)} <span class="badge internal">${esc(roleLabel(labUser))}</span>`
     : "👤 Sign in";
 }
 
@@ -1714,7 +1836,7 @@ window.toggleUserPanel = async ev => {
     + users.map(u => `
       <div class="warm-row" style="cursor:pointer" onclick="gdPickUser('${esc(u.username)}', '${esc(u.name)}')">
         <span class="wname">${esc(u.name)}</span>
-        <span class="warm-tag ${u.role === "viewer" ? "cold" : "warm"}">${esc(u.role)}</span>
+        <span class="warm-tag ${u.role === "viewer" ? "cold" : "warm"}">${esc(roleLabel(u))}</span>
       </div>`).join("")
     + `<div class="warm-foot" id="userPwRow" style="display:none">
          <span class="note" id="userPwWho"></span>
@@ -1788,6 +1910,7 @@ const SIGNED_IN_LOADERS = [
   loadBuildTelemetry,  // coding agents telemetry + the cost brief
   loadProject,         // WS17: This A2A Lab Project — board counts from the plan
   loadMonitoring,      // WS18: A2A Lab Monitoring — usage aggregates from lab.usage_events
+  loadInfra,           // Track B: Infrastructure Metrics — cross-cloud runtime grid
   loadArchitecture,    // the deployment map the Architecture section renders
   loadWarmup,
   loadConfig,
@@ -1862,7 +1985,7 @@ function applyAuthGating() {
   show("guideBtn", true);
   show("gearBtn", operator);
   if (handle) handle.style.display = "";
-  for (const id of ["harvestBtn", "analyzeBtn", "buildHarvestBtn"]) show(id, operator);
+  for (const id of ["harvestBtn", "analyzeBtn", "buildHarvestBtn", "infraHarvestBtn"]) show(id, operator);
   // The cost sentinel controls moved out of the canvas into the Control Panel
   // (operator-only). Its tool row is display:none by default so a viewer never
   // sees it even for the instant before gating runs; syncCostSentinelPanel()
@@ -2194,8 +2317,29 @@ function describeTrace(t) {
     const entry = hops.find(h => h.target === "agentforce-service-agent");
     parts.push(`<b>Via-shim cell:</b> a caller reached the Agentforce agent over <b>${esc(entry.protocol)}</b> through the lab's shim, which translated the request to the Salesforce Agent API (Agentforce exposes no GA ${esc(entry.protocol.toUpperCase())} inbound surface).`);
   } else {
+    // A fan-out is N independent legs under ONE trace_id, not a linear call
+    // path: the orchestrator reaches several distinct business-unit agents that
+    // run concurrently. Detect that shape STRUCTURALLY — by the number of
+    // distinct leg targets, not by hop source, because the legs speak different
+    // protocols and carry different sources ("client" for the A2A submit/poll
+    // legs, "remote-caller" for the AgentCore leg). Without this, the linear
+    // narration below picks whichever leg's hop sorted first and labels the
+    // whole trace "Direct cell: invoked <that one leg>" — which reads as a
+    // single call and, when a DIFFERENT leg failed, actively misdescribes the
+    // trace (the 2026-08-11 ADK-poll failure surfaced exactly this way: a
+    // "Direct cell: … openai-agentcore" header above a google-adk-a2a error).
+    const legTargets = new Set(
+      hops
+        .filter(h => /fan-out leg|SendMessage|GetTask/.test(h.transport_detail || ""))
+        .map(h => h.target)
+    );
     const entry = hops.find(h => ["remote-caller", "caller"].includes(h.source));
-    if (entry) {
+    if (legTargets.size >= 2) {
+      parts.push(`<b>Fan-out:</b> the orchestrator consulted ${legTargets.size} business-unit agents
+        (${[...legTargets].map(esc).join(", ")}) as independent legs under one trace id — they run
+        concurrently, so the turn costs the slowest leg, and each leg is reported on its own (a failed
+        leg is named, never omitted). The per-leg hops are below.`);
+    } else if (entry) {
       parts.push(`<b>Direct cell:</b> a caller invoked <b>${esc(entry.target)}</b> over <b>${esc(entry.protocol)}</b>.`);
     }
   }
@@ -2500,6 +2644,7 @@ function traceSectionHtml(t, title, flow) {
             <span class="td"> · ${esc(h.transport_detail || "")}</span></span>
           ${h._leg ? `<span class="badge internal" title="Hop from the Salesforce-initiated leg — Apex minted its own trace id ${esc(h._leg)}">leg ${esc(h._leg.slice(0, 8))}…</span>` : ""}
           ${h.status === "error" ? `<span class="err">ERROR</span>` : ""}
+          ${h.status === "pending" ? `<span class="badge a2a" title="Expected: an async poll during the eventually-consistent window right after submit — the task store had not caught up yet, so this tasks/get returned not-found. The runner rides through these until the task appears; the leg completes (WS11).">waiting for task</span>` : ""}
           <span class="lat">${h.latency_ms != null ? h.latency_ms + " ms" : ""} · ${fmtTime(h.ts)}</span>
         </div>
         <div class="hop-body">
@@ -3776,7 +3921,12 @@ async function loadWhatsNext() {
     if (r.status === 404) return; // console server predates the What's Next API
     whatsNextData = await r.json();
     renderWhatsNextSide();
+    // Re-render the What's Next section OR the landing page: the landing page's
+    // "What else this lab shows" slot (landingWhatsDoneHtml) reads the same
+    // data, so a promoted done plan must repaint it too. view === null is the
+    // landing page (goHome sets view = null).
     if (view && view.type === "whatsnext") renderMain(true);
+    else if (!view) renderMain(true);
   } catch { /* transient — sidebar shows the empty state */ }
 }
 
@@ -3833,22 +3983,108 @@ window.setFanoutVariant = v => {
   renderMain(true);
 };
 
+// The per-option explanations for the two fan-out radios. Defined once and
+// reused: the SHORT line rides each radio as a hover tooltip (title=), and the
+// FULL prose renders in the Details tab (fanoutControlsDetailHtml). Keeping the
+// long copy OUT of the Run tab keeps it compact (the user's ask); the Details
+// tab is where "what produces this / how it behaves" belongs (D57).
+const FANOUT_HELP = {
+  tool: "host-side tool: one custom tool, the fan-out runs on this console process and the host picks the order; a leg is bounded only by our own patience (120s).",
+  mcp: "remote MCP tools: one tool per business unit on a hosted MCP server — the MODEL chooses what to call and whether to call them together. Each leg runs inside an API Gateway request, so it inherits the 29s integration ceiling (25s/leg): a warm leg (~17s) fits, a COLD platform (Agent Engine ~34s, AgentCore 31–56s) times out. Warm the runtimes first, or use async on the host-side tool.",
+};
+const DISPATCH_HELP = {
+  sync: "synchronous: one blocking call per leg that returns only when the agent is done (every run before WS11).",
+  async: "async (fire-then-poll): submit the work, get a task id back in ~1s, then poll tasks/get until it completes — no single request held open across the agent's work (dissolves the gateway ceiling, WS11/D47). Only the A2A legs (ADK, Foundry) implement the async half; the AgentCore comms leg has no task lifecycle and falls back to a blocking call, which the run reports rather than hides.",
+};
+
+function qhelp(text) {
+  // A ? disc that pops a real hover/focus box carrying the choice's explanation.
+  // The native title= alone was unreliable (long delay, truncation, no touch),
+  // so the .qpop below is the actual tooltip; title/aria-label stay for a11y.
+  return `<span class="qhelp" tabindex="0" role="button" aria-label="${esc(text)}"
+    ><span class="qmark" aria-hidden="true">?</span><span class="qpop" role="tooltip">${esc(text)}</span></span>`;
+}
+
 function fanoutVariantRowHtml(key) {
   const v = fanoutVariants[key] || "tool";
   return `
   <div class="chan-row">
     <span class="chan-label">Fan-out topology</span>
     <label><input type="radio" name="fanoutVariant" value="tool" ${v === "tool" ? "checked" : ""}
-      onchange="setFanoutVariant('tool')"> host-side tool</label>
+      onchange="setFanoutVariant('tool')"> host-side tool</label>${qhelp(FANOUT_HELP.tool)}
     <label><input type="radio" name="fanoutVariant" value="mcp" ${v === "mcp" ? "checked" : ""}
-      onchange="setFanoutVariant('mcp')"> remote MCP tools</label>
-    <span class="chan-hint">Same agent, same prompt, two tool inventories (swapped per run via
-      agent_with_overrides). <b>host-side tool</b>: one custom tool, the fan-out runs on whichever host
-      drives the session — this console process — and the host picks the order. <b>remote MCP tools</b>:
-      one tool per business unit on a hosted
-      MCP server, so nothing is attached to the session and the <i>model</i> chooses what to call and
-      whether to call them together — the run reports which it did.</span>
+      onchange="setFanoutVariant('mcp')"> remote MCP tools</label>${qhelp(FANOUT_HELP.mcp)}
+    <span class="chan-more">Same agent, same prompt, two tool inventories —
+      <a onclick="setTab('details')">full explanation in Details</a>.</span>
   </div>`;
+}
+
+// Dispatch mode: how the host-side fan-out calls each leg (WS11).
+window.setDispatchMode = m => {
+  if (!view || view.type !== "experiment") return;
+  dispatchModes[expKey(view.kind, view.name)] = m;
+  renderMain(true);
+};
+
+function dispatchModeRowHtml(key) {
+  const m = dispatchModes[key] || "sync";
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Agent-to-agent dispatch</span>
+    <label><input type="radio" name="dispatchMode" value="sync" ${m === "sync" ? "checked" : ""}
+      onchange="setDispatchMode('sync')"> synchronous</label>${qhelp(DISPATCH_HELP.sync)}
+    <label><input type="radio" name="dispatchMode" value="async" ${m === "async" ? "checked" : ""}
+      onchange="setDispatchMode('async')"> async (fire-then-poll)</label>${qhelp(DISPATCH_HELP.async)}
+    <span class="chan-more">How the orchestrator calls each business unit —
+      <a onclick="setTab('details')">full explanation in Details</a>.</span>
+  </div>`;
+}
+
+// The full fan-out control prose, moved out of the Run tab into Details (D57).
+// Rendered only for scenarios that actually expose these radios, so a plain
+// pairwise scenario's Details is unchanged.
+function fanoutControlsDetailHtml(s) {
+  if (!s || !(s.fanout_variant_toggle || s.dispatch_mode_toggle)) return "";
+  const topology = s.fanout_variant_toggle ? `
+      <h6>Fan-out topology — where the business-unit tools execute (D41)</h6>
+      <p class="desc-note">Same agent, same prompt, two tool inventories (swapped per run via
+        <code>agent_with_overrides</code>).</p>
+      <ul class="steps">
+        <li><b>host-side tool</b>: one custom tool, so the fan-out runs on whichever host drives the
+          session — this console process — and the host picks the order; a leg is bounded only by our own
+          patience (120s).</li>
+        <li><b>remote MCP tools</b>: one tool per business unit on a hosted MCP server, so nothing is
+          attached to the session and the <i>model</i> chooses what to call and whether to call them
+          together — the run reports which it did. Each leg here runs <i>inside</i> an API Gateway request,
+          so it inherits the gateway's 29s integration ceiling (25s per leg, and NOT raisable for HTTP
+          APIs); a warm leg (~17s) fits, but a <b>cold</b> platform (Agent Engine ~34s, AgentCore 31–56s)
+          does not and comes back <code>[leg unavailable: … timed out]</code>. This is the cost of moving
+          the tool off the host, not a bug — <b>warm the runtimes first</b> (Warm-ups panel), or use async
+          on the host-side tool, which is what dissolves the ceiling (WS11/D47).</li>
+      </ul>` : "";
+  const dispatch = s.dispatch_mode_toggle ? `
+      <h6>Agent-to-agent dispatch — how each leg is called (WS11)</h6>
+      <p class="desc-note">Only offered on the <b>host-side tool</b> topology; under remote MCP tools the
+        legs run in the Lambda, so async is a no-op there.</p>
+      <ul class="steps">
+        <li><b>synchronous</b>: one blocking call per leg that returns only when the agent is done (every
+          run before WS11).</li>
+        <li><b>async (fire-then-poll)</b>: the A2A long-running-task pattern — <i>submit</i> the work, get a
+          task id back in ~1s, then <i>poll</i> <code>tasks/get</code> until it completes, so no single
+          request is held open across the agent's work (the gateway ceiling, dissolved — WS11/D47). Only
+          the two A2A legs (ADK, Foundry) implement the async half; the AgentCore comms leg has no task
+          lifecycle and falls back to a blocking call, recorded <code>async→sync</code> in the coverage
+          line rather than hidden. Agent Engine <i>appeared</i> submit-only until 2026-08-11, when the poll
+          failure was traced to a missing <code>A2A-Version: 1.0</code> header (a client default), not a
+          platform gap — pinned per target, fire-then-poll now works there too (D47).</li>
+      </ul>` : "";
+  return `
+    <div class="flow">
+      <h3>Run controls — the fan-out choices</h3>
+      <p class="desc-note">These are the radios in the Run tab. Set them there; what each does is here.</p>
+      ${topology}
+      ${dispatch}
+    </div>`;
 }
 
 // Protocol cells: per-cell "via bridge" toggle (lives in the Run tab).
@@ -4576,6 +4812,42 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
   E --> UI
   H --> UI
   T -.->|"platform_ref join"| S`;
+
+// WS22 / Track B: the SRE sibling of OBS_HARVEST above. Same harvest Lambda and
+// same schedule, but the sources are each cloud's NATIVE runtime metrics (not the
+// agents' semantic logs) and the sink is lab.infra_metrics (a dense regular grid),
+// not obs_sessions/obs_events. The forecast runner is drawn dashed because it is
+// not built yet (plan/explore-moirai-timeseries-forecasting.md).
+const INFRA_DIAGRAM = `flowchart TB
+  subgraph CLOUDS["Each cloud's own runtime metrics (the estate under the agents)"]
+    AWS["AWS — CloudWatch (GetMetricData)<br/>Fargate faces · Aurora Serverless v2 · harvest Lambda"]
+    GCP["GCP — Cloud Monitoring (timeSeries)<br/>Vertex AI Agent Engine"]
+    AZ["Azure — Azure Monitor (metrics REST)<br/>Foundry resource"]
+  end
+
+  CFG["config/infra_metrics.yaml<br/>(cloud, resource, metric) + native query<br/>\${VAR} expansion — no id in the repo"]
+  SEC["Secrets Manager a2alab/obs/harvest<br/>GCP service-account key · Azure ARM token"]
+
+  SCHED["EventBridge Scheduler / Harvest button<br/>infra group — opt-in, NOT in the sweep"]
+  HARV["Lambda a2alab-obs-harvest<br/>infra_source.py — deterministic pulls, no LLM<br/>each series skipped-with-reason if unresolved"]
+
+  subgraph AUR["Aurora Postgres — lab schema (source of truth, D49)"]
+    IM[("infra_metrics<br/>one row per point<br/>key (cloud, resource, metric, ts_at)")]
+  end
+
+  UI["Console — Infrastructure Metrics<br/>Metrics grid + sparklines · Details · Forecast"]
+  FC["Forecast runner (NOT built)<br/>TSFM over the grid → prediction back"]
+
+  CFG --> HARV
+  SEC --> HARV
+  SCHED --> HARV
+  AWS --> HARV
+  GCP --> HARV
+  AZ --> HARV
+  HARV -->|"batched upsert, idempotent window"| IM
+  IM -->|"/api/infra-metrics — downsampled in SQL"| UI
+  IM -.->|"reads the same grid"| FC
+  FC -.->|"prediction beside actuals"| UI`;
 
 // What the observability analyst actually does, for its Details pane. Same
 // shape as the sentinel's below: the agent never touches the database.
@@ -5615,7 +5887,7 @@ const MON_SECTION_LABELS = {
   experiment: "Experiments", trace: "Traces", obs: "Observability",
   insights: "Insights", arch: "Architecture", registry: "Agent Registry",
   creds: "Credentials", build: "Coding Agents Telemetry", project: "This A2A Lab Project",
-  monitoring: "A2A Lab Monitoring", guide: "Lab Guide",
+  monitoring: "A2A Lab Monitoring", infra: "Infrastructure Metrics", guide: "Lab Guide",
 };
 const monSectionLabel = s => MON_SECTION_LABELS[s] || s || "unknown";
 
@@ -5842,6 +6114,386 @@ function monitoringHtml() {
   }
   if (monTab === "sections") return monTabbar() + monSectionsHtml();
   return monTabbar() + monVisitorsHtml();
+}
+
+// ---- Infrastructure Metrics (Track B of the Moirai exploration) ------------
+// The cross-cloud RUNTIME telemetry of the lab's own estate, read from
+// lab.infra_metrics through /api/infra-metrics (the normal store selector —
+// Aurora hosted, sqlite as the local fallback, D49). One-canvas template like
+// every other section (D57): a THING (the metric grid) and what is behind it
+// (Details). The Forecast tab is an honest empty-state — the Moirai runner
+// that would fit a TSFM over this grid is a future Track B workstream, not
+// built, so the tab explains what would go there rather than faking a chart.
+let infraData = null;
+let infraHarvesting = false;
+let infraTab = "metrics";                 // metrics | forecast
+let infraSub = "run";                     // run | details
+let infraWindow = 24;                     // hours; the grid step is 5m (config)
+const INFRA_TABS = [["metrics", "Metrics"], ["forecast", "Forecast"]];
+const INFRA_WINDOWS = [[24, "24h"], [72, "3d"], [168, "7d"], [0, "All"]];
+const INFRA_CLOUD_LABELS = { aws: "AWS", gcp: "GCP", azure: "Azure" };
+
+async function loadInfra() {
+  try {
+    const q = infraWindow ? `?hours=${infraWindow}` : "";
+    const r = await fetch(apiUrl("/api/infra-metrics" + q));
+    if (r.status === 404 || r.status === 403) return; // older server, or viewer
+    infraData = await r.json();
+    const count = document.getElementById("infraMetricsCount");
+    // Series count, not points — the number of distinct (cloud, resource,
+    // metric) streams is what the section is about; the point total travels in
+    // the header where its window caveat sits next to it.
+    if (count) count.textContent = infraData.series_count || "";
+    renderInfraSide();
+    if (view && view.type === "infra") renderMain(true);
+  } catch (_e) { /* section stays empty */ }
+}
+
+function renderInfraSide() {
+  const el = document.getElementById("infraSide");
+  if (!el) return;
+  if (!infraData || infraData.error) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">${infraData && infraData.error
+      ? esc(infraData.error)
+      : (infraHarvesting ? "Harvesting…" : "Nothing harvested yet — hit Harvest, or open for Details.")}</div>`;
+    return;
+  }
+  // One row per cloud, with its series count — the same shape the other
+  // Infrastructure children use for their side nav.
+  const clouds = infraData.clouds || [];
+  if (!clouds.length) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">No series in this window. See Details for what is harvested and why a source may be empty.</div>`;
+    return;
+  }
+  el.innerHTML = clouds.map(c => {
+    const n = (c.resources || []).reduce((a, r) => a + (r.series || []).length, 0);
+    return `<div class="obs-plat" onclick="infraNav(event)">
+      <span>${esc(INFRA_CLOUD_LABELS[c.cloud] || c.cloud)}</span>
+      <span class="count">${n} series</span>
+    </div>`;
+  }).join("");
+}
+
+window.infraNav = ev => {
+  const here = !!(view && view.type === "infra");
+  if (!sectionHeaderClick(ev, "accInfraMetrics", here) || here) return;
+  pushNav();
+  view = { type: "infra" };
+  renderSidebar(); renderMain(true);
+};
+
+window.setInfraTab = id => {
+  infraTab = id;
+  infraSub = "run";   // a new tab opens on its content, never on its Details
+  renderMain(true);
+};
+window.setInfraSub = s => { infraSub = s; renderMain(true); };
+window.setInfraWindow = h => { infraWindow = h; loadInfra(); };
+
+function infraMsg(text, isErr) {
+  const el = document.getElementById("infraMsg");
+  if (!el) return;
+  el.style.display = text ? "block" : "none";
+  el.textContent = text || "";
+  el.style.color = isErr ? "var(--bad, #c33)" : "";
+}
+
+// The same harvest seam as every other section's button, scoped to the `infra`
+// group alias (the three cross-cloud sources). Hosted, the endpoint fires the
+// harvest Lambda and returns at once (D54), so we poll lab.infra_metrics via a
+// re-read until the point total grows; locally it runs synchronously.
+window.harvestInfra = async ev => {
+  if (ev) ev.stopPropagation();
+  if (infraHarvesting) return;
+  infraHarvesting = true;
+  const btn = document.getElementById("infraHarvestBtn");
+  if (btn) { btn.textContent = "Harvesting…"; btn.disabled = true; }
+  infraMsg("Querying CloudWatch / GCP Cloud Monitoring / Azure Monitor for runtime metrics…");
+  const before = (infraData && infraData.point_count) || 0;
+  try {
+    const r = await fetch(apiUrl("/api/obs/harvest?platform=infra"), { method: "POST" });
+    if (r.status === 404) {
+      infraMsg("Console server predates the infra harvest — restart scripts/run_local.sh.", true);
+      return;
+    }
+    const data = await readJson(r, "Harvest failed");
+    if (!data.ok && !data.async) { infraMsg("Harvest failed: " + (data.error || "unknown"), true); return; }
+    if (data.async) {
+      infraMsg("Harvest running in the background — this panel updates when the infra feed lands.");
+      const t0 = Date.now();
+      for (;;) {
+        await new Promise(res => setTimeout(res, 5000));
+        await loadInfra();
+        infraNav();
+        if (((infraData && infraData.point_count) || 0) > before) {
+          infraMsg(`Done — ${infraData.series_count} series, ${infraData.point_count.toLocaleString()} points.`);
+          return;
+        }
+        if (Date.now() - t0 > 600000) {
+          infraMsg("The infra feed has not reported in 10 minutes — check the harvest function's logs.", true);
+          return;
+        }
+      }
+    }
+    // Local synchronous path: one result per infra source.
+    const results = data.results || [];
+    const ok = results.filter(x => x.status === "ok").length;
+    const detail = results.map(x => `${x.platform}: ${x.status}${x.detail ? " (" + x.detail + ")" : ""}`).join(" · ");
+    infraMsg((ok ? "Done — " : "") + detail, ok !== results.length);
+    await loadInfra();
+    infraNav();
+  } catch (e) {
+    infraMsg("Harvest failed: " + e, true);
+  } finally {
+    infraHarvesting = false;
+    if (btn) { btn.textContent = "Harvest"; btn.disabled = false; }
+    renderInfraSide();
+  }
+};
+
+// A dependency-free sparkline: one SVG polyline scaled to the series' own
+// min/max, so shape reads at a glance without a chart library. Nulls break the
+// line into segments (a gap is honest — the metric was not emitting), and the
+// last point gets a dot so the "current" reading is findable.
+function infraSpark(points, w, h) {
+  w = w || 160; h = h || 30;
+  const pad = 3;
+  const vals = points.map(p => p.v).filter(v => v != null);
+  if (!vals.length) return `<svg class="spark" width="${w}" height="${h}"></svg>`;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi === lo) { hi = lo + 1; lo = lo - 1; }   // a flat line sits mid-box
+  const n = points.length;
+  const x = i => pad + (n <= 1 ? 0 : (i / (n - 1)) * (w - 2 * pad));
+  const y = v => h - pad - ((v - lo) / (hi - lo)) * (h - 2 * pad);
+  // Build polyline segments, breaking at nulls.
+  const segs = [];
+  let cur = [];
+  points.forEach((p, i) => {
+    if (p.v == null) { if (cur.length) { segs.push(cur); cur = []; } return; }
+    cur.push(`${x(i).toFixed(1)},${y(p.v).toFixed(1)}`);
+  });
+  if (cur.length) segs.push(cur);
+  const lines = segs.map(s => `<polyline points="${s.join(" ")}" fill="none"
+    stroke="var(--rest, #00ab6d)" stroke-width="1.5" />`).join("");
+  // Last non-null dot.
+  let dot = "";
+  for (let i = n - 1; i >= 0; i--) {
+    if (points[i].v != null) { dot = `<circle cx="${x(i).toFixed(1)}" cy="${y(points[i].v).toFixed(1)}" r="1.8" fill="var(--rest, #00ab6d)" />`; break; }
+  }
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${lines}${dot}</svg>`;
+}
+
+function infraTopTabs() {
+  const stamp = infraStamp();
+  return `
+    <div class="tabbar">
+      <h2>Infrastructure Metrics</h2>
+      ${stamp ? `<span class="obs-updated">${esc(stamp)}</span>` : ""}
+      <div class="tabs">
+        ${INFRA_TABS.map(([id, label]) =>
+          `<button class="tab ${infraTab === id ? "on" : ""}" onclick="setInfraTab('${id}')">${label}</button>`).join("")}
+      </div>
+      ${infraTab === "metrics" && infraSub !== "details" ? `
+      <div class="tabs" style="margin-left:auto">${INFRA_WINDOWS.map(([h, label]) =>
+        `<button class="tab ${infraWindow === h ? "on" : ""}" onclick="setInfraWindow(${h})">${esc(label)}</button>`
+      ).join("")}</div>` : ""}
+    </div>`;
+}
+
+// The most recent harvest across the three infra sources, for the header.
+function infraStamp() {
+  const h = (infraData && infraData.harvest) || {};
+  const ats = Object.values(h).map(x => x && x.at).filter(Boolean);
+  return ats.length ? `harvested ${fmtWhen(Math.max(...ats))}` : "";
+}
+
+function infraSubTabs() {
+  const label = infraTab === "forecast" ? "Forecast" : "Metrics";
+  return `<div class="tabs" style="margin:10px 0 4px">
+    <button class="tab ${infraSub !== "details" ? "on" : ""}" onclick="setInfraSub('run')">${label}</button>
+    <button class="tab ${infraSub === "details" ? "on" : ""}" onclick="setInfraSub('details')">Details</button>
+  </div>`;
+}
+
+function infraTabbar() { return infraTopTabs() + infraSubTabs(); }
+
+function infraHtml() {
+  if (!infraData) return infraTabbar() + `<div class="empty">Loading…</div>`;
+  if (infraSub === "details") return infraTabbar() + infraDetailsHtml();
+  if (infraTab === "forecast") return infraTabbar() + infraForecastHtml();
+  return infraTabbar() + infraMetricsHtml();
+}
+
+// The dense grid, cloud → resource → one row per series. Each row: label,
+// metric id, count, last value + unit, and a sparkline. A source that was
+// harvested but returned nothing is stated from the harvest status, so an empty
+// cloud reads as "idle / not emitting", never as a bug.
+function infraMetricsHtml() {
+  if (infraData.error) return `<div class="hint" style="margin-top:12px">${esc(infraData.error)}</div>`;
+  const clouds = infraData.clouds || [];
+  const harvest = infraData.harvest || {};
+
+  // Harvest-status strip: one chip per infra source, so "harvested and empty"
+  // is distinguishable from "never harvested".
+  const chips = ["aws", "gcp", "azure"].map(c => {
+    const st = harvest["infra-" + c] || {};
+    const cls = st.status === "ok" ? "ok" : (st.status === "blocked" ? "warn" : (st.status ? "bad" : ""));
+    const when = st.at ? fmtWhen(st.at) : "never";
+    return `<span class="pill ${cls}" title="${esc(st.detail || "")}">${esc(INFRA_CLOUD_LABELS[c])}: ${esc(st.status || "not harvested")} · ${esc(when)}</span>`;
+  }).join(" ");
+
+  const windowNote = infraWindow
+    ? `over the last <b>${infraWindow >= 24 ? (infraWindow / 24) + "d" : infraWindow + "h"}</b>`
+    : `for <b>all</b> harvested history`;
+  const header = `
+    <div class="hint" style="margin:10px 0 6px">${infraData.series_count || 0} series ·
+      ${(infraData.point_count || 0).toLocaleString()} points ${windowNote}. The grid step is
+      5&nbsp;min (config/infra_metrics.yaml); points are downsampled for the sparkline only.</div>
+    <div class="pill-row" style="margin-bottom:14px">${chips}</div>`;
+
+  if (!clouds.length) {
+    return header + `<div class="hint" style="margin-top:8px">No series in this window. If a source
+      above shows <b>ok</b> it harvested and the estate returned nothing — an idle project, or a
+      metric the platform is not emitting (Container Insights must be enabled for Fargate CPU/mem).
+      A <b>blocked</b> source has an unresolved <code>${"${VAR}"}</code> in config/infra_metrics.yaml.
+      See Details.</div>`;
+  }
+
+  const grid = clouds.map(c => {
+    const resources = (c.resources || []).map(r => {
+      const rows = (r.series || []).map(s => {
+        const last = s.last_value == null ? `<span class="hint">—</span>`
+          : `${fmtInfraVal(s.last_value)}${s.unit ? ` <span class="hint">${esc(s.unit)}</span>` : ""}`;
+        return `<tr>
+          <td>${esc(s.label || s.metric)}</td>
+          <td class="tool">${esc(s.metric)}</td>
+          <td class="num">${(s.count || 0).toLocaleString()}</td>
+          <td class="num">${last}</td>
+          <td>${infraSpark(s.points || [])}</td>
+        </tr>`;
+      }).join("");
+      return `<h4 style="margin:14px 0 0">${esc(r.resource)}</h4>
+        <div class="tbl-card"><div class="tbl-scroll">
+        <table class="obs-table">
+          <thead><tr><th>metric</th><th>id</th><th class="num">points</th>
+            <th class="num">last</th><th>shape</th></tr></thead>
+          <tbody>${rows}</tbody></table></div></div>`;
+    }).join("");
+    return `<h3>${esc(INFRA_CLOUD_LABELS[c.cloud] || c.cloud)}</h3>${resources}`;
+  }).join("");
+
+  return header + grid;
+}
+
+// A number that reads cleanly across the range infra metrics span (fractions of
+// a percent to millions of bytes) without a unit-aware formatter per metric.
+function fmtInfraVal(v) {
+  if (v == null) return "—";
+  const a = Math.abs(v);
+  if (a !== 0 && a < 0.01) return v.toExponential(1);
+  if (a >= 1e6) return (v / 1e6).toFixed(2) + "M";
+  if (a >= 1e3) return (v / 1e3).toFixed(1) + "K";
+  return (Math.round(v * 100) / 100).toLocaleString();
+}
+
+// The Forecast tab is honestly empty: the runner that would fit a time-series
+// foundation model (Moirai) over this grid is a future Track B workstream, not
+// built. The tab says what it will be and what already exists, rather than
+// faking a prediction — an empty state that explains itself (D57).
+function infraForecastHtml() {
+  return `
+    <div class="hint" style="margin:10px 0 16px">A forecast over this grid is not built yet —
+    this tab explains what it will be and why the grid is shaped for it.</div>
+    <div class="flow">${mdToHtml(
+`### Why this grid, and what would forecast it
+
+Track B of the Moirai exploration (plan/explore-moirai-timeseries-forecasting.md)
+collects the estate's runtime metrics as a **dense, regular time grid** — 5-minute
+points per (cloud, resource, metric) series. That shape is the point: a time-series
+foundation model (TSFM) like Salesforce's **Moirai** fits a dense regular signal,
+where the A2A traces (Track A) are sparse and episodic and do not.
+
+The **runner is not built.** When it is, it will read a series from
+\`lab.infra_metrics\`, ask a hosted TSFM for an N-step-ahead forecast, and write the
+prediction back for this tab to draw beside the actuals — the prime target being the
+Aurora Serverless v2 scale-to-zero capacity the exploration calls out as predictable.
+
+### What already exists
+
+- The **harvest** — \`scripts/obs_harvest.py infra\` (or the Harvest button) pulls all
+  three clouds via \`src/observability/infra_source.py\`, reading
+  \`config/infra_metrics.yaml\`.
+- The **store** — one row per point in \`lab.infra_metrics\`, keyed
+  (cloud, resource, metric, ts_at), read here through \`/api/infra-metrics\`.
+- The **grid** — the Metrics tab, dense enough (288 samples/series/day) to fit a TSFM.
+
+The missing piece is only the model call and the write-back — recorded as the next
+Track B workstream in plan/07-workstreams.md.`
+    )}</div>`;
+}
+
+function infraDetailsHtml() {
+  return `
+    <div class="hint" style="margin:10px 0 16px">What the Infrastructure Metrics section
+    harvests, how it reads its inputs and as what identity, where it is stored, and what
+    bounds it. Track B of plan/explore-moirai-timeseries-forecasting.md.</div>
+
+    <div class="flow">
+    ${figureHtml("infraFig", "The architecture behind it")}
+    ${mdToHtml(
+`### What produces this
+
+A **harvest** pulls the lab's own cross-cloud runtime telemetry into one store.
+The three sources live in \`src/observability/infra_source.py\` — \`AwsInfraSource\`,
+\`GcpInfraSource\`, \`AzureInfraSource\` — and run behind the \`infra\` group alias, either
+from \`scripts/obs_harvest.py infra\`, the Harvest button (POST
+\`/api/obs/harvest?platform=infra\`), or the 6-hourly harvest Lambda.
+It is **opt-in and NOT in the unqualified sweep**: infrastructure is not an agent-platform
+column, the same reason the coding-agent telemetry is reachable by name only.
+
+### How it reads its inputs, and as what identity
+
+Every series is declared in \`config/infra_metrics.yaml\` — \`(cloud, resource, metric)\`
+plus the platform-native query. Environment identifiers are \`${"${VAR}"}\` expansions
+(the same \`_expand_env\` as config/targets.yaml); a series whose required dimension
+resolves to empty is **skipped with a reason** (status \`blocked\`), so a partly-provisioned
+estate degrades honestly rather than erroring the whole pass. No account id, ARN or project
+id is written in the config.
+
+- **AWS** — CloudWatch \`GetMetricData\` over the lab's AWS session (the one human login).
+  Fargate (console, bridge), Aurora Serverless v2, and the harvest Lambda.
+- **GCP** — Cloud Monitoring time series for Vertex AI Agent Engine, read with the
+  service-account credential from the \`a2alab/obs/harvest\` Secrets Manager secret
+  (never a \`gcloud\` login).
+- **Azure** — Azure Monitor metrics REST API over an ARM bearer token for the Foundry
+  resource, credential from the same harvest secret (never an \`az\` login).
+
+### Where the output is stored
+
+One row per point in **\`lab.infra_metrics\`** (Aurora hosted, sqlite as the local
+fallback — D49), keyed \`(cloud, resource, metric, ts_at)\` so a re-harvest of an
+overlapping window **updates in place** rather than duplicating. The write is **batched**
+through the RDS Data API (\`batch_execute_statement\`, chunked at 200) — a per-row loop
+overran the two-minute budget. The read (\`/api/infra-metrics\`) downsamples each series
+**in SQL** to stay under the Data API's 1 MB result cap.
+
+### What bounds it
+
+- The grid step is **5 min** and the default window **24h** (both overridable in the
+  config) — 288 samples/series/day, enough shape for a forecaster without pulling raw data.
+- The sparkline is downsampled to ~240 points and shows **real samples, never averages** —
+  a gap in the line is a real gap (the metric was not emitting), not smoothing.
+- Fargate CPU/mem series are empty unless **Container Insights** is enabled; an idle
+  project (e.g. Foundry) returns few or no points — both show as harvested-and-empty above,
+  distinct from never-harvested.
+
+### Why it is separate from Observability
+
+Observability (M11) harvests each platform's **agent-semantic** view — sessions, turns,
+tokens. This harvests the same estate's **SRE-grade runtime** view — CPU, memory, requests,
+latency, connections. Different signal, different cadence, different table; the SRE sibling
+of the agent-log harvest, not a sixth platform column.`
+    )}</div>`;
 }
 
 // ---- Architecture (plan/09-deployment-map.md) ------------------------------
@@ -6794,9 +7446,14 @@ window.openInsights = cat => {
 // trail from "idea" to "workstream". The section is deliberately LAST in the
 // nav: it is where the lab goes, not what it has already delivered.
 // ---------------------------------------------------------------------------
+// "done" is deliberately absent here: finished plans are NOT one more horizon
+// bucket in the roadmap flow — they render below a "What's Done" divider at the
+// BOTTOM of the section (whatsNextHtml). Keeping it out of the ORDER is what
+// splits the two, so wnPlansByHorizon() covers the still-open work and the done
+// set is pulled separately.
 const WN_HORIZON_ORDER = ["in-flight", "planned", "exploring"];
 const WN_HORIZON_LABEL = {
-  "in-flight": "in flight", planned: "planned", exploring: "exploring",
+  "in-flight": "in flight", planned: "planned", exploring: "exploring", done: "done",
 };
 
 window.whatsNextNav = ev => {
@@ -6810,19 +7467,45 @@ window.whatsNextNav = ev => {
 
 window.setWhatsNextSub = s => { whatsNextSub = s; renderMain(true); };
 
+// The still-OPEN roadmap, grouped by horizon in ORDER. "done" is excluded here
+// on purpose — it is rendered separately, under its own divider at the bottom —
+// so a finished plan never appears as an extra bucket in the open flow.
 function wnPlansByHorizon() {
   const groups = {};
-  for (const p of whatsNextData.plans || [])
+  for (const p of whatsNextData.plans || []) {
+    if ((p.horizon || "exploring") === "done") continue;
     (groups[p.horizon || "exploring"] ||= []).push(p);
+  }
   const known = WN_HORIZON_ORDER.filter(h => groups[h]);
-  const extra = Object.keys(groups).filter(h => !WN_HORIZON_ORDER.includes(h));
+  const extra = Object.keys(groups).filter(
+    h => !WN_HORIZON_ORDER.includes(h) && h !== "done");
   return [...known, ...extra].map(h => [h, groups[h]]);
+}
+
+// The finished plans, kept in the file on purpose (config/whats_next.yaml
+// horizon: done) and shown under the "What's Done" divider.
+function wnDonePlans() {
+  return (whatsNextData.plans || []).filter(p => (p.horizon || "") === "done");
+}
+
+// Landing-page promotion (MECHANISM only). A finished plan surfaces on the
+// public landing page as something the lab shows ONLY when it opts in with
+// `landing: true` in config/whats_next.yaml — a done plan is not promoted just
+// by finishing. Today nothing sets the flag, so this returns [] and the landing
+// section below renders nothing; promotion is a one-line config edit, made
+// deliberately. Guarded by horizon === "done" so an unfinished plan can never
+// leak onto the landing page.
+function wnLandingPlans() {
+  return wnDonePlans().filter(p => p.landing === true);
 }
 
 function renderWhatsNextSide() {
   const el = document.getElementById("whatsNextSide");
   if (!el) return;
-  const groups = wnPlansByHorizon();
+  // Open horizons in order, then the "What's Done" group last — mirroring the
+  // section body, so the side nav reads idea → shipped too.
+  const done = wnDonePlans();
+  const groups = [...wnPlansByHorizon(), ...(done.length ? [["done", done]] : [])];
   el.innerHTML = groups.map(([h, items]) => `
     <div class="ins-cat" onclick="whatsNextNav()" title="Open What's Next">
       <span class="cname"><span class="wn-dot ${esc(h)}"></span>${esc(WN_HORIZON_LABEL[h] || h)}</span>
@@ -6876,13 +7559,26 @@ function whatsNextHtml() {
   ${whatsNextSubTabs()}`;
   if (whatsNextSub === "details") return bar + whatsNextDetailsHtml();
   const groups = wnPlansByHorizon();
-  return bar + `
-  ${groups.length ? groups.map(([h, items]) => `
+  const done = wnDonePlans();
+  const open = groups.length ? groups.map(([h, items]) => `
   <div class="flow" id="wnhz-${esc(h)}">
     <h3><span class="wn-dot ${esc(h)}"></span>${esc(WN_HORIZON_LABEL[h] || h)}
       <span style="text-transform:none;letter-spacing:0"> · ${items.length} plan${items.length === 1 ? "" : "s"}</span></h3>
     <div class="ins-grid">${items.map(wnPlanCardHtml).join("")}</div>
-  </div>`).join("") : `<div class="empty">No plans recorded yet — add them to config/whats_next.yaml.</div>`}`;
+  </div>`).join("") : (done.length ? "" : `<div class="empty">No plans recorded yet — add them to config/whats_next.yaml.</div>`);
+  // "What's Done" — finished plans, kept on purpose, below a clear divider at
+  // the bottom so the section reads idea → shipped. The plans stay in
+  // config/whats_next.yaml (horizon: done); they are retired into the record,
+  // not deleted.
+  const doneBlock = done.length ? `
+  <div class="wn-done-divider" role="separator">
+    <span class="wn-done-title"><span class="wn-dot done"></span>What's Done</span>
+    <span class="wn-done-note">Shipped and folded into the lab — kept here as the record of how the roadmap paid off.</span>
+  </div>
+  <div class="flow wn-done" id="wnhz-done">
+    <div class="ins-grid">${done.map(wnPlanCardHtml).join("")}</div>
+  </div>` : "";
+  return bar + open + doneBlock;
 }
 
 function whatsNextDetailsHtml() {
@@ -6904,6 +7600,21 @@ function whatsNextDetailsHtml() {
   plan/00-decisions.md — the WS and D chips on each tile are that trail. Two of the current plans are
   already workstreams: the MuleSoft Agent Fabric comparison (WS10) and the Data 360 Zero Copy →
   Tableau Next build (WS19, in flight, D69/D70).</p>
+
+  <h3>What's Done — finished plans, kept on purpose</h3>
+  <p class="hint">A plan that ships does NOT leave this section. It moves to the <b>done</b> horizon and
+  renders below the "What's Done" divider at the bottom of the page, so the roadmap reads as a story
+  from idea to shipped rather than losing the finished ones. The plan stays in
+  <code>config/whats_next.yaml</code> — it is retired into the record, not deleted. The first plan
+  promoted this way is the Claude Science overlays (WS20): the insights evidence ladder, the
+  actor-critic insights reviewer, and session-forking as a named method.</p>
+
+  <h3>Promotion to the landing page</h3>
+  <p class="hint">A finished plan can also surface on the public landing page as something the lab
+  shows — but only when its entry opts in with <code>landing: true</code>. Finishing alone does not
+  promote it: the mechanism reads the flag, and today no entry sets it, so the landing page's "What
+  else this lab shows" slot renders nothing. Promotion is a deliberate one-line config edit, so the
+  public page changes on purpose, never as a side effect of a plan reaching done.</p>
 
   <h3>What produces this section</h3>
   <div class="tbl-card"><div class="tbl-scroll">
@@ -7570,6 +8281,24 @@ function upcomingLineHtml() {
     ${up.map(g => `${esc(g.title)} (${esc(g.upcoming)})`).join(" · ")}</p>`;
 }
 
+// The landing-page slot for promoted "What's Done" plans. Renders NOTHING
+// until a done plan opts in with `landing: true` (wnLandingPlans) — the
+// mechanism ships empty on purpose, so the public page changes only when an
+// entry is deliberately promoted, never as a side effect of a plan finishing.
+// It reads the SAME whatsNextData the section does, so loadWhatsNext() must
+// re-render the landing view too (it does).
+function landingWhatsDoneHtml() {
+  const promoted = wnLandingPlans();
+  if (!promoted.length) return "";
+  return `
+    <section>
+      <h2>What else this lab shows</h2>
+      <p class="lede">Capabilities the lab set out to build on its roadmap and has since shipped —
+        each began as a "What's Next" plan and graduated into the lab.</p>
+      <div class="ins-grid">${promoted.map(wnPlanCardHtml).join("")}</div>
+    </section>`;
+}
+
 function landingHtml() {
   const live = scenarios.filter(s => s.status === "live");
   return `
@@ -7600,29 +8329,61 @@ function landingHtml() {
         </div>
       </div>
       <div class="archsvg-wrap">${archSvg()}</div>
+      <div class="hero-inner" style="margin-top:8px">
+        <div class="intro-grid">
+          <div class="intro-card" style="--d1:#09decb;--d2:#3fc7d8">
+            <h3><span class="dot"></span>Compare the protocols</h3>
+            <p>The same question travels over <code>REST</code>, <code>MCP</code>, and <code>A2A</code>.
+               See where each protocol carries sessions and trace ids first-class — and where it smuggles
+               them as arguments.</p>
+          </div>
+          <div class="intro-card" style="--d1:#7db9e8;--d2:#a8a2ec">
+            <h3><span class="dot"></span>See the raw wire</h3>
+            <p>Every hop records its actual request and response bytes — JSON-RPC envelopes, A2A task
+               lifecycles, Agent API sessions. No reconstructions; open any trace and read the wire.</p>
+          </div>
+          <div class="intro-card" style="--d1:#a8a2ec;--d2:#c99df0">
+            <h3><span class="dot"></span>Honest statuses</h3>
+            <p>Each cell says who really speaks the protocol: <b>native</b>, <b>via-bridge</b>
+               (Agentforce's REST callout fanned out by the lab), or <b>via-shim</b> (the lab proxying
+               into the Agent API).</p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section>
-      <h2>What this lab is for</h2>
+      <h2>Why agents call each other</h2>
       <p class="lede">Enterprises don't run one agent platform — the CRM agent lives in Salesforce,
         research and coding agents live elsewhere. This lab makes the connective tissue visible.</p>
-      <div class="intro-grid">
-        <div class="intro-card" style="--d1:#09decb;--d2:#3fc7d8">
-          <h3><span class="dot"></span>Compare the protocols</h3>
-          <p>The same question travels over <code>REST</code>, <code>MCP</code>, and <code>A2A</code>.
-             See where each protocol carries sessions and trace ids first-class — and where it smuggles
-             them as arguments.</p>
+      <div class="usecases">
+        <div class="usecase">
+          <div class="kick">Ground in the system of record</div>
+          <h3>CRM truth in every answer</h3>
+          <p>Any assistant can field a question, but account facts — and changes to them — must go through
+             the system of record, not model memory. Mid-answer, the agent consults the CRM agent, which
+             reads the live Account, open Opportunities and Cases <b>and can act</b>: log the interaction,
+             update a Case, open a follow-up. The customer gets one answer grounded in CRM and the record
+             reflects it — credentials never leave the platform that owns them. (Retrieval like this is the
+             lab's <i>simplest</i> example — easy to explain and to watch on the wire; the interesting part
+             is everything below.)</p>
         </div>
-        <div class="intro-card" style="--d1:#7db9e8;--d2:#a8a2ec">
-          <h3><span class="dot"></span>See the raw wire</h3>
-          <p>Every hop records its actual request and response bytes — JSON-RPC envelopes, A2A task
-             lifecycles, Agent API sessions. No reconstructions; open any trace and read the wire.</p>
+        <div class="usecase">
+          <div class="kick">Route to the domain expert</div>
+          <h3>Delegate the specialist work</h3>
+          <p>The agent that owns a conversation rarely owns every skill it needs — outside-in research,
+             contract review, logistics forecasting. It delegates to the agent built for that job and folds
+             the reply into its own, instead of impersonating an expert it isn't. Switching that leg from
+             REST to MCP to A2A is a config edit, with no redeploy on either side.</p>
         </div>
-        <div class="intro-card" style="--d1:#a8a2ec;--d2:#c99df0">
-          <h3><span class="dot"></span>Honest statuses</h3>
-          <p>Each cell says who really speaks the protocol: <b>native</b>, <b>via-bridge</b>
-             (Agentforce's REST callout fanned out by the lab), or <b>via-shim</b> (the lab proxying
-             into the Agent API).</p>
+        <div class="usecase">
+          <div class="kick">Cross the platform boundary</div>
+          <h3>Reach agents you don't host</h3>
+          <p>The specialist you need usually runs somewhere else — another vendor, another cloud, another
+             identity domain. A2A is the shared protocol that lets one agent call another <b>without
+             rebuilding it on your own stack</b> or minting a standing credential for it. That is the whole
+             reason to speak a protocol rather than collapse everything onto one platform — and the tax of
+             doing so is exactly what this lab measures.</p>
         </div>
       </div>
     </section>
@@ -7647,45 +8408,6 @@ function landingHtml() {
     </section>
 
     <section>
-      <h2>Fan-out orchestration — one task, three platforms</h2>
-      <p class="lede">Every experiment above is <b>1:1</b> — one caller, one remote agent. Real
-        enterprises aren't shaped like that. A disruption splits into independent questions owned by
-        different functions, and those functions already run different agent platforms.</p>
-
-      <div class="intro-grid">
-        <div class="intro-card" style="--d1:#09decb;--d2:#7db9e8">
-          <h3><span class="dot"></span>The scenario</h3>
-          <p>A port strike halts container traffic through Rotterdam. Within the hour: which orders are
-             exposed, what the contracts say, what to tell customers. Three questions,
-             <b>three business units</b>, three clouds — Logistics on Google ADK, Commercial on
-             Microsoft Foundry, Customer Ops on OpenAI. Each is its own dedicated agent.</p>
-        </div>
-        <div class="intro-card" style="--d1:#a8a2ec;--d2:#c99df0">
-          <h3><span class="dot"></span>Three orchestrators, one axis</h3>
-          <p>The same scenario, run by <b>three platforms</b> — who owns the concurrency. On Anthropic
-             Managed Agents the fan-out is a custom tool the <b>host</b> executes. On Google ADK it's
-             <b>declared</b> in the agent graph with <code>ParallelAgent</code>. On <b>Agentforce</b>
-             (Agent Script, D61) the only GA outbound is a serial Apex callout, so it <b>delegates</b>
-             the fan-out to the bridge — the only way a serial-outbound platform still fans out.</p>
-        </div>
-        <div class="intro-card" style="--d1:#f0a8a2;--d2:#c99df0">
-          <h3><span class="dot"></span>Partial failure is normal</h3>
-          <p>A missing leg is <b>reported, never omitted</b>: every branch gets a section and every run
-             carries a coverage line. A fan-out that quietly returns a short brief with a success code
-             is the multi-agent form of a timeout that returns HTTP 200 with nothing in it.</p>
-        </div>
-      </div>
-
-      <div class="cells-strip" style="margin-top:18px">
-        <p><b>The number this produced: 1 of 4.</b> After a clean 3/3 run — every platform returning
-          200, the brief complete, nothing reporting a problem — only <b>one</b> of the four platforms
-          could be joined back to that run from its own execution logs. One is structurally unjoinable
-          (no per-turn session exists), two hand back an id the lab never recorded. Cross-platform
-          observability degrades silently, and it degrades as the topology widens.</p>
-      </div>
-    </section>
-
-    <section>
       <h2>Beyond the runs — what the lab keeps</h2>
       <div class="intro-grid">
         <div class="intro-card" style="--d1:#3fc7d8;--d2:#7db9e8" onclick="if(requireSignIn())openObservability()">
@@ -7693,7 +8415,9 @@ function landingHtml() {
           <p>Each platform's OWN execution logs, harvested side by side — five platforms, five very
              different answers to "what did my agent do?". Token usage, cost meters, caller
              attribution, and links from a platform's private logs back to the exact lab run
-             that caused them.</p>
+             that caused them. Alongside the agent logs, the <b>infrastructure</b> beneath them —
+             cross-cloud runtime metrics (Fargate, Aurora, Lambda, Vertex, Foundry) pulled from
+             CloudWatch, GCP Cloud Monitoring and Azure Monitor into one grid.</p>
         </div>
         <div class="intro-card" style="--d1:#c99df0;--d2:#09decb" onclick="if(requireSignIn())openInsights()">
           <h3><span class="dot"></span>Insights</h3>
@@ -7714,27 +8438,7 @@ function landingHtml() {
       </div>
     </section>
 
-    <section>
-      <h2>Why agents call each other</h2>
-      <div class="usecases">
-        <div class="usecase">
-          <div class="kick">Claude → Agentforce</div>
-          <h3>CRM truth in every answer</h3>
-          <p>A general-purpose assistant fields the question, but account facts must come from the
-             system of record — not model memory. Mid-answer, Claude asks the Agentforce agent, which
-             reads the live Account, open Opportunities, and Cases via an Apex action. The customer
-             gets one answer, grounded in CRM; Salesforce credentials never leave the host.</p>
-        </div>
-        <div class="usecase">
-          <div class="kick">Agentforce → Claude</div>
-          <h3>Delegate the specialist work</h3>
-          <p>The service agent owns the customer conversation and the CRM view, but outside-in market
-             research isn't its job. It delegates to Claude through the bridge and folds the research
-             into its reply — and switching that leg from REST to MCP to A2A is a config edit, with
-             no Salesforce redeploy.</p>
-        </div>
-      </div>
-    </section>
+    ${landingWhatsDoneHtml()}
 
   </div>`;
 }
@@ -7763,12 +8467,11 @@ window.openExperiment = (kind, name, tab) => {
   // the call-path walkthrough is the content they came for.
   activeTab = tab || (labUser && labUser.role === "viewer" ? "details" : "run");
   const key = expKey(kind, name);
-  if (!chats[key]) chats[key] = { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false };
+  if (!chats[key]) chats[key] = freshChat(name);
   if (drafts[key] === undefined) {
     // Cells prefill with a question their agent answers alone (the target's
     // server-provided default); scenarios keep the CRM demo question.
-    const exp = currentExperiment();
-    drafts[key] = (exp && exp.question) || defaultQuestion;
+    drafts[key] = expDefaultPrompt(currentExperiment());
   }
   // Restore this experiment's own trace selection (fall back to its last
   // turn) — switching experiments must not lose another one's call path.
@@ -7819,10 +8522,84 @@ window.selectTurn = tid => {
   renderMain();
 };
 
+// The prompt a fresh chat starts with: the experiment's own default question
+// (scenarios and cells both carry `question`), falling back to the global
+// default. This is what makes a NEW chat open with the prompt already in the
+// composer instead of empty — the supplier scenarios in particular are useless
+// without their situation report pre-filled.
+function expDefaultPrompt(exp) {
+  return (exp && exp.question) || defaultQuestion || "";
+}
+
+// How many past chats per experiment the Run tab keeps this session
+// (A2ALAB_EXPERIMENT_CHAT_HISTORY server env, default 3).
+function chatHistoryLimit() {
+  return (labConfig && labConfig.experiment_history_limit) || 3;
+}
+
+function freshChat(name) {
+  return { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false };
+}
+
+// Archive the current chat into this experiment's session history (most-recent
+// first, capped). Only chats with a real turn are worth keeping.
+function archiveChat(key, name) {
+  const chat = chats[key];
+  if (!chat) return;
+  const firstUser = chat.turns.find(t => t.role === "user" && t.text);
+  if (!firstUser) return;
+  const list = chatArchives[key] || (chatArchives[key] = []);
+  list.unshift({
+    id: chat.session,
+    ts: new Date().toISOString().slice(0, 16).replace("T", " "),
+    title: firstUser.text.slice(0, 80),
+    chat,
+  });
+  chatArchives[key] = list.slice(0, chatHistoryLimit());
+}
+
 window.resetChat = () => {
   if (!view || view.type !== "experiment") return;
   const key = expKey(view.kind, view.name);
-  chats[key] = { session: "ui-chat-" + view.name + "-" + Date.now(), turns: [], running: false };
+  if (chats[key] && chats[key].running) return;  // don't archive a chat mid-run
+  archiveChat(key, view.name);
+  chats[key] = freshChat(view.name);
+  chats[key].selected = null;
+  selected = null;
+  chatHistoryOpen[key] = false;
+  // Repopulate the composer with the experiment's default prompt — a new chat
+  // is not a blank slate here, it starts from the scenario's own question.
+  drafts[key] = expDefaultPrompt(currentExperiment());
+  renderMain(true);
+};
+
+window.toggleChatHistory = () => {
+  if (!view || view.type !== "experiment") return;
+  const key = expKey(view.kind, view.name);
+  chatHistoryOpen[key] = !chatHistoryOpen[key];
+  renderMain(true);
+};
+
+// Switch back to an archived chat from this session. The current chat is
+// archived first (so nothing is lost by switching), then the chosen one is
+// pulled out of the archive and made live.
+window.loadPastChat = id => {
+  if (!view || view.type !== "experiment") return;
+  const key = expKey(view.kind, view.name);
+  if (chats[key] && chats[key].running) return;
+  const list = chatArchives[key] || [];
+  const item = list.find(c => c.id === id);
+  if (!item) return;
+  archiveChat(key, view.name);
+  chatArchives[key] = (chatArchives[key] || []).filter(c => c.id !== id);
+  chats[key] = item.chat;
+  chats[key].running = false;
+  // Restore this chat's own selected trace (its last user turn), so its call
+  // path shows again instead of a stale one from the chat we left.
+  const lastUser = [...(item.chat.turns || [])].reverse().find(t => t.role === "user" && t.trace_id);
+  chats[key].selected = lastUser ? lastUser.trace_id : null;
+  selected = chats[key].selected;
+  chatHistoryOpen[key] = false;
   renderMain(true);
 };
 
@@ -7830,6 +8607,22 @@ function currentExperiment() {
   if (!view || view.type !== "experiment") return null;
   if (view.kind === "scenario") return scenarios.find(s => s.name === view.name);
   return targets.find(t => t.name === view.name);
+}
+
+// The past-chats picker under the chat head: this session's archived chats for
+// the current experiment, most-recent first. Client-only, memory-only (see
+// chatArchives) — switching does not fetch anything.
+function pastChatsHtml(key) {
+  const list = chatArchives[key] || [];
+  if (!list.length) return "";
+  return `<div class="past-chats">
+    <div class="past-chats-h">Past chats this session · click to reopen</div>
+    ${list.map(c => `
+      <button class="past-chat" onclick="loadPastChat('${esc(c.id)}')" title="Reopen this chat">
+        <span class="pc-title">${esc(c.title || "(untitled)")}</span>
+        <span class="pc-meta">${esc(c.ts)} · ${(c.chat.turns || []).filter(t => t.role === "user").length} turn(s)</span>
+      </button>`).join("")}
+  </div>`;
 }
 
 function chatTurnsHtml(chat) {
@@ -7852,7 +8645,8 @@ function chatTurnsHtml(chat) {
         turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}${
         turn.af_route === "direct" ? ` · <span class="badge a2a" title="This turn's external-research leg went straight from Apex to Vertex AI Agent Engine's native A2A endpoint — no lab bridge, untraced by design">direct a2a</span>` : ""}${
         turn.af_topology === "serial" ? ` · <span class="badge agentforce" title="This turn fanned out with the SERIAL topology (D61): three stacked Apex callouts through the bridge, one per business unit. A full three-leg run overruns the 120s Apex callout budget by design — a later leg is reported unavailable rather than omitted.">serial fan-out</span>`
-        : turn.af_topology === "delegated" ? ` · <span class="badge agentforce" title="This turn fanned out with the DELEGATED topology (D61): one Apex callout to the bridge's fanout: route, which ran the three legs in parallel off-platform.">delegated fan-out</span>` : ""}</span></div>`;
+        : turn.af_topology === "delegated" ? ` · <span class="badge agentforce" title="This turn fanned out with the DELEGATED topology (D61): one Apex callout to the bridge's fanout: route, which ran the three legs in parallel off-platform.">delegated fan-out</span>` : ""}${
+        turn.dispatch_mode === "async" ? ` · <span class="badge a2a" title="This turn's fan-out legs were dispatched with the A2A ASYNC (fire-then-poll) pattern (WS11/D47): each leg's SendMessage returned a task id in ~1s, then the host polled tasks/get until a terminal state — no single request held open across the work. A leg whose protocol has no task lifecycle (an AgentCore leg) falls back to a blocking call and is reported as async→sync in the fan-out coverage line, never hidden.">async dispatch</span>` : ""}</span></div>`;
   }).join("");
 }
 
@@ -7898,6 +8692,12 @@ async function sendTurn(kind, name, message) {
     if (spec && spec.af_route_toggle) body.af_route = afRoutes[key] || "bridge";
     if (spec && spec.af_topology_toggle) body.af_topology = afTopologies[key] || "delegated";
     if (spec && spec.fanout_variant_toggle) body.variant = fanoutVariants[key] || "tool";
+    // Async dispatch only reaches the legs under the host-side "tool" variant;
+    // under "mcp" the legs run in the Lambda, so the backend ignores it. Send
+    // it only when it can take effect, so the badge does not overclaim.
+    if (spec && spec.dispatch_mode_toggle && (fanoutVariants[key] || "tool") === "tool") {
+      body.dispatch_mode = dispatchModes[key] || "sync";
+    }
   } else {
     body.target = name;
     body.via_bridge = !!viaBridges[key];
@@ -7921,6 +8721,7 @@ async function sendTurn(kind, name, message) {
     chat.turns.push({ role: "agent", text: result.text || "(empty response)",
       latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null,
       af_route: result.af_route || null, af_topology: result.af_topology || null,
+      dispatch_mode: result.dispatch_mode || null,
       via_bridge: result.via_bridge || false });
     runState[key] = { state: "ok", note: result.latency_ms != null
       ? `PASS · ${result.latency_ms} ms` : (result.async ? "running async" : "PASS") };
@@ -8130,6 +8931,45 @@ window.toggleComp = key => {
   renderMain(true);
 };
 
+// A scenario description written as inline "CAPS TITLE. body… CAPS TITLE. body…"
+// sections (config/scenarios.yaml) renders as one run-together blob when it is
+// esc()'d whole — the titles collapse into the sentences after them. Split it
+// into the console's standard section strips: each CAPS-run-then-period becomes
+// a <h6> (styled by `.flow > h6` as the uppercase muted heading) and the prose
+// after it a spaced <p>. Falls back to a single escaped paragraph when the text
+// carries no such headings, so a plain description is unaffected.
+function sectionedDescHtml(text) {
+  const src = String(text || "").trim();
+  if (!src) return "";
+  // A heading is a run of caps/spaces of length >= 6 ending in a period, at the
+  // start of the string or after a blank line — tight enough not to catch an
+  // acronym mid-sentence ("HTTP 200.") because those are not line-leading.
+  const RE = /(^|\n\s*)([A-Z][A-Z ]{5,})\.\s+/g;
+  const heads = [];
+  let m;
+  while ((m = RE.exec(src)) !== null) heads.push({ title: m[2].trim(), start: m.index + m[0].length, at: m.index });
+  if (!heads.length) return `<p>${esc(src)}</p>`;
+  const out = [];
+  // Any prose before the first heading stays as a lead paragraph.
+  const lead = src.slice(0, heads[0].at).trim();
+  if (lead) out.push(`<p>${esc(lead)}</p>`);
+  heads.forEach((h, i) => {
+    const end = i + 1 < heads.length ? heads[i + 1].at : src.length;
+    const body = src.slice(h.start, end).trim();
+    out.push(`<h6>${esc(titleCase(h.title))}</h6>`);
+    if (body) out.push(`<p>${esc(body)}</p>`);
+  });
+  return out.join("");
+}
+
+// "WHY IT NEEDS MULTIPLE AGENTS" -> "Why it needs multiple agents": a screaming
+// all-caps strip reads as shouting even in the muted heading style, and the
+// section titles elsewhere in Details are sentence case.
+function titleCase(s) {
+  const t = String(s).toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 function detailsTabHtml() {
   if (view.kind === "cell") {
     const t = currentExperiment();
@@ -8170,13 +9010,14 @@ function detailsTabHtml() {
   const sKey = expKey(view.kind, view.name);
   // The planned path honors the Run tab's current channel/route picks.
   const flow = topologyFlow(routeFlow(channelFlow(s.flow || [], afChannels[sKey]), afRoutes[sKey]), afTopologies[sKey]) || [];
+  const descHtml = sectionedDescHtml(s.description);
   return `
     <div class="flow">
       <h3>Planned call path</h3>
-      <div class="desc">${esc(s.description || "")}
-        ${s.note ? `<br><span class="stat">${esc(s.note)}</span>` : ""}
-        <br><span class="stat">${flow.length} planned hop${flow.length === 1 ? "" : "s"} · protocols: ${
-          [...new Set(flow.map(h => h.protocol))].join(", ") || "—"}${s.status !== "live" ? " · coming soon" : ""}</span>
+      ${descHtml}
+      ${s.note ? `<h6>A note on how this run behaves</h6><p class="desc-note">${esc(s.note)}</p>` : ""}
+      <div class="desc"><span class="stat">${flow.length} planned hop${flow.length === 1 ? "" : "s"} · protocols: ${
+        [...new Set(flow.map(h => h.protocol))].join(", ") || "—"}${s.status !== "live" ? " · coming soon" : ""}</span>
       </div>
       ${flow.length ? `<div class="svgwrap">${renderDiagram({ hops: flow })}</div>` : ""}
     </div>
@@ -8195,6 +9036,7 @@ function detailsTabHtml() {
         from the lab, not from a file.</span></div>
       ${(s.agents || []).map(agentRow).join("")}
     </div>` : ""}
+    ${fanoutControlsDetailHtml(s)}
     ${componentsHtml(s.components)}
     ${riderSectionHtml()}`;
 }
@@ -8274,6 +9116,20 @@ function renderMain(force) {
     el.innerHTML = monitoringHtml();
     linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
     if (monTab === "details") renderMonDiagram();   // async: lazy mermaid, like creds
+    return;
+  }
+
+  if (view.type === "infra") {
+    // window rides the key too: the Metrics tab's data changes with it, and a
+    // stale skeleton would otherwise show the previous window's grid.
+    mainKey = `infra:${infraTab}:${infraSub}:${infraWindow}`;
+    el.innerHTML = infraHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
+    // The Details pane carries the estate figure (figureHtml above); render it
+    // once the markup is in the DOM, same as the obs Details panes.
+    if (infraSub === "details") {
+      renderMermaidInto("infraFig", INFRA_DIAGRAM, "infrafig-svg");
+    }
     return;
   }
 
@@ -8395,13 +9251,22 @@ function renderMain(force) {
           <div class="chat-head">Conversation
             <span class="spacer"></span>
             <span class="sess">session ${esc(chat.session.slice(-8))}</span>
-            <button class="ghost" onclick="resetChat()">New chat</button>
+            ${(chatArchives[key] || []).length ? `<button class="ghost"
+              onclick="toggleChatHistory()"
+              title="Switch to a past chat from this browser session (up to ${chatHistoryLimit()})">
+              Past chats (${(chatArchives[key] || []).length})</button>` : ""}
+            <button class="ghost" onclick="resetChat()"
+              title="Start a new chat — the current one is kept in this session's history">New chat</button>
           </div>
+          ${chatHistoryOpen[key] ? pastChatsHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_route_toggle ? afRouteRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_topology_toggle ? afTopologyRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.fanout_variant_toggle
             ? fanoutVariantRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.dispatch_mode_toggle
+            && (fanoutVariants[key] || "tool") === "tool"
+            ? dispatchModeRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
