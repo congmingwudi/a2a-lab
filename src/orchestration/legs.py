@@ -52,9 +52,24 @@ class Leg:
 # console lied about nothing and the run looked perfect — the only way it
 # surfaced was reading the recorded hops and finding the wrong target names.
 # Anything env-dependent here has to be resolved when it is USED.
+#
+# The DEFAULTS are the DEDICATED per-unit agents (adk-logistics-a2a,
+# foundry-commercial-a2a), not the lab's shared research cells (google-adk-a2a,
+# foundry-a2a) — see this module's docstring. Pointing a default at the shared
+# researcher was its own silent bug, the twin of the one above: an env-less
+# caller (the remote fan-out Lambda, whose environment does not carry these
+# overrides unless redeployed with them) fell back to the researcher, which
+# has no shipment/route data and no leg-shaped prompt, so the Logistics leg
+# answered "I cannot fulfill this request — my capabilities are limited to
+# research tasks" instead of assessing exposure (supplier-disruption async run,
+# 2026-08-12). The default must be the agent built for the leg, not the one a
+# local .env happens to override it to.
 _TARGET_DEFAULTS = {
-    "exposure": ("A2ALAB_LEG_EXPOSURE_TARGET", "google-adk-a2a"),
-    "commercial": ("A2ALAB_LEG_COMMERCIAL_TARGET", "foundry-a2a"),
+    "exposure": ("A2ALAB_LEG_EXPOSURE_TARGET", "adk-logistics-a2a"),
+    "commercial": ("A2ALAB_LEG_COMMERCIAL_TARGET", "foundry-commercial-a2a"),
+    # No dedicated OpenAI leg agent: OpenAI's traces are write-only, so a
+    # dedicated agent would buy attribution the lab cannot read back (see the
+    # module docstring). The shared AgentCore cell is the honest default here.
     "customer_comms": ("A2ALAB_LEG_COMMS_TARGET", "openai-agentcore"),
 }
 

@@ -229,7 +229,11 @@ def test_leg_targets_resolve_lazily_not_at_import(monkeypatch):
     assert {leg.role: leg.target for leg in legs_for()}["exposure"] == "some-other-agent"
 
     monkeypatch.delenv("A2ALAB_LEG_EXPOSURE_TARGET")
-    assert {leg.role: leg.target for leg in legs_for()}["exposure"] == "google-adk-a2a"
+    # The default is the DEDICATED leg agent, not the shared researcher — an
+    # env-less caller (the remote fan-out Lambda) must still reach the agent
+    # built for the leg. Pointing this at google-adk-a2a made the Logistics leg
+    # refuse as a researcher with no shipment data (2026-08-12).
+    assert {leg.role: leg.target for leg in legs_for()}["exposure"] == "adk-logistics-a2a"
 
 
 async def test_dispatch_can_subset_roles_without_changing_behaviour():

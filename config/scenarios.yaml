@@ -1307,6 +1307,41 @@ scenarios:
       delivering briefs into CRM records rather than into an HTTP response.
 
 
+      WHAT THE POLLING LOOKS LIKE — AND WHY GOOGLE'S RESEMBLES AN ERROR.
+      Async here is A2A's own long-running-task lifecycle: `submit` returns a
+      task id in ~1s (`configuration.return_immediately`), then the orchestrator
+      polls `tasks/get` until the task reaches a terminal state (WS11, D47). The
+      two A2A legs implement that lifecycle differently, and the trace shows it.
+      Microsoft Foundry answers every poll with a fully-formed task status from
+      the first call — a clean `WORKING → COMPLETED` progression, each `tasks/get`
+      a normal success. Google's Vertex AI Agent Engine does not: its task store
+      is eventually consistent, so `tasks/get` on a task that exists but has not
+      finished returns 404, which the A2A REST transport surfaces as
+      `MethodNotFoundError: Resource not found: .../a2a/tasks/<id>`. You see a
+      string of what look like failed calls to a wrong endpoint — then, at the
+      SAME URL, the completed task with its artifact. Nothing was misaddressed
+      and no call was malformed; it is the platform saying "not ready yet" in the
+      only vocabulary a 404 has. The lab rides through it (a grace window bounded
+      by the leg deadline) and records those pre-completion polls as `pending`,
+      not as errors, because they are expected rather than broken
+      (plan/03-results.md).
+
+
+      WHY THAT IS WORTH A SECOND LOOK. A2A exists to give agent work a
+      task-management surface — ids, states, poll-for-progress — precisely so a
+      caller need not guess whether "no answer yet" means "still working" or
+      "gone". An implementation that answers an in-flight poll with a 404
+      collapses that distinction back into the ambiguity the task lifecycle was
+      meant to remove: it is the same status code a genuinely unknown task
+      returns. Foundry's immediate, fully-formed status is what the protocol
+      seems to intend; Agent Engine's 404-until-ready is defensible as an
+      eventually-consistent store, but it pushes the "transient or fatal?"
+      judgement back onto the client. That is why the lab's poller distinguishes
+      the two by POSITION — a 404 before the task has EVER been read is transient
+      and ridden through; the same error after a successful read is fatal and
+      fails the leg — rather than trusting the error to tell it which.
+
+
       WHAT IT MEASURES. Three things nothing else in the lab touches: the D27
       delegation guard under PARALLEL dispatch rather than chaining; whether a
       single run can be correlated across four platforms' own execution logs
