@@ -1791,3 +1791,89 @@ def test_monitoring_requires_sign_in(tmp_path, monkeypatch):
     # Signed in: 200 with a "not configured" note when there is no Aurora.
     assert ok.status_code == 200
     assert ok.json()["stats"] is None
+
+
+# ---- WS23: durable experiment->session map (Session Trace picker) ----------
+
+
+def test_otel_session_picker_prefers_recorded_labels(tmp_path, monkeypatch):
+    """With lab-recorded Agentforce sessions present, the picker lists THOSE
+    (labeled by experiment, newest-first) — not the raw org DMO."""
+    monkeypatch.setenv("A2ALAB_OBS_STORE", "sqlite")
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+    from observability.store import ObsStore
+
+    store = ObsStore(db_path=trace_dir / "lab.db")
+    store.upsert_session(
+        "salesforce-otel",
+        "0199-older",
+        title="Supplier Disruption — orchestrated by Agentforce · serial · async",
+        status="recorded",
+        created_at="2026-08-13T12:00:00+00:00",
+    )
+    store.upsert_session(
+        "salesforce-otel",
+        "0199-newer",
+        title="Supplier Disruption — orchestrated by Agentforce · delegated · async",
+        status="recorded",
+        created_at="2026-08-13T14:00:00+00:00",
+    )
+    store.close()
+
+    app = make_app(trace_dir, monkeypatch)
+    client = TestClient(app)
+    d = client.get("/api/obs/otel-sessions").json()
+    assert d["sessions"][0] == "0199-newer"  # newest first
+    assert set(d["sessions"]) == {"0199-newer", "0199-older"}
+    assert d["labels"]["0199-newer"]["label"].endswith("delegated · async")
+    assert d["labels"]["0199-newer"]["ts"] > d["labels"]["0199-older"]["ts"]
+    assert "recorded by lab runs" in d["detail"]
+
+
+def test_agentforce_run_records_labeled_otel_session(tmp_path, monkeypatch):
+    """An Agentforce-primary run persists its OTel-eligible session id + a label,
+    so the picker names it afterwards (the client-side map is per-visit only)."""
+    monkeypatch.setenv("A2ALAB_OBS_STORE", "sqlite")
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+
+    class _AFClient(RemoteAgentClient):
+        protocol = "rest"
+
+        async def ask(self, req: AgentRequest) -> AgentResponse:
+            return AgentResponse(
+                text="ok",
+                session_id=req.session_id,
+                latency_ms=9,
+                metadata={"agent_session_id": "af-session-uuid7"},
+            )
+
+    class _AFRegistry(Registry):
+        def __init__(self):
+            super().__init__(
+                {
+                    "agentforce-orchestrator-rest": Target(
+                        name="agentforce-orchestrator-rest",
+                        platform="agentforce",
+                        protocol="rest",
+                        status="native",
+                    )
+                }
+            )
+            self._c = _AFClient()
+
+        def client_for(self, name):
+            return self._c
+
+    app = make_app(trace_dir, monkeypatch, _AFRegistry())
+    client = TestClient(app)
+    r = client.post(
+        "/api/run", json={"target": "agentforce-orchestrator-rest", "message": "hi"}
+    ).json()
+    assert r["ok"] is True
+    assert r["session_agent_id"] == "af-session-uuid7"
+
+    d = client.get("/api/obs/otel-sessions").json()
+    assert "af-session-uuid7" in d["sessions"]
+    assert d["labels"]["af-session-uuid7"]["label"]  # named, not blank

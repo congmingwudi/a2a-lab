@@ -121,3 +121,52 @@ async def test_leg_tool_mints_a_trace_id_when_none_is_passed(monkeypatch):
     await tool("situation")
     # run_one requires a trace_id; the leg must mint one rather than fragment.
     assert captured["trace_id"]
+
+
+# --- BUG 1 regression: the synthesiser's REQUIRED {unit_<role>} template vars
+# crash the whole run (KeyError: Context variable not found: unit_exposure.) if
+# a branch ends without a final TEXT event. The ParallelAgent seeds every unit
+# state key with an attributable placeholder first; a completing branch's
+# output_key overwrites it, so the "never omit a gap" contract still holds.
+
+
+def _fanout_before_callback(orch):
+    """The seeding callback ADK stored on the ParallelAgent (it may normalize a
+    single callback into a list)."""
+    fan_out = orch.sub_agents[0]
+    cbs = getattr(fan_out, "canonical_before_agent_callbacks", None)
+    if not cbs:
+        cbs = fan_out.before_agent_callback
+    if not isinstance(cbs, list):
+        cbs = [cbs]
+    return cbs[0]
+
+
+class _FakeCbCtx:
+    def __init__(self, state):
+        self.state = state
+
+
+def test_fanout_seeds_every_unit_state_key():
+    pytest.importorskip("google.adk")
+    from orchestration import legs_for
+    from platforms.adk.agent import build_fanout_orchestrator
+
+    cb = _fanout_before_callback(build_fanout_orchestrator())
+    assert cb is not None
+    state: dict = {}
+    cb(_FakeCbCtx(state))
+    for leg in legs_for():
+        val = state[f"unit_{leg.role}"]
+        assert val.startswith("[leg unavailable:") and leg.platform in val
+
+
+def test_fanout_seed_never_overwrites_a_real_answer():
+    pytest.importorskip("google.adk")
+    from platforms.adk.agent import build_fanout_orchestrator
+
+    cb = _fanout_before_callback(build_fanout_orchestrator())
+    state = {"unit_exposure": "REAL EXPOSURE ANSWER"}
+    cb(_FakeCbCtx(state))
+    assert state["unit_exposure"] == "REAL EXPOSURE ANSWER"  # branch output wins
+    assert state["unit_commercial"].startswith("[leg unavailable:")  # gap seeded

@@ -48,11 +48,17 @@ QUESTION = (
     "06:00 today. Assess the impact for our EU manufacturing customers."
 )
 
-# Where the ADK submit+poll loop gives up. Sync completes ~134s; the async
-# internal-dispatch path overruns Agent Engine's own orchestrator task budget
-# and may never reach a terminal state — the harness records that honestly
-# rather than hanging (matches the console's pollRun deadline).
-ADK_POLL_DEADLINE_S = 210.0
+# Where the ADK submit+poll loop gives up. Sync was measured ~134s against WARM
+# leg targets; since defaulting each leg to its own DEDICATED agent
+# (adk-logistics-a2a, foundry-commercial-a2a — commit f554954) those targets are
+# exercised far less often than the shared research agents they replaced, so
+# they run cold far more often — and foundry-commercial-a2a has no `warmup: true`
+# path in the operator panel. A cold orchestrator container stacked with 2-3
+# concurrently-cold legs can legitimately clear 210s on plain SYNC leg dispatch.
+# 300s keeps real margin over that chain; it does not help async-internal, which
+# may never terminate regardless of budget. Keep equal to the console's pollRun
+# deadlineMs (src/console/static/index.html).
+ADK_POLL_DEADLINE_S = 300.0
 ADK_POLL_INTERVAL_S = 4.0
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "tmp-docs" / "orch_perm_out"

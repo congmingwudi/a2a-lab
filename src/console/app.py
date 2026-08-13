@@ -2222,10 +2222,24 @@ def create_console_app(registry: Registry | None = None):
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
         if target.protocol != "a2a" or not target.endpoint:
-            raise HTTPException(
-                status_code=409,
-                detail=f"target '{target_name}' has no A2A endpoint to serve an agent card",
-            )
+            # Not an A2A agent — e.g. the OpenAI customer-comms leg on Bedrock
+            # AgentCore, reached over agentcore-http with SigV4. There is no
+            # /.well-known card to fetch. Return an HONEST informational result
+            # (HTTP 200, ok:False, no_card:True) the console renders as a note,
+            # NOT a 409 it would render as a "server down?" error: the agent is
+            # reachable, it simply publishes no public A2A card.
+            return {
+                "ok": False,
+                "no_card": True,
+                "url": target.endpoint or target_name,
+                "protocol": target.protocol,
+                "reason": (
+                    f"'{target_name}' is reached over {target.protocol}, not A2A — "
+                    "it publishes no public agent card. The lab invokes it directly "
+                    "(SigV4 for AgentCore); there is no /.well-known/agent-card.json "
+                    "to display."
+                ),
+            }
         if target.options.get("transport"):
             # Pinned-transport target (Vertex AI Agent Engine preview): the
             # platform serves NO public card — the lab synthesizes the same
@@ -2251,7 +2265,11 @@ def create_console_app(registry: Registry | None = None):
                     "native-a2a-young insight)."
                 ),
             }
-        url = target.endpoint.rstrip("/") + "/.well-known/agent-card.json"
+        # Honor a platform-specific card route (Foundry serves its card at
+        # agentCard/v1.0, not the well-known path) — mirror the A2A client's
+        # relative_card_path so the console fetches the SAME card the client does.
+        card_path = (target.options.get("card_path") or ".well-known/agent-card.json").lstrip("/")
+        url = target.endpoint.rstrip("/") + "/" + card_path
         # Send the target's OWN configured auth header. The well-known path is
         # in EXEMPT_PATHS, which held while each face was its own server on its
         # own port — but the hosted faces are MOUNTED under a path prefix
@@ -2592,6 +2610,30 @@ def create_console_app(registry: Registry | None = None):
                 return result
             client = get_client(name)
             resp = await client.ask(req)
+            # WS23: the OTel-eligible Agentforce agent session id (a UUIDv7) the
+            # client captured — the id the Session Trace deep-link must query, NOT
+            # the lab session_id. Absent for non-Agentforce runs.
+            session_agent_id = (resp.metadata or {}).get("agent_session_id")
+            # Persist a durable experiment->session label so the Session Trace
+            # picker names this session by experiment across reloads and machines
+            # (the client-side otelSessionLabels map is per-visit only). Best
+            # effort: recording never fails the run.
+            if session_platform == "salesforce" and session_agent_id:
+                await asyncio.to_thread(
+                    _record_otel_session,
+                    session_agent_id,
+                    label=_otel_session_label(
+                        spec if scenario_name else None,
+                        name,
+                        chosen_topology,
+                        chosen_dispatch,
+                        chosen_channel,
+                        chosen_route,
+                    ),
+                    trace_id=req.trace_id,
+                    scenario=scenario_name,
+                    latency_ms=resp.latency_ms,
+                )
             return {
                 "ok": True,
                 "trace_id": req.trace_id,
@@ -2599,10 +2641,7 @@ def create_console_app(registry: Registry | None = None):
                 "latency_ms": resp.latency_ms,
                 "session_id": resp.session_id,
                 "session_platform": session_platform,
-                # WS23: the OTel-eligible Agentforce agent session id (a UUIDv7)
-                # the client captured — the id the Session Trace deep-link must
-                # query, NOT the lab session_id. Absent for non-Agentforce runs.
-                "session_agent_id": (resp.metadata or {}).get("agent_session_id"),
+                "session_agent_id": session_agent_id,
                 "af_channel": chosen_channel,
                 "af_route": chosen_route,
                 "af_topology": chosen_topology,
@@ -2791,6 +2830,44 @@ def create_console_app(registry: Registry | None = None):
         from observability import make_obs_store
 
         return make_obs_store()
+
+    # WS23 durable experiment->session map: the platform tag under which lab
+    # Agentforce runs record their OTel-eligible session id in obs_sessions, so
+    # the Session Trace picker can list them (labeled, newest-first) instead of
+    # the raw org DMO. Distinct from any harvest platform key so it never
+    # pollutes the M11 coverage columns.
+    OTEL_RUN_PLATFORM = "salesforce-otel"
+
+    def _otel_session_label(spec, name, topology, dispatch, channel, route):
+        """A human label for a recorded Agentforce session — the experiment
+        title plus the per-run variant, e.g.
+        'Supplier Disruption — orchestrated by Agentforce · delegated · async'."""
+        base = (spec or {}).get("title") or name
+        bits = [b for b in (topology, dispatch, channel, route) if b]
+        return f"{base} · {' · '.join(bits)}" if bits else base
+
+    def _record_otel_session(session_agent_id, *, label, trace_id, scenario, latency_ms):
+        """Persist an Agentforce run's OTel-eligible session id + label. Best
+        effort: a reader-only DB identity or an offline store must NOT fail the
+        run — this is an annotation for the picker, not the run's result."""
+        try:
+            from datetime import datetime, timezone
+
+            store = _obs_store()
+            try:
+                store.upsert_session(
+                    OTEL_RUN_PLATFORM,
+                    session_agent_id,
+                    lab_session_id=trace_id,
+                    title=label,
+                    status="recorded",
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                    raw={"scenario": scenario, "latency_ms": latency_ms, "trace_id": trace_id},
+                )
+            finally:
+                store.close()
+        except Exception:  # noqa: BLE001 - annotation write is never fatal
+            pass
 
     # The honest capability matrix (plan/05-observability.md) — rendered
     # live in the coverage panel next to what was actually harvested.
@@ -3835,15 +3912,66 @@ and console never present a combined dollar total across tools (WS12/D44).
 
     @app.get("/api/obs/otel-sessions")
     async def obs_otel_sessions():
-        """Recent agent-session ids for the Session Trace picker. Returns [] with
-        a `detail` (not a 500) when the obs identity or the DMO surface is
-        unavailable, so the tab explains itself rather than erroring."""
+        """Agent-session ids for the Session Trace picker.
+
+        PRIMARY source is the durable experiment->session map: sessions the lab's
+        own Agentforce runs recorded (obs_sessions, platform=salesforce-otel),
+        returned newest-first with a `labels` map so the picker names each by its
+        experiment. This is the "clear out the unlabeled noise" behaviour — once
+        lab runs exist, the raw org DMO ids are no longer listed.
+
+        FALLBACK (no lab runs recorded yet): the raw session DMO enumeration, so
+        the picker is never empty on a fresh deployment. Returns [] with a
+        `detail` (not a 500) when nothing is available, so the tab explains
+        itself rather than erroring."""
+
+        def _labels_from(rows):
+            """{id: {label, ts_ms}} from recorded obs_sessions rows — ts in epoch
+            MS to match the client's per-visit otelSessionLabels (Date.now())."""
+            from datetime import datetime
+
+            labels = {}
+            for r in rows:
+                ts_ms = 0
+                created = r.get("created_at")
+                if created:
+                    try:
+                        ts_ms = int(datetime.fromisoformat(created).timestamp() * 1000)
+                    except (ValueError, TypeError):
+                        ts_ms = 0
+                labels[r["native_id"]] = {"label": r.get("title") or r["native_id"], "ts": ts_ms}
+            return labels
+
+        def _recorded():
+            store = _obs_store()
+            try:
+                return store.list_sessions(platform=OTEL_RUN_PLATFORM, limit=40)
+            finally:
+                store.close()
 
         def _pull():
             import os
 
             from observability.salesforce_otel_source import SalesforceOtelSource
 
+            # Prefer the labeled lab-run sessions.
+            try:
+                rows = _recorded()
+            except Exception:  # noqa: BLE001 - fall through to the DMO enumeration
+                rows = []
+            if rows:
+                labels = _labels_from(rows)
+                ids = [r["native_id"] for r in rows]  # already newest-first
+                return {
+                    "sessions": ids,
+                    "labels": labels,
+                    "detail": (
+                        f"{len(ids)} Agentforce session(s) recorded by lab runs, "
+                        "newest first (paste any id for a session not run here)"
+                    ),
+                }
+
+            # Fallback: raw DMO enumeration (unlabeled) so a fresh deploy is not empty.
             if not os.environ.get("SF_MY_DOMAIN") or not os.environ.get("SF_CLIENT_ID"):
                 return {
                     "sessions": [],
@@ -3854,7 +3982,14 @@ and console never present a combined dollar total across tools (WS12/D44).
                 ids = SalesforceOtelSource().list_session_ids()
             except Exception as exc:  # noqa: BLE001 - report, don't 500
                 return {"sessions": [], "blocked": True, "detail": f"{type(exc).__name__}: {exc}"}
-            return {"sessions": ids, "detail": f"{len(ids)} recent session(s) from the session DMO"}
+            return {
+                "sessions": ids,
+                "labels": {},
+                "detail": (
+                    f"no lab-recorded sessions yet — showing {len(ids)} raw session(s) "
+                    "from the org DMO (run an Agentforce experiment to name them)"
+                ),
+            }
 
         return await asyncio.to_thread(_pull)
 

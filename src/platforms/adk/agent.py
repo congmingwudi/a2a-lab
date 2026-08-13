@@ -411,10 +411,29 @@ def build_fanout_orchestrator(dispatch_mode: str = "sync", trace_id: str | None 
             )
         )
 
+    def _seed_unit_state(callback_context):
+        """Guarantee every unit's state key exists BEFORE the branches run, so a
+        branch that ends its turn without a final TEXT event (an ADK/LLM-level
+        hiccup — our LegResult.render() never returns empty text, so this is not
+        the leg contract failing) cannot leave the synthesiser's REQUIRED
+        {unit_<role>} template variable unset and crash the whole run:
+        google.adk.utils.instructions_utils raises KeyError('Context variable
+        not found: unit_exposure.') for a missing, non-optional var. A branch
+        that DOES complete overwrites its placeholder via its own output_key, so
+        the "never omit a gap" contract is preserved — a genuinely-silent unit
+        renders as an attributable gap rather than aborting the brief."""
+        for _leg in legs_for():
+            _key = f"unit_{_leg.role}"
+            if _key not in callback_context.state:
+                callback_context.state[_key] = (
+                    f"[leg unavailable: {_leg.platform} — no response recorded]"
+                )
+
     fan_out = ParallelAgent(
         name="consult_business_units",
         sub_agents=unit_agents,
         description="Consults all three business units concurrently.",
+        before_agent_callback=_seed_unit_state,
     )
 
     from orchestration.agents import CITATION_RULE

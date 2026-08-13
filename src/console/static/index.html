@@ -378,7 +378,7 @@
   .hero-link:hover { filter: brightness(1.2); }
   .hero-badges { display: flex; gap: 6px; margin-top: 24px; flex-wrap: wrap; }
 
-  .archsvg-wrap { position: relative; z-index: 1; max-width: 1180px; margin: 34px auto 0; overflow-x: auto; }
+  .archsvg-wrap { position: relative; z-index: 1; max-width: 1180px; margin: 18px auto 0; overflow-x: auto; }
   .archsvg { display: block; width: 100%; max-width: 760px; height: auto; margin: 0 auto; }
   .archsvg text { font-family: var(--font-mono); }
 
@@ -3496,6 +3496,13 @@ async function loadOtelSessions() {
     const r = await fetch(apiUrl("/api/obs/otel-sessions"));
     const d = await r.json();
     obs.otel.sessions = d.sessions || [];
+    obs.otel.detail = d.detail || "";
+    // Merge the DURABLE experiment->session labels the server recorded (WS23)
+    // into the per-visit map, so sessions run in earlier visits or on another
+    // machine are still named. A this-visit label (fresher ts) wins on conflict.
+    if (d.labels) for (const [id, m] of Object.entries(d.labels)) {
+      if (!otelSessionLabels[id] || (m.ts || 0) > (otelSessionLabels[id].ts || 0)) otelSessionLabels[id] = m;
+    }
     if (d.blocked || !obs.otel.sessions.length) obs.otel.listErr = d.detail || "";
   } catch (e) { obs.otel.sessions = []; obs.otel.listErr = String(e); }
   obs.otel.loading = false;
@@ -3990,7 +3997,7 @@ function obsSessionTraceHtml() {
     ? `<span class="stat">enumerating recent sessions…</span>`
     : (o.listErr ? `<span class="stat">${esc(o.listErr)}</span>`
       : (sessions.length
-        ? `<span class="stat">${sessions.length} recent session(s) from the session DMO${
+        ? `<span class="stat">${o.detail ? esc(o.detail) : `${sessions.length} recent session(s)`}${
             known.length ? ` — the ${known.length} you ran this visit are named and listed first` : ""} · or paste any id (72h lookback)</span>`
         : `<span class="stat">no sessions enumerated — paste a session id below (72h lookback)</span>`));
 
@@ -4077,10 +4084,16 @@ standards-shaped.
 ### What produces it
 
 Each **Fetch** is one live GET, authenticated as the **a2a_lab_obs External Client App** — the same
-F6 per-caller obs identity the DMO harvest uses (D37), client-credentials flow. There is **no store write**:
-this endpoint (\`/api/obs/otel-trace\`) never touches \`lab.obs_sessions\`/\`obs_events\`. The picker's list
-comes from \`/api/obs/otel-sessions\` (a thin id-only query on the session DMO, or the \`A2ALAB_OTEL_SESSION_IDS\`
-env list), because the API takes one session id at a time.
+F6 per-caller obs identity the DMO harvest uses (D37), client-credentials flow. The fetch endpoint
+(\`/api/obs/otel-trace\`) is read-only — it never writes a store.
+
+The **picker's list** (\`/api/obs/otel-sessions\`) prefers the **durable experiment→session map** (WS23):
+when an Agentforce experiment runs, the console records that run's OTel-eligible agent-session id and a
+label — experiment title plus per-run variant — into \`lab.obs_sessions\` under \`salesforce-otel\`. So the
+picker lists sessions **named by their experiment, newest first**, and the raw org-wide session ids drop
+out of view. On a fresh deployment, before any lab run has been recorded, it falls back to a thin id-only
+enumeration of the session DMO so the picker is never empty. Either way the API itself takes one session
+id at a time.
 
 ### Why this is NOT the live harvest (D73)
 
@@ -4214,6 +4227,12 @@ const FANOUT_HELP = {
 const DISPATCH_HELP = {
   sync: "synchronous: one blocking call per leg that returns only when the agent is done (every run before WS11).",
   async: "async (fire-then-poll): submit the work, get a task id back in ~1s, then poll until it completes — no single request held open across the agent's work (dissolves the gateway ceiling, WS11/D47). Now reaches BOTH topologies: under host-side tool our code runs submit+poll against the A2A legs (ADK, Foundry); under remote MCP tools async selects a fire-then-poll SYSTEM prompt so the MODEL calls submit_<unit>/check_task on the Lambda (which mimics the A2A task lifecycle in MCP). Legs whose protocol has no task lifecycle (an AgentCore leg) fall back to a blocking call, reported async→sync rather than hidden.",
+};
+// The Agentforce orchestrator's fan-out topology (WS8 variant 3, D61). Same
+// hover-help pattern as the two maps above: the short line rides each radio.
+const AF_TOPOLOGY_HELP = {
+  delegated: "delegated (parallel, off-platform): the agent makes ONE serial Apex callout to the bridge's fanout: route, and the bridge runs the three business-unit legs in parallel off-platform, then returns the assembled answer inside that single held-open callout. This is the default that works — the platform's one GA outbound stays within the 120s Apex transaction budget because the parallelism happens outside Apex.",
+  serial: "serial (native Apex): Agentforce itself calls each leg in turn via three stacked Apex callouts (~110s each). Three sequential legs overrun the 120s transaction budget, so a full three-leg run DEGRADES by design — the constraint is the finding, not a bug.",
 };
 
 function qhelp(text) {
@@ -4538,9 +4557,9 @@ function afTopologyRowHtml(key) {
   <div class="chan-row">
     <span class="chan-label">Fan-out topology</span>
     <label><input type="radio" name="afTopology" value="delegated" ${tp === "delegated" ? "checked" : ""}
-      onchange="setAfTopology('delegated')"> delegated (parallel, off-platform)</label>
+      onchange="setAfTopology('delegated')"> delegated (parallel, off-platform)</label>${qhelp(AF_TOPOLOGY_HELP.delegated)}
     <label><input type="radio" name="afTopology" value="serial" ${tp === "serial" ? "checked" : ""}
-      onchange="setAfTopology('serial')"> serial (native Apex)</label>
+      onchange="setAfTopology('serial')"> serial (native Apex)</label>${qhelp(AF_TOPOLOGY_HELP.serial)}
     <span class="chan-hint">Agentforce's only GA outbound is a SERIAL Apex callout. Delegated makes ONE
       callout to the bridge's <code>fanout:</code> route, which runs the three legs in parallel
       off-platform; serial has Apex call each leg in turn — three ~110s callouts that overrun the
@@ -8708,7 +8727,7 @@ function landingHtml() {
         </div>
       </div>
       <div class="archsvg-wrap">${archSvg()}</div>
-      <div class="hero-inner" style="margin-top:8px">
+      <div class="hero-inner" style="margin-top:24px">
         <div class="intro-grid">
           <div class="intro-card" style="--d1:#09decb;--d2:#3fc7d8">
             <h3><span class="dot"></span>Compare the protocols</h3>
@@ -9057,8 +9076,12 @@ function isViewingExperiment(kind, name) {
 // Returns a normal sendTurn result ({ok, text, ...} or {ok:false, error}).
 async function pollRun(poll, trace_id) {
   const startS = (turnWindows[trace_id] && turnWindows[trace_id].start) || (Date.now() / 1000);
-  const deadlineMs = 210000;   // sync ADK completes ~134s; async-internal never
-  const intervalMs = 4000;     // terminates → honest timeout past the deadline.
+  const deadlineMs = 300000;   // sync ADK completes ~134s WARM; the dedicated
+  const intervalMs = 4000;     // legs (adk-logistics/foundry-commercial, since
+                               // f554954) run cold more often and can push that
+                               // past 210s on plain sync dispatch. async-internal
+                               // never terminates → honest timeout past the
+                               // deadline. Keep equal to orch_permutations.py.
   const t0 = Date.now();
   while (Date.now() - t0 < deadlineMs) {
     await new Promise(r => setTimeout(r, intervalMs));
@@ -9393,6 +9416,10 @@ function agentRow(a) {
   if (open) {
     if (!c) {
       body = `<div class="cardbox"><pre>fetching live agent card…</pre></div>`;
+    } else if (c.no_card) {
+      // Reachable agent that publishes no public A2A card (e.g. AgentCore over
+      // agentcore-http/SigV4). Honest note, not a server-down error.
+      body = `<div class="cardbox"><p class="caption">${esc(c.reason || "This agent publishes no public A2A agent card.")}</p></div>`;
     } else if (!c.ok) {
       body = `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
         <pre style="color:var(--err)">${esc(c.error)}
@@ -9401,6 +9428,7 @@ Is that server running? scripts/run_local.sh starts the full stack.</pre></div>`
     } else {
       const tab = cardTab[a.target] || "fields";
       body = `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
+        ${c.synthesized && c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
         <div class="tabs">
           <button class="tab ${tab === "fields" ? "on" : ""}" onclick="setCardTab('${esc(a.target)}', 'fields')">Agent card</button>
           <button class="tab ${tab === "json" ? "on" : ""}" onclick="setCardTab('${esc(a.target)}', 'json')">JSON</button>
@@ -9562,7 +9590,7 @@ function detailsTabHtml() {
       </ol>
     </div>` : ""}
     ${(s.agents || []).length ? `<div class="flow">
-      <h3>Agent cards — the agents at each end</h3>
+      <h3>Agent cards — the agents in this experiment</h3>
       <div class="desc"><span class="stat">A2A AgentCards are generated at runtime by each running server
         and published at <code>/.well-known/agent-card.json</code> — what you see below is fetched live
         from the lab, not from a file.</span></div>

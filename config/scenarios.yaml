@@ -1405,6 +1405,27 @@ scenarios:
         detail: "Synthesis. The orchestrator receives all three sections plus
           a coverage line and writes one brief. Delivery into Salesforce reuses
           the D16/D17 brief path."
+    # The three business-unit legs (the orchestrator is an Anthropic Managed
+    # Agent — a declarative control-plane object with no public A2A card, so it
+    # has no card to fetch; it is drawn in the flow above).
+    agents:
+      - title: "Logistics BU — exposure (Google ADK · Gemini)"
+        target: adk-logistics-a2a
+        caption: >-
+          Fan-out leg 1. The Logistics unit's OWN Agent Engine deployment. Its
+          A2A card is synthesized locally — Agent Engine's preview A2A surface
+          serves no public card route, so the client pins the transport (D26).
+      - title: "Commercial / Legal BU — contract & penalty position (Microsoft Foundry)"
+        target: foundry-commercial-a2a
+        caption: >-
+          Fan-out leg 2. gpt-5-mini on Microsoft Foundry over its native inbound
+          A2A (Entra-authed). Honest status: native.
+      - title: "Customer operations BU — customer comms (OpenAI · Bedrock AgentCore)"
+        target: openai-agentcore
+        caption: >-
+          Fan-out leg 3. The OpenAI agent on Bedrock AgentCore, reached over
+          agentcore-http with SigV4 — not A2A, so it publishes no public agent
+          card.
 
   supplier-disruption-adk:
     group: fan-out
@@ -1524,6 +1545,30 @@ scenarios:
         protocol: a2a
         detail: "The synthesiser reads the three state keys and writes one
           brief, reporting any unit that did not answer as an explicit gap."
+    agents:
+      - title: "Orchestrator — ParallelAgent fan-out (Google ADK · Agent Engine)"
+        target: adk-orchestrator-a2a
+        caption: >-
+          The declared fan-out itself: SequentialAgent[ParallelAgent[3 units] →
+          synthesiser], its own Agent Engine deployment. A2A card synthesized
+          locally (preview A2A serves no public card route).
+      - title: "Logistics BU — exposure (Google ADK · Gemini)"
+        target: adk-logistics-a2a
+        caption: >-
+          Fan-out leg 1. The Logistics unit's OWN Agent Engine deployment. Its
+          A2A card is synthesized locally — Agent Engine's preview A2A surface
+          serves no public card route, so the client pins the transport (D26).
+      - title: "Commercial / Legal BU — contract & penalty position (Microsoft Foundry)"
+        target: foundry-commercial-a2a
+        caption: >-
+          Fan-out leg 2. gpt-5-mini on Microsoft Foundry over its native inbound
+          A2A (Entra-authed). Honest status: native.
+      - title: "Customer operations BU — customer comms (OpenAI · Bedrock AgentCore)"
+        target: openai-agentcore
+        caption: >-
+          Fan-out leg 3. The OpenAI agent on Bedrock AgentCore, reached over
+          agentcore-http with SigV4 — not A2A, so it publishes no public agent
+          card.
 
   supplier-disruption-agentforce:
     group: fan-out
@@ -1680,3 +1725,27 @@ scenarios:
           The bridge returns the three rendered sections plus a coverage line in
           one response. The orchestrator synthesises the brief on-platform,
           reporting any leg the fan-out marked unavailable as an explicit gap.
+    agents:
+      - title: "Orchestrator — Supply Orchestrator (Salesforce Agentforce)"
+        target: agentforce-orchestrator-rest
+        caption: >-
+          Authored in Agent Script (D14) and reached over the GA Agent API.
+          Agentforce publishes no native A2A card, so there is none to fetch —
+          the fan-out happens off-platform at the bridge (D61).
+      - title: "Logistics BU — exposure (Google ADK · Gemini)"
+        target: adk-logistics-a2a
+        caption: >-
+          Fan-out leg 1. The Logistics unit's OWN Agent Engine deployment. Its
+          A2A card is synthesized locally — Agent Engine's preview A2A surface
+          serves no public card route, so the client pins the transport (D26).
+      - title: "Commercial / Legal BU — contract & penalty position (Microsoft Foundry)"
+        target: foundry-commercial-a2a
+        caption: >-
+          Fan-out leg 2. gpt-5-mini on Microsoft Foundry over its native inbound
+          A2A (Entra-authed). Honest status: native.
+      - title: "Customer operations BU — customer comms (OpenAI · Bedrock AgentCore)"
+        target: openai-agentcore
+        caption: >-
+          Fan-out leg 3. The OpenAI agent on Bedrock AgentCore, reached over
+          agentcore-http with SigV4 — not A2A, so it publishes no public agent
+          card.
