@@ -2644,7 +2644,7 @@ function traceSectionHtml(t, title, flow) {
             <span class="td"> · ${esc(h.transport_detail || "")}</span></span>
           ${h._leg ? `<span class="badge internal" title="Hop from the Salesforce-initiated leg — Apex minted its own trace id ${esc(h._leg)}">leg ${esc(h._leg.slice(0, 8))}…</span>` : ""}
           ${h.status === "error" ? `<span class="err">ERROR</span>` : ""}
-          ${h.status === "pending" ? `<span class="badge a2a" title="Expected: an async poll during the eventually-consistent window right after submit — the task store had not caught up yet, so this tasks/get returned not-found. The runner rides through these until the task appears; the leg completes (WS11).">waiting for task</span>` : ""}
+          ${h.status === "pending" ? `<span class="badge a2a" title="Expected: Agent Engine's task store is eventually consistent, so this tasks/get returned not-found — either in the window right after submit, or flapping between later polls even after an earlier read succeeded. Not a fault: a read proves the endpoint serves tasks, so the runner rides these through until the task appears and the leg completes (WS11).">waiting for task</span>` : ""}
           <span class="lat">${h.latency_ms != null ? h.latency_ms + " ms" : ""} · ${fmtTime(h.ts)}</span>
         </div>
         <div class="hop-body">
@@ -2862,7 +2862,18 @@ function renderList() {
 // Observability (M11.3) — each platform's interior view of the lab's runs,
 // read from the local harvest store (never a live platform proxy).
 // ---------------------------------------------------------------------------
-let obs = { summary: null, sessions: [], events: null, harvesting: false };
+let obs = { summary: null, sessions: [], events: null, harvesting: false,
+  // WS23 Session Trace tab: a LIVE beta OTel API read for one session. `sessions`
+  // is null until first enumerated (the picker), `result` holds the last fetch.
+  otel: { sessions: null, selected: "", result: null, loading: false, listErr: "" } };
+
+// Session id -> the experiment that produced it, learned as Agentforce-primary
+// turns complete this browser session (sendTurn populates it). The OTel session
+// picker enumerates the org's raw session ids, which say nothing about which run
+// created them; this lets the picker label the ones WE just generated (with a
+// recency stamp) and float them to the top, without inventing names for sessions
+// we did not create. `ts` is a client Date.now() for fmtAgo.
+let otelSessionLabels = {};
 
 const fmtTokens = n => !n ? "0" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n);
 const fmtAgo = ts => {
@@ -2977,6 +2988,7 @@ async function loadBriefs() {
 const OBS_TABS = [
   ["dashboard", "Dashboard"],
   ["observability", "Observability Analysis"],
+  ["session-trace", "Session Trace"],
   ["tableau", "Tableau Next"],
 ];
 // Brief kinds keyed by tab id — `null` for the dashboard, which reads the
@@ -2984,11 +2996,13 @@ const OBS_TABS = [
 // to have a "Cost Analysis" tab here too; they now live ONLY in the Coding
 // Agents Telemetry → Cost tab (WS9/WS12), where the tokens and modelled cost
 // they explain also live, so the same brief is not rendered in two sections.
-const OBS_TAB_KIND = { dashboard: null, observability: "observability", tableau: null };
+const OBS_TAB_KIND = { dashboard: null, observability: "observability", "session-trace": null, tableau: null };
 
 window.setObsTab = t => {
   obs.tab = t;
   obs.sub = "main";   // a new tab opens on its content, never on its Details
+  // Session Trace enumerates its picker lazily, the first time it is opened.
+  if (t === "session-trace" && obs.otel.sessions === null && !obs.otel.loading) loadOtelSessions();
   renderMain(true);
 };
 
@@ -3311,9 +3325,11 @@ useful for **any** Tableau Next or Lightning Out external embed (D72):
 - **1 · TWO CSP allowlists, opposite directions — you need both.** The browser blocks the iframe with
   \`Refused to frame … violates … frame-ancestors\`. The trap is assuming one CSP lever does the whole
   job; there are two, on opposite sides of the frame boundary. **\`frame-ancestors\`** (who may *frame
-  the org*) is the one that clears this error, and it is set **only** in **Setup → Session Settings →
-  Clickjack Protection → Trusted Domains for Inline Frames**, origin added with **IFrame Type =
-  LightningOut** — **UI-only**, *not* a field on the \`SecuritySettings\` metadata type. Separately, a
+  the org*) is the one that clears this error; the console origin goes in the org's **Trusted Domains
+  for Inline Frames** (Setup → Session Settings → Clickjack Protection) with **IFrame Type =
+  LightningOut**. It is *not* a field on the \`SecuritySettings\` metadata type, but it IS carried by the
+  dedicated **\`IframeWhiteListUrlSettings\`** type — so it ships as **metadata (headless)**, not UI-only
+  (\`sf project deploy\`, validated check-only). Separately, a
   **\`CspTrustedSite\` (\`context = LightningOut\`)** governs \`frame-src\`/\`connect-src\`/\`img-src\`/etc.
   on the framed content — what the dashboard *itself* may load — and ships as metadata. They are
   complementary, not redundant: Salesforce's own built-in **Slack** Lightning Out embed ships both (a
@@ -3465,6 +3481,63 @@ window.openObsSession = async (platform, sessionId) => {
   obs.events = null;
   renderMain(true);
   await fetchObsEvents(platform, sessionId);
+};
+
+// -- WS23 Session Trace tab: LIVE beta OTel API reads -----------------------
+// The picker's session list — enumerated once, lazily, when the tab is opened.
+async function loadOtelSessions() {
+  obs.otel.loading = true;
+  obs.otel.listErr = "";
+  // Re-render NOW so the refresh indicator shows "refreshing…" the moment the
+  // button is pressed; without this the tab looked frozen until the fetch
+  // returned (the operator could not tell the refresh was working).
+  if (view && view.type === "obs" && obs.tab === "session-trace") renderMain(true);
+  try {
+    const r = await fetch(apiUrl("/api/obs/otel-sessions"));
+    const d = await r.json();
+    obs.otel.sessions = d.sessions || [];
+    if (d.blocked || !obs.otel.sessions.length) obs.otel.listErr = d.detail || "";
+  } catch (e) { obs.otel.sessions = []; obs.otel.listErr = String(e); }
+  obs.otel.loading = false;
+  if (view && view.type === "obs" && obs.tab === "session-trace") renderMain(true);
+}
+
+// Fetch ONE session's trace live from the beta OTel API.
+window.fetchOtelTrace = async sid => {
+  sid = (sid || "").trim();
+  if (!sid) return;
+  obs.otel.selected = sid;
+  obs.otel.result = { loading: true };
+  if (view && view.type === "obs") renderMain(true);
+  try {
+    const r = await fetch(apiUrl("/api/obs/otel-trace") +
+      (window.location.search ? "&" : "?") + `session_id=${encodeURIComponent(sid)}`);
+    obs.otel.result = await r.json();
+  } catch (e) { obs.otel.result = { found: false, enabled: false, detail: String(e) }; }
+  if (view && view.type === "obs") renderMain(true);
+};
+
+// Fetch button: the pasted id wins over the dropdown selection.
+window.fetchOtelFromInput = () => {
+  const inp = document.getElementById("otelInput");
+  const sel = document.getElementById("otelSel");
+  fetchOtelTrace((inp && inp.value.trim()) || (sel && sel.value) || "");
+};
+
+// Deep-link target from an Agentforce experiment turn: jump to the Session
+// Trace tab and fetch the run's session immediately. view.session stays null so
+// the tabbed canvas renders (view.session would trigger the platform-interior
+// session-detail branch instead).
+window.openOtelTrace = sid => {
+  const acc = document.getElementById("accObs");
+  if (acc) acc.open = true;
+  pushNav();
+  view = { type: "obs", platform: null, session: null };
+  obs.tab = "session-trace";
+  obs.sub = "main";
+  if (obs.otel.sessions === null && !obs.otel.loading) loadOtelSessions();
+  renderSidebar();
+  fetchOtelTrace(sid);   // re-renders main itself
 };
 
 window.harvestObs = async ev => {
@@ -3884,6 +3957,152 @@ function obsSessionDetailHtml() {
   </div>`;
 }
 
+// WS23/D73 Session Trace tab: a LIVE, single-session read of the Agentforce
+// Session Trace OTel API. Not the harvest store — it hits the beta endpoint on
+// each Fetch. The picker enumerates recent sessions; a pasted id always wins.
+function obsSessionTraceHtml() {
+  const o = obs.otel;
+  const sessions = o.sessions || [];
+
+  // Order the picker so the sessions the operator just generated are first and
+  // named: known-labeled ids (newest run first), then any enumerated ids we
+  // have no label for. A labeled id is included even if the DMO enumeration has
+  // not caught up to it yet (the store is eventually consistent right after a run).
+  const known = Object.keys(otelSessionLabels).sort((a, b) => otelSessionLabels[b].ts - otelSessionLabels[a].ts);
+  const rest = sessions.filter(s => !otelSessionLabels[s]);
+  const ordered = [...known, ...rest];
+  const shortId = s => s.length > 26 ? s.slice(0, 12) + "…" + s.slice(-8) : s;
+  const optText = s => {
+    const m = otelSessionLabels[s];
+    return m ? `${shortId(s)} — ${m.label} · ${fmtAgo(m.ts / 1000)}` : shortId(s);
+  };
+  const opts = ordered.map(s =>
+    `<option value="${esc(s)}"${s === o.selected ? " selected" : ""}>${esc(optText(s))}</option>`).join("");
+
+  // Refresh indicator — running / ok / unavailable, so the ↻ button visibly
+  // does something (matches the .pill status style used elsewhere).
+  const refreshPill = o.loading
+    ? `<span class="pill">refreshing…</span>`
+    : (o.sessions === null ? ``
+      : (o.listErr ? `<span class="pill warn">list unavailable</span>`
+        : `<span class="pill ok">✓ ${sessions.length} session(s)</span>`));
+  const listNote = (o.loading && o.sessions === null)
+    ? `<span class="stat">enumerating recent sessions…</span>`
+    : (o.listErr ? `<span class="stat">${esc(o.listErr)}</span>`
+      : (sessions.length
+        ? `<span class="stat">${sessions.length} recent session(s) from the session DMO${
+            known.length ? ` — the ${known.length} you ran this visit are named and listed first` : ""} · or paste any id (72h lookback)</span>`
+        : `<span class="stat">no sessions enumerated — paste a session id below (72h lookback)</span>`));
+
+  const picker = `<div class="obs-card">
+    <h4>Agentforce agent sessions</h4>
+    <div class="desc"><span class="stat"><b>Agentforce agents only.</b> This tab reads live OpenTelemetry
+      spans from the beta Agentforce Session Trace API (Data 360) for a single Agentforce session. Other
+      platforms' execution traces are on the Observability tab, not here.</span></div>
+    <div class="desc" style="margin-top:6px"><span class="stat">Pick a recent agent session (the ones you ran
+      this visit are named after their experiment and shown first) or paste a session id, then fetch its trace
+      <b>live</b>. See Details for how this differs from the harvested dashboard.</span></div>
+    <div class="desc" style="margin-top:6px"><span class="stat"><b>A session you just ran won't be here yet.</b>
+      Salesforce ingests the trace into the Data 360 store on a lag (typically several minutes, ~7–10 min), so a
+      just-finished run neither shows in this list nor returns a trace until it lands — ↻ refresh list and Fetch
+      trace both wait on the same ingestion. This is platform latency, not a missing session.</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+      <label for="otelSel" class="stat" style="align-self:center">Agentforce agent sessions:</label>
+      <select id="otelSel" style="min-width:320px">${
+        ordered.length ? `<option value="">— recent Agentforce agent sessions —</option>${opts}` : `<option value="">(none enumerated yet — see ingestion lag above)</option>`}</select>
+      <input id="otelInput" class="obs-search" type="text" placeholder="or paste a session id"
+        style="min-width:280px" value="${esc(o.selected || "")}"
+        onkeydown="if(event.key==='Enter'){fetchOtelFromInput();return false;}">
+      <button class="primary" onclick="fetchOtelFromInput()">Fetch trace</button>
+      <button class="ghost" onclick="loadOtelSessions()" title="Re-enumerate recent sessions">↻ refresh list</button>
+      ${refreshPill}
+    </div>
+    <div style="margin-top:8px">${listNote}</div>
+  </div>`;
+
+  const r = o.result;
+  let result;
+  if (r && r.loading) {
+    result = `<div class="obs-card"><span class="stat">fetching trace for ${esc(o.selected)}…</span></div>`;
+  } else if (r && !r.found) {
+    const why = !r.enabled
+      ? `The Session Trace OTel API is not returning data for this org/user. It is <b>beta</b> and must be enabled;
+         the lab's live obs harvest stays on the Data Cloud DMO path regardless (D73).`
+      : `No trace for this session id <b>yet</b>. The most common reason right after a run is <b>ingestion lag</b>:
+         Salesforce takes several minutes (~7–10 min) to land the session's spans in the Data 360 store, so a
+         just-finished run 404s until then — wait and Fetch again. Otherwise the session may have aged out (72h
+         lookback). The deep-link now uses the real Agent API session id, so an id mismatch is no longer the cause.`;
+    result = `<div class="obs-card">
+      <h4>No trace</h4>
+      <div class="desc">${why}</div>
+      <div class="desc" style="margin-top:6px"><span class="stat">${esc(r.detail || "")}</span></div>
+    </div>`;
+  } else if (r && r.found) {
+    const rows = (r.spans || []).map(s => `<tr>
+      <td>${esc((s.name || "").slice(0, 60))}</td>
+      <td><span class="badge">${esc((s.type || "").replace(/^otel\./, ""))}</span></td>
+      <td class="fmono">${esc((s.start || "").replace("T", " ").slice(0, 19))}</td>
+      <td>${esc(s.status || "")}</td>
+      <td>${esc((s.summary || "").slice(0, 120))}</td>
+    </tr>`).join("");
+    result = `<div class="flow">
+      <h3>Session ${esc(r.session_id)} <span class="stat" style="float:right">${r.span_count} span(s) · OTLP</span></h3>
+      ${r.span_count ? `<table class="obs-tbl">
+        <thead><tr><th>span</th><th>type</th><th>start (UTC)</th><th>status</th><th>summary</th></tr></thead>
+        <tbody>${rows}</tbody></table>`
+        : `<div class="desc"><span class="stat">the document returned no spans</span></div>`}
+      <details style="margin-top:12px">
+        <summary class="stat">Raw OTLP resourceSpans (wire bytes)</summary>
+        <pre>${esc(pretty(r.raw))}</pre>
+      </details>
+    </div>`;
+  } else {
+    result = `<div class="obs-card"><div class="desc"><span class="stat">No trace fetched yet. This tab makes a
+      <b>live</b> call to the Agentforce Session Trace OpenTelemetry API (beta) for a single session — one GET per
+      session, over the same Data 360 record the dashboard harvests in bulk. Pick or paste a session above.</span></div></div>`;
+  }
+  return `<div class="flow">${picker}${result}</div>`;
+}
+
+function obsSessionTraceDetailsHtml() {
+  const md = `### What this tab shows
+
+The **OpenTelemetry trace for one Agentforce session**, fetched live from the beta
+[Session Trace OTel API](https://developer.salesforce.com/docs/ai/agentforce/guide/otel-api.html) —
+\`GET /services/data/v66.0/einstein/audit/otel/{session-id}\`. It returns the session as an OTLP/JSON
+\`resourceSpans\` document (turns, LLM calls, actions, metric scores) — the SAME Data 360 record the
+Dashboard's harvest assembles by hand from four session-tracing DMOs, but pre-joined by the server and
+standards-shaped.
+
+### What produces it
+
+Each **Fetch** is one live GET, authenticated as the **a2a_lab_obs External Client App** — the same
+F6 per-caller obs identity the DMO harvest uses (D37), client-credentials flow. There is **no store write**:
+this endpoint (\`/api/obs/otel-trace\`) never touches \`lab.obs_sessions\`/\`obs_events\`. The picker's list
+comes from \`/api/obs/otel-sessions\` (a thin id-only query on the session DMO, or the \`A2ALAB_OTEL_SESSION_IDS\`
+env list), because the API takes one session id at a time.
+
+### Why this is NOT the live harvest (D73)
+
+The OTel API is **single-session** (no bulk read), **72h lookback**, and **beta**. Those limits mean it
+cannot back the "harvested from all platforms" coverage sweep — so the **DMO batch path stays the live
+harvest** (\`salesforce\`), and this ships alongside it under its own name (\`salesforce-otel\`, WS23), not in
+the unqualified sweep. When the API leaves beta and grows a bulk read, promoting it to the live path is a
+one-line change in \`obs_harvest\`'s \`PLATFORM_SOURCES\` — building it now is what makes that a one-liner.
+
+### Bounds and caveats
+
+- **Live, per session** — a beta endpoint hit on demand, not cached; a fetch can 404 (unknown / aged-out).
+- **Id mapping is unverified** — the runtime agent-session id the endpoint wants (\`ssot__AiAgentSessionId__c\`)
+  may differ from the Agent API session id a run reports; a mismatch reads as "no trace", not an error.
+- **Same data, standard view** — it buys the server's join and a stable schema, not different data
+  (plan/05-observability.md).`;
+  return `<div class="flow">
+    ${figureHtml("obsOtelFig", "The path behind it — live OTel API vs the DMO harvest")}
+    ${mdToHtml(md)}
+  </div>`;
+}
+
 // ---------------------------------------------------------------------------
 // Insights — the trusted-advisor findings (config/insights.yaml), grouped by
 // category, with the deck-ready markdown export. Plus the deployment-mode
@@ -3989,12 +4208,12 @@ window.setFanoutVariant = v => {
 // long copy OUT of the Run tab keeps it compact (the user's ask); the Details
 // tab is where "what produces this / how it behaves" belongs (D57).
 const FANOUT_HELP = {
-  tool: "host-side tool: one custom tool, the fan-out runs on this console process and the host picks the order; a leg is bounded only by our own patience (120s).",
-  mcp: "remote MCP tools: one tool per business unit on a hosted MCP server — the MODEL chooses what to call and whether to call them together. Each leg runs inside an API Gateway request, so it inherits the 29s integration ceiling (25s/leg): a warm leg (~17s) fits, a COLD platform (Agent Engine ~34s, AgentCore 31–56s) times out. Warm the runtimes first, or use async on the host-side tool.",
+  tool: "host-side custom tool: the model only decides WHEN to call it — the tool BODY runs host-side, in the backend that drives the session (here the console's own container on AWS Fargate), not in Anthropic's sandbox and not a separate service. That host runs the fan-out and picks the order; a leg is bounded only by our own patience (120s).",
+  mcp: "remote MCP tools: one tool per business unit on OUR OWN hosted MCP server (the lab's fan-out server on AWS Lambda — not a native MCP endpoint from Google/OpenAI/Microsoft; it wraps their agents). The MODEL chooses what to call and whether to call them together. In SYNC the model calls the blocking consult_* tools, each running inside an API Gateway request, so it inherits the 29s integration ceiling (25s/leg): a warm leg (~17s) fits, a COLD platform (Agent Engine ~34s, AgentCore 31–56s) times out. Warm the runtimes first, or switch dispatch to ASYNC — the model then calls submit_<unit> (returns a task id in ~1s) and polls check_task, so no request is held open across the leg (WS11 items 6-7).",
 };
 const DISPATCH_HELP = {
   sync: "synchronous: one blocking call per leg that returns only when the agent is done (every run before WS11).",
-  async: "async (fire-then-poll): submit the work, get a task id back in ~1s, then poll tasks/get until it completes — no single request held open across the agent's work (dissolves the gateway ceiling, WS11/D47). Only the A2A legs (ADK, Foundry) implement the async half; the AgentCore comms leg has no task lifecycle and falls back to a blocking call, which the run reports rather than hides.",
+  async: "async (fire-then-poll): submit the work, get a task id back in ~1s, then poll until it completes — no single request held open across the agent's work (dissolves the gateway ceiling, WS11/D47). Now reaches BOTH topologies: under host-side tool our code runs submit+poll against the A2A legs (ADK, Foundry); under remote MCP tools async selects a fire-then-poll SYSTEM prompt so the MODEL calls submit_<unit>/check_task on the Lambda (which mimics the A2A task lifecycle in MCP). Legs whose protocol has no task lifecycle (an AgentCore leg) fall back to a blocking call, reported async→sync rather than hidden.",
 };
 
 function qhelp(text) {
@@ -4040,6 +4259,41 @@ function dispatchModeRowHtml(key) {
   </div>`;
 }
 
+// WS11/D76: the Agentforce controller can only take the ASYNC half of A2A by
+// proxy — it cannot poll (one serial Apex callout), so the fire-then-poll loop
+// runs at the BRIDGE, on the orchestrator's behalf, inside the single held-open
+// callout. This figure draws exactly that: where the loop lives and what the
+// orchestrator does / does not see. Full narration in plan/14-supplier-disruption-orchestrators.md.
+const AF_ASYNC_DIAGRAM = `flowchart TB
+  subgraph SF["Salesforce — the orchestrator (serial, one turn)"]
+    AGENT["A2ALab_Supply_Orchestrator (Agent Script)<br/>picks DELEGATED topology · dispatch rides<br/>the situation as [A2A-LAB ROUTING] fanout-dispatch: async"]
+    APEX["A2ALabInvokeRemoteAgent.ask()<br/>@InvocableMethod(callout=true) · MAX_BATCH_SIZE=1<br/>ONE serial HTTP callout · setTimeout 110s"]
+  end
+
+  subgraph BR["The bridge — long-lived Fargate on an ALB (no gateway ceiling)"]
+    FANOUT["/invoke/fanout:supplier-disruption<br/>read_dispatch_mode → async · strip_routing_blocks<br/>so no directive reaches a leg"]
+    LOOP["orchestration.dispatch — submit + POLL loop<br/>runs HERE, during the held-open callout<br/>(the same seam the Managed Agents host tool runs)"]
+  end
+
+  subgraph LEGS["The three business-unit agents (A2A / REST)"]
+    ADK["Logistics — ADK on Vertex Agent Engine<br/>submit + tasks/get poll"]
+    FDY["Commercial — Foundry (gpt-5-mini)<br/>submit + poll · cold ~26.5s"]
+    ACC["Customer comms — AgentCore<br/>no task lifecycle → async→sync"]
+  end
+
+  AGENT -->|"invoke action, verbatim situation"| APEX
+  APEX -->|"one callout, held open ~110s"| FANOUT
+  FANOUT --> LOOP
+  LOOP -->|"submit → poll → done"| ADK
+  LOOP -->|"submit → poll → done"| FDY
+  LOOP -->|"blocking call"| ACC
+  ADK -.->|"finished section"| LOOP
+  FDY -.->|"finished section"| LOOP
+  ACC -.->|"finished section"| LOOP
+  LOOP -->|"assembled sections + dispatch summary"| FANOUT
+  FANOUT -->|"single callout response<br/>(Agentforce never sees a task id)"| APEX
+  APEX -->|"action result, one agent turn"| AGENT`;
+
 // The full fan-out control prose, moved out of the Run tab into Details (D57).
 // Rendered only for scenarios that actually expose these radios, so a plain
 // pairwise scenario's Details is unchanged.
@@ -4050,34 +4304,141 @@ function fanoutControlsDetailHtml(s) {
       <p class="desc-note">Same agent, same prompt, two tool inventories (swapped per run via
         <code>agent_with_overrides</code>).</p>
       <ul class="steps">
-        <li><b>host-side tool</b>: one custom tool, so the fan-out runs on whichever host drives the
-          session — this console process — and the host picks the order; a leg is bounded only by our own
-          patience (120s).</li>
+        <li><b>host-side tool</b>: one <b>custom tool</b>. On Managed Agents a custom tool is
+          <i>host-executed</i> — the model only decides WHEN to call it; the tool body runs in the backend
+          that drives the session and hands the result back over the session stream, never inside
+          Anthropic's sandbox. Here that backend is the console's own container on AWS Fargate, so the
+          fan-out (<code>orchestration.dispatch</code> over <code>asyncio.gather</code>) executes there and
+          the host picks the order. That is a different role from the UI you are reading: <b>same
+          container, but the tool is acting as the session host</b>, not as a console feature — on a laptop,
+          <code>scripts/run_fanout.py</code> is the identical host. A leg is bounded only by our own patience
+          (120s), because nothing sits in front of it.</li>
         <li><b>remote MCP tools</b>: one tool per business unit on a hosted MCP server, so nothing is
           attached to the session and the <i>model</i> chooses what to call and whether to call them
-          together — the run reports which it did. Each leg here runs <i>inside</i> an API Gateway request,
-          so it inherits the gateway's 29s integration ceiling (25s per leg, and NOT raisable for HTTP
-          APIs); a warm leg (~17s) fits, but a <b>cold</b> platform (Agent Engine ~34s, AgentCore 31–56s)
-          does not and comes back <code>[leg unavailable: … timed out]</code>. This is the cost of moving
-          the tool off the host, not a bug — <b>warm the runtimes first</b> (Warm-ups panel), or use async
-          on the host-side tool, which is what dissolves the ceiling (WS11/D47).</li>
+          together — the run reports which it did. The server is <b>ours</b>, not the platforms': the lab's
+          fan-out MCP server on AWS Lambda (<code>src/fanout_mcp</code>, D41), whose <code>consult_*</code>
+          tools wrap the same business-unit agents over A2A/REST. Google, OpenAI and Microsoft do not expose
+          these as native MCP — we put the MCP face on. Each leg here runs <i>inside</i> an API Gateway
+          request, so it inherits the gateway's 29s integration ceiling (25s per leg, and NOT raisable for
+          HTTP APIs); a warm leg (~17s) fits, but a <b>cold</b> platform (Agent Engine ~34s, AgentCore
+          31–56s) does not and comes back <code>[leg unavailable: … timed out]</code>. This is the cost of
+          moving the tool off the host, not a bug — <b>warm the runtimes first</b> (Warm-ups panel), or use
+          async on the host-side tool, which is what dissolves the ceiling (WS11/D47).</li>
       </ul>` : "";
-  const dispatch = s.dispatch_mode_toggle ? `
+  // The dispatch prose is controller-aware: WHERE the fire-then-poll loop runs
+  // is the whole point, and it runs in a different place under each primary
+  // controller (a host/model on Managed Agents, the graph inside Agent Engine,
+  // the bridge for Agentforce). The per-platform store behaviour below is
+  // shared — all three poll the same two A2A legs.
+  const isCma = !!s.fanout_variant_toggle;
+  const isAf = !!s.af_topology_toggle;
+  const dispatchIntro = isCma ? `
       <h6>Agent-to-agent dispatch — how each leg is called (WS11)</h6>
-      <p class="desc-note">Only offered on the <b>host-side tool</b> topology; under remote MCP tools the
-        legs run in the Lambda, so async is a no-op there.</p>
+      <p class="desc-note">Offered on <b>both</b> topologies now (WS11 items 6–7), but the fire-then-poll
+        loop runs in a different place in each. Under <b>host-side tool</b> our own code is the A2A client:
+        it <code>submit</code>s each leg and polls to done, so the async lifecycle is our client code behind
+        one custom tool. Under <b>remote MCP tools</b> the <i>model</i> runs the loop — async swaps the
+        session's SYSTEM prompt so it calls <code>submit_&lt;unit&gt;</code> (returns a task id in ~1s
+        without running the leg) and then <code>check_task</code> until every unit is terminal, exactly the
+        A2A submit/poll shape re-expressed as MCP tools. Both tool sets (the blocking <code>consult_*</code>
+        and the async <code>submit_*</code>/<code>check_task</code>) live on the ONE deployed Lambda MCP
+        server, backed by a durable task store (<code>src/fanout_mcp/tasks.py</code>) because the worker runs
+        in a separate self-invoke window — Lambda freezes background work after the response returns (D47).
+        Either way a Managed Agent schedules WHEN to call tools but has no native A2A client, so the task
+        lifecycle is always something we put behind a tool.</p>
       <ul class="steps">
         <li><b>synchronous</b>: one blocking call per leg that returns only when the agent is done (every
           run before WS11).</li>
         <li><b>async (fire-then-poll)</b>: the A2A long-running-task pattern — <i>submit</i> the work, get a
-          task id back in ~1s, then <i>poll</i> <code>tasks/get</code> until it completes, so no single
-          request is held open across the agent's work (the gateway ceiling, dissolved — WS11/D47). Only
-          the two A2A legs (ADK, Foundry) implement the async half; the AgentCore comms leg has no task
+          task id back in ~1s, then <i>poll</i> until it completes, so no single
+          request is held open across the agent's work (the gateway ceiling, dissolved — WS11/D47). Under
+          host-side tool this polls the two A2A legs (ADK, Foundry) directly; under remote MCP tools the
+          model polls <code>check_task</code>. The AgentCore comms leg has no task
           lifecycle and falls back to a blocking call, recorded <code>async→sync</code> in the coverage
           line rather than hidden. Agent Engine <i>appeared</i> submit-only until 2026-08-11, when the poll
           failure was traced to a missing <code>A2A-Version: 1.0</code> header (a client default), not a
           platform gap — pinned per target, fire-then-poll now works there too (D47).</li>
-      </ul>` : "";
+      </ul>`
+    : isAf ? `
+      <h6>Agent-to-agent dispatch — how each leg is called, and why only by proxy (WS11)</h6>
+      <p class="desc-note">Agentforce <b>cannot poll</b>: its only GA outbound is one <i>serial</i> Apex
+        callout, buffered inside a single transaction's 120s budget, so there is no on-platform place for a
+        fire-then-poll loop. This radio therefore changes what the <b>bridge</b> does when the DELEGATED
+        topology hands it the fan-out — and the async loop runs <i>there</i>, on the orchestrator's behalf,
+        during the one Apex callout the orchestrator holds open waiting for the bridge's response. Agentforce
+        never sees a task id; the bridge submits and polls the A2A legs with the SAME
+        <code>orchestration.dispatch</code> the Managed Agents host tool runs, then returns the finished
+        sections. Because the bridge is a long-lived Fargate service (not a Lambda), no API Gateway ceiling
+        bounds the poll — the practical bound is the ~110s Apex callout. That is the honest shape of this
+        controller: a serial-outbound platform can still take the asynchronous half of A2A, but only one layer
+        down, never itself. The mode rides the situation as a routing block because the Apex body carries no
+        field for it (the bridge reads it and strips it before the legs see it); a stripped or absent block
+        degrades to <code>sync</code>, never to an error.</p>
+      <ul class="steps">
+        <li><b>synchronous</b> (the bridge default): the bridge blocks on <code>ask()</code> per leg,
+          concurrently, and returns when all are done — bounded by the held-open callout.</li>
+        <li><b>async (fire-then-poll)</b>: the bridge <i>submits</i> each A2A leg (a task id in ~1s) and
+          <i>polls</i> to a terminal state within that same callout. The AgentCore comms leg has no task
+          lifecycle and falls back to a blocking call, recorded <code>async→sync</code> rather than hidden.</li>
+      </ul>
+      ${figureHtml("afAsyncFig", "By proxy at the bridge — where the poll loop runs for Agentforce")}
+      <p class="desc-note">The orchestrator holds one Apex callout open; everything inside the middle band
+        happens during it. The submit/poll loop is the SAME <code>orchestration.dispatch</code> the Managed
+        Agents host tool runs — only its <i>location</i> differs (D76). See
+        <code>plan/14-supplier-disruption-orchestrators.md</code>.</p>`
+    : `
+      <h6>Agent-to-agent dispatch — how each leg is called (WS11)</h6>
+      <p class="desc-note">The fan-out here is <b>declared</b> in the agent graph (a
+        <code>ParallelAgent</code>), so no host and no model schedules the legs — the ADK framework does.
+        What this radio changes is what each unit's A2A tool does <i>inside</i> that graph, running on Vertex
+        AI Agent Engine: sync is a blocking call; async fires the A2A submit + poll lifecycle and rides it to
+        a terminal state. Both go through the SAME <code>orchestration.runner.run_one</code> the Managed
+        Agents host tool uses — one implementation of submit/poll, the flapping-404 ride-through and the
+        partial-failure contract — so the only thing that differs from the Claude-orchestrated run is
+        <i>where the poll loop physically runs</i>: inside the <code>ParallelAgent</code> branch, in the GCP
+        container, driven by the graph. Nothing calls back to a lab host and no gateway sits in front of a
+        leg, so async gets the full off-request per-leg budget, bounded only by the orchestrator's own A2A
+        deadline.</p>
+      <ul class="steps">
+        <li><b>synchronous</b>: one blocking call per leg (every run before WS11).</li>
+        <li><b>async (fire-then-poll)</b>: <i>submit</i> returns a task id in ~1s, then the leg tool
+          <i>polls</i> <code>tasks/get</code> to terminal — the two A2A legs (logistics on Agent Engine,
+          commercial on Foundry) run the real lifecycle; the AgentCore comms leg has no task lifecycle and
+          falls back to a blocking call, recorded <code>async→sync</code> in the section, never hidden.</li>
+      </ul>`;
+  const perPlatform = `
+      <h6>What the polling looks like — per platform</h6>
+      <p class="desc-note">Same A2A submit/poll protocol, but each remote's task store behaves differently,
+        and those differences are the WS11 findings — not bugs to smooth over.</p>
+      <ul class="steps">
+        <li><b>Google Vertex AI Agent Engine — an eventually-consistent store.</b> A <code>tasks/get</code>
+          can return <code>MethodNotFoundError</code> (a bare 404) not just in the window right after submit
+          but <i>flapping</i> between later polls — even after an earlier poll already read the task (session
+          2026-08-12). That is expected behaviour, not a fault: a single read PROVES the endpoint serves
+          tasks, so the runner records the 404 as <code>waiting for task</code> (pending, not a red ✗) and
+          keeps polling to completion instead of falling back to sync.</li>
+        <li><b>Microsoft Foundry — a steady store, but a slow cold start.</b> Its polls return a fully-formed
+          task status on every call (no flapping). The catch is latency: a COLD Foundry leg (gpt-5-mini)
+          measures ~26.5s, and async is what lets it finish rather than one held-open request timing out.
+          ${isCma ? `(Under the remote MCP tools the submit/poll worker runs OFF the API Gateway path — a
+          self-invoke Lambda, D47 — so it gets a 120s per-leg budget rather than the 25s the sync
+          <code>consult_*</code> tools inherit from the gateway ceiling; before that budget was separated a
+          cold leg was killed at 25s though its task reached COMPLETED — run 7ef510e2, fixed WS11.)`
+          : isAf ? `(Here the bridge polls during the one Apex callout it holds open, bounded by that ~110s
+          callout rather than a gateway, because the bridge is a long-lived service, not a Lambda.)`
+          : `(Here the leg tool polls inside the ParallelAgent branch on Agent Engine, bounded by the
+          orchestrator's own A2A deadline, with no gateway in front of a leg.)`}</li>
+      </ul>`;
+  const extraTurns = isCma ? `
+      <h6>Why the async run shows extra turns</h6>
+      <p class="desc-note">Under <b>remote MCP tools</b> the coverage line lists many turns
+        (<code>turn 1: submit_… turn 2: check_task … turn 9: check_task</code>) where the host-side tool shows
+        one. That is not overhead — it is <i>where the poll loop runs</i>. Host-side, OUR code runs
+        submit+poll inside a single custom-tool call, so the whole fan-out is one model turn and the polling is
+        invisible. Under remote MCP tools the <i>model</i> is the poll loop: each <code>check_task</code> it
+        issues is one model turn, so the turn count IS the poll count — the WS11 measurement of who schedules
+        the asynchronous half, made visible rather than hidden in our code.</p>` : "";
+  const dispatch = s.dispatch_mode_toggle ? dispatchIntro + perPlatform + extraTurns : "";
   return `
     <div class="flow">
       <h3>Run controls — the fan-out choices</h3>
@@ -4812,6 +5173,24 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
   E --> UI
   H --> UI
   T -.->|"platform_ref join"| S`;
+
+// WS23/D73: the Session Trace tab's OWN path — deliberately NOT the harvest
+// above. One live GET per session against the beta OTel API, no store write,
+// same F6 obs identity. Drawn beside the DMO path to make the D73 split visible:
+// this is the standard route to the SAME Data 360 record the harvest reads by
+// hand, and the reason it is not the live sweep (single-session, 72h, beta).
+const OTEL_TRACE_DIAGRAM = `flowchart LR
+  UI["Console — Session Trace tab<br/>pick / paste one session id"]
+  ECA["a2a_lab_obs External Client App<br/>client-credentials (F6/D37)"]
+  API["GET /einstein/audit/otel/{session-id}<br/>Session Trace OTel API (beta)"]
+  D360[("Data 360<br/>agent session-tracing record")]
+  DMO["Live obs harvest — DMO path<br/>bulk SOQL over 4 STDM DMOs (stays LIVE, D73)"]
+
+  UI -->|"live, one session"| ECA
+  ECA --> API
+  API -->|"OTLP resourceSpans<br/>server-joined, standards-shaped"| UI
+  API -.->|"same record,<br/>pre-joined"| D360
+  DMO -.->|"same record,<br/>assembled by hand"| D360`;
 
 // WS22 / Track B: the SRE sibling of OBS_HARVEST above. Same harvest Lambda and
 // same schedule, but the sources are each cloud's NATIVE runtime metrics (not the
@@ -8599,6 +8978,16 @@ window.loadPastChat = id => {
   const lastUser = [...(item.chat.turns || [])].reverse().find(t => t.role === "user" && t.trace_id);
   chats[key].selected = lastUser ? lastUser.trace_id : null;
   selected = chats[key].selected;
+  // Restore the radio selections this chat's last run used, so reopening it
+  // shows an accurate picture of that run rather than the current global choice.
+  // The values were stamped on the user turn at send time (userTurn.toggles).
+  const lastToggled = [...(item.chat.turns || [])].reverse().find(t => t.role === "user" && t.toggles);
+  if (lastToggled) {
+    const tg = lastToggled.toggles;
+    if (tg.af_topology) afTopologies[key] = tg.af_topology;
+    if (tg.variant) fanoutVariants[key] = tg.variant;
+    if (tg.dispatch_mode) dispatchModes[key] = tg.dispatch_mode;
+  }
   chatHistoryOpen[key] = false;
   renderMain(true);
 };
@@ -8646,7 +9035,10 @@ function chatTurnsHtml(chat) {
         turn.af_route === "direct" ? ` · <span class="badge a2a" title="This turn's external-research leg went straight from Apex to Vertex AI Agent Engine's native A2A endpoint — no lab bridge, untraced by design">direct a2a</span>` : ""}${
         turn.af_topology === "serial" ? ` · <span class="badge agentforce" title="This turn fanned out with the SERIAL topology (D61): three stacked Apex callouts through the bridge, one per business unit. A full three-leg run overruns the 120s Apex callout budget by design — a later leg is reported unavailable rather than omitted.">serial fan-out</span>`
         : turn.af_topology === "delegated" ? ` · <span class="badge agentforce" title="This turn fanned out with the DELEGATED topology (D61): one Apex callout to the bridge's fanout: route, which ran the three legs in parallel off-platform.">delegated fan-out</span>` : ""}${
-        turn.dispatch_mode === "async" ? ` · <span class="badge a2a" title="This turn's fan-out legs were dispatched with the A2A ASYNC (fire-then-poll) pattern (WS11/D47): each leg's SendMessage returned a task id in ~1s, then the host polled tasks/get until a terminal state — no single request held open across the work. A leg whose protocol has no task lifecycle (an AgentCore leg) falls back to a blocking call and is reported as async→sync in the fan-out coverage line, never hidden.">async dispatch</span>` : ""}</span></div>`;
+        turn.dispatch_mode === "async" ? ` · <span class="badge a2a" title="This turn's fan-out legs were dispatched with the A2A ASYNC (fire-then-poll) pattern (WS11/D47): each leg's SendMessage returned a task id in ~1s, then the host polled tasks/get until a terminal state — no single request held open across the work. A leg whose protocol has no task lifecycle (an AgentCore leg) falls back to a blocking call and is reported as async→sync in the fan-out coverage line, never hidden.">async dispatch</span>` : ""}${
+        turn.variant === "mcp" ? ` · <span class="badge mcp" title="This turn fanned out with the REMOTE MCP TOOLS variant (D41): the model was given one MCP tool per business unit on the fan-out Lambda and scheduled the calls itself, rather than the host running a single custom fan-out tool.">remote MCP fan-out</span>`
+        : turn.variant === "tool" ? ` · <span class="badge claude" title="This turn fanned out with the HOST-SIDE TOOL variant (D41): the orchestrator called one custom fan-out tool and the lab host owned concurrency, per-leg timeouts and the partial-failure contract.">host-side fan-out</span>` : ""}${
+        turn.session_platform === "salesforce" && turn.session_agent_id ? ` · <a href="#" onclick="openOtelTrace('${esc(turn.session_agent_id)}');return false" title="Fetch this Agentforce session's OpenTelemetry trace live from the beta Session Trace OTel API (WS23/D73). Uses the Agent API session id; the platform ingests it into the trace store a few minutes after the run, so a click right after the run may find nothing yet.">view session trace →</a>` : ""}</span></div>`;
   }).join("");
 }
 
@@ -8658,14 +9050,60 @@ function isViewingExperiment(kind, name) {
     && expKey(view.kind, view.name) === expKey(kind, name);
 }
 
-async function sendTurn(kind, name, message) {
+// WS11 fire-then-poll at the console tier: the ADK orchestrator submits a task
+// and runs its graph off-request, so poll /api/run/poll from the browser until
+// the task is terminal. Each poll is a short request (no ALB idle-timeout risk),
+// and the live trace is refreshed between polls so the call path streams in.
+// Returns a normal sendTurn result ({ok, text, ...} or {ok:false, error}).
+async function pollRun(poll, trace_id) {
+  const startS = (turnWindows[trace_id] && turnWindows[trace_id].start) || (Date.now() / 1000);
+  const deadlineMs = 210000;   // sync ADK completes ~134s; async-internal never
+  const intervalMs = 4000;     // terminates → honest timeout past the deadline.
+  const t0 = Date.now();
+  while (Date.now() - t0 < deadlineMs) {
+    await new Promise(r => setTimeout(r, intervalMs));
+    refreshTraces();           // keep the call path alive during the wait
+    let snap;
+    try {
+      const r = await fetch(apiUrl("/api/run/poll"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(poll),
+      });
+      const ctype = r.headers.get("content-type") || "";
+      if (!ctype.includes("json")) continue;   // ALB hiccup on one poll — retry
+      snap = await r.json();
+    } catch (e) { continue; }                    // transient network — retry
+    if (snap.pending) continue;                  // flapping 404: task not terminal yet
+    if (snap.done) {
+      const latency_ms = Math.round((Date.now() / 1000 - startS) * 1000);
+      return snap.ok
+        ? { ok: true, text: snap.text, trace_id, latency_ms, dispatch_mode: snap.dispatch_mode }
+        : { ok: false, trace_id, error: snap.error || "the orchestrator task failed" };
+    }
+    // WORKING/SUBMITTED but not terminal — keep waiting.
+  }
+  const secs = Math.round(deadlineMs / 1000);
+  return { ok: false, trace_id, error:
+    `the ADK orchestrator did not return a terminal task within ${secs}s. The `
+    + `synchronous dispatch completes in ~2 minutes; the async (fire-then-poll) `
+    + `dispatch overruns Agent Engine's own orchestrator task budget and may never `
+    + `reach a terminal state — the SequentialAgent waits for the ParallelAgent `
+    + `regardless, so async internal dispatch adds polling cost with no latency `
+    + `benefit. Try the synchronous dispatch.` };
+}
+
+async function sendTurn(kind, name, message, overrides) {
   const key = expKey(kind, name);
   const chat = chats[key];
   if (!chat || chat.running) return false;
 
   const trace_id = newTraceId();
   chat.running = true;
-  chat.turns.push({ role: "user", text: message, trace_id });
+  // Keep the reference: the chosen radio values are stamped on this turn below,
+  // so reopening a past chat can restore the toggles that produced this run.
+  const userTurn = { role: "user", text: message, trace_id };
+  chat.turns.push(userTurn);
   chat.turns.push({ role: "running" });
   runState[key] = { state: "running" };
   chat.selected = trace_id;
@@ -8685,23 +9123,34 @@ async function sendTurn(kind, name, message) {
   if (isViewingExperiment(kind, name)) renderMain();
 
   const body = { trace_id, message, session_id: chat.session };
+  // The radio values chosen for THIS run, stamped on the user turn so a past
+  // chat reopens with the same topology/dispatch selected (an accurate picture
+  // of the run, not the current global selection).
+  const toggles = {};
   if (kind === "scenario") {
     body.scenario = name;
     const spec = scenarios.find(s => s.name === name);
     if (spec && spec.af_channel_toggle) body.af_channel = afChannels[key] || "agent-api";
     if (spec && spec.af_route_toggle) body.af_route = afRoutes[key] || "bridge";
-    if (spec && spec.af_topology_toggle) body.af_topology = afTopologies[key] || "delegated";
-    if (spec && spec.fanout_variant_toggle) body.variant = fanoutVariants[key] || "tool";
-    // Async dispatch only reaches the legs under the host-side "tool" variant;
-    // under "mcp" the legs run in the Lambda, so the backend ignores it. Send
-    // it only when it can take effect, so the badge does not overclaim.
-    if (spec && spec.dispatch_mode_toggle && (fanoutVariants[key] || "tool") === "tool") {
-      body.dispatch_mode = dispatchModes[key] || "sync";
+    // An explicit override (Run All's permutation sweep) wins over the on-screen
+    // radio so the sweep neither reads nor disturbs the current selection; a
+    // manual turn passes no override and reads the radios as before.
+    if (spec && spec.af_topology_toggle) { body.af_topology = (overrides && overrides.af_topology) || afTopologies[key] || "delegated"; toggles.af_topology = body.af_topology; }
+    if (spec && spec.fanout_variant_toggle) { body.variant = (overrides && overrides.variant) || fanoutVariants[key] || "tool"; toggles.variant = body.variant; }
+    // Async dispatch now reaches BOTH topologies (WS11 items 6-7). Under the
+    // host-side "tool" variant the backend runs submit+poll itself; under "mcp"
+    // async selects the fire-then-poll SYSTEM prompt so the model drives the
+    // submit_<unit>/check_task tools on the Lambda. Either way the choice is
+    // meaningful, so send it whenever the toggle is present.
+    if (spec && spec.dispatch_mode_toggle) {
+      body.dispatch_mode = (overrides && overrides.dispatch_mode) || dispatchModes[key] || "sync";
+      toggles.dispatch_mode = body.dispatch_mode;
     }
   } else {
     body.target = name;
     body.via_bridge = !!viaBridges[key];
   }
+  userTurn.toggles = toggles;
 
   let result;
   try {
@@ -8710,9 +9159,32 @@ async function sendTurn(kind, name, message) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    result = await r.json();
+    // The console and bridge share one ALB whose idle timeout is 120s. A run
+    // that outlives it comes back as an ALB/gateway HTML error page, not JSON,
+    // so a bare `await r.json()` throws "Unexpected token '<'" — which read as a
+    // frontend bug (reported for the ADK orchestrator, 2026-08-12). Detect the
+    // non-JSON body and turn it into a readable, honest message instead.
+    const ctype = r.headers.get("content-type") || "";
+    if (!ctype.includes("json")) {
+      const body504 = (r.status === 502 || r.status === 503 || r.status === 504 || r.status === 524);
+      result = { ok: false, error: body504
+        ? `the run exceeded the ~120s gateway limit (HTTP ${r.status}) — this target's turn is slower than the ALB idle timeout. Warm it first (the warm-up panel) and retry, or use its async mode.`
+        : `unexpected non-JSON response (HTTP ${r.status})` };
+    } else {
+      result = await r.json();
+    }
   } catch (e) {
     result = { ok: false, error: String(e) };
+  }
+
+  // WS11: the ADK orchestrator answers /api/run with {pending, poll:{…}} in ~1-2s
+  // and runs its SequentialAgent[ParallelAgent→synthesiser] graph off-request. A
+  // blocking call would run the whole graph inline and 400 past ~105s (or outlive
+  // the 120s shared-ALB idle timeout), so drive tasks/get from the browser here —
+  // each poll is a short request, and the running placeholder + live trace stay
+  // until the task is terminal.
+  if (result.ok && result.pending && result.poll) {
+    result = await pollRun(result.poll, trace_id);
   }
 
   if (turnWindows[trace_id]) turnWindows[trace_id].end = Date.now() / 1000;
@@ -8721,8 +9193,25 @@ async function sendTurn(kind, name, message) {
     chat.turns.push({ role: "agent", text: result.text || "(empty response)",
       latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null,
       af_route: result.af_route || null, af_topology: result.af_topology || null,
-      dispatch_mode: result.dispatch_mode || null,
+      dispatch_mode: result.dispatch_mode || null, variant: result.variant || toggles.variant || null,
+      // WS23: carry the Agentforce session id (and the flag saying it IS one) so
+      // an Agentforce-primary turn can deep-link to its Session Trace. A Claude
+      // orchestrator that merely consults AF has session_platform null → no link.
+      // session_agent_id is the OTel-eligible Agent API sessionId (a UUIDv7 the
+      // OTel endpoint keys on); session_id is the lab id and 404s the endpoint —
+      // the deep-link must use session_agent_id, NOT session_id.
+      session_id: result.session_id || null, session_platform: result.session_platform || null,
+      session_agent_id: result.session_agent_id || null,
       via_bridge: result.via_bridge || false });
+    // Remember which experiment produced this Agentforce session so the Session
+    // Trace picker can name it (and show how recent it is). Only Agentforce-
+    // primary turns carry session_platform === "salesforce". Key the label on the
+    // OTel-eligible agent session id — the same id the picker enumerates.
+    if (result.session_platform === "salesforce" && result.session_agent_id) {
+      const exp = kind === "scenario" ? scenarios.find(s => s.name === name) : targets.find(t => t.name === name);
+      const label = (kind === "scenario" && exp && (exp.title || exp.name)) || name;
+      otelSessionLabels[result.session_agent_id] = { label, ts: Date.now() };
+    }
     runState[key] = { state: "ok", note: result.latency_ms != null
       ? `PASS · ${result.latency_ms} ms` : (result.async ? "running async" : "PASS") };
   } else {
@@ -8756,10 +9245,43 @@ window.chatKeydown = ev => {
   if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); sendChat(); }
 };
 
+// The three fan-out orchestrators expand in Run All into EVERY radio
+// permutation the live harness exercises (scripts/orch_permutations.py), so the
+// sweep is a full regression across topology × dispatch, not just whatever was
+// last selected. Each entry is a toggle override handed to sendTurn (it wins
+// over the on-screen radios without touching them); `label` names the run in
+// progress + failure lines. Any other experiment returns [null] → one run with
+// its current state, exactly as before. Kept in step with the harness:
+//   CMA  host-side{sync,async} + remote-MCP{sync}   (mcp·async not exercised)
+//   ADK  {sync, async}                              (async submits + polls)
+//   AF   delegated{sync,async} + serial             (serial has no dispatch axis)
+function runAllPermutations(s) {
+  if (s.name === "supplier-disruption-cma")
+    return [
+      { label: "host-side · sync",  variant: "tool", dispatch_mode: "sync" },
+      { label: "host-side · async", variant: "tool", dispatch_mode: "async" },
+      { label: "remote MCP · sync", variant: "mcp",  dispatch_mode: "sync" },
+    ];
+  if (s.name === "supplier-disruption-adk")
+    return [
+      { label: "sync",  dispatch_mode: "sync" },
+      { label: "async", dispatch_mode: "async" },
+    ];
+  if (s.name === "supplier-disruption-agentforce")
+    return [
+      { label: "delegated · sync",  af_topology: "delegated", dispatch_mode: "sync" },
+      { label: "delegated · async", af_topology: "delegated", dispatch_mode: "async" },
+      { label: "serial",            af_topology: "serial",    dispatch_mode: "sync" },
+    ];
+  return [null];
+}
+
 // Run every live sync experiment sequentially with its default question —
 // the between-builds regression sweep, and the way to stock the trace log
-// with fresh runs before a demo. Sequential on purpose: parallel runs would
-// pile cold starts onto shared runtimes and hammer the Agentforce org.
+// with fresh runs before a demo. The fan-out orchestrators expand into all
+// their radio permutations (runAllPermutations). Sequential on purpose:
+// parallel runs would pile cold starts onto shared runtimes and hammer the
+// Agentforce org.
 window.runAllExperiments = async ev => {
   ev.preventDefault(); ev.stopPropagation();
   const btn = document.getElementById("runAllBtn");
@@ -8778,19 +9300,29 @@ window.runAllExperiments = async ev => {
   document.getElementById("accExperiments").open = true;
   ensureSideOpen();
   renderScenarios();
+  // Flatten each experiment into its run list: the fan-out orchestrators expand
+  // into every radio permutation (runAllPermutations), everything else is one
+  // run. The denominator and the failure list are per-RUN, so a single
+  // orchestrator that fails one permutation is reported as that permutation.
+  const runs = [];
+  for (const s of list) for (const perm of runAllPermutations(s)) runs.push({ s, perm });
   let pass = 0; const failures = [];
   const t0 = Date.now();
-  for (let i = 0; i < list.length; i++) {
-    const s = list[i];
-    msg.innerHTML = `<span class="stat">${i + 1}/${list.length}</span> · ${esc(s.title || s.name)}…`;
+  for (let i = 0; i < runs.length; i++) {
+    const { s, perm } = runs[i];
+    const label = perm && perm.label ? `${s.title || s.name} · ${perm.label}` : (s.title || s.name);
+    msg.innerHTML = `<span class="stat">${i + 1}/${runs.length}</span> · ${esc(label)}…`;
     const key = expKey("scenario", s.name);
     if (!chats[key]) chats[key] = { session: "ui-chat-" + s.name + "-" + Date.now(), turns: [], running: false };
-    const ok = await sendTurn("scenario", s.name, s.question || defaultQuestion);
+    const overrides = perm
+      ? { af_topology: perm.af_topology, variant: perm.variant, dispatch_mode: perm.dispatch_mode }
+      : null;
+    const ok = await sendTurn("scenario", s.name, s.question || defaultQuestion, overrides);
     if (ok) pass++;
     // Keep the REASON, not just the name. A run-all that says "1 FAIL
-    // (supplier-disruption-adk)" makes you go and reproduce it to find out
-    // what happened; the error is already here.
-    else failures.push({ name: s.name, title: s.title || s.name,
+    // (supplier-disruption-adk · async)" makes you go and reproduce it to find
+    // out what happened; the error (and which permutation) is already here.
+    else failures.push({ name: s.name, title: label,
                          error: (runState[key] || {}).note || "FAIL" });
   }
   const secs = Math.round((Date.now() - t0) / 1000);
@@ -9165,10 +9697,12 @@ function renderMain(force) {
       el.innerHTML = obsCrumbsHtml() + obsSessionDetailHtml();
     } else if (view.platform) {
       el.innerHTML = obsCrumbsHtml() + obsDashboardHtml() + obsSessionsHtml(view.platform);
-    } else if (!obsHasData() && (obs.tab || "dashboard") !== "tableau") {
+    } else if (!obsHasData() && !["tableau", "session-trace"].includes(obs.tab || "dashboard")) {
       // First-run: explain the pipeline instead of an empty dashboard. The
       // Tableau Next tab is exempt — its exhibit is the Zero-Copy federation,
       // not the harvest store, so it has content even before the first sweep.
+      // Session Trace is exempt for the same reason: it reads the beta OTel API
+      // live, independent of whether the harvest store has been filled.
       el.innerHTML = obsCrumbsHtml() + obsPipelineHtml(false);
     } else {
       const tab = obs.tab || "dashboard";
@@ -9179,6 +9713,10 @@ function renderMain(force) {
         // WS19/M10: not a brief and not the harvest dashboard — its own thing
         // (the Zero-Copy → Tableau Next exhibit), with its own Details pane.
         pane = details ? obsTableauNextDetailsHtml() : obsTableauNextHtml();
+      } else if (tab === "session-trace") {
+        // WS23/D73: a live single-session OTel API read — its own thing beside
+        // the harvest dashboard, not a facet of it.
+        pane = details ? obsSessionTraceDetailsHtml() : obsSessionTraceHtml();
       } else if (kind) {
         pane = details ? obsBriefDetailsHtml(kind) : obsBriefsHtml(kind);
       } else {
@@ -9205,6 +9743,8 @@ function renderMain(force) {
       if (details) {
         if (tab === "tableau") {
           renderMermaidInto("obsTableauFig", TABLEAU_NEXT_DIAGRAM, "obsfig-tableau");
+        } else if (tab === "session-trace") {
+          renderMermaidInto("obsOtelFig", OTEL_TRACE_DIAGRAM, "obsfig-otel");
         } else if (kind) {
           const meta = BRIEF_META[kind];
           if (meta && meta.diagram) renderMermaidInto("obsBriefFig", meta.diagram(), `obsfig-${kind}`);
@@ -9265,7 +9805,6 @@ function renderMain(force) {
           ${view.kind === "scenario" && exp && exp.fanout_variant_toggle
             ? fanoutVariantRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.dispatch_mode_toggle
-            && (fanoutVariants[key] || "tool") === "tool"
             ? dispatchModeRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
@@ -9320,6 +9859,12 @@ function renderMain(force) {
           call path and raw wire traces appear here. Click any of your past turns to revisit its path.</span></div></div>`;
   } else {
     document.getElementById("detailsArea").innerHTML = detailsTabHtml();
+    // WS11/D76: the Agentforce fan-out Details embeds a mermaid figure of the
+    // by-proxy fire-then-poll flow. Deferred render, like every other diagram.
+    const dExp = currentExperiment();
+    if (dExp && dExp.dispatch_mode_toggle && dExp.af_topology_toggle) {
+      renderMermaidInto("afAsyncFig", AF_ASYNC_DIAGRAM, "afasyncfig-svg");
+    }
   }
 }
 

@@ -1,0 +1,21 @@
+{
+  "required" : [ "question", "target" ],
+  "unevaluatedProperties" : false,
+  "properties" : {
+    "question" : {
+      "title" : "Situation",
+      "description" : "The disruption situation verbatim, for all three business units. If the user message contains any [A2A-LAB ROUTING] block, append it UNCHANGED after the situation: the bridge reads the fanout-dispatch mode from it and strips every routing block before the business units see the text.",
+      "lightning:type" : "lightning__textType",
+      "lightning:isPII" : false,
+      "copilotAction:isUserInput" : false
+    },
+    "target" : {
+      "title" : "Bridge Target",
+      "description" : "ALWAYS pass exactly: fanout:supplier-disruption",
+      "lightning:type" : "lightning__textType",
+      "lightning:isPII" : false,
+      "copilotAction:isUserInput" : false
+    }
+  },
+  "lightning:type" : "lightning__objectType"
+}

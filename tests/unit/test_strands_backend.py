@@ -110,7 +110,9 @@ async def test_answer_runs_agent_and_returns_response(
     # two cross-hyperscaler Google ADK routes (ask_google_adk native-direct /
     # ask_google_adk_bridge via the lab bridge — WS5 cross-hyperscaler cell).
     assert len(agent_kwargs["tools"]) == 4
-    tool_names = {getattr(t, "tool_name", getattr(t, "__name__", "")) for t in agent_kwargs["tools"]}
+    tool_names = {
+        getattr(t, "tool_name", getattr(t, "__name__", "")) for t in agent_kwargs["tools"]
+    }
     assert tool_names == {
         "ask_agentforce",
         "ask_agentforce_a2a",

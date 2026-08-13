@@ -1,0 +1,21 @@
+{
+  "required" : [ "question", "target" ],
+  "unevaluatedProperties" : false,
+  "properties" : {
+    "question" : {
+      "title" : "Question",
+      "description" : "The situation plus the specific instruction for this one business unit",
+      "lightning:type" : "lightning__textType",
+      "lightning:isPII" : false,
+      "copilotAction:isUserInput" : false
+    },
+    "target" : {
+      "title" : "Bridge Target",
+      "description" : "The one leg's bridge target: adk-logistics-a2a (Logistics), foundry-commercial-a2a (Commercial/Legal), or openai-agentcore (Customer operations)",
+      "lightning:type" : "lightning__textType",
+      "lightning:isPII" : false,
+      "copilotAction:isUserInput" : false
+    }
+  },
+  "lightning:type" : "lightning__objectType"
+}

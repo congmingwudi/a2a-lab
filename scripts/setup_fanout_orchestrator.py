@@ -42,6 +42,7 @@ from orchestration.agents import (  # noqa: E402
     FANOUT_TOOL,
     ORCHESTRATOR_PROMPT,
     mcp_orchestrator_prompt,
+    mcp_orchestrator_prompt_async,
 )
 from orchestration.cma import MCP_STATE_FILE, STATE_FILE  # noqa: E402
 
@@ -65,7 +66,7 @@ def _setup_mcp(client) -> None:
     so the bearer token has to be somewhere it can reach, and that is a vault
     credential keyed by the server URL rather than anything in our process.
     """
-    from fanout_mcp.tools import roster, timeout_note
+    from fanout_mcp.tools import roster, roster_async, timeout_note, timeout_note_async
 
     if not STATE_FILE.exists():
         raise SystemExit("provision the orchestrator first (run without --mcp)")
@@ -99,11 +100,17 @@ def _setup_mcp(client) -> None:
         "credential_id": credential.id,
         "mcp_url": url,
         "system": mcp_orchestrator_prompt(roster(), timeout_note()),
+        # The fire-then-poll prompt for the SAME agent/server (WS11 items 6-7).
+        # Both prompts are recorded here and applied per run via
+        # agent_with_overrides; cma.py picks by dispatch_mode. The tool sets
+        # (consult_* and submit_*/check_task) both live on the deployed server.
+        "system_async": mcp_orchestrator_prompt_async(roster_async(), timeout_note_async()),
     }
     MCP_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     MCP_STATE_FILE.write_text(json.dumps(state, indent=2))
     print(f"wrote {MCP_STATE_FILE}")
     print("run it: uv run python scripts/run_fanout.py --orchestrator cma-mcp")
+    print("     or: uv run python scripts/run_fanout.py --orchestrator cma-mcp --async")
 
 
 def main() -> None:

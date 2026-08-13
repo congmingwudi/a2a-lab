@@ -25,6 +25,7 @@ from observability.coding_source import CodingSource
 from observability.foundry_source import FoundrySource
 from observability.infra_source import AwsInfraSource, AzureInfraSource, GcpInfraSource
 from observability.openai_source import OpenAISource
+from observability.salesforce_otel_source import SalesforceOtelSource
 from observability.salesforce_source import SalesforceSource
 from observability.strands_source import StrandsSource
 
@@ -60,7 +61,18 @@ INFRA_SOURCES = {
     "infra-azure": AzureInfraSource,
 }
 
-SOURCES = {**PLATFORM_SOURCES, **BUILD_SOURCES, **INFRA_SOURCES}
+# WS23/D73: the Agentforce Session Trace OTel API — a SECOND route to the SAME
+# Data 360 record the live `salesforce` source assembles from four STDM DMOs,
+# read as pre-joined OTLP instead. Built so the live path can switch to it when
+# the API leaves beta and grows a bulk read; until then it is reachable by name
+# (`salesforce-otel`) only and NEVER in the unqualified sweep, so it neither
+# doubles the Agentforce column nor changes what "harvested from all platforms"
+# means. See src/observability/salesforce_otel_source.py.
+OTEL_SOURCES = {
+    "salesforce-otel": SalesforceOtelSource,
+}
+
+SOURCES = {**PLATFORM_SOURCES, **BUILD_SOURCES, **INFRA_SOURCES, **OTEL_SOURCES}
 
 # `infra` is a convenience alias expanding to all three infra sources.
 GROUP_ALIASES = {"infra": list(INFRA_SOURCES)}

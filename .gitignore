@@ -91,3 +91,6 @@ salesforce/force-app/main/default/customMetadata/*
 # Cursor equivalent (~/.cursorscope/.env). The hook config and forward.sh
 # are committed; the credential is not.
 .kiro/hooks/.env
+
+# local SQLite artifact (mirror of the ignored traces/ store)
+lab.db

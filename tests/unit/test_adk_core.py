@@ -38,3 +38,86 @@ def test_agent_tools_follow_flag(monkeypatch):
     monkeypatch.setenv("ADK_REAL_SEARCH", "1")
     names = [getattr(t, "__name__", type(t).__name__) for t in build_llm_agent().tools]
     assert "GoogleSearchTool" in names and "search_industry_news" not in names
+
+
+# --- WS11: the ADK fan-out leg tool routes through the shared runner ---------
+# _leg_tool (unlike build_fanout_orchestrator) pulls in no google.adk, so it is
+# testable without the ADK runtime. What we pin: the operator's per-run async
+# choice reaches run_one, and the async budget only applies to async.
+
+
+class _FakeLegResult:
+    def __init__(self, ok=True):
+        self.ok = ok
+
+    def render(self) -> str:
+        return "## Section\nrendered leg"
+
+
+async def test_leg_tool_async_threads_dispatch_mode_and_budget_into_run_one(monkeypatch):
+    from orchestration import legs_for
+    from platforms.adk.agent import _leg_tool
+
+    captured = {}
+
+    async def fake_run_one(role, task, **kwargs):
+        captured["role"] = role
+        captured["task"] = task
+        captured.update(kwargs)
+        return _FakeLegResult(ok=True)
+
+    monkeypatch.setattr("orchestration.runner.run_one", fake_run_one)
+    monkeypatch.setattr("orchestration.runner.async_leg_timeout_s", lambda: 120.0)
+
+    leg = legs_for("supplier-disruption")[0]
+    tool = _leg_tool(leg, dispatch_mode="async", trace_id="trace-xyz")
+    out = await tool("A port strike halts traffic.")
+
+    assert out == "## Section\nrendered leg"
+    assert captured["role"] == leg.role
+    assert captured["dispatch_mode"] == "async"
+    assert captured["trace_id"] == "trace-xyz"
+    # ADK legs run inside the ParallelAgent branch, off any gateway path, so
+    # async gets the full off-request per-leg budget (not the small sync env).
+    assert captured["timeout_s"] == 120.0
+    # The run is attributed to the ADK orchestrator identity for the join measure.
+    assert captured["caller_platform"] == "adk"
+
+
+async def test_leg_tool_sync_passes_no_timeout_override(monkeypatch):
+    from orchestration import legs_for
+    from platforms.adk.agent import _leg_tool
+
+    captured = {}
+
+    async def fake_run_one(role, task, **kwargs):
+        captured.update(kwargs)
+        return _FakeLegResult(ok=True)
+
+    monkeypatch.setattr("orchestration.runner.run_one", fake_run_one)
+
+    leg = legs_for("supplier-disruption")[0]
+    tool = _leg_tool(leg, dispatch_mode="sync", trace_id="t")
+    await tool("situation")
+    # sync leaves timeout_s None so run_one reads the (small, gateway-safe) env.
+    assert captured["dispatch_mode"] == "sync"
+    assert captured["timeout_s"] is None
+
+
+async def test_leg_tool_mints_a_trace_id_when_none_is_passed(monkeypatch):
+    from orchestration import legs_for
+    from platforms.adk.agent import _leg_tool
+
+    captured = {}
+
+    async def fake_run_one(role, task, **kwargs):
+        captured.update(kwargs)
+        return _FakeLegResult(ok=True)
+
+    monkeypatch.setattr("orchestration.runner.run_one", fake_run_one)
+
+    leg = legs_for("supplier-disruption")[0]
+    tool = _leg_tool(leg)  # no trace_id
+    await tool("situation")
+    # run_one requires a trace_id; the leg must mint one rather than fragment.
+    assert captured["trace_id"]

@@ -190,6 +190,56 @@ async def test_slow_leg_times_out_instead_of_hanging_the_turn(monkeypatch):
     assert "timed out" in result.render()
 
 
+async def test_run_one_timeout_override_beats_the_env_budget(monkeypatch):
+    """A leg slower than the (tight, gateway-bound) env budget still completes
+    when `run_one` is given an explicit larger `timeout_s`. This is what lets the
+    async fire-then-poll worker outlast the 25s sync ceiling it would otherwise
+    inherit — the fix for the cold-Foundry timeout (run 7ef510e2, WS11)."""
+    from orchestration.runner import run_one
+
+    monkeypatch.setenv("A2ALAB_LEG_TIMEOUT_S", "0.02")  # the sync gateway budget
+    sink = []
+    clients = _all_ok(sink)
+    role = LEGS[0].role
+    clients[LEGS[0].target] = FakeClient(
+        LEGS[0].target, answer="slow but fine", delay=0.15, sink=sink
+    )
+
+    # With the env budget it would time out; the explicit override rescues it.
+    slow = await run_one(
+        role,
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        trace_id="t1",
+        registry=_registry(clients),
+    )
+    assert not slow.ok and "timed out" in slow.error
+
+    ok = await run_one(
+        role,
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        trace_id="t2",
+        registry=_registry(clients),
+        timeout_s=5.0,
+    )
+    assert ok.ok and "slow but fine" in ok.text
+
+
+def test_async_leg_budget_is_read_at_call_time_and_defaults_generously(monkeypatch):
+    """The async worker's budget is its own env key, defaulting to the full
+    (non-gateway) leg default — not the tight sync `A2ALAB_LEG_TIMEOUT_S`."""
+    from orchestration.runner import LEG_TIMEOUT_DEFAULT_S, async_leg_timeout_s
+
+    monkeypatch.delenv("A2ALAB_ASYNC_LEG_TIMEOUT_S", raising=False)
+    monkeypatch.setenv("A2ALAB_LEG_TIMEOUT_S", "25")  # sync budget must NOT bleed in
+    assert async_leg_timeout_s() == LEG_TIMEOUT_DEFAULT_S
+    monkeypatch.setenv("A2ALAB_ASYNC_LEG_TIMEOUT_S", "90")
+    assert async_leg_timeout_s() == 90.0
+
+
 async def test_clients_are_closed_even_when_a_leg_fails():
     sink = []
     clients = _all_ok(sink)
@@ -421,7 +471,9 @@ class SubmitOnlyFakeClient(AsyncFakeClient):
         return AgentResponse(text=self._sync_answer, session_id=req.session_id)
 
 
-@pytest.mark.parametrize("error_name", ["MethodNotFoundError", "VersionNotSupportedError", "TaskNotFoundError"])
+@pytest.mark.parametrize(
+    "error_name", ["MethodNotFoundError", "VersionNotSupportedError", "TaskNotFoundError"]
+)
 async def test_async_falls_back_to_sync_when_the_remote_will_not_serve_the_poll(
     monkeypatch, error_name
 ):
@@ -541,6 +593,81 @@ async def test_async_rides_through_a_transient_not_found_after_submit(monkeypatc
     # returned the completed task
     assert by_role[adk_leg.role].polls == 1
     # and the blocking path was never touched — this leg did NOT fall back
+    assert not clients[adk_leg.target].asked
+    assert "fell back to sync" not in result.render()
+
+
+class FlapAfterReadClient(AsyncFakeClient):
+    """A2A-capable, the remote serves the task — but the eventually-consistent
+    store 404s AGAIN on a poll AFTER a successful read. This is the real Agent
+    Engine shape from session edcb844…, 2026-08-12: poll returns WORKING, the
+    very next poll 404s, a later poll returns COMPLETED. The 404 is still the
+    store flapping, not a submit-only endpoint — once a read has succeeded the
+    endpoint is PROVEN to serve tasks, so the leg must ride through and finish
+    async, NOT fall back to sync.
+
+    Poll script: WORKING (seen) → 404 → COMPLETED."""
+
+    def __init__(self, name, answer, *, sink=None):
+        super().__init__(name, answer, sink=sink)
+        self._attempts = 0
+
+    async def poll(self, task_id, *, trace_id=None, expect_transient=False):
+        self._attempts += 1
+        if self._attempts == 2:
+            from a2a.utils.errors import MethodNotFoundError
+
+            raise MethodNotFoundError(f"Resource not found: https://.../a2a/tasks/{task_id}")
+
+        class _Snap:
+            done = self._attempts >= 3
+            state = "TASK_STATE_COMPLETED" if done else "TASK_STATE_WORKING"
+            text = self._answer if done else ""
+            detail = ""
+            interrupted = False
+
+        return _Snap()
+
+
+async def test_async_rides_through_a_not_found_that_flaps_after_a_good_read(monkeypatch):
+    """The session 47402230 regression: a 404 AFTER the task has been read once
+    must be ridden through, not treated as a fatal submit-only shape. The old
+    code gated the ride on `not seen_task`, so the first post-read 404 fell back
+    to sync — defeating the async pattern on an endpoint that fully supports it.
+
+    Here the ride-through is gated on `seen_task OR within grace`: even with the
+    grace window set to 0 (so a NEVER-seen 404 would fall back immediately, per
+    the submit-only test), a 404 that arrives after a successful read still rides
+    through, because the read proved the endpoint serves tasks."""
+    monkeypatch.setenv("A2ALAB_ASYNC_POLL_INTERVAL_S", "0.001")
+    # Grace 0 on purpose: proves the ride-through here comes from having SEEN the
+    # task, not from the post-submit grace window — the two are independent.
+    monkeypatch.setenv("A2ALAB_ASYNC_NOT_FOUND_GRACE_S", "0")
+    sink = []
+    clients = {
+        leg.target: AsyncFakeClient(leg.target, f"{leg.role} answer", sink=sink) for leg in LEGS
+    }
+    adk_leg = LEGS[0]  # exposure — the Agent Engine leg in the real config
+    clients[adk_leg.target] = FlapAfterReadClient(
+        adk_leg.target, "logistics answer via async", sink=sink
+    )
+
+    result = await dispatch(
+        "task",
+        caller="orc",
+        caller_platform="claude",
+        registry=_registry(clients),
+        dispatch_mode="async",
+    )
+    assert result.complete and result.ok_count == 3
+    by_role = {r.leg.role: r for r in result.results}
+    # finished ASYNC despite the post-read 404 — did NOT fall back to sync
+    assert by_role[adk_leg.role].dispatch_mode == "async"
+    assert by_role[adk_leg.role].ok
+    assert "logistics answer via async" in by_role[adk_leg.role].text
+    # two successful reads counted (WORKING, then COMPLETED); the 404 in between
+    # rode through and was not counted
+    assert by_role[adk_leg.role].polls == 2
     assert not clients[adk_leg.target].asked
     assert "fell back to sync" not in result.render()
 

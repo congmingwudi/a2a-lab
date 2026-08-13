@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenAiPlannerBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>WS8 fan-out orchestrator variant 3 (ADR D61): the supplier-disruption scenario orchestrated from Agentforce, authored in Agent Script. The third point on the who-owns-concurrency axis (host / graph / serial-Apex). Runs two topologies picked per run via an [A2A-LAB ROUTING] fanout-topology block — DELEGATED (one Apex callout to the bridge&apos;s fanout: route, which runs the three legs in parallel off-platform) or SERIAL (three stacked Apex callouts, which a real three-leg run overruns by design). Reuses the A2ALabInvokeRemoteAgent invocable; no new Apex.</description>
+    <localTopicLinks>
+        <genAiPluginName>agent_router_16jKB000000wuQu</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>ambiguous_question_16jKB000000wuQu</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>lab_scope_and_limitations_16jKB000000wuQu</genAiPluginName>
+    </localTopicLinks>
+    <localTopicLinks>
+        <genAiPluginName>supply_orchestration_16jKB000000wuQu</genAiPluginName>
+    </localTopicLinks>
+    <localTopics>
+        <fullName>ambiguous_question_16jKB000000wuQu</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Redirect conversation to a concrete disruption when the request is too vague to orchestrate.</description>
+        <developerName>ambiguous_question_16jKB000000wuQu</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab SUPPLY ORCHESTRATOR (WS8 variant 3, ADR D61). Given a supply-chain disruption, you coordinate three business units — Logistics, Commercial/Legal, and Customer operations — each an AI agent on a different platform, then write ONE consolidated brief. You never answer the three specialist questions from your own knowledge; every section must come from a business-unit agent. You are authored in Agent Script (D14) and your only outbound is a serial Apex callout through the lab bridge, which is the whole point of this experiment.</description>
+            <developerName>instruction0_179KB000000pZ9W</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ9W</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>ambiguous_question</localDeveloperName>
+        <masterLabel>Ambiguous Question</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>lab_scope_and_limitations_16jKB000000wuQu</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Selected ONLY when the user asks about this orchestrator agent itself — what it is, how it works, or its limitations.</description>
+        <developerName>lab_scope_and_limitations_16jKB000000wuQu</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab SUPPLY ORCHESTRATOR (WS8 variant 3, ADR D61). Given a supply-chain disruption, you coordinate three business units — Logistics, Commercial/Legal, and Customer operations — each an AI agent on a different platform, then write ONE consolidated brief. You never answer the three specialist questions from your own knowledge; every section must come from a business-unit agent. You are authored in Agent Script (D14) and your only outbound is a serial Apex callout through the lab bridge, which is the whole point of this experiment.</description>
+            <developerName>instruction0_179KB000000pZ9X</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ9X</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>lab_scope_and_limitations</localDeveloperName>
+        <masterLabel>Lab scope and limitations</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>agent_router_16jKB000000wuQu</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Welcome the user and route disruption situations to the supply orchestrator.</description>
+        <developerName>agent_router_16jKB000000wuQu</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab SUPPLY ORCHESTRATOR (WS8 variant 3, ADR D61). Given a supply-chain disruption, you coordinate three business units — Logistics, Commercial/Legal, and Customer operations — each an AI agent on a different platform, then write ONE consolidated brief. You never answer the three specialist questions from your own knowledge; every section must come from a business-unit agent. You are authored in Agent Script (D14) and your only outbound is a serial Apex callout through the lab bridge, which is the whole point of this experiment.</description>
+            <developerName>instruction0_179KB000000pZ9V</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ9V</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localDeveloperName>agent_router</localDeveloperName>
+        <masterLabel>Agent Router</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <localTopics>
+        <fullName>supply_orchestration_16jKB000000wuQu</fullName>
+        <canEscalate>false</canEscalate>
+        <description>Selected when the user describes a supply-chain disruption to assess. Coordinates three business-unit agents and writes one consolidated brief.</description>
+        <developerName>supply_orchestration_16jKB000000wuQu</developerName>
+        <genAiPluginInstructions>
+            <description>You are the A2A Interop Lab SUPPLY ORCHESTRATOR (WS8 variant 3, ADR D61). Given a supply-chain disruption, you coordinate three business units — Logistics, Commercial/Legal, and Customer operations — each an AI agent on a different platform, then write ONE consolidated brief. You never answer the three specialist questions from your own knowledge; every section must come from a business-unit agent. You are authored in Agent Script (D14) and your only outbound is a serial Apex callout through the lab bridge, which is the whole point of this experiment.</description>
+            <developerName>instruction0_179KB000000pZ9Y</developerName>
+            <language>en_US</language>
+            <masterLabel>instruction0_179KB000000pZ9Y</masterLabel>
+            <sortOrder>1</sortOrder>
+        </genAiPluginInstructions>
+        <language>en_US</language>
+        <localActionLinks>
+            <functionName>consult_one_unit_179KB000000pZ9Y</functionName>
+        </localActionLinks>
+        <localActionLinks>
+            <functionName>consult_units_parallel_179KB000000pZ9Y</functionName>
+        </localActionLinks>
+        <localActions>
+            <fullName>consult_units_parallel_179KB000000pZ9Y</fullName>
+            <description>DELEGATED topology. Makes ONE callout that asks the lab bridge to consult all three business units (Logistics, Commercial/Legal, Customer operations) IN PARALLEL off-platform, and returns their three sections plus a coverage line. Use this whenever the routing block is absent or selects the delegated topology.</description>
+            <developerName>consult_units_parallel_179KB000000pZ9Y</developerName>
+            <invocationTarget>A2ALabInvokeRemoteAgent</invocationTarget>
+            <invocationTargetType>apex</invocationTargetType>
+            <isConfirmationRequired>false</isConfirmationRequired>
+            <isIncludeInProgressIndicator>false</isIncludeInProgressIndicator>
+            <localDeveloperName>consult_units_parallel</localDeveloperName>
+            <masterLabel>A2ALab: Fan Out (parallel)</masterLabel>
+        </localActions>
+        <localActions>
+            <fullName>consult_one_unit_179KB000000pZ9Y</fullName>
+            <description>SERIAL topology. Consults ONE business unit via one Apex callout through the bridge. Use this ONLY when the routing block selects the serial topology; you must then call it three times, once per business unit, each with the matching bridge target.</description>
+            <developerName>consult_one_unit_179KB000000pZ9Y</developerName>
+            <invocationTarget>A2ALabInvokeRemoteAgent</invocationTarget>
+            <invocationTargetType>apex</invocationTargetType>
+            <isConfirmationRequired>false</isConfirmationRequired>
+            <isIncludeInProgressIndicator>false</isIncludeInProgressIndicator>
+            <localDeveloperName>consult_one_unit</localDeveloperName>
+            <masterLabel>A2ALab: Consult One Unit (serial)</masterLabel>
+        </localActions>
+        <localDeveloperName>supply_orchestration</localDeveloperName>
+        <masterLabel>Supply orchestration</masterLabel>
+        <pluginType>Topic</pluginType>
+    </localTopics>
+    <masterLabel>A2ALab Supply Orchestrator (Agentforce)</masterLabel>
+    <plannerType>Atlas__ConcurrentMultiAgentOrchestration</plannerType>
+</GenAiPlannerBundle>

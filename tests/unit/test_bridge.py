@@ -116,3 +116,75 @@ def test_auth_enforced_when_token_set(bridge, monkeypatch):
         headers={"x-bridge-token": "sekrit"},
     )
     assert ok.status_code == 200
+
+
+class _FakeFanout:
+    """Stand-in for orchestration.FanOutResult — the bridge only reads these."""
+
+    def __init__(self):
+        self.results = [object(), object(), object()]
+        self.ok_count = 3
+        self.dispatch_summary = "async: exposure, commercial; async→sync: customer_comms"
+
+    def render(self) -> str:
+        return "rendered sections"
+
+
+def test_fanout_reads_dispatch_mode_from_the_situation_and_strips_the_block(bridge, monkeypatch):
+    """WS11: Agentforce cannot poll, so the async loop runs at the bridge. The
+    mode rides the situation as an [A2A-LAB ROUTING] block (the Apex body has no
+    field for it); the bridge must (1) dispatch with that mode and (2) strip the
+    block so no routing directive leaks into a business unit's prompt."""
+    monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
+    client, _ = bridge
+
+    from interop import af_channel
+
+    captured = {}
+
+    async def fake_dispatch(task, **kwargs):
+        captured["task"] = task
+        captured.update(kwargs)
+        return _FakeFanout()
+
+    monkeypatch.setattr("orchestration.dispatch", fake_dispatch)
+
+    situation = "A port strike halts traffic through Rotterdam."
+    r = client.post(
+        "/invoke/fanout:supplier-disruption",
+        json={"message": situation + af_channel.dispatch_block("async")},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    # (1) the async mode was threaded into dispatch...
+    assert captured["dispatch_mode"] == "async"
+    # ...and (2) the routing block never reached the legs.
+    assert af_channel.ROUTING_MARKER not in captured["task"]
+    assert captured["task"] == situation
+    # The bridge reports what was requested and what actually happened per leg.
+    assert data["bridge"]["dispatch_mode"] == "async"
+    assert "async→sync" in data["bridge"]["dispatch"]
+    assert data["bridge"]["coverage"] == "3/3"
+
+
+def test_fanout_defaults_to_sync_when_no_block_is_present(bridge, monkeypatch):
+    """A never-injected or stripped block degrades to the blocking path, never
+    to an error."""
+    monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
+    client, _ = bridge
+
+    captured = {}
+
+    async def fake_dispatch(task, **kwargs):
+        captured.update(kwargs)
+        return _FakeFanout()
+
+    monkeypatch.setattr("orchestration.dispatch", fake_dispatch)
+
+    r = client.post(
+        "/invoke/fanout:supplier-disruption",
+        json={"message": "A port strike halts traffic."},
+    )
+    assert r.status_code == 200
+    assert captured["dispatch_mode"] == "sync"
+    assert r.json()["bridge"]["dispatch_mode"] == "sync"

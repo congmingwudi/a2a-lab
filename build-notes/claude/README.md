@@ -59,6 +59,7 @@ when overstated into product claims.
 | [12-steering-with-context.md](12-steering-with-context.md) | The input side of the loop: screenshots of config screens and vendor docs (ground truth that corrects the model's inferred design), requirements written with their purpose and architectural direction, and the model refusing to guess when an input is missing — fewer turns as the measurable win |
 | [13-recurring-tasks.md](13-recurring-tasks.md) | Four ways Claude "keeps going" — `/loop` (in-session interval watch), background Bash (one-shot + push), the task list (the main loop, not subagents), and scheduled Lambdas (standing monitoring); why `/loop` is a watch not a monitor, and a real pre-demo warm watch (`scripts/demo_watch.py`) |
 | [14-challenging-for-accuracy.md](14-challenging-for-accuracy.md) | The output side of the loop: the model asserting two confident wrong root causes for an async failure, a one-line human challenge collapsing both, and the conventions that turned the pushback into a proof — "reproduce before you conclude," `file:line` citation, a verifying subagent, and the permission gradient as the backstop for a wrong theory that wants to act |
+| [15-managing-the-context-window.md](15-managing-the-context-window.md) | The context lifecycle: `--resume`/`--continue` replay the real transcript (not a memory of it), auto-compaction summarizes lossily when the window fills, and a deliberate `/clear` at a task seam beats riding compaction — safe only because the durable stores (04) survive the cut |
 | [screenshots/](screenshots/README.md) | Terminal screenshots captured at critical decision points — Claude as a thought partner |
 
 ## Recommended presentation arc
@@ -66,8 +67,11 @@ when overstated into product claims.
 1. **Steer with context** (12) — a screenshot of the real screen, a requirement
    carrying its purpose and your architectural calls, a linked doc: the input
    decides how few turns it takes to get a correct plan out.
-2. **Make context durable** (04, 02) — project instructions, ADRs, memory, and
-   contract files stop each session from rediscovering the project.
+2. **Make context durable** (04, 02, 15) — project instructions, ADRs, memory, and
+   contract files stop each session from rediscovering the project; and because
+   they persist, you can manage the conversation window on purpose — resume
+   replays the real transcript, so clearing at a task seam beats riding
+   auto-compaction.
 3. **Scale judgment without losing evidence** (01) — saved workflows turn a
    subjective claims review into a repeatable adversarial audit.
 4. **Delegate through interfaces** (02) — typed seams and shared tests make

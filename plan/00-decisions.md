@@ -2797,11 +2797,16 @@ Framing 'https://<my-domain>.my.salesforce.com/' violates the CSP directive:
 The trap — and the correction this makes to my own earlier reasoning — is assuming one CSP lever does
 the whole job. There are two, on opposite sides of the frame boundary:
 
-- **`frame-ancestors`** — who may *frame the org*. Populated by **Setup → Session Settings → Clickjack
-  Protection → Trusted Domains for Inline Frames**, origin added with **IFrame Type = LightningOut**.
-  This is the one that fixed the blocked-iframe error above. It is **UI-only**: the domain list is
-  *not* a field on the `SecuritySettings` metadata type (which carries the clickjack toggles but not
-  the list), so — unlike almost everything else in this lab — it genuinely cannot ship as metadata.
+- **`frame-ancestors`** — who may *frame the org*. The origin goes in the org's **Trusted Domains for
+  Inline Frames** (Setup → Session Settings → Clickjack Protection), tagged **IFrame Type = LightningOut**.
+  This is the one that fixed the blocked-iframe error above. **Correction (2026-08-13, architecture-sweep):
+  this ships as metadata — it is NOT UI-only.** The list is *not* a field on the `SecuritySettings`
+  metadata type (which carries only the clickjack toggles), but it IS carried by a DIFFERENT, dedicated
+  type — **`IframeWhiteListUrlSettings`** (entries of `context=LightningOut` + `url`), structurally
+  parallel to the `CspTrustedSite` below. Calling it UI-only *because* it wasn't on `SecuritySettings`
+  was this repo's own "no Metadata type for X ≠ no API" trap. Retrieved live and validated check-only
+  against the org; it ships as
+  `salesforce/.../iframeWhiteListUrlSettings/IframeWhiteListUrlSettings.iframeWhiteListUrlSettings`.
 - **`frame-src` / `connect-src` / `img-src` / `style-src` / `font-src` / `media-src`** on the
   Lightning Out content — what the *framed dashboard itself* may load (its own iframes, XHR/data
   calls, images, fonts, styles). Populated by a **`CspTrustedSite` with `context = LightningOut`**
@@ -2844,8 +2849,9 @@ element, plus growing the container to match.
 allowlists are in play, each a different direction — plus browser and sizing:
 - **`CorsWhitelistOrigin`** (metadata) — the SDK's `fetch`/XHR calls *out* to the org (why the token
   exchange worked all along).
-- **Trusted Domains for Inline Frames / LightningOut** (UI-only) — `frame-ancestors`: who may frame
-  the org.
+- **`IframeWhiteListUrlSettings` `context=LightningOut`** (metadata — Trusted Domains for Inline
+  Frames) — `frame-ancestors`: who may frame the org. (Earlier called UI-only; corrected above —
+  it ships headless.)
 - **`CspTrustedSite` `context=LightningOut`** (metadata) — `frame-src`/`connect-src`/etc. on the
   framed content: what the dashboard may load.
 Then: the viewer's browser must allow **third-party cookies**; the console must supply a **real
@@ -2856,3 +2862,252 @@ in the in-org Lightning app for the exact user the frontdoor runs as.
 See D36 (owner-only embed posture), D70/D71 (the UI-only build steps), WS19 (the M10 build), the
 `a2a_lab_tab_embed` ECA, the `CorsWhitelistOrigin`, the `A2A_Lab_Console` CspTrustedSite, and
 plan/09-deployment-map.md L6.
+
+## 2026-08-12 — D73: build the Agentforce Session Trace OTel path, but keep the DMO harvest LIVE — same data, and only one route can be the coverage column
+
+**Context.** Agentforce shipped a Session Trace OpenTelemetry API
+(`GET /services/data/v66.0/einstein/audit/otel/{session-id}`, beta —
+https://developer.salesforce.com/docs/ai/agentforce/guide/otel-api.html): a
+session's trace returned as an OTLP/JSON `resourceSpans` document — turns,
+messages, LLM calls, actions, metric scores, feedback, each a span. The M11
+Agentforce harvest today (`src/observability/salesforce_source.py`) assembles
+the same picture by hand: `SELECT FIELDS(ALL)` over four STDM DMOs, a manual
+interaction→session FK walk, 200-row pages with OFFSET, backfill of referenced
+sessions, and field-name heuristics because `ssot__*` column names drift
+between orgs. The question was whether to switch the live harvest onto the new
+API.
+
+**What the OTel API actually is.** The same Data 360 record, read through a
+pre-joined standard view. It is NOT a new data source and NOT more data — the
+Agentforce docs describe it as a projection of the same Session Tracing / Gen
+AI Audit store the DMOs expose. So switching would not change a single number
+on the dashboard or in the analysis; it changes only the *retrieval mechanism*.
+
+**What the retrieval mechanism buys, on that same data.** The join is the
+server's — no manual FK walk, so the entire orphan bug class disappears (the
+DMO path once stranded 823 events in Aurora by mis-joining step rows on a
+`NOT_SET` FK). A stable OTLP schema replaces the drift-prone column heuristics.
+And it is one round trip per session instead of paged `FIELDS(ALL)` across four
+DMOs. Real wins — but on retrieval, not on truth.
+
+**What ruled out switching the live path.** Three beta limits, each fatal to
+the coverage sweep the DMO path serves: (1) **single-session only** — the
+endpoint takes ONE session id; there is no bulk read, so a "harvest every
+Agentforce session in the store" pass would be N GETs behind an id
+enumerator, versus one paged `FIELDS(ALL)`; (2) **72h lookback** — it cannot
+reconstruct history the DMOs still hold; (3) **beta** — not a foundation for
+the live "harvested from all platforms" claim. The DMO path's bulk read is
+exactly the property the coverage column needs.
+
+**Decision.** Build the OTel source now
+(`src/observability/salesforce_otel_source.py`) so the capability exists and is
+tested, but ship it under its OWN platform name (`salesforce-otel`), reachable
+by name in `obs_harvest.py` and NEVER in the unqualified sweep — so it neither
+doubles the Agentforce column nor redefines "all platforms," and never clobbers
+the live `salesforce` rows. The live harvest stays on the DMO path. When the
+API leaves beta and grows a bulk read, promoting it is a one-line change in
+`PLATFORM_SOURCES`, not a rewrite — which is the whole reason to build it now.
+This is the same trust-under-pressure move as the cost sentinel refusing a
+comparison it can't back (D44): capability without overclaiming that it
+replaces the measured path. Captured as a field insight
+(`agentforce-otel-same-data-standard-route`) and an in-flight What's Next tile;
+tracked as WS23.
+
+See WS23 (plan/07-workstreams.md), M11 (plan/05-observability.md), D37 (the
+F6 a2a_lab_obs caller identity the source reuses), D44 (refusing an unbacked
+claim), and `src/observability/salesforce_source.py` (the live DMO path).
+
+## 2026-08-12 — D74: the fan-out MCP server gets bespoke `submit_<unit>`/`check_task` tools that MIMIC the A2A task lifecycle in MCP — not the native MCP Tasks extension, which we could not verify the client supports
+
+**Context.** WS11 items 8–10 made fire-then-poll a run-time choice on the
+*host-side* fan-out ("tool" variant): our own code is the A2A client, so it can
+`submit` each leg and poll to done. The "mcp" variant — the same Managed Agent
+with three remote MCP tools on our Lambda, where the MODEL schedules the units —
+had no async path: its `consult_<unit>` tools each run one blocking `run_one`
+inside an API Gateway request, so a cold platform leg (Agent Engine ~34s,
+AgentCore 31–56s) times out against the 29s integration ceiling D41 measured.
+The remaining WS11 items 6–7 were to give the mcp variant its own async path.
+
+**The fork.** MCP has since gained a native long-running-task shape — an
+`io.modelcontextprotocol/tasks` extension where a tool call returns a task the
+client polls. If the Managed Agents MCP client supports it, the right move is to
+lean on the standard rather than invent a parallel one. So: **verify native
+client support first, and only fall back to bespoke tools if it is
+unverifiable.** Research (spec + SDK + Managed Agents docs, then reasoning about
+what the workspace's MCP client actually negotiates) could NOT confirm the
+managed client negotiates or drives the Tasks extension — the capability is not
+documented as supported, and we cannot make the client poll a task we cannot
+observe it accepting.
+
+**Decision.** Build the async path as **bespoke `submit_<unit>` + `check_task`
+tools** on the same fan-out server, shaped to map cleanly onto the A2A/Tasks
+lifecycle so a later switch to the native extension is a swap, not a rewrite.
+`submit_<unit>` creates a durable task (the Aurora store from item 4), self-
+invokes the worker in its own execution window (`InvocationType='Event'`,
+because Lambda freezes background work after the response — D47), and returns a
+task id in ~1s without running the leg; `check_task` reads state by task id, or
+by run id for all three units at once; the MODEL drives the poll loop. Both tool
+sets live on the ONE deployed server, and async is selected per run by a
+fire-then-poll SYSTEM prompt (`system_async`, applied via `agent_with_overrides`
+— no redeploy to switch topology). This is deliberately the A2A submit/poll
+lifecycle *re-expressed in MCP*: the same shape item 3 measured over real A2A
+endpoints, now something the model schedules rather than our client.
+
+**Why bespoke rather than wait for the native extension.** The lab's claim is a
+cross-platform comparison of *who schedules parallel work* — a host, a graph, or
+the model — and fire-then-poll under MCP is a data point that comparison wants
+now. A tool the model can call and poll produces that data today; it also
+degrades honestly (a leg whose protocol has no task lifecycle — an AgentCore leg
+— falls back to a blocking call, recorded `async→sync`, never hidden). When the
+native Tasks extension is confirmed supported, the bespoke tools retire behind
+it. Same trust-under-pressure posture as D44/D73: ship the measurable capability,
+do not overclaim it uses a standard it may not.
+
+**What is held for the operator.** The code and its unit tests are in
+(`src/fanout_mcp/tools.py`, `lambda_entry.py`, `orchestration/agents.py`,
+`cma.py`, `run_fanout.py`, `index.html`); the LIVE poll-vs-busy-wait measurement
+needs the fan-out bundle redeployed with the new tools and the orchestrator re-
+provisioned to write `system_async` against the live Anthropic API. On Lambda
+polling is what advances the work, so a model that backs off politely makes its
+own run slower — that is the measurement item 7 exists to take.
+
+See WS11 (plan/07-workstreams.md, items 6–7), D41 (the fan-out MCP server and
+the gateway ceiling), D47 (the durable store + separate-invocation worker, and
+why background work must not run in the response invocation), and D61 (the
+same-agent-two-inventories comparison this preserves).
+
+## 2026-08-12 — D75: the async fire-then-poll WORKER gets its own, larger per-leg budget — it is not gateway-bound, and inheriting the sync budget defeated the whole point of async
+
+**Symptom.** First live async mcp-variant run against a COLD Foundry leg: the
+Commercial/Legal unit came back "Did not answer (timeout)". The task itself was
+fine — `lab.fanout_tasks` for run `7ef510e2` shows the commercial task reached
+**COMPLETED** at 27.1s — but its stored `result` was
+`[leg unavailable: foundry — timed out after 25s]` (the leg measured 26,512 ms).
+So the fire-then-poll lifecycle worked perfectly and stored a *timeout marker* as
+the answer.
+
+**Root cause.** The async worker (`fanout_mcp.tools.worker_runner` → `run_one`)
+ran the leg with `leg_timeout_s()` = `A2ALAB_LEG_TIMEOUT_S` = **25s** — the value
+`deploy/fanout/deploy_fanout.sh` pins for the *synchronous* `consult_*` path
+because that path runs inside an API Gateway request bounded by the non-raisable
+29s integration ceiling (D41). But the worker is a **self-invoke
+`InvocationType='Event'` Lambda** (D47) — there is no gateway in front of it and
+no request held open. Its entire reason to exist is to let a slow/cold leg run
+*past* that ceiling, and it was applying the exact constraint it exists to
+escape. Foundry cold (~26.5s) is precisely the case async should serve. Worse,
+the function was deployed `--timeout 28`, so a slightly colder leg would have hit
+the harder failure: the function hard-killed mid-worker, leaving the task stuck
+WORKING and the model polling to its own give-up. (The `lambda_entry.py` header
+had *already* documented the intent — "a leg is allowed 120s … the function
+timeout must exceed that" — but the deploy shipped 25s/28s, so the comment and
+reality had silently diverged.)
+
+**Decision.** Give the async worker a **distinct, larger budget**:
+`async_leg_timeout_s()` reads `A2ALAB_ASYNC_LEG_TIMEOUT_S` (default 120s, the
+non-gateway `LEG_TIMEOUT_DEFAULT_S`), threaded into `run_one`/`_run_leg` as an
+explicit `timeout_s` override so the sync path keeps its 25s and only the worker
+changes. The Lambda **function** timeout is now computed from that async budget
++ margin (135s), not the sync one — a function timeout below the worker's budget
+is the stuck-WORKING trap. Raising the function ceiling does not harm the sync
+path: the gateway still 504s a client at 29s and `consult_*` self-limits at
+`LEG_TIMEOUT_S`, so the extra headroom only serves the off-request worker. The
+async orchestrator prompt's budget line is now `timeout_note_async()` (the async
+number), not the sync one.
+
+**Prevention / what this makes true.** Warming a runtime still helps (a warm
+Foundry leg is ~17s), but async now *finishes* a cold leg instead of reporting it
+unavailable — which is the capability WS11 set out to demonstrate. The guardrail
+that the leg budget stays under the gateway on the sync path is preserved; the
+new invariant is "the function timeout exceeds the ASYNC budget", encoded in the
+deploy script.
+
+**Held for the operator.** Redeploy the fan-out bundle
+(`deploy/fanout/build_zip.sh && deploy/fanout/deploy_fanout.sh` — a code change,
+full rebuild) so the worker runs the new budget, and re-run
+`scripts/setup_fanout_orchestrator.py --mcp` to write the corrected
+`system_async` prompt. See D74 (the async tools), D47 (the separate-invocation
+worker), D41 (the gateway ceiling this budget is deliberately NOT bound by).
+
+## 2026-08-12 — D76: fire-then-poll for all three supplier-disruption controllers — the poll loop runs in a DIFFERENT place under each, and Agentforce can only take the async half by proxy
+
+**Context.** WS11 built A2A fire-then-poll for the Claude (Managed Agents)
+orchestrator two ways — a host-side custom tool (our code runs submit+poll) and
+remote MCP tools (the model runs it), items 6–9. The lab has three
+supplier-disruption orchestrators on one axis (who owns concurrency: a host on
+Managed Agents, a graph on ADK, a serial Apex budget on Agentforce). The other
+two had only the blocking dispatch. This extends fire-then-poll to them — but the
+interesting part is not "add async", it is that **the submit/poll loop physically
+runs in a different place under each controller**, and one of them cannot run it
+at all.
+
+**Decision — one implementation, three homes for the loop.** All three route
+through the SAME seam (`orchestration.runner.run_one` / `dispatch`), so the
+capability detection, the flapping-404 ride-through (D74/item 12), the async→sync
+fallback for a leg with no task lifecycle, and the partial-failure contract are
+written once. What differs is *where* the loop turns:
+
+- **Claude / Managed Agents (already built).** Host-side tool: our code is the
+  A2A client, submit+poll inside one custom-tool call. Remote MCP: the *model*
+  polls `check_task`, so the turn count is the poll count (D74).
+- **Google ADK / Agent Engine.** The fan-out is DECLARED (`ParallelAgent`), so
+  no host and no model schedules it — the framework does. `_leg_tool` now calls
+  `run_one` rather than a bespoke A2A call, and `dispatch_mode`/`trace_id` thread
+  from the inbound A2A task metadata (`execute()`) through
+  `build_fanout_orchestrator` into each unit's tool. The poll loop therefore runs
+  **inside the ParallelAgent branch, in the GCP container**, off any gateway, on
+  the full async budget (`async_leg_timeout_s()`), bounded only by the
+  orchestrator's own A2A deadline. Nothing calls back to a lab host.
+- **Agentforce.** It **cannot poll**: its only GA outbound is one serial Apex
+  callout inside a 120s transaction budget. So the async loop runs at the
+  **bridge**, on the orchestrator's behalf, during the single callout Apex holds
+  open — the SAME `orchestration.dispatch` the Managed Agents host tool runs.
+  Agentforce never sees a task id. The bound is that ~110s callout, NOT an API
+  Gateway ceiling, because the bridge is a long-lived Fargate service, not a
+  Lambda. This is the honest shape: a serial-outbound platform can take the
+  asynchronous half of A2A, **but only one layer down, never itself** — by proxy.
+
+**How the mode reaches the bridge for Agentforce.** The Apex `askOne` body is
+`{message, session_id, trace_id}` and carries no dispatch field, so the mode
+rides the *situation text* as a `fanout-dispatch:` `[A2A-LAB ROUTING]` block
+(`af_channel.dispatch_block`), exactly like the existing channel/route/topology
+toggles (D28/D61). The bridge's `_fanout` reads it (`read_dispatch_mode`) and
+**strips every routing block** (`strip_routing_blocks`) before the legs see the
+situation, so no lab directive leaks into a business-unit prompt. Absent or
+stripped → `sync`: the block is only strictly required for async, and its absence
+degrades to the blocking path, never to an error. UPDATE 2026-08-12: the
+Agent Script's DELEGATED path now explicitly appends any `[A2A-LAB ROUTING]`
+block(s) UNCHANGED after the situation when it calls the fan-out action
+(published + activated as v2). One live async run is still owed to confirm the
+block survives the model turn into the Apex `question` value — an LLM
+instruction, not a guaranteed wire contract; the safe default keeps an
+unforwarded block a silent fall back to sync rather than a failure.
+
+**Console.** `dispatch_mode_toggle: true` on `supplier-disruption-adk` and
+`-agentforce`; the frontend dispatch radio was already generic, so the only UI
+work was making `fanoutControlsDetailHtml` controller-aware — CMA keeps the
+host-vs-model prose, ADK gets the graph-branch prose, Agentforce gets the
+by-proxy-at-the-bridge prose; the per-platform store behaviour (Agent Engine
+flapping 404, Foundry cold start) is shared, and "why async shows extra turns"
+stays CMA-only because it is a property of the model-driven MCP variant.
+
+**Tests.** `tests/unit/test_af_channel.py` (block round-trip: clamp, default to
+sync, strip every block); bridge `_fanout` dispatch-mode threading + block
+stripping; ADK `_leg_tool` async→`run_one` wiring including the async budget and
+trace-id minting. All pass; no live platform needed.
+
+**Held for the operator.** Three redeploys, all code/config changes (full
+rebuild, not `--skip-build`): the ADK orchestrator
+(`deploy/adk/deploy_adk.py --role orchestrator` — ships the new `agent.py`), the
+bridge (ships `_fanout` + `af_channel`), and the console (bakes
+`config/scenarios.yaml` + `index.html` + `app.py`). No Salesforce deploy is
+needed for the happy path; a follow-up to make the orchestrator's Agent Script
+forward the `fanout-dispatch` block would remove the "unverified" caveat above.
+Then one live async run per controller to record the poll cadence and per-leg
+mode. The three controllers and where each one's poll loop runs are narrated in
+full in plan/14-supplier-disruption-orchestrators.md (which also answers the
+"can a Salesforce Flow poll natively" question: buildable headlessly, but a
+Pause resumes across a new transaction and cannot return into the agent's turn,
+so it fits the D16/D17 deliver-to-a-record shape, not in-turn orchestration).
+See WS11 item 13, D74 (the async tools + the header fix), D75 (the worker's
+non-gateway budget), D47 (the separate-invocation worker), D41 (the gateway
+ceiling this dissolves), and D61 (the Agentforce fan-out topology this rides on).

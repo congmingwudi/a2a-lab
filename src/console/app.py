@@ -536,6 +536,36 @@ async def run_via_bridge(req: AgentRequest, target: str) -> dict:
     }
 
 
+# ---- Fan-out coverage line (remote orchestrators) --------------------------
+# The CMA fan-out computes its coverage in-process (mode==fanout branch) because
+# the host owns the legs. The ADK orchestrator runs the legs inside its own GCP
+# container, so the console cannot recount them — but each leg arrives to the
+# synthesiser under a `### {business unit} — {platform label}` header and, when a
+# leg is down, a verbatim "[leg unavailable: <platform> — ...]" marker the units
+# are instructed to relay unchanged. So the brief already NAMES which division on
+# which platform answered (the user's ask); this appends the same one-line
+# coverage summary the CMA run carries, derived from those relayed markers.
+
+
+def _orch_coverage_line(brief: str, dispatch_mode: str | None, orchestrator: str) -> str:
+    gaps = (brief or "").count("[leg unavailable")
+    answered = max(0, 3 - gaps)
+    line = f"{answered}/3 business units answered"
+    if dispatch_mode:
+        line += f" · dispatch: {dispatch_mode}"
+    line += f" · orchestrated by {orchestrator}"
+    return line
+
+
+def _brief_with_coverage(
+    brief: str,
+    dispatch_mode: str | None,
+    orchestrator: str = "Google Vertex AI Agent Engine",
+) -> str:
+    body = (brief or "").strip() or "(empty brief)"
+    return f"{body}\n\n---\n_{_orch_coverage_line(brief or '', dispatch_mode, orchestrator)}_"
+
+
 # ---- Component links: the real agent assets behind each experiment --------
 # Deep links into the systems where each agent actually lives, shown in the
 # console's Details tab. Computed server-side from env so org domains and
@@ -2256,6 +2286,11 @@ def create_console_app(registry: Registry | None = None):
         chosen_channel: str | None = None
         chosen_route: str | None = None
         chosen_topology: str | None = None
+        # WS11: sync vs async fire-then-poll for the ADK- and Agentforce-primary
+        # fan-out orchestrators. It reaches each controller differently — A2A
+        # request metadata for the ADK orchestrator, a message routing block for
+        # Agentforce (whose Apex body carries no field for it) — set below.
+        chosen_dispatch: str | None = None
 
         scenario_name = body.get("scenario")
         if scenario_name:
@@ -2298,11 +2333,12 @@ def create_console_app(registry: Registry | None = None):
                 # and lets it schedule them (D41). The operator picks per run,
                 # because the interesting comparison is same-agent-same-prompt.
                 variant = "mcp" if body.get("variant") == "mcp" else "tool"
-                # How the host-side legs are dispatched (WS11): "sync" is the
-                # blocking ask() every run used before; "async" fires the A2A
-                # submit+poll lifecycle on the legs that implement it. Only the
-                # "tool" variant dispatches host-side, so async is a no-op under
-                # "mcp" — the legs run in the Lambda there (follow-up: WS11 6-7).
+                # How the legs are dispatched (WS11). "sync" is the blocking
+                # ask() every run used before; "async" fires the A2A submit+poll
+                # lifecycle. It now reaches BOTH topologies (WS11 items 6-7):
+                # under "tool" our host code runs submit+poll; under "mcp" async
+                # selects the fire-then-poll system prompt so the model drives
+                # the submit_<unit>/check_task tools on the Lambda.
                 dispatch_mode = "async" if body.get("dispatch_mode") == "async" else "sync"
                 trace_id = body.get("trace_id") or new_trace_id()
                 try:
@@ -2321,8 +2357,14 @@ def create_console_app(registry: Registry | None = None):
                     # No host-side FanOutResult — the legs ran in the Lambda.
                     # What the MODEL did is the observable here, so report the
                     # call path instead of a coverage count we did not compute.
+                    # Async names the units on the submit_* tools (check_task is
+                    # the shared poll tool, so counting ALL distinct names would
+                    # read 4/3); sync names them on the consult_* tools.
                     path = result["call_path"]
-                    units = len({c.name for c in path.calls})
+                    if dispatch_mode == "async":
+                        units = len({c.name for c in path.calls if c.name.startswith("submit_")})
+                    else:
+                        units = len({c.name for c in path.calls if c.name.startswith("consult_")})
                     coverage = (
                         f"{units}/3 business units consulted · {path.render()}"
                         if path.calls
@@ -2435,14 +2477,35 @@ def create_console_app(registry: Registry | None = None):
                 if chosen_topology not in af_channel.TOPOLOGY_TOOLS:
                     chosen_topology = "delegated"
                 message += af_channel.topology_block(chosen_topology)
+            if spec.get("dispatch_mode_toggle"):
+                # WS11: how the fan-out dispatches each leg — sync (blocking) vs
+                # async (A2A fire-then-poll). The CMA fan-out consumes this in
+                # the mode==fanout branch above; here it is for the remote
+                # orchestrators (ADK, Agentforce), which run the fan-out inside
+                # their own container / at the bridge.
+                chosen_dispatch = "async" if body.get("dispatch_mode") == "async" else "sync"
+                if spec.get("af_topology_toggle"):
+                    # Agentforce: the mode cannot ride the Apex body, so it goes
+                    # in the situation as a routing block the bridge reads and
+                    # strips. sync is the bridge default; injecting either makes
+                    # the choice visible on the wire and lets the UI badge it.
+                    message += af_channel.dispatch_block(chosen_dispatch)
+                # The ADK orchestrator takes it on the A2A request metadata,
+                # stamped once `req` exists below.
         else:
             name = body.get("target")
         if not name:
             raise HTTPException(status_code=400, detail="missing 'target' or 'scenario'")
         try:
-            get_registry().get(name)
+            target = get_registry().get(name)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
+        # WS23: when the PRIMARY target is Agentforce, the session id this run
+        # returns is an Agentforce agent session — the one the Session Trace OTel
+        # API keys on. Flag that so the console can offer a "view session trace"
+        # deep-link ONLY where the id is OTel-eligible (a Claude orchestrator
+        # that merely consults Agentforce returns ITS own session, not AF's).
+        session_platform = "salesforce" if target.platform == "agentforce" else None
         req = AgentRequest(
             message=message,
             # Client-minted trace_id so the UI can select the trace and watch
@@ -2462,6 +2525,59 @@ def create_console_app(registry: Registry | None = None):
             authz = request.headers.get("authorization", "")
             if authz.startswith("Bearer "):
                 req.metadata["user_token"] = authz[len("Bearer ") :]
+        # WS11: the ADK orchestrator reads its per-run dispatch mode off the
+        # inbound A2A task metadata (the Agentforce path already injected a
+        # routing block into the message above instead, so skip it there).
+        # chosen_dispatch is only ever set on a scenario, so `spec` is bound.
+        if chosen_dispatch and not spec.get("af_topology_toggle"):
+            req.metadata["dispatch_mode"] = chosen_dispatch
+        # WS11: the ADK orchestrator MUST be driven fire-then-poll, never with a
+        # blocking ask(). A blocking message:send runs the whole
+        # SequentialAgent[ParallelAgent→synthesiser] graph inline on Agent Engine
+        # and returns HTTP 400 "Reasoning Engine Execution failed" past ~105s (or
+        # outlives the 120s shared-ALB idle timeout). Submit returns a task id in
+        # ~1-2s; the browser then polls /api/run/poll (tasks/get) to a terminal
+        # state, so no single request is held open across the ~2-minute graph.
+        if scenario_name and spec.get("console_dispatch") == "submit_poll":
+            client = get_client(name)
+            try:
+                handle = await client.submit(req)
+            except Exception as exc:  # surface as a result, not a 500
+                return {
+                    "ok": False,
+                    "trace_id": req.trace_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            if handle.answered_immediately and handle.text.strip():
+                # Rare: the orchestrator answered on submit (nothing to poll).
+                return {
+                    "ok": True,
+                    "trace_id": req.trace_id,
+                    "text": _brief_with_coverage(handle.text, chosen_dispatch),
+                    "latency_ms": handle.submit_ms,
+                    "dispatch_mode": chosen_dispatch,
+                }
+            return {
+                "ok": True,
+                "pending": True,
+                "trace_id": req.trace_id,
+                # The browser polls with these until the task is terminal.
+                "poll": {
+                    "target": name,
+                    "task_id": handle.task_id,
+                    "trace_id": req.trace_id,
+                    "dispatch_mode": chosen_dispatch,
+                },
+                "submit_ms": handle.submit_ms,
+                "dispatch_mode": chosen_dispatch,
+                "text": (
+                    "⏳ Submitted to the Google ADK orchestrator on Vertex AI "
+                    f"Agent Engine (task {handle.task_id[:12]}…). It runs the "
+                    "SequentialAgent[ParallelAgent→synthesiser] graph off-request; "
+                    "the console is polling tasks/get for the brief (typically "
+                    "~2 minutes). Watch the call path below stream in."
+                ),
+            }
         try:
             if via_bridge:
                 result = await run_via_bridge(req, name)
@@ -2471,6 +2587,8 @@ def create_console_app(registry: Registry | None = None):
                     result["af_route"] = chosen_route
                 if chosen_topology:
                     result["af_topology"] = chosen_topology
+                if chosen_dispatch:
+                    result["dispatch_mode"] = chosen_dispatch
                 return result
             client = get_client(name)
             resp = await client.ask(req)
@@ -2480,9 +2598,15 @@ def create_console_app(registry: Registry | None = None):
                 "text": resp.text,
                 "latency_ms": resp.latency_ms,
                 "session_id": resp.session_id,
+                "session_platform": session_platform,
+                # WS23: the OTel-eligible Agentforce agent session id (a UUIDv7)
+                # the client captured — the id the Session Trace deep-link must
+                # query, NOT the lab session_id. Absent for non-Agentforce runs.
+                "session_agent_id": (resp.metadata or {}).get("agent_session_id"),
                 "af_channel": chosen_channel,
                 "af_route": chosen_route,
                 "af_topology": chosen_topology,
+                "dispatch_mode": chosen_dispatch,
             }
         except Exception as exc:  # surface the failure as a result, not a 500
             return {
@@ -2490,6 +2614,54 @@ def create_console_app(registry: Registry | None = None):
                 "trace_id": req.trace_id,
                 "error": f"{type(exc).__name__}: {exc}",
             }
+
+    @app.post("/api/run/poll")
+    async def run_poll(request: Request):
+        """WS11 fire-then-poll, console tier: one tasks/get for a task the
+        browser submitted via /api/run. Split from /api/run so no single request
+        is held open across a multi-minute orchestrator graph (the shared ALB's
+        idle timeout is 120s). Used by the ADK orchestrator (console_dispatch:
+        submit_poll); the browser calls it on a cadence until `done`.
+
+        A poll that 404s is NOT an error here: Agent Engine's task store is
+        eventually consistent, so a task that exists but has not finished (and,
+        it flaps, even one already read once) answers tasks/get with a 404 the
+        A2A transport raises as MethodNotFoundError. `expect_transient` records
+        that hop as `pending`, and this handler returns done=False so the browser
+        keeps polling — exactly the ride-through the runner does for the CMA and
+        ADK internal legs (WS11, plan/03-results.md)."""
+        body = await request.json()
+        target = body.get("target")
+        task_id = body.get("task_id")
+        trace_id = body.get("trace_id")
+        dispatch_mode = body.get("dispatch_mode")
+        if not target or not task_id:
+            raise HTTPException(status_code=400, detail="missing 'target' or 'task_id'")
+        try:
+            client = get_client(target)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        try:
+            snap = await client.poll(task_id, trace_id=trace_id, expect_transient=True)
+        except Exception as exc:
+            # Flapping/eventually-consistent 404 — keep polling, don't fail.
+            return {"ok": True, "done": False, "pending": True, "note": type(exc).__name__}
+        out: dict = {
+            "ok": True,
+            "done": snap.done,
+            "state": snap.state,
+            "dispatch_mode": dispatch_mode,
+        }
+        if snap.done:
+            if snap.state == "TASK_STATE_FAILED":
+                out["ok"] = False
+                out["error"] = snap.detail or "the orchestrator task failed"
+            else:
+                out["text"] = _brief_with_coverage(snap.text, dispatch_mode)
+        else:
+            # WORKING/SUBMITTED — surface any partial text but keep polling.
+            out["text"] = snap.text or ""
+        return out
 
     @app.delete("/api/traces")
     async def clear_traces():
@@ -3651,6 +3823,127 @@ and console never present a combined dollar total across tools (WS12/D44).
         finally:
             store.close()
 
+    # -- Session Trace OTel API (WS23/D73) ------------------------------------
+    # A LIVE, single-session read of the Agentforce Session Trace OpenTelemetry
+    # API, exposed for the console's Session Trace tab. This is deliberately NOT
+    # the harvest store: it hits the beta endpoint each time, one session at a
+    # time, so the console can show the standards-shaped trace and doubles as
+    # WS23's interactive live-validation surface. The DMO batch path stays the
+    # LIVE obs harvest (D73) — this endpoint never writes the store. Auth is the
+    # same F6 obs identity as the harvest (a2a_lab_obs ECA), resolved inside the
+    # source; the console's own token gate (middleware) still fronts it.
+
+    @app.get("/api/obs/otel-sessions")
+    async def obs_otel_sessions():
+        """Recent agent-session ids for the Session Trace picker. Returns [] with
+        a `detail` (not a 500) when the obs identity or the DMO surface is
+        unavailable, so the tab explains itself rather than erroring."""
+
+        def _pull():
+            import os
+
+            from observability.salesforce_otel_source import SalesforceOtelSource
+
+            if not os.environ.get("SF_MY_DOMAIN") or not os.environ.get("SF_CLIENT_ID"):
+                return {
+                    "sessions": [],
+                    "blocked": True,
+                    "detail": "SF_MY_DOMAIN / SF_CLIENT_ID not set — obs identity unavailable",
+                }
+            try:
+                ids = SalesforceOtelSource().list_session_ids()
+            except Exception as exc:  # noqa: BLE001 - report, don't 500
+                return {"sessions": [], "blocked": True, "detail": f"{type(exc).__name__}: {exc}"}
+            return {"sessions": ids, "detail": f"{len(ids)} recent session(s) from the session DMO"}
+
+        return await asyncio.to_thread(_pull)
+
+    @app.get("/api/obs/otel-trace")
+    async def obs_otel_trace(session_id: str):
+        """The LIVE OTLP trace for ONE session via the beta OTel API. Honest
+        states, never a 500: not enabled (beta, 401/403), not found (404 —
+        unknown / aged-out / id mapping differs), or the parsed spans + the raw
+        OTLP `resourceSpans` document (the lab's raw-wire-bytes contract)."""
+        session_id = (session_id or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="session_id required")
+
+        def _pull():
+            import os
+
+            import httpx
+
+            from observability.salesforce_otel_source import (
+                SalesforceOtelSource,
+                _attrs,
+                _nano_to_iso,
+                _span_summary,
+                _span_type,
+            )
+
+            if not os.environ.get("SF_MY_DOMAIN") or not os.environ.get("SF_CLIENT_ID"):
+                return {
+                    "found": False,
+                    "enabled": False,
+                    "detail": "SF_MY_DOMAIN / SF_CLIENT_ID not set — obs identity unavailable",
+                }
+            try:
+                doc = SalesforceOtelSource().fetch_trace(session_id)
+            except httpx.HTTPStatusError as exc:
+                body = (exc.response.text or "")[:300]
+                if exc.response.status_code in (401, 403):
+                    return {
+                        "found": False,
+                        "enabled": False,
+                        "detail": f"OTel API not enabled for this org/user (beta) — HTTP "
+                        f"{exc.response.status_code}",
+                    }
+                return {
+                    "found": False,
+                    "enabled": True,
+                    "detail": f"HTTP {exc.response.status_code}: {body}",
+                }
+            except Exception as exc:  # noqa: BLE001 - report, don't 500
+                return {"found": False, "enabled": False, "detail": f"{type(exc).__name__}: {exc}"}
+            if doc is None:
+                return {
+                    "found": False,
+                    "enabled": True,
+                    "detail": "no trace for this session id yet — most often the session is "
+                    "still being ingested (the OTel store lags the run by a few minutes; try "
+                    "again shortly), or it has aged out of the 72h beta lookback window",
+                }
+            spans: list[dict] = []
+            for rspan in doc.get("resourceSpans", []):
+                for sspan in rspan.get("scopeSpans", []):
+                    for span in sspan.get("spans", []):
+                        attrs = _attrs(span.get("attributes"))
+                        st = span.get("status") or {}
+                        name = str(span.get("name") or "")
+                        spans.append(
+                            {
+                                "span_id": span.get("spanId") or span.get("span_id"),
+                                "parent_span_id": span.get("parentSpanId") or None,
+                                "name": name,
+                                "type": _span_type(name, attrs),
+                                "start": _nano_to_iso(span.get("startTimeUnixNano")),
+                                "end": _nano_to_iso(span.get("endTimeUnixNano")),
+                                "status": str(st.get("message") or st.get("code") or ""),
+                                "summary": _span_summary(name, attrs, st),
+                            }
+                        )
+            spans.sort(key=lambda s: s.get("start") or "")
+            return {
+                "found": True,
+                "enabled": True,
+                "session_id": session_id,
+                "span_count": len(spans),
+                "spans": spans,
+                "raw": doc,
+            }
+
+        return await asyncio.to_thread(_pull)
+
     @app.post("/api/obs/harvest")
     async def obs_harvest(platform: str | None = None):
         from observability.adk_source import AdkSource
@@ -3820,7 +4113,9 @@ and console never present a combined dollar total across tools (WS12/D44).
         by_cloud: dict[str, dict] = {}
         for s in series:
             cloud = by_cloud.setdefault(s["cloud"], {"cloud": s["cloud"], "resources": {}})
-            res = cloud["resources"].setdefault(s["resource"], {"resource": s["resource"], "series": []})
+            res = cloud["resources"].setdefault(
+                s["resource"], {"resource": s["resource"], "series": []}
+            )
             res["series"].append(s)
         clouds = [
             {"cloud": c["cloud"], "resources": list(c["resources"].values())}

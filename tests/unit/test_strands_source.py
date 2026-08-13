@@ -30,7 +30,12 @@ def test_pure_helpers():
     assert runtime_id_from_arn(ARN) == "a2alab_strands-a07goY5qhK"
     assert log_group_for("r-1") == "/aws/bedrock-agentcore/runtimes/r-1-DEFAULT"
     b = summarize_bedrock(
-        {"input_tokens": 1_000_000, "output_tokens": 500_000, "invocations": 10, "latency_ms_avg": 900.0}
+        {
+            "input_tokens": 1_000_000,
+            "output_tokens": 500_000,
+            "invocations": 10,
+            "latency_ms_avg": 900.0,
+        }
     )
     # $0.80/M in + $4.00/M out -> 0.80 + 2.00
     assert b["est_cost_usd"] == 2.8
@@ -74,7 +79,9 @@ class _FakeLogs:
             "events": [
                 {"message": 'INFO: 127.0.0.1 - "POST /invocations HTTP/1.1" 200 OK'},
                 {"message": 'INFO: 127.0.0.1 - "POST /invocations HTTP/1.1" 200 OK'},
-                {"message": 'INFO: 127.0.0.1 - "POST /invocations HTTP/1.1" 500 Internal Server Error'},
+                {
+                    "message": 'INFO: 127.0.0.1 - "POST /invocations HTTP/1.1" 500 Internal Server Error'
+                },
             ]
         }
 

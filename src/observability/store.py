@@ -127,9 +127,7 @@ def accumulate_usage(platforms: dict[str, Any], platform: str, usage_json: Any) 
         pass
 
 
-def _shape_infra_series(
-    rows: Any, *, max_points: int = 240
-) -> list[dict[str, Any]]:
+def _shape_infra_series(rows: Any, *, max_points: int = 240) -> list[dict[str, Any]]:
     """Group flat infra_metrics rows into one entry per (cloud, resource,
     metric) series, downsampling each series' points to `max_points`.
 

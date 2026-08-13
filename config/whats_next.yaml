@@ -155,6 +155,34 @@ plans:
     workstream: WS11
     refs: [D47, plan/07-workstreams.md]
 
+  - id: agentforce-otel-session-trace-api
+    title: Agentforce Session Trace OTel API — a standard route to the obs data
+    horizon: in-flight
+    pitch: >
+      Harvest the Agentforce observability data through Salesforce's new
+      [Session Trace OpenTelemetry API](https://developer.salesforce.com/docs/ai/agentforce/guide/otel-api.html)
+      (beta) — `GET /einstein/audit/otel/{session-id}`, which returns a
+      session's trace as an OTLP resourceSpans document (turns, messages, LLM
+      calls, actions, metric scores, feedback) — as a second, standards-shaped
+      route to the SAME data the live harvest assembles today from four Data 360
+      Session Tracing DMOs. Built now (source + tests, WS23/D73) under its own
+      `salesforce-otel` name; the DMO batch path stays the LIVE harvest.
+    payoff: >
+      A clean read on what a vendor's "OpenTelemetry API" actually is: usually a
+      standard, pre-joined ROUTE to data you can already reach — here the same
+      Data 360 record the Data Cloud API serves in batch — not new information.
+      The win is engineering (the server does the join, so the orphan bug class
+      the manual FK walk once caused cannot occur; a stable OTLP schema replaces
+      drift-prone `ssot__*` column heuristics; one round trip per session, not
+      four paged DMO scans), and it is deliberately NOT the live path yet: the
+      API is single-session, 72h-lookback and beta — all fatal to the bulk
+      coverage sweep the DMO path serves — so it ships alongside, proven the same
+      data, one line from promotion the day it grows a bulk read.
+    platforms: [salesforce]
+    specs: [otel]
+    workstream: WS23
+    refs: [D73, plan/05-observability.md, plan/07-workstreams.md]
+
   - id: claude-science-overlays
     title: Claude Science patterns overlaid on the lab's insights + method
     horizon: done

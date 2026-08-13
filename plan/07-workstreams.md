@@ -1713,22 +1713,37 @@ task it did not create, a worker that raises leaves FAILED rather than a task
 stuck WORKING for ever, and a redelivered task (async invoke is at-least-once)
 does not re-run the leg and bill a second agent call.
 
-**Still open:** the submit/check MCP tools themselves are not registered yet, so
-build item 4 — the orchestrator prompt, and the measurement of whether the model
-polls sensibly or busy-waits — is unmeasured. That measurement is now sharper
-than when it was written: on Lambda, polling is what advances the work, so a
-model that backs off politely makes its own run slower. The dispatcher and the
-worker are in place and tested; wiring them into the registry and redeploying
-the fan-out bundle is the next step.
+**Items 6–7 — the MCP submit/check tools, built 2026-08-12.** The dispatcher and
+worker (item 4) are now wired into the served registry: the fan-out MCP server
+exposes `submit_<unit>` per business unit and one shared `check_task` alongside
+the blocking `consult_*`, so **both topologies live on the one deployed server**
+and switching between them needs no redeploy — only a different SYSTEM prompt.
+`submit_<unit>` creates the durable task, self-invokes the worker in its own
+execution window, and returns a task id in ~1s without running the leg; the model
+then polls `check_task` (by task id, or by run id for all three at once) until
+every unit is terminal. This is deliberately the A2A submit/poll lifecycle
+re-expressed as MCP tools — the same shape item 3 measured over real A2A
+endpoints, now something the *model* schedules rather than our client. Async is
+selected per run by a fire-then-poll system prompt recorded as `system_async` on
+the same agent (`agent_with_overrides`); `CmaOrchestrator` picks it by
+`dispatch_mode` and the console offers the sync/async radio for the mcp variant
+too. **Still held for the operator:** the live poll-vs-busy-wait *measurement* —
+on Lambda, polling is what advances the work, so a model that backs off politely
+makes its own run slower — because it needs the fan-out bundle redeployed with
+the new tools and the orchestrator re-provisioned to write `system_async` against
+the live Anthropic API. The code and its unit tests are in; the live run is a
+deploy step.
 
 **Build items 8–10 — host-side async dispatch as a per-experiment choice, built
 2026-08-11.** The fire-then-poll pattern is now a run-time control on the
 host-side fan-out, not only a probe: `orchestration.dispatch()` takes a
 `dispatch_mode` of `"sync"` (today's blocking `ask()`) or `"async"` (A2A submit
 + poll to a terminal state), the supplier-disruption CMA experiment carries a
-`dispatch_mode_toggle`, and the console renders a synchronous / async radio
-gated on the host-side "tool" variant (async is a no-op under the "mcp" variant,
-whose legs run in the Lambda — that is build item 6's territory). Capability is
+`dispatch_mode_toggle`, and the console renders a synchronous / async radio.
+(Originally this radio was gated to the host-side "tool" variant, because async
+was then a no-op under "mcp" whose legs run in the Lambda; items 6–7, built
+2026-08-12, added the MCP submit/check tools so the radio now applies to both
+topologies.) Capability is
 detected per leg: the two A2A legs (ADK, Foundry) run the real lifecycle, while
 the AgentCore comms leg has no `submit`/`poll` and is recorded **async→sync** —
 the WS11 per-platform finding, now surfaced live in the fan-out coverage line,
@@ -1781,13 +1796,14 @@ the obs store, and extending the toggle to the other experiments, follows.
 | 3 | Per-platform async-lifecycle measurement (D47) via `scripts/a2a_async_probe.py` — Foundry honours the full lifecycle, Agent Engine *appeared* submit-only (later found to be our missing `A2A-Version` header, item 12), Lambda advances only while polled; the 31.1s-of-work / 1.18s-longest-request gateway-ceiling result recorded | done — plan/03-results.md |
 | 4 | Durable task store — Aurora-backed `lab.fanout_tasks` + separate-invocation worker (`src/fanout_mcp/tasks.py`, `InvocationType='Event'`; DDL run by `pg_migrate.py`) | done |
 | 5 | Six property tests pinning the durable-store guarantees (submit-does-no-work, state-in-store-not-process, cross-instance read, worker-failure-is-terminal, run-id-joins-units, redelivered-task-is-a-no-op) | done |
-| 6 | Register the submit/check MCP tools on the fan-out server | not started — dispatcher + worker exist and are tested but are not wired into the served registry |
-| 7 | Orchestrator prompt + measurement of poll-vs-busy-wait behaviour | not started — depends on item 6; sharper now that on Lambda polling is what advances the work |
+| 6 | Register the submit/check MCP tools on the fan-out server (2026-08-12) — `submit_<unit>` per business unit + one shared `check_task` poll tool, alongside the existing blocking `consult_*` on the ONE deployed server; submit creates the task, self-invokes the worker (`InvocationType='Event'`) and returns a task id in ~1s without running the leg; the Lambda entry routes `{"a2alab_fanout_task": id}` to the worker, which resolves the run id from the store and runs the leg to a terminal state in its own window; the model drives the poll loop (`src/fanout_mcp/tools.py` `AsyncFanOutTools`/`worker_runner`, `lambda_entry.py`, tests in `test_fanout_mcp.py`) | done — code + tests; server redeploy is the operator step |
+| 7 | Async orchestrator prompt + console wiring (2026-08-12) — a fire-then-poll SYSTEM prompt (`mcp_orchestrator_prompt_async`) recorded as `system_async` on the same agent/server and selected per run by `dispatch_mode` (`agent_with_overrides`, no redeploy to switch); `CmaOrchestrator(variant="mcp", dispatch_mode="async")` picks it, guarding a pre-WS11 agent with a catchable `OrchestratorNotProvisioned`; the console renders the sync/async radio for the mcp variant too and sends `dispatch_mode` for both topologies; `run_fanout.py --dispatch-mode async` for CLI (`src/orchestration/agents.py`, `cma.py`, `scripts/setup_fanout_orchestrator.py`, `run_fanout.py`, `index.html`). The poll-vs-busy-wait measurement over a live model run is held for the operator (re-provision + server redeploy) | done — code + tests; live measurement pending re-provision |
 | 8 | Host-side async dispatch in the fan-out — `dispatch_mode` of sync/async on `orchestration.dispatch()`/`run_one()`/`CmaOrchestrator`, submit+poll per leg with capability detection and async→sync fallback recorded per leg (`src/orchestration/runner.py`, `cma.py`) | done |
-| 9 | Per-experiment sync/async toggle — `dispatch_mode_toggle` on `supplier-disruption-cma`, console radio gated on the host-side "tool" variant, coverage line + run summary + turn badge surfacing the async dimension (`config/scenarios.yaml`, `src/console/app.py`, `index.html`) | done |
+| 9 | Per-experiment sync/async toggle — `dispatch_mode_toggle` on `supplier-disruption-cma`, console radio (originally gated on the host-side "tool" variant; extended to "mcp" in item 7), coverage line + run summary + turn badge surfacing the async dimension (`config/scenarios.yaml`, `src/console/app.py`, `index.html`) | done |
 | 10 | Unit tests for host-side async dispatch — submit+poll on A2A legs, async→sync fallback for a leg with no task lifecycle, sync path unchanged (`tests/unit/test_orchestration.py`) | done |
 | 11 | Runtime submit-only fallback (2026-08-11) — an A2A leg whose remote genuinely accepts the submit but will not return the task through the poll is caught across all three measured shapes (`MethodNotFoundError` / `VersionNotSupportedError` / `TaskNotFoundError` → `AsyncLifecycleUnsupported`) and degraded to blocking `ask()` recorded async→sync, instead of failing the leg — while a genuine `TASK_STATE_FAILED`/500/auth error still fails it; console `describeTrace` now narrates a fan-out as N concurrent legs rather than mislabelling it a single "Direct cell", and the "remote MCP tools" hint states the API Gateway ceiling that times out cold legs (`src/orchestration/runner.py`, `index.html`) | done |
 | 12 | **Agent Engine's "submit-only" was our missing `A2A-Version` header** (2026-08-11) — researched the A2A spec + ADK/Agent Engine docs and probed the live endpoint: the managed handler pins 1.0 and reads a missing header as 0.3, 400ing every header-less poll. Added `A2AClient.protocol_version` → per-request `A2A-Version` header, wired `options.protocol_version` through the registry, pinned `"1.0"` on `google-adk-a2a`/`adk-logistics-a2a` (scoped, so the 0.3 Agentforce shim is untouched). Added a not-yet-visible grace window (`POLL_NOT_FOUND_GRACE_S`) for the eventually-consistent task store. Verified live: exposure (ADK) leg now runs async end-to-end. Header/registry/transient-404 tests added (`src/interop/clients/a2a.py`, `registry.py`, `config/targets.yaml`, `runner.py`, tests) | done |
+| 13 | **Fire-then-poll for the OTHER two primary controllers — ADK and Agentforce (2026-08-12, D76)** — the CMA orchestrator's async dispatch (items 6–9) extended to the two remaining supplier-disruption controllers, honestly surfacing that *where the poll loop runs* differs per controller. **ADK**: each declared `ParallelAgent` leg tool now routes through the shared `orchestration.runner.run_one` (not a bespoke A2A call), so `dispatch_mode`/`trace_id` thread from the inbound A2A task metadata into the submit+poll loop that runs *inside the Agent Engine container*, off any gateway, on the full async budget (`_leg_tool`/`build_fanout_orchestrator`/`_OrchestratorExecutor._build_agent`/`execute`, `src/platforms/adk/agent.py`). **Agentforce**: it cannot poll (one serial Apex callout), so the async loop runs at the **bridge**, on the orchestrator's behalf, during the single held-open callout (bounded by that ~110s callout, not a gateway — the bridge is long-lived Fargate). The mode rides the situation as a `fanout-dispatch:` `[A2A-LAB ROUTING]` block the bridge reads and strips before the legs see it; absent → sync, never an error (`af_channel.dispatch_block`/`read_dispatch_mode`/`strip_routing_blocks`, `bridge/app.py` `_fanout`). Console: `dispatch_mode_toggle: true` on both scenarios, controller-aware Details prose (`fanoutControlsDetailHtml`), per-run metadata/block wiring (`src/console/app.py`). Tests: `test_af_channel.py`, bridge fan-out dispatch, ADK leg-tool async wiring. Full narration of the three controllers and where each poll loop runs — plus the "can a Salesforce Flow poll natively" answer — in `plan/14-supplier-disruption-orchestrators.md` | done — code + tests; ADK+bridge+console redeploys and the live measurement are the operator step |
 
 
 **Why this exists.** D41 measured the cost of putting agent work behind a
@@ -3015,3 +3031,62 @@ Period, is the floor). The forecast half (items
 zero-shot forecast beats a seasonal-naive baseline on one real harvested series, at
 which point the runner, its brief kind, and the CC-BY-NC ADR are built and this
 workstream's Forecast tab shows real bands.
+
+## WS23 — Agentforce Session Trace OTel API: a standard route to the same obs data (raised 2026-08-12, D73)
+
+**What this is.** Agentforce shipped a Session Trace OpenTelemetry API
+([otel-api.html](https://developer.salesforce.com/docs/ai/agentforce/guide/otel-api.html),
+beta): `GET /services/data/v66.0/einstein/audit/otel/{session-id}` returns a
+session's trace as an OTLP/JSON `resourceSpans` document — turns, messages, LLM
+calls, actions, metric scores, feedback, each a span. This workstream builds a
+harvest source over it (`salesforce-otel`) as a SECOND route to the data the
+live M11 Agentforce harvest already pulls from four STDM DMOs — and
+deliberately does NOT switch the live path to it.
+
+**Why it is worth building.** It is the same Data 360 record read through a
+pre-joined standard view, so it changes retrieval, not truth. On that same
+data it buys real things: the server does the join (no manual
+interaction→session FK walk, so the orphan bug class that once stranded 823
+events cannot occur), a stable OTLP schema instead of drift-prone `ssot__*`
+column heuristics, and one round trip per session instead of paged
+`FIELDS(ALL)` across four DMOs. Having it built means the day the API leaves
+beta and grows a bulk read, promoting it to the live path is a one-line change,
+not a rewrite.
+
+**Scope boundary (kept honest, D73).** Three beta limits rule out switching the
+LIVE harvest today — single-session only (no bulk read), 72h lookback, and
+beta — all fatal to the bulk coverage sweep the DMO path serves. So the OTel
+source ships under its OWN platform name (`salesforce-otel`), reachable by name
+in `obs_harvest.py` and NEVER in the unqualified five-platform sweep, writing
+its own rows so it never doubles the Agentforce column, redefines "harvested
+from all platforms," or clobbers the live `salesforce` rows. The live harvest
+stays on the DMO path (`src/observability/salesforce_source.py`).
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | `src/observability/salesforce_otel_source.py` — `SalesforceOtelSource` (platform `salesforce-otel`): OTLP `resourceSpans` → one obs session + N span events, unwrapping the OTLP KeyValue/AnyValue oneof and unix-nano timestamps, degrading honestly (missing env → `blocked`, beta-not-enabled 403/404 → `blocked`, per-session 404 reported not raised) | done |
+| 2 | Session enumeration for a single-session API: explicit `A2ALAB_OTEL_SESSION_IDS` (deterministic path), else a thin id-only query on the session DMO capped at `A2ALAB_OTEL_MAX_SESSIONS`, preferring the runtime `ssot__AiAgentSessionId__c` id over the surrogate PK | done |
+| 3 | Reuse the F6 obs caller identity (a2a_lab_obs ECA, client-credentials, D37) — no new credential | done |
+| 4 | Register in `scripts/obs_harvest.py` as `OTEL_SOURCES` — reachable by name, out of the default sweep and the coverage claim | done |
+| 5 | Unit test with a synthetic OTLP document (`tests/unit/test_salesforce_otel_source.py`): span→event mapping, semantic-attribute-vs-name event typing, own-platform row isolation, and 404-reported-not-raised | done |
+| 6 | ADR D73 (build-but-keep-DMO-live), field insight (`agentforce-otel-same-data-standard-route`), and an in-flight What's Next tile with the doc link | done |
+| 7 | Live validation against a real Agentforce session (confirm the STDM session id maps to the OTel endpoint's session id, and the OTLP attribute names match the mapping's hints) | done — validated 2026-08-12: 25 sessions enumerate via the session DMO, and a real session's OTel GET returns an OTLP doc (1 resourceSpans, 12 spans). The beta API IS enabled on the org and the runtime session id resolves to the endpoint. |
+| 8 | Console **Session Trace** tab — an Observability peer tab (D57): a session picker (recent-sessions dropdown from the DMO + paste-an-id), a Fetch that makes ONE live OTel GET, a span table + a raw OTLP `resourceSpans` pane (the raw-wire-bytes contract), and a Details sub-tab citing D73/WS23/D37 with the live-OTel-vs-DMO diagram (`OTEL_TRACE_DIAGRAM`) | done |
+| 9 | Console live-read endpoints: `GET /api/obs/otel-sessions` (picker) and `GET /api/obs/otel-trace?session_id=` (one live GET; honest not-enabled/not-found states, never a 500; no store write), backed by public `list_session_ids()`/`fetch_trace()` on the source; unit-tested (`tests/unit/test_salesforce_otel_source.py`) | done |
+| 10 | Experiment deep-link: an Agentforce-PRIMARY run stamps `session_platform="salesforce"` on its `/api/run` response, and that turn renders a "view session trace →" link into the tab. A Claude orchestrator that merely consults Agentforce returns ITS own session, so it gets no link — the link is only offered where the id is OTel-eligible. | done |
+| 11 | Promote `salesforce-otel` to the live `PLATFORM_SOURCES` path | not started — gated on the API leaving beta and growing a bulk read |
+
+### Exit criteria
+
+Build + surface (items 1–6): **met** — `uv run python scripts/obs_harvest.py
+salesforce-otel` runs the OTLP source against a live org (or a pinned id list),
+lands span-derived sessions/events under the `salesforce-otel` platform without
+touching the live `salesforce` rows, and the decision is recorded (D73), tested,
+and published as an insight + What's Next tile. Live validation (item 7):
+**met** — the beta API is enabled on the org, sessions enumerate, and a real
+session returns an OTLP trace. Console exposure (items 8–10): **met** — the
+Session Trace tab makes the live read interactive and reachable from the
+Agentforce experiments that generate the sessions. Only promotion to the live
+sweep (item 11) stays open, gated on the API leaving beta and growing a bulk read.

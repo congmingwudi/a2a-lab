@@ -321,13 +321,16 @@ class A2AClient(RemoteAgentClient):
         fan-out orchestrator that caller is the model, which is the point.
 
         `expect_transient` marks a poll that MAY 404 benignly because the task
-        store has not caught up yet (the eventually-consistent window right
-        after submit, WS11). When set, a not-found/version error records the hop
+        store is eventually consistent (WS11) — both the window right after
+        submit AND, on Agent Engine, a flap between reads even after the task
+        has been seen once. When set, a not-found/version error records the hop
         as `pending` rather than a red `error` and is still raised for the
         caller's grace loop to ride through — so the console does not show a
-        string of ✗ failures for a leg that completes. The runner clears the
-        flag the moment it first reads the task, so a real failure after that
-        still records as an error."""
+        string of ✗ failures for a leg that completes. The runner sets the flag
+        whenever the 404 is one it will ride through (post-submit grace, or any
+        poll after the task has been read once), so only a genuinely
+        submit-only endpoint — one that never serves the task at all — records a
+        red error."""
         trace_id = trace_id or new_trace_id()
         with Hop(
             trace_id,

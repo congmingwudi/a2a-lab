@@ -13,9 +13,19 @@
 #
 #   API Gateway's integration timeout is 29s in this account and is NOT
 #   raisable for HTTP APIs (AWS's >29s support covers Regional and private
-#   REST APIs only). So the per-leg budget is 25s, leaving margin for the
-#   JSON-RPC round trip, and the function timeout sits just under the gateway's
-#   so the failure is OURS to describe rather than a bare 504.
+#   REST APIs only). So the SYNC per-leg budget (consult_*, which run inside a
+#   gateway request) is 25s, leaving margin for the JSON-RPC round trip.
+#
+#   The ASYNC fire-then-poll worker (submit_*/check_task, WS11) does NOT run
+#   inside a gateway request — it is a self-invoke InvocationType='Event'
+#   Lambda (D47), so it is free of the 29s ceiling and gets a much larger
+#   per-leg budget (A2ALAB_ASYNC_LEG_TIMEOUT_S, 120s). This is the whole point
+#   of async: a COLD leg (Foundry ~26.5s, Agent Engine ~34s) that a sync consult
+#   reports '[leg unavailable: timed out]' has room to finish here. The FUNCTION
+#   timeout must therefore exceed the ASYNC budget, not the sync one — a worker
+#   killed by a too-short function timeout leaves its task stuck WORKING for ever
+#   (run 7ef510e2, 2026-08-12: the 25s sync budget on the worker killed a 26.5s
+#   Foundry leg though its task reached COMPLETED).
 #
 #   The execution role name is load-bearing. GCP's principalSet member is keyed
 #   on the role NAME extracted from the assumed-role ARN, so renaming the role
@@ -28,7 +38,9 @@ REGION="${AWS_REGION:-us-east-1}"
 FN=a2alab-fanout-mcp
 ROLE_NAME=a2alab-fanout-lambda   # must match deploy/fanout/provision_gcp_federation.py
 ZIP=deploy/fanout/dist/a2alab-fanout-mcp.zip
-LEG_TIMEOUT_S=25
+LEG_TIMEOUT_S=25             # sync consult_* budget — bounded by the gateway 29s ceiling
+ASYNC_LEG_TIMEOUT_S=120      # async submit/poll worker budget — off the gateway path (D47/WS11)
+FN_TIMEOUT=$((ASYNC_LEG_TIMEOUT_S + 15))   # must exceed the ASYNC budget + cold start + JSON-RPC
 [ -f "$ZIP" ] || { echo "run deploy/fanout/build_zip.sh first"; exit 1; }
 
 # ---- execution role --------------------------------------------------------
@@ -73,7 +85,8 @@ aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name read-runtime-secr
 # ---- function env ----------------------------------------------------------
 # JSON rather than the CLI's Variables={...} shorthand, which cannot carry
 # comma-valued vars (A2ALAB_TRACE_SINK=jsonl,postgres).
-ENV_JSON=$(A2ALAB_RUNTIME_SECRET_ARN="$SECRET_ARN" A2ALAB_LEG_TIMEOUT_S="$LEG_TIMEOUT_S" python3 - <<'PY'
+ENV_JSON=$(A2ALAB_RUNTIME_SECRET_ARN="$SECRET_ARN" A2ALAB_LEG_TIMEOUT_S="$LEG_TIMEOUT_S" \
+  A2ALAB_ASYNC_LEG_TIMEOUT_S="$ASYNC_LEG_TIMEOUT_S" python3 - <<'PY'
 import json, os, pathlib, re
 
 # Every ${VAR} config/targets.yaml expands, DERIVED rather than hand-listed.
@@ -96,7 +109,7 @@ referenced = sorted(set(re.findall(r"\$\{([A-Z0-9_]+)\}", body)))
 keys = referenced + [
     "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
     "A2ALAB_LEG_EXPOSURE_TARGET", "A2ALAB_LEG_COMMERCIAL_TARGET", "A2ALAB_LEG_COMMS_TARGET",
-    "A2ALAB_RUNTIME_SECRET_ARN", "A2ALAB_LEG_TIMEOUT_S",
+    "A2ALAB_RUNTIME_SECRET_ARN", "A2ALAB_LEG_TIMEOUT_S", "A2ALAB_ASYNC_LEG_TIMEOUT_S",
 ]
 env = {k: os.environ[k] for k in dict.fromkeys(keys) if os.environ.get(k)}
 
@@ -130,24 +143,38 @@ print(json.dumps({"Variables": env}))
 PY
 )
 
-# Function timeout sits UNDER the gateway's 29s: if the gateway gives up first
-# the client gets a bare 504 that names nothing, whereas our own timeout
-# produces the '[leg unavailable: ... timed out]' marker the contract promises.
+# Function timeout ($FN_TIMEOUT) must exceed the ASYNC leg budget, because the
+# self-invoke worker (D47) runs to that budget with no gateway in front of it —
+# a shorter function timeout would kill the worker mid-leg and leave its task
+# stuck WORKING. It does NOT harm the sync consult_* path: the gateway still
+# 504s a client at 29s regardless, and consult self-limits at LEG_TIMEOUT_S, so
+# raising the ceiling only gives the off-request worker its headroom.
 if aws lambda get-function --function-name "$FN" --region "$REGION" >/dev/null 2>&1; then
   aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$ZIP" --region "$REGION" >/dev/null
   aws lambda wait function-updated --function-name "$FN" --region "$REGION"
   aws lambda update-function-configuration --function-name "$FN" --region "$REGION" \
-    --environment "$ENV_JSON" --timeout 28 --memory-size 1024 >/dev/null
+    --environment "$ENV_JSON" --timeout "$FN_TIMEOUT" --memory-size 1024 >/dev/null
   echo "updated $FN"
 else
   aws lambda create-function --function-name "$FN" --region "$REGION" \
     --runtime python3.12 --architectures arm64 --handler fanout_mcp/lambda_entry.handler \
     --role "$ROLE_ARN" --zip-file "fileb://$ZIP" \
-    --timeout 28 --memory-size 1024 --environment "$ENV_JSON" >/dev/null
+    --timeout "$FN_TIMEOUT" --memory-size 1024 --environment "$ENV_JSON" >/dev/null
   echo "created $FN"
 fi
 aws lambda wait function-updated --function-name "$FN" --region "$REGION" 2>/dev/null || true
 FN_ARN=$(aws lambda get-function --function-name "$FN" --region "$REGION" --query 'Configuration.FunctionArn' --output text)
+
+# Async fire-then-poll self-invoke (WS11 items 6-7, D74). The submit_<unit>
+# tools dispatch the worker as a SEPARATE invocation of THIS function
+# (fanout_mcp.tasks.lambda_dispatcher -> lambda:invoke InvocationType='Event'),
+# because Lambda freezes background work after the response returns (D47). That
+# self-invoke needs the function's own role to allow invoking itself — the
+# blocking consult_* path never self-invokes, so this policy is new to the async
+# tools. Without it submit accepts the task and then AccessDenies the dispatch,
+# leaving the task stuck SUBMITTED with no worker.
+aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name self-invoke-worker \
+  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":[\"$FN_ARN\",\"$FN_ARN:*\"]}]}"
 
 # The customer-comms leg is a Bedrock AgentCore runtime — SigV4, invoked with
 # the function's own role. Named runtimes only, not bedrock-agentcore:*.

@@ -67,7 +67,7 @@ subagent supply_orchestration:
             inputs:
                 question: string
                     label: "Situation"
-                    description: "The disruption situation, verbatim, for all three business units"
+                    description: "The disruption situation verbatim, for all three business units. If the user message contains any [A2A-LAB ROUTING] block, append it UNCHANGED after the situation: the bridge reads the fanout-dispatch mode from it and strips every routing block before the business units see the text."
                     is_required: True
                 target: string
                     label: "Bridge Target"
@@ -110,11 +110,15 @@ subagent supply_orchestration:
               TOPOLOGY SELECTION (decide FIRST): read the user message for an "[A2A-LAB ROUTING]"
               block. If it contains "fanout-topology: serial", use the SERIAL path below. Otherwise
               — including when no routing block is present — use the DELEGATED path. Never mention
-              the routing block in your answer.
+              the routing block in your answer to the user.
 
               DELEGATED path (default): call consult_units_parallel EXACTLY ONCE, with target set
               EXACTLY to "fanout:supplier-disruption" and question set to the disruption situation
-              verbatim. Its answer already contains the three business-unit sections and a
+              verbatim FOLLOWED BY any "[A2A-LAB ROUTING]" block(s) from the user message, copied in
+              UNCHANGED. The bridge needs those blocks to pick the fanout-dispatch mode (sync vs
+              async) and strips them before the business units see the text, so forwarding them is
+              how async fire-then-poll is selected — an absent or dropped block simply runs sync.
+              Its answer already contains the three business-unit sections and a
               "[fan-out coverage: N/3 legs answered]" line — do not consult the units again.
 
               SERIAL path (constraint demo): call consult_one_unit THREE times, once per unit, each
@@ -130,9 +134,22 @@ subagent supply_orchestration:
 
               SYNTHESIS (both paths): write one brief with exactly these three headings, in this
               order, each 2-4 sentences drawn ONLY from that unit's returned text —
-              "Logistics exposure:", "Commercial & legal position:", "Customer communications:" —
-              then a final line "Coverage: N/3 business units answered." reporting any unit that did
-              not answer as an explicit gap. Keep any synthetic-demo-data disclaimers a unit included.
+              "Logistics exposure:", "Commercial & legal position:", "Customer communications:".
+              Then ALWAYS end with a per-leg coverage footer that names each of the three business
+              units, THE PLATFORM THAT UNIT'S AGENT RUNS ON, and whether it answered — the reader
+              must be able to see which business division on which agent platform responded without
+              re-reading the sections. The three platforms are FIXED: Logistics runs on Google
+              Vertex AI Agent Engine, Commercial/Legal on Microsoft Foundry, Customer operations on
+              OpenAI on Bedrock AgentCore. Write the footer on its own line, in exactly this shape:
+              "Coverage: Logistics (Google Vertex AI Agent Engine) — answered; Commercial/Legal
+              (Microsoft Foundry) — answered; Customer operations (OpenAI on Bedrock AgentCore) —
+              answered (3/3)." Keep the platform name in parentheses even when a unit is unavailable.
+              Replace "answered" with "UNAVAILABLE (<reason>)" for any unit that did
+              not return text (delegated: a section missing from the fan-out answer or reflected in
+              its "[fan-out coverage: N/3 legs answered]" line; serial: a leg you reported as
+              "[leg unavailable: …]"), and set the "(N/3)" count to the number that answered. This
+              footer is REQUIRED on every response, including a clean 3/3 run. Keep any
+              synthetic-demo-data disclaimers a unit included.
         actions:
             consult_units_parallel: @actions.consult_units_parallel
             consult_one_unit: @actions.consult_one_unit

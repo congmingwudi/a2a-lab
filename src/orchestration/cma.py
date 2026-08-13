@@ -147,13 +147,25 @@ class CmaOrchestrator:
             raise ValueError(f"unknown dispatch_mode '{dispatch_mode}' — known: sync, async")
         self._client = client
         self._variant = variant
-        # How the host-side fan-out calls each leg (WS11). Only meaningful for
-        # the "tool" variant, where the host runs `dispatch()`; under "mcp" the
-        # legs run inside the Lambda's MCP tools and this host never dispatches
-        # them, so the choice does not reach them (a follow-up wires the durable
-        # submit/check store into those tools — WS11 items 6-7).
+        # How each leg is called (WS11). Under "tool" the host runs `dispatch()`,
+        # so sync/async is the host's poll behaviour. Under "mcp" the legs run
+        # inside the Lambda's MCP tools: sync uses the blocking consult_<unit>
+        # tools, async the fire-then-poll submit_<unit> + check_task tools backed
+        # by the durable store (fanout_mcp.tasks) — the model drives the poll
+        # loop. The choice reaches "mcp" by selecting the system prompt below.
         self._dispatch_mode = dispatch_mode
         self._state = state or (load_mcp_state() if variant == "mcp" else load_state())
+        # The mcp variant reaches dispatch_mode too now (WS11 items 6-7): async
+        # selects the fire-then-poll SYSTEM prompt (submit_<unit> + check_task)
+        # over the blocking consult_<unit> one. Both prompts and both tool sets
+        # live on the one provisioned agent/server; the prompt is what steers
+        # the model to the right pair, so switching topology needs no redeploy.
+        if variant == "mcp" and dispatch_mode == "async" and not self._state.get("system_async"):
+            raise OrchestratorNotProvisioned(
+                "MCP async prompt missing — re-run "
+                "scripts/setup_fanout_orchestrator.py --mcp to provision `system_async` "
+                f"(or set it in {MCP_STATE_ENV})"
+            )
         self.fanout: FanOutResult | None = None
         self.call_path = CallPath()
 
@@ -213,11 +225,18 @@ class CmaOrchestrator:
                 "environment_id": self._state["environment_id"],
                 "title": "a2a-lab fan-out orchestrator",
             }
+        # Async selects the fire-then-poll prompt; sync the blocking one. The
+        # tool inventory on the server is the same either way (build_registry
+        # exposes both sets) — the prompt is what tells the model which pair to
+        # use, so this is the only line that changes between MCP topologies.
+        system = (
+            self._state["system_async"] if self._dispatch_mode == "async" else self._state["system"]
+        )
         return {
             "agent": {
                 "type": "agent_with_overrides",
                 "id": self._state["agent_id"],
-                "system": self._state["system"],
+                "system": system,
                 "mcp_servers": [
                     {"type": "url", "name": MCP_SERVER_NAME, "url": self._state["mcp_url"]}
                 ],

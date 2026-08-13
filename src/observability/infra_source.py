@@ -521,9 +521,7 @@ class AzureInfraSource(PlatformLogSource):
                     timeout=40,
                 )
                 resp.raise_for_status()
-                all_rows.extend(
-                    normalize_azure_metrics(resp.json().get("value", []), meta_by_name)
-                )
+                all_rows.extend(normalize_azure_metrics(resp.json().get("value", []), meta_by_name))
                 covered += len(uri_series)
         except Exception as exc:  # noqa: BLE001
             who = (

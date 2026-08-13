@@ -109,7 +109,11 @@ class AdkResearchExecutor(AgentExecutor):
         trace_id: str | None,
         user_context: dict | None = None,
         user_token: str | None = None,
+        dispatch_mode: str = "sync",
     ) -> str:
+        # dispatch_mode is accepted for signature parity with the fan-out
+        # executor but ignored here: the researcher makes no parallel fan-out,
+        # so there is no per-leg dispatch to select.
         from google.adk.runners import Runner
         from google.genai import types as genai_types
 
@@ -134,6 +138,13 @@ class AdkResearchExecutor(AgentExecutor):
         metadata = MessageToDict(context.message.metadata) if context.message is not None else {}
         inbound_depth = delegation.depth_of(AgentRequest(message=text, metadata=metadata))
         trace_id = str(metadata.get("trace_id") or "") or None
+        # WS11: the operator's per-run sync/async choice rides the inbound task
+        # metadata. Ignored by the researcher and single-leg executors (they do
+        # no fan-out); honoured by the orchestrator, whose _build_agent threads
+        # it into every leg tool. Anything but "async" is sync.
+        dispatch_mode = (
+            "async" if str(metadata.get("dispatch_mode") or "").lower() == "async" else "sync"
+        )
 
         initial = Task(
             id=context.task_id,
@@ -150,7 +161,13 @@ class AdkResearchExecutor(AgentExecutor):
             session_id = await self._session_for(context.context_id)
             user_ctx, user_token = delegation.user_of(AgentRequest(message=text, metadata=metadata))
             answer = await self._run_adk(
-                text, session_id, inbound_depth, trace_id, user_ctx, user_token
+                text,
+                session_id,
+                inbound_depth,
+                trace_id,
+                user_ctx,
+                user_token,
+                dispatch_mode=dispatch_mode,
             )
         except Exception as exc:
             await updater.failed(
@@ -232,12 +249,16 @@ class AdkLegExecutor(AdkResearchExecutor):
         trace_id: str | None,
         user_context: dict | None = None,
         user_token: str | None = None,
+        dispatch_mode: str = "sync",
     ) -> str:
         from google.adk.runners import Runner
         from google.genai import types as genai_types
 
+        # The single-leg executor ignores dispatch_mode/trace_id (its
+        # _build_agent takes **kwargs and drops them); the orchestrator
+        # executor's _build_agent threads them into every leg tool.
         runner = Runner(
-            agent=self._build_agent(),
+            agent=self._build_agent(dispatch_mode=dispatch_mode, trace_id=trace_id),
             app_name=APP_NAME,
             session_service=self._sessions,
         )
@@ -293,63 +314,62 @@ def build_leg_a2a_agent():
 # not because a host wrote asyncio.gather.
 
 
-def _leg_tool(leg):
-    """A function tool that calls one business unit's agent over A2A."""
+def _leg_tool(leg, dispatch_mode: str = "sync", trace_id: str | None = None):
+    """A function tool that calls one business unit's agent over A2A.
+
+    `dispatch_mode` selects HOW the leg is called (WS11): "sync" is a blocking
+    `ask()`; "async" fires the A2A submit + poll long-running-task lifecycle on
+    legs whose protocol implements it, falling back to a blocking call (recorded
+    async→sync) on legs that do not. It is threaded down from the inbound task's
+    metadata so the operator's console radio reaches inside the container.
+
+    The body delegates to `orchestration.runner.run_one`, the SAME seam the
+    Managed Agents host tool and the remote MCP worker call — so all three
+    orchestrators run one implementation of submit/poll, the flapping-404
+    ride-through and the partial-failure contract, and the ONLY difference
+    between them is WHERE that loop physically runs. Here it runs inside the
+    ADK ParallelAgent branch, on Agent Engine, driven by the graph rather than
+    a host or the model.
+    """
 
     async def consult(situation: str) -> str:
-        import asyncio
-        import time
+        # Local imports (not module-level) so the cloudpickled bundle stays
+        # lean and the heavy orchestration graph is only pulled in when a leg
+        # actually fires — matching the rest of this closure's style.
+        from interop.models import new_trace_id
+        from orchestration.runner import async_leg_timeout_s, run_one
 
-        from interop import delegation
-        from interop.models import AgentRequest
-        from interop.registry import Registry
-        from orchestration.agents import source_header
-
-        client = None
-        started = time.perf_counter()
-
-        def labelled(body: str) -> str:
-            # Same header the host-side fan-out emits, so both orchestrators
-            # synthesise from identically-shaped evidence and any difference
-            # in their briefs is the orchestrator, not the input.
-            head = source_header(
-                leg.role,
-                target=leg.target,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-            )
-            return f"{head}\n{body}"
-
-        try:
-            # Construction is INSIDE the try on purpose: building a client can
-            # itself fail — openai-agentcore needs AWS credentials, which a GCP
-            # container does not have — and an exception escaping here kills the
-            # whole ParallelAgent branch instead of degrading to one dead leg.
-            registry = Registry.load()
-            client = registry.client_for(leg.target)
-            message, meta = delegation.delegate(
-                leg.prompt(situation),
-                caller="a2alab-supply-orchestrator-adk",
-                platform="adk",
-                inbound_depth=0,
-            )
-            resp = await asyncio.wait_for(
-                client.ask(AgentRequest(message=message, metadata=meta)), timeout=120
-            )
-            text = (resp.text or "").strip()
-            return labelled(text or f"[leg unavailable: {leg.platform} — empty answer]")
-        except Exception as exc:  # a dead leg is data, not a crash
-            marker = f"[leg unavailable: {leg.platform} — {type(exc).__name__}: {exc}]"
+        # run_one REQUIRES a trace_id (it must not fragment the run into
+        # unrelated traces); mint one if the inbound task carried none, so the
+        # legs' delegation rider still carries a shared id for the join measure.
+        tid = trace_id or new_trace_id()
+        # The async worker here is NOT gateway-bound (Agent Engine invokes this
+        # orchestrator with a 180s A2A budget and the three legs run
+        # concurrently), so the async path gets the full off-request per-leg
+        # budget; sync reads the env default. run_one NEVER raises for a leg
+        # failure — a dead leg comes back as a LegResult whose render() names
+        # what is missing, exactly the partial-failure contract this leg had.
+        result = await run_one(
+            leg.role,
+            situation,
+            caller="a2alab-supply-orchestrator-adk",
+            caller_platform="adk",
+            trace_id=tid,
+            dispatch_mode=dispatch_mode,
+            timeout_s=async_leg_timeout_s() if dispatch_mode == "async" else None,
+        )
+        if not result.ok:
             # Also to stdout, which is Cloud Logging here. The marker's only
             # other route out is through the synthesiser, and an LLM asked to
             # relay an error PARAPHRASES it — the first cross-cloud failure
             # reached us as "an InvalidConfigError related to its CA bundle",
             # which is true but not the message you can act on. Debugging a
             # container you cannot attach to needs the literal text.
-            print(f"[fanout] {leg.role} FAILED: {marker}", flush=True)
-            return labelled(marker)
-        finally:
-            if client is not None:
-                await client.aclose()
+            print(f"[fanout] {leg.role} FAILED: {result.render()}", flush=True)
+        # render() carries the SAME source_header the host-side fan-out emits,
+        # so both orchestrators synthesise from identically-shaped evidence and
+        # any difference in their briefs is the orchestrator, not the input.
+        return result.render()
 
     consult.__name__ = f"consult_{leg.role}"
     consult.__doc__ = (
@@ -359,8 +379,15 @@ def _leg_tool(leg):
     return consult
 
 
-def build_fanout_orchestrator():
-    """SequentialAgent[ ParallelAgent[3 units] -> synthesiser ]."""
+def build_fanout_orchestrator(dispatch_mode: str = "sync", trace_id: str | None = None):
+    """SequentialAgent[ ParallelAgent[3 units] -> synthesiser ].
+
+    `dispatch_mode`/`trace_id` are threaded into each unit's leg tool so the
+    operator's per-run async choice (and the run's trace id) reach the A2A calls
+    the ParallelAgent branches make. Rebuilt per request (the executor calls
+    this in `_run_adk`), so a sync run and an async run of the same deployed
+    orchestrator differ only in how the legs are dispatched.
+    """
     from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
 
     from orchestration.legs import legs_for
@@ -379,7 +406,7 @@ def build_fanout_orchestrator():
                     "returns a '[leg unavailable: ...]' marker, return that marker "
                     "unchanged — never replace it with your own guess."
                 ),
-                tools=[_leg_tool(leg)],
+                tools=[_leg_tool(leg, dispatch_mode=dispatch_mode, trace_id=trace_id)],
                 output_key=f"unit_{leg.role}",
             )
         )
@@ -445,7 +472,7 @@ def build_orchestrator_a2a_agent():
     )
 
     class _OrchestratorExecutor(AdkLegExecutor):
-        def _build_agent(self, *_a, **_k):
-            return build_fanout_orchestrator()
+        def _build_agent(self, *, dispatch_mode: str = "sync", trace_id: str | None = None, **_k):
+            return build_fanout_orchestrator(dispatch_mode=dispatch_mode, trace_id=trace_id)
 
     return A2aAgent(agent_card=card, agent_executor_builder=_OrchestratorExecutor)

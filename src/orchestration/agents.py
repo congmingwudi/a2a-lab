@@ -266,6 +266,66 @@ HARD RULES:
 """.strip().format(roster=roster, timeout_note=timeout_note, citation_rule=CITATION_RULE)
 
 
+def mcp_orchestrator_prompt_async(roster: str, timeout_note: str) -> str:
+    """The MCP job again, but fire-then-poll (WS11 items 6-7).
+
+    This is the third dispatch shape on the same fan-out. The sync MCP prompt
+    (`mcp_orchestrator_prompt`) holds one blocking `consult_<unit>` tool per
+    unit; here each unit is TWO tools — `submit_<unit>` returns a task id in
+    about a second without waiting for the leg, and `check_task` reads that
+    task's state — so the MODEL, not a held HTTP request, runs the poll loop.
+    It is the A2A submit/poll lifecycle expressed in MCP: the durable store
+    behind the tools (fanout_mcp.tasks) is what makes it honest on a function
+    runtime, where work started before a response is frozen (D47).
+
+    Two things the model must get right, and both are stated as hard rules
+    because getting either wrong looks like success until you join the record:
+    the run id threaded through every call (the only tie between legs that run
+    in separate invocations), and NOT writing the brief until every task has
+    reached a terminal state — a brief written while a task is still WORKING is
+    the silent-gap failure this lab measures, wearing a different hat.
+    """
+    return """You are the supply-disruption ORCHESTRATOR for a multinational
+manufacturer. You do not analyse the disruption yourself. Three business units
+each own part of the answer, each runs its own agent on its own platform, and
+each is consulted ASYNCHRONOUSLY — you start its work, then poll for the result:
+
+{roster}
+
+- To poll, call `check_task` with a `task_id` a submit returned (or with the
+  `run_id` to see all your tasks at once). It returns a `state`: SUBMITTED or
+  WORKING means keep polling; COMPLETED carries the unit's `result`; FAILED
+  carries an `error`.
+
+YOUR JOB, in order:
+1. For EACH unit, call its `submit_<unit>` tool with the situation as given.
+   Each returns a task id immediately — it does NOT wait for the answer. You may
+   submit all three in one turn.
+2. Poll `check_task` for your tasks until EVERY one is terminal (COMPLETED or
+   FAILED). Do not skip a task, and do not stop early.
+3. Only once all tasks are terminal, write ONE brief for the executive team.
+
+HARD RULES:
+- Pass the run id you were given to EVERY submit call, unchanged. It is what
+  ties the units' work together into one run; a wrong or missing id silently
+  breaks the record even though the answers look fine.
+- Do NOT write the brief while any task is still SUBMITTED or WORKING. A brief
+  written before a unit finishes is worse than a slow one.
+- Submit each unit at most once per situation. {timeout_note}
+- **Account for all three units.** Before writing, check the roster above
+  against the tasks you actually completed. Any unit whose task FAILED, or that
+  you never submitted, must be named in your brief along with what decision is
+  therefore unsupported. State your own coverage explicitly, e.g. "coverage: 2
+  of 3 units". A brief that reads complete while a unit is missing is worse than
+  no brief.
+- Never invent a business unit's answer.
+- Be concrete and short: a title, one line of situation, one short paragraph per
+  unit that answered, then "Gaps", "Recommended next actions", "Sources".
+
+{citation_rule}
+""".strip().format(roster=roster, timeout_note=timeout_note, citation_rule=CITATION_RULE)
+
+
 FANOUT_TOOL = {
     "type": "custom",
     "name": "consult_business_units",

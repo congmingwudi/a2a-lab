@@ -79,6 +79,11 @@ class AgentResponse:
     session_id: str | None = None
     latency_ms: int | None = None
     raw: dict[str, Any] | None = None
+    # Side-channel facts the caller may need that are NOT the lab session_id.
+    # WS23: the Agentforce client puts the real Agent API sessionId here as
+    # `agent_session_id` — the id the Session Trace OTel API keys on — while
+    # session_id stays the lab id (the client's per-conversation cache key).
+    metadata: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +91,7 @@ class AgentResponse:
             "session_id": self.session_id,
             "latency_ms": self.latency_ms,
             "raw": self.raw,
+            "metadata": self.metadata,
         }
 
     @classmethod
@@ -95,4 +101,5 @@ class AgentResponse:
             session_id=data.get("session_id"),
             latency_ms=data.get("latency_ms"),
             raw=data.get("raw"),
+            metadata=data.get("metadata"),
         )

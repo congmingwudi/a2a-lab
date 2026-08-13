@@ -49,17 +49,21 @@ async def _run_cma(args, variant: str = "tool") -> int:
     """
     from orchestration.cma import CmaOrchestrator
 
+    dispatch_mode = getattr(args, "dispatch_mode", "sync")
     trace_id = new_trace_id()
-    label = (
-        "Anthropic Managed Agents (custom tool, host-side fan-out)"
-        if variant == "tool"
-        else "Anthropic Managed Agents (remote MCP, model-scheduled fan-out)"
-    )
+    if variant == "tool":
+        label = "Anthropic Managed Agents (custom tool, host-side fan-out)"
+    elif dispatch_mode == "async":
+        label = "Anthropic Managed Agents (remote MCP, fire-then-poll: submit_*/check_task)"
+    else:
+        label = "Anthropic Managed Agents (remote MCP, model-scheduled fan-out)"
     print(f"orchestrator  {label}")
     print(f"trace         {trace_id}")
     print(f"task          {args.task}\n")
 
-    result = await CmaOrchestrator(variant=variant).run(args.task, trace_id=trace_id)
+    result = await CmaOrchestrator(variant=variant, dispatch_mode=dispatch_mode).run(
+        args.task, trace_id=trace_id
+    )
     fan = result["fanout"]
     path = result["call_path"]
 
@@ -88,7 +92,13 @@ async def _run_cma(args, variant: str = "tool") -> int:
     # exactly the failure mode being measured, so it must be visible in the
     # exit code rather than only in the prose.
     if variant == "mcp":
-        return 0 if len({c.name for c in path.calls}) == 3 else 1
+        called = {c.name for c in path.calls}
+        # Async success = all three units SUBMITTED (submit_* names); the poll
+        # tool check_task is shared, so counting distinct names would never hit
+        # three the way the sync consult_* tools do.
+        if dispatch_mode == "async":
+            return 0 if len({n for n in called if n.startswith("submit_")}) == 3 else 1
+        return 0 if len(called) == 3 else 1
     return 0 if (fan and fan.complete) else 1
 
 
@@ -103,6 +113,18 @@ async def main() -> int:
     )
     ap.add_argument("--caller", default="a2alab-supply-orchestrator")
     ap.add_argument("--caller-platform", default="claude")
+    ap.add_argument(
+        "--dispatch-mode",
+        dest="dispatch_mode",
+        default="sync",
+        choices=("sync", "async"),
+        help=(
+            "how each leg is called. sync = one blocking call per leg. async = "
+            "the A2A fire-then-poll lifecycle (submit, then poll to done). For "
+            "cma-mcp, async uses the submit_*/check_task tools (WS11); for cma "
+            "(host-side tool) it is the host's own poll behaviour."
+        ),
+    )
     ap.add_argument(
         "--orchestrator",
         default="none",

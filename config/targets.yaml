@@ -323,8 +323,21 @@ targets:
     endpoint: "${ADK_ORCHESTRATOR_A2A_ENDPOINT}"
     status: native
     # a fan-out of three legs inside one turn: the whole point is that it
-    # takes the slowest leg, but that is still slower than a single hop
-    options: {timeout: 180, transport: http_json, warmup: true}
+    # takes the slowest leg, but that is still slower than a single hop.
+    # protocol_version: 1.0 for the SAME reason as google-adk-a2a and
+    # adk-logistics-a2a above — this is a managed Agent Engine A2A endpoint
+    # whose handler is 1.0-only and reads a missing header as 0.3, 400ing even
+    # the initial message:send (measured 2026-08-12 — the orchestrator target
+    # was the one sibling missing the header, so both its sync and async runs
+    # failed out of the gate). WS11/plan/03-results.md.
+    # timeout 110 (NOT 180): the console reaches this target with ONE blocking
+    # /api/run, and the shared ALB's idle timeout is 120s. A call that outlives
+    # 120s gets an ALB 504 HTML page, which the browser then fails to JSON-parse
+    # ("Unexpected token '<'") — reported for both sync and async on 2026-08-12.
+    # Capping under the ALB (like agentcore 110 / foundry 100) makes an overrun
+    # fail as a clean JSON timeout instead. A warm orchestrator finishes well
+    # inside this; a COLD one can exceed it, so warm it first (warmup: true).
+    options: {timeout: 110, transport: http_json, warmup: true, protocol_version: "1.0"}
     auth: {scheme: google-adc}
 
 # Deployment modes (D26): A2ALAB_MODE=hosted transparently remaps these

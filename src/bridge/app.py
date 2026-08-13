@@ -154,6 +154,20 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
         """
         from orchestration import dispatch, legs_for
 
+        from interop import af_channel
+
+        # WS11: the DELEGATED fan-out can dispatch each leg the blocking way or
+        # with the A2A fire-then-poll lifecycle. Agentforce cannot poll — its
+        # one Apex callout is what is held open here — so the async loop runs on
+        # the orchestrator's behalf right here, bounded by that callout rather
+        # than by any API Gateway ceiling (the bridge is a long-lived Fargate
+        # service, not a Lambda). The mode rides the situation text because the
+        # Apex body carries no field for it; absent → sync, never an error.
+        dispatch_mode = af_channel.read_dispatch_mode(req.message)
+        # Strip lab routing blocks before the legs see the situation, so a
+        # forwarded [A2A-LAB ROUTING] directive never leaks into a unit prompt.
+        req.message = af_channel.strip_routing_blocks(req.message)
+
         inbound_depth = delegation.depth_of(req)
         start = time.perf_counter()
         with Hop(
@@ -188,6 +202,7 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
                 scenario=scenario,
                 trace_id=req.trace_id,
                 inbound_depth=inbound_depth + 1,
+                dispatch_mode=dispatch_mode,
             )
             payload = {
                 # `text` is the field the Apex invocable reads back (askOne
@@ -199,6 +214,12 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
                     "target": f"fanout:{scenario}",
                     "protocol": "fan-out",
                     "coverage": f"{result.ok_count}/{len(result.results)}",
+                    # What was REQUESTED (dispatch_mode) vs what actually
+                    # happened per leg (dispatch_summary names the async legs
+                    # and any that fell back to sync). A stripped block reads as
+                    # "sync" and an empty summary, honestly.
+                    "dispatch_mode": dispatch_mode,
+                    "dispatch": result.dispatch_summary,
                     "total_ms": int((time.perf_counter() - start) * 1000),
                 },
             }

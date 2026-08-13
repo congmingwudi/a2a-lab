@@ -105,6 +105,24 @@ def leg_timeout_s() -> float:
     return float(os.environ.get("A2ALAB_LEG_TIMEOUT_S") or LEG_TIMEOUT_DEFAULT_S)
 
 
+def async_leg_timeout_s() -> float:
+    """Per-leg budget for the ASYNC fire-then-poll WORKER, read at call time.
+
+    Deliberately distinct from `leg_timeout_s()`. The sync budget is small
+    (~25s on the Lambda) because a sync leg runs INSIDE an API Gateway request,
+    bounded by the gateway's non-raisable 29s integration ceiling. The async
+    worker has no gateway in front of it — it is a self-invoke
+    (`InvocationType='Event'`) Lambda whose entire reason to exist (D47/WS11) is
+    to let a slow or COLD leg run to completion OFF the request path. Handing it
+    the sync budget defeats exactly that: a cold Foundry leg measured 26.5s and
+    was reported '[leg unavailable: foundry — timed out after 25s]' while the
+    task itself reached COMPLETED at 27s (run 7ef510e2, 2026-08-12). So the
+    worker gets the full off-request budget by default, on its own env key — and
+    the Lambda's function timeout must exceed THIS value, not the sync one
+    (deploy/fanout/deploy_fanout.sh)."""
+    return float(os.environ.get("A2ALAB_ASYNC_LEG_TIMEOUT_S") or LEG_TIMEOUT_DEFAULT_S)
+
+
 def poll_interval_s() -> float:
     """Async poll cadence, read at call time for the same reason as above."""
     return float(os.environ.get("A2ALAB_ASYNC_POLL_INTERVAL_S") or POLL_INTERVAL_DEFAULT_S)
@@ -187,9 +205,7 @@ class FanOutResult:
         async_legs = [r for r in self.results if r.dispatch_mode == "async"]
         fallback_legs = [r for r in self.results if r.dispatch_mode == "async→sync"]
         total_polls = sum(r.polls for r in self.results)
-        parts = [
-            f"{len(async_legs)}/{len(modes)} legs async (submit+poll, {total_polls} polls)"
-        ]
+        parts = [f"{len(async_legs)}/{len(modes)} legs async (submit+poll, {total_polls} polls)"]
         if async_legs:
             parts[0] += ": " + ", ".join(_name(r) for r in async_legs)
         if fallback_legs:
@@ -313,27 +329,36 @@ async def _run_leg_async(
     while True:
         if time.monotonic() >= deadline:
             raise asyncio.TimeoutError(f"async leg not terminal after {timeout_s:.0f}s")
+        # A 404 / MethodNotFoundError from tasks/get is transient — Agent
+        # Engine's task store is eventually consistent — as long as EITHER we
+        # have already read this task once, OR we are still inside the
+        # post-submit grace window. A read proves the endpoint serves task
+        # reads, so a later 404 is the store flapping, not a fault. Mark the hop
+        # `pending` in exactly those cases so the console shows a ride-through,
+        # not a red ✗, for a leg that in fact completes (WS11). Decide once,
+        # before the poll, so the hop label and the ride-through agree.
+        transient_ok = seen_task or (time.monotonic() - start) < grace_s
         try:
-            # Until we have read the task once, a 404 is the eventually-consistent
-            # window, not a failure — tell poll() so the hop records `pending`,
-            # not a red ✗ error, for a leg that in fact completes (WS11).
             snapshot = await client.poll(
-                handle.task_id, trace_id=trace_id, expect_transient=not seen_task
+                handle.task_id, trace_id=trace_id, expect_transient=transient_ok
             )
         except _POLL_UNRETRIEVABLE as exc:
-            # A task we HAVE already read, now coming back unretrievable, is the
-            # real "submit-only" shape (a remote took the submit but will not
-            # serve the task): the endpoint 404s, or 400s with a version
-            # mismatch, or reports the task unknown. Degrade to a blocking call
-            # so the leg still answers, recorded async→sync.
+            # Ride through the transient 404 and keep polling to the leg
+            # deadline. This corrects an earlier model that treated ANY 404
+            # after the first successful read as a fatal "submit-only" shape and
+            # fell back to a blocking call: session edcb844…, 2026-08-12, read a
+            # task OK (poll seq 18), got a 404 on the very NEXT poll (seq 19),
+            # and would have completed had it kept polling — the Agent Engine
+            # store flaps even after a good read, and switching to sync there
+            # defeats the async pattern the endpoint fully supports.
             #
-            # But a task we have NEVER read yet can 404 transiently right after
-            # submit — the store is eventually consistent, and a later poll
-            # succeeds (measured live 2026-08-11). That is not submit-only, so
-            # ride through it while the grace window lasts. The two are the SAME
-            # exception class; only the position (never-seen + still early)
-            # distinguishes them.
-            if not seen_task and (time.monotonic() - start) < grace_s:
+            # The ONLY genuine submit-only shape is a remote that NEVER serves
+            # the task at all — it 404s from the first poll and yields the id to
+            # no one. That is: never-seen AND the grace window has expired. Only
+            # then degrade to a blocking call (recorded async→sync). The overall
+            # leg deadline still bounds the ride, so a task that truly never
+            # completes raises TimeoutError, not a silent sync answer.
+            if transient_ok:
                 await asyncio.sleep(interval)
                 continue
             raise AsyncLifecycleUnsupported(str(exc)) from exc
@@ -361,10 +386,14 @@ async def _run_leg(
     trace_id: str,
     inbound_depth: int,
     dispatch_mode: str = "sync",
+    timeout_s: float | None = None,
 ) -> LegResult:
     start = time.perf_counter()
     client = None
-    timeout_s = leg_timeout_s()
+    # None means "read the env default"; the async worker passes its own,
+    # larger budget explicitly because it is not gateway-bound (see run_one).
+    if timeout_s is None:
+        timeout_s = leg_timeout_s()
     # The mode this leg will actually run in, decided once the client is known.
     # Requested-async on a client with no async half degrades to sync, recorded
     # as "async→sync" so the coverage line does not overclaim.
@@ -461,8 +490,15 @@ async def run_one(
     registry: Registry | None = None,
     inbound_depth: int = 0,
     dispatch_mode: str = "sync",
+    timeout_s: float | None = None,
 ) -> LegResult:
     """One leg, on its own. The seam the remote MCP fan-out server calls.
+
+    `timeout_s` overrides the per-leg wall clock. Left None it reads the
+    `A2ALAB_LEG_TIMEOUT_S` env default (`leg_timeout_s()`), which the deploy
+    sets small for the gateway-bound sync path. The async fire-then-poll worker
+    passes `async_leg_timeout_s()` here instead, because it runs off the request
+    path and must be allowed to outlast the 29s gateway ceiling (WS11/D47).
 
     `dispatch` runs the fan-out HERE and owns the concurrency; this runs a
     single leg and lets someone else decide what runs beside it. That someone
@@ -493,6 +529,7 @@ async def run_one(
         trace_id=trace_id,
         inbound_depth=inbound_depth,
         dispatch_mode=dispatch_mode,
+        timeout_s=timeout_s,
     )
 
 

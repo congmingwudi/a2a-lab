@@ -1336,10 +1336,17 @@ scenarios:
       returns. Foundry's immediate, fully-formed status is what the protocol
       seems to intend; Agent Engine's 404-until-ready is defensible as an
       eventually-consistent store, but it pushes the "transient or fatal?"
-      judgement back onto the client. That is why the lab's poller distinguishes
-      the two by POSITION — a 404 before the task has EVER been read is transient
-      and ridden through; the same error after a successful read is fatal and
-      fails the leg — rather than trusting the error to tell it which.
+      judgement back onto the client. The lab's poller resolves it by treating
+      the 404 as the store flapping, not a fault: a task read once PROVES the
+      endpoint serves task reads, so a later 404 — session 2026-08-12 recorded
+      one arriving even AFTER a successful poll, then the task completed — is
+      ridden through to completion rather than failing the leg or falling back
+      to sync. Only an endpoint that never yields the task at all (a 404 from
+      the first poll that never clears within the grace window) is treated as
+      genuinely submit-only and degraded to a blocking call, recorded
+      async→sync. An earlier version got this wrong — it called any 404 after
+      the first read fatal, which switched a fully-async-capable Agent Engine
+      leg to sync the moment its store flapped (fixed 2026-08-12).
 
 
       WHAT IT MEASURES. Three things nothing else in the lab touches: the D27
@@ -1409,8 +1416,26 @@ scenarios:
       the framework schedules the concurrency and no lab host is attached.
     target: adk-orchestrator-a2a
     via_bridge: false
+    # The console drives this orchestrator with A2A fire-then-poll, never a
+    # blocking ask() (WS11). A blocking `message:send` runs the WHOLE
+    # SequentialAgent[ParallelAgent→synthesiser] graph inline on Agent Engine,
+    # which measured ~105-134s and returns HTTP 400 "Reasoning Engine Execution
+    # failed" past ~105s (or outlives the 120s shared-ALB idle timeout).
+    # `submit` returns a task id in ~1-2s and the console then polls tasks/get to
+    # a terminal state — the poll loop runs in the browser, so no single request
+    # is held open across the ~2-minute graph. Measured 2026-08-12.
+    console_dispatch: submit_poll
+    # Per-run choice of HOW each declared leg calls its A2A tool (WS11/D47):
+    # "sync" is a blocking ask(), "async" fires the A2A submit + poll lifecycle.
+    # Both route through the SAME orchestration.runner.run_one the Managed
+    # Agents host tool uses; the only difference from that variant is WHERE the
+    # poll loop runs — here it runs inside the ParallelAgent branch, in the GCP
+    # container, driven by the graph rather than by a lab host or a model. The
+    # two A2A legs (ADK, Foundry) run the real lifecycle; the AgentCore comms
+    # leg has no task lifecycle and is recorded async→sync.
+    dispatch_mode_toggle: true
     status: live
-    tags: [fan-out, orchestration, adk, agent-engine, gemini, foundry, openai, parallel-agent]
+    tags: [fan-out, orchestration, adk, agent-engine, gemini, foundry, openai, parallel-agent, async]
     # Deliberately the SAME words as the CMA variant: the comparison is only
     # honest if both orchestrators are handed an identical situation.
     question: >-
@@ -1447,6 +1472,21 @@ scenarios:
       relay them faithfully, where the host-side variant produces those markers
       in code. Declared structure buys ordering guarantees; it does not buy
       fidelity of content.
+
+
+      SYNC OR ASYNC — AND WHERE THE POLL LOOP RUNS (WS11). Each declared leg can
+      call its business unit the blocking way or with A2A's fire-then-poll
+      long-running-task lifecycle: `submit` returns a task id in ~1s, then the
+      leg tool polls `tasks/get` to a terminal state. It is the SAME submit/poll
+      code (orchestration.runner.run_one) the Claude-orchestrated run uses — the
+      flapping-404 ride-through on Agent Engine, the partial-failure contract,
+      all shared — so the only thing that moves is WHERE the loop physically
+      runs: inside the ParallelAgent branch, in the GCP container, driven by the
+      graph. Nothing calls back to a lab host and no API gateway sits in front of
+      a leg, so an async leg gets the full off-request budget, bounded only by
+      the orchestrator's own A2A deadline. This is the same fire-then-poll the
+      Managed Agents variant offers, expressed at the third point on the
+      who-owns-concurrency axis.
     note: >
       Deployed as its own Agent Engine (deploy/adk/deploy_adk.py --role
       orchestrator). status: coming-soon until a clean live run is recorded —
@@ -1499,9 +1539,19 @@ scenarios:
       real three-leg run overruns by design. The constraint is the finding.
     target: agentforce-orchestrator-rest
     af_topology_toggle: true
+    # Per-run choice of HOW the DELEGATED fan-out dispatches its legs (WS11/D47):
+    # "sync" is the bridge's blocking ask() per leg, "async" is A2A fire-then-
+    # poll. Agentforce itself CANNOT poll — its only GA outbound is one serial
+    # Apex callout — so the async loop runs at the BRIDGE, on the orchestrator's
+    # behalf, during the single callout Apex holds open (~110s bound, no gateway
+    # ceiling: the bridge is long-lived Fargate). The mode rides the situation as
+    # an [A2A-LAB ROUTING] fanout-dispatch block (dispatch_block); the bridge
+    # reads it (read_dispatch_mode) and strips it before the legs see it; absent
+    # → sync, never an error. Only meaningful under the DELEGATED topology.
+    dispatch_mode_toggle: true
     via_bridge: false
     status: live
-    tags: [fan-out, orchestration, agentforce, agent-api, bridge, adk, foundry, openai]
+    tags: [fan-out, orchestration, agentforce, agent-api, bridge, adk, foundry, openai, async]
     # Deliberately the SAME words as the CMA and ADK variants: the comparison is
     # only honest if all three orchestrators are handed an identical situation.
     question: >-
@@ -1542,6 +1592,21 @@ scenarios:
       the content silently gone (the exact failure the lab measured on
       2026-07-25). The partial-failure contract makes that visible rather than
       letting a degraded run read as complete.
+
+
+      SYNC OR ASYNC — BY PROXY ONLY (WS11). The DELEGATED fan-out can call each
+      leg the blocking way or with A2A's fire-then-poll lifecycle, but Agentforce
+      never runs that loop: it cannot poll, because its only GA outbound is one
+      serial Apex callout. So the async loop runs at the BRIDGE, on the
+      orchestrator's behalf, during the single callout Apex holds open — the
+      SAME orchestration.dispatch the Claude host tool runs. Agentforce never
+      sees a task id; the bound is that ~110s callout, not any API gateway
+      ceiling (the bridge is a long-lived service, not a Lambda). This is the
+      honest shape of the third controller: a serial-outbound platform can take
+      the asynchronous half of A2A, but only one layer down, never itself. The
+      mode rides the situation as a routing block because the Apex body carries
+      no field for it; a stripped or absent block degrades to sync, never to an
+      error.
 
 
       WHAT IT MEASURES. That a platform whose only outbound is serial can still

@@ -200,6 +200,13 @@ class AgentforceClient(RemoteAgentClient):
             session_id=req.session_id,
             latency_ms=int((time.perf_counter() - start) * 1000),
             raw=data,
+            # WS23: the REAL Agent API sessionId (a UUIDv7, the same id the
+            # Session Trace OTel API keys on — verified 2026-08-12 it equals
+            # ssot__Id__c on the session DMO). session_id above stays the lab
+            # id (our per-conversation cache key); this is the join key the
+            # console's "view session trace" deep-link needs. Not the lab id,
+            # which Salesforce never minted and the OTel endpoint 404s on.
+            metadata={"agent_session_id": session["id"]},
         )
 
     async def _delete_session(self, sf_session_id: str, trace_id: str) -> None:

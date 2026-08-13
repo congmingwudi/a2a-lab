@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IframeWhiteListUrlSettings xmlns="http://soap.sforce.com/2006/04/metadata">
+    <iframeWhiteListUrls>
+        <context>LightningOut</context>
+        <url>*.slack-gov.com</url>
+    </iframeWhiteListUrls>
+    <iframeWhiteListUrls>
+        <context>LightningOut</context>
+        <url>*.slack.com</url>
+    </iframeWhiteListUrls>
+    <iframeWhiteListUrls>
+        <context>LightningOut</context>
+        <url>https://console-lab.agenticthings.com</url>
+    </iframeWhiteListUrls>
+</IframeWhiteListUrlSettings>

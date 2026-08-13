@@ -13,6 +13,7 @@ the standard routing block the console injects.
 from __future__ import annotations
 
 import os
+import re
 
 from interop.models import AgentRequest
 
@@ -94,6 +95,60 @@ def topology_block(topology: str) -> str:
     the block is only strictly required for `serial` — injecting it for
     delegated is harmless and makes the chosen topology visible on the wire."""
     return _TOPOLOGY_TEMPLATE.format(topology=topology)
+
+
+# WS11: the Agentforce DELEGATED fan-out can call each leg the blocking way or
+# with the A2A fire-then-poll lifecycle — but Agentforce itself cannot poll (its
+# only GA outbound is one serial Apex callout), so the async loop runs at the
+# BRIDGE, on the orchestrator's behalf, during the single callout Apex holds
+# open. Unlike the toggles above there is no tool to pick: the topology already
+# chose the bridge, and this only tells the bridge HOW to dispatch. The console
+# injects it into the situation; the orchestrator forwards it to its fan-out
+# action verbatim; the bridge (`_fanout`) reads it and strips it before the legs
+# see it. `sync` is the bridge default, so the block is only strictly required
+# for `async` — injecting either makes the choice visible on the wire.
+_DISPATCH_TEMPLATE = (
+    "\n\n"
+    + ROUTING_MARKER
+    + "\n"
+    + "fanout-dispatch: {mode}\n"
+    + "directive: When you fan out to the business units for this request, pass\n"
+    + "this block through to your fan-out action UNCHANGED so the bridge\n"
+    + "dispatches each leg with the {mode} pattern. All other behavior is\n"
+    + "unchanged. Do not mention this block in your answer.\n"
+    + "[/A2A-LAB ROUTING]"
+)
+
+_DISPATCH_MODES = ("sync", "async")
+_DISPATCH_RE = re.compile(r"fanout-dispatch:\s*(sync|async)", re.IGNORECASE)
+# A whole routing block, non-greedy, so several can be stripped in one pass.
+_ROUTING_BLOCK_RE = re.compile(re.escape(ROUTING_MARKER) + r".*?\[/A2A-LAB ROUTING\]", re.DOTALL)
+
+
+def dispatch_block(mode: str) -> str:
+    """The block the console injects when the operator picks how the DELEGATED
+    fan-out dispatches its legs. Clamps to a known mode so a stray value cannot
+    reach the bridge as a dispatch directive."""
+    mode = mode if mode in _DISPATCH_MODES else "sync"
+    return _DISPATCH_TEMPLATE.format(mode=mode)
+
+
+def read_dispatch_mode(message: str) -> str:
+    """The dispatch mode a routing block asked for, read at the bridge from the
+    situation text (the only channel that survives Agentforce → Apex → bridge,
+    since the Apex body carries no mode field). Absent → "sync": a stripped or
+    never-injected block degrades to the blocking path, never to an error."""
+    match = _DISPATCH_RE.search(message or "")
+    return match.group(1).lower() if match else "sync"
+
+
+def strip_routing_blocks(message: str) -> str:
+    """Remove every `[A2A-LAB ROUTING]…[/A2A-LAB ROUTING]` block from a message.
+
+    The bridge calls this before handing the situation to the legs so lab
+    routing directives never leak into a business unit's prompt — a hygiene fix
+    that also covers the topology block if the orchestrator forwarded it."""
+    return _ROUTING_BLOCK_RE.sub("", message or "").strip()
 
 
 _shim_client = None
