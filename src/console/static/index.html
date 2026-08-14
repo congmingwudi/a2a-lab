@@ -1631,7 +1631,7 @@
           <summary onclick="buildNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 13.4h12"/><path d="M3.6 13.4V7.2M7.2 13.4V3.6M10.8 13.4V9M14 13.4v-3"/></svg>Coding Agents Telemetry <span class="count" id="buildCount"></span></summary>
           <div class="acc-body">
             <div class="traces-tools">
-              <span class="hint">What building this lab cost and looked like — Claude Code, Codex and Cursor.</span>
+              <span class="hint">What building this lab cost and looked like — Claude Code, Codex, Cursor and Kiro.</span>
               <button class="ghost" id="buildHarvestBtn" onclick="harvestBuild(event)"
                 title="Pull fresh coding-agent metrics AND behavioural logs from CloudWatch into the local store (scripts/obs_harvest.py coding coding-logs) — telemetry appears here only after a harvest">Harvest</button>
             </div>
@@ -3726,9 +3726,10 @@ function obsPipelineHtml(hasData) {
   <div class="obs-pipe">
     <div class="stage">
       <h5>Agent platforms</h5>
-      <p>Agentforce (Data Cloud session tracing), Claude Managed Agents (session events), OpenAI
-        (captured at emit time) — each platform's <i>interior</i> record of the runs this lab drove.</p>
-      <span class="who">agentforce · claude · openai</span>
+      <p>Agentforce (Data Cloud session tracing), Claude Managed Agents (session events), OpenAI,
+        Agent Engine (ADK), Foundry and AWS Strands — each platform's <i>interior</i> record of the
+        runs this lab drove, captured at emit time.</p>
+      <span class="who">agentforce · claude · openai · adk · foundry · strands</span>
     </div>
     <div class="arr">→</div>
     <div class="stage">
@@ -3757,7 +3758,7 @@ function obsPipelineHtml(hasData) {
       <p>A Claude-managed agent reads the store through a remote MCP server (read-only SQL) and
         curates a findings brief — failures, latency by protocol, token spend. Nightly (paused) or
         via Analyze.</p>
-      <span class="who">save_brief → briefs feed</span>
+      <span class="who">save_brief → lab.obs_briefs</span>
     </div>
   </div>`;
   if (!hasData) return `
@@ -5314,6 +5315,7 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
     CC["Claude Code<br/>native OTLP exporter"]
     CX["Codex CLI<br/>native OTLP exporter"]
     CU["Cursor<br/>hooks → cursorscope"]
+    KI["Kiro<br/>hooks → CloudWatch (no ingestor)"]
   end
   CW["CloudWatch<br/>managed OTLP endpoint"]
   HARV["Harvest Lambda<br/>coding_source.py — every 6h, PromQL"]
@@ -5321,6 +5323,7 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
   CC --> CW
   CX --> CW
   CU --> CW
+  KI --> CW
   CW --> HARV
   HARV --> PG
 

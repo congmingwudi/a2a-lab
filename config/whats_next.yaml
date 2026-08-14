@@ -62,6 +62,66 @@ plans:
     workstream: WS4
     refs: [plan/07-workstreams.md]
 
+  - id: agentforce-to-agentforce-moma
+    title: Agentforce as native orchestrator — MOMA + third-party A2A (not yet available)
+    horizon: exploring
+    pitch: >
+      Salesforce is turning Agentforce into a multi-agent PLATFORM, not just a
+      single agent that can delegate: a Superagent lifecycle (discover · register ·
+      test · publish · observe) with three orchestration shapes on one spectrum —
+      Single Org Multiple Agents (SOMA — tracked as its own entry below), Multiple
+      Org Multiple Agents (MOMA — an Agentforce agent in one org orchestrating an
+      Agentforce agent in ANOTHER org), and native A2A where Agentforce
+      orchestrates third-party agents (Google, AWS, …) AND is orchestrated by them.
+      This entry tracks the two the lab cannot run yet: MOMA and native
+      bidirectional third-party A2A. Every Agentforce experiment to date runs it as
+      one END of a cross-platform pair (Path A/B/C — each caller gets its own
+      Agentforce twin, D25) reached through the lab's OWN hosted A2A shim (D28),
+      never Agentforce orchestrating natively. It must WAIT for the product: MOMA
+      is marked not-currently-available, and native third-party A2A (both
+      directions) is slated for a later Salesforce release — so this stays
+      exploring until the capability ships.
+    payoff: >
+      The waiting is itself part of the finding: when native support lands, the lab
+      records what "native" buys over the shim it runs today. The questions are
+      concrete — does native Agentforce A2A ride the same wire the hosted shim
+      already taps (D28), or a Salesforce-internal channel the wiretap never sees;
+      how does trace correlation survive an org→org or vendor→vendor hop when
+      Agentforce OWNS the orchestration (it logs each subagent as an independent
+      session trace, linked by a delegation step and a previous-session id — the
+      platform-native analogue of the lab's own X-Trace-Id stitching); and what
+      cross-org identity and trust look like when caller and callee are both
+      Agentforce rather than two clouds. MOMA also forces the lab's first SECOND
+      org — every experiment so far deploys into one production org — so what that
+      setup costs to stand up is part of the finding.
+    platforms: [salesforce, adk, aws]
+    specs: [a2a, mcp]
+    refs: [D25, D28, plan/02-matrix.md]
+
+  - id: agentforce-soma-single-org
+    title: Agentforce SOMA — one org, multiple agents orchestrated natively
+    horizon: exploring
+    pitch: >
+      Salesforce's SOMA (Single Org, Multiple Agents): a native orchestrator agent
+      in ONE org routing to specialized subagents — deterministic routing, up to
+      seven agents, connected subagents — inside Agentforce Builder, with no A2A
+      wire and no second org. In open beta today, so it needs enabling in the lab's
+      org before it can be exercised. This is the nearer-term, self-contained
+      sibling of the cross-org / third-party A2A work tracked above, and a SEPARATE
+      experiment.
+    payoff: >
+      SOMA is the one multi-agent shape the lab can actually run soon, and it is
+      the control case for the rest: orchestration with NO wire between agents and
+      NO trust boundary crossed, so the trace it produces is the clean baseline the
+      cross-org (MOMA) and cross-vendor (A2A) hops get measured against. It also
+      lets the lab read Agentforce's own multi-agent observability first-hand — the
+      unified session trace, the per-subagent independent traces, the reasoning /
+      classifier / trust-guardrail spans — and ask how that native view lines up
+      with the lab's per-hop wire trace for the same run.
+    platforms: [salesforce]
+    specs: []
+    refs: [D25, plan/02-matrix.md]
+
   - id: mulesoft-agent-fabric
     title: MuleSoft Agent Fabric vs the lab's own AWS control plane
     horizon: planned

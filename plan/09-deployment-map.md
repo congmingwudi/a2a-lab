@@ -575,7 +575,7 @@ flowchart LR
     S8["AWS/Bedrock meters<br/>+ AgentCore access log<br/>(strands, WS5/D67)"]
   end
   subgraph CODE["Coding agents — NOT a platform"]
-    S6["Claude Code + Codex + Cursor<br/>METRICS to CloudWatch<br/>(coding; Cursor via cursorscope hooks)"]
+    S6["Claude Code + Codex + Cursor + Kiro<br/>METRICS to CloudWatch<br/>(coding; Cursor via cursorscope, Kiro via .kiro/hooks)"]
     S7["Claude Code OTLP LOGS<br/>to CloudWatch log group<br/>(coding-logs, WS16)"]
   end
   HARV2["a2alab-obs-harvest<br/>Lambda, every 6h<br/>+ scripts/obs_harvest.py"]
@@ -594,17 +594,23 @@ flowchart LR
   PG --> ANALYST["Hosted analyst agent<br/>nightly, reads via a2alab-obs-mcp"]
   PG --> SENT["Cost sentinel (WS12)<br/>daily, same MCP server<br/>brief kind=cost"]
   PG -. "Zero Copy, 5432/TLS<br/>as lab_reader (WS19/D69)" .-> DC["Salesforce Data 360<br/>+ Tableau Next<br/>(eu-central-1 tenant)"]
+  OTLIVE["Agentforce Session Trace<br/>OTel API (beta, WS23/D73)"] -. "LIVE per-request read<br/>/api/obs/otel-trace<br/>(never written to the store)" .-> CONSOLE
 ```
 
-**What you are looking at.** Harvest-and-cache (D18): the console **never**
-proxies a platform API live. Every interior view is pulled into one store first,
-so the console is fast, offline-capable, and shows the same thing twice.
+**What you are looking at.** Harvest-and-cache (D18) for every *stored* view: the
+console reads the pulled-into-Aurora store, not the platform APIs, so it is fast,
+offline-capable, and shows the same thing twice. The one deliberate live proxy is
+the WS23/D73 **Session Trace** tab, which reads the beta Agentforce Session Trace
+OTel API per request (`/api/obs/otel-trace` → `SalesforceOtelSource.fetch_trace`,
+a live `GET …/einstein/audit/otel/{session-id}`) and **never** writes the store —
+so the six harvested interiors are cached, and that one tab alone is a live read.
 
 **The one deliberate exclusion.** `coding` and `coding-logs` share the harvest
 seam and the store but are **not** columns in the coverage panel. Every column
-there is an agent platform whose interior the lab harvests; Claude Code, Codex
-and Cursor are the tools that *built* the lab (Cursor added 2026-07-31, D64 — a
-third `@resource.tool` inside `coding`, not a new source). They get their own console section instead —
+there is an agent platform whose interior the lab harvests; Claude Code, Codex,
+Cursor and Kiro are the tools that *built* the lab (Cursor added 2026-07-31, D64;
+Kiro added 2026-08-04, WS5/D67 — extra `@resource.tool`s inside `coding`, not new
+sources). They get their own console section instead —
 **Coding Agents Telemetry**, under the **DevOps** category (WS17/D60), with two
 peer tabs (D57): **Cost** reads the `coding` metrics (WS9) and **Behaviour**
 reads the `coding-logs` log signal (WS16/D59). The two are distinct obs-store
@@ -859,8 +865,12 @@ Only `-briefs` does work with no caller.
   *Rules*.** They are different services with different APIs, and
   `aws events list-rules` returns nothing for it — which reads exactly like "no
   schedule exists". If you go looking, `aws scheduler list-schedules`.
-- **One of the five is paused**, and it has no cron at all. The observability
-  analyst (#4) had not produced a brief since **2026-07-18**, eleven days, and
+- **One of the five is paused.** The observability analyst (#4) *is* a scheduled
+  cron deployment (`0 6 * * *`, America/New_York — see row #4) but is created
+  **paused** (`setup_obs_analyst.py` calls `deployments.pause` right after
+  `deployments.create`), so it never fires on its clock and runs only on demand
+  via `scripts/obs_analysis.py run` or the console **Analyze** button. It
+  had not produced a brief since **2026-07-18**, eleven days, and
   nothing surfaced that: the console's brief panel showed the newest brief of
   *any* kind, so the cost sentinel's build-cost brief appeared in the
   Observability section and looked like the analyst had changed subject (D56).
@@ -1022,6 +1032,7 @@ flowchart LR
 | `salesforce/.../cspTrustedSites/A2A_Lab_Console.cspTrustedSite` | `sf project deploy` | CSP Trusted Site (`context=LightningOut`) governing **`frame-src`/`connect-src`/`img-src`/`style-src`/`font-src`/`media-src`** on the framed Lightning Out content — what the dashboard *itself* may load (its own iframes, data calls, images, fonts). A DIFFERENT direction than the `frame-ancestors` row above; the embed needs both, exactly as the built-in Slack integration ships both (WS19, **D72**). Deploys headless | Salesforce |
 | `.claude/settings.local.json` + `scripts/codex_otel.sh` | — | OTLP exporter config; **metrics** land in CloudWatch (read by `coding`) | laptop → AWS |
 | `.cursor/hooks.json` + `scripts/cursor_otel.sh` | `cursor_otel.sh` (once, per credential rotation) | Cursor has no native exporter — hooks forward to the **cursorscope** ingestor, which exports **metrics** to the same CloudWatch endpoint (read by `coding` as `tool=cursor`, D64). Cumulative counters | laptop → AWS |
+| `.kiro/hooks/` + `scripts/kiro_otel.sh` | `kiro_otel.sh` (once, per credential rotation) | Kiro has no native exporter — a stateless per-hook forwarder posts OTLP JSON **directly** to the CloudWatch managed metrics endpoint (no ingestor, unlike Cursor's cursorscope; read by `coding` as `tool=kiro`, WS5/D67). **Delta** Sums — sessions/tools/file-ops only, no cost/token (hooks don't expose them) | laptop → AWS |
 | `scripts/setup_cw_logs_otlp.py` + `scripts/claude_otel.sh` | `setup_cw_logs_otlp.py --apply` (once) | `logs.amazonaws.com` service credential + CloudWatch **log group** `/a2alab/coding-agents/otlp` (bearer auth) + token in Secrets Manager `a2alab/telemetry/cw-logs-api-key`; the launch wrapper exports Claude Code's **log** events there (read by `coding-logs`, WS16) | laptop → AWS |
 | `.env` (gitignored) | `scripts/env_sync.py push` | Secrets Manager secret `A2ALAB_ENV_SECRET` — every platform credential, the account ids, the project ids | AWS |
 | `scripts/credential_analyst.py` | — (no deploy step) | **Nothing hosted** — one `messages.create` per run, started by a person | laptop → Anthropic API |

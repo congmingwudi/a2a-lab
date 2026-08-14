@@ -14,9 +14,11 @@ Salesforce Agentforce (custom Service agent; Apex action → Named Credential)
    lab console :8200 (trace viewer, SSE live tail)
    cloudflared tunnel → claude-*-lab.agenticthings.com  (local dev stack; run_local.sh)
 
-Hosted (the deployed topology): bridge & console → ECS Fargate behind one ALB
-(bridge-lab / console-lab); claude/openai agents → Bedrock AgentCore. The ports
-above are the local dev stack. See plan/09-deployment-map.md for what runs where.
+Hosted (the deployed topology): bridge, console & the 14 protocol faces → ECS
+Fargate behind one ALB (bridge-lab / console-lab / faces-lab, host-header rules;
+the brief watcher a2alab-briefs also on Fargate); claude/openai/strands agents →
+Bedrock AgentCore. The ports above are the local dev stack; hosted, the faces are
+reached via faces-lab (A2ALAB_MODE=hosted, WS13). See plan/09-deployment-map.md.
 ```
 
 ## The two seams

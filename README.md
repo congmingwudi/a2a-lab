@@ -800,7 +800,7 @@ and once deployed nothing needs a live session for the lab to keep working.
 | Path A bridge | ECS Fargate + ALB | `deploy/bridge/deploy_bridge.sh` |
 | Lab console | ECS Fargate, host-header rule on the same ALB | `deploy/console/deploy_console.sh` |
 | The fourteen protocol faces | ECS Fargate, **one process**, addressed by path | `deploy/faces/deploy_faces.sh` |
-| Claude + OpenAI SDK agents | Bedrock AgentCore (IAM data plane, no URL) | `deploy/agentcore/deploy.sh` |
+| Claude + OpenAI + Strands SDK agents | Bedrock AgentCore (IAM data plane, no URL) | `deploy/agentcore/deploy.sh <claude\|openai\|strands>` |
 | Agentforce A2A shim, fan-out MCP, obs harvest + obs MCP | Lambda | `deploy/shim/`, `deploy/fanout/`, `deploy/obs/` |
 | ADK agents | Vertex AI Agent Engine | `deploy/adk/deploy_adk.py` |
 | Foundry agents | Azure AI Foundry | `deploy/foundry/provision_foundry.py` |
