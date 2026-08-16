@@ -12,6 +12,11 @@ Hosted mode (default, ADR D23) — no driver loop, everything server-servable:
     uv run python scripts/setup_obs_analyst.py --recreate     # replace
     uv run python scripts/setup_obs_analyst.py --run          # + one manual run now
 
+Idempotent: the create path asks the workspace (agents.list) before creating,
+so a lost/absent state file no longer spawns a duplicate — it refuses and points
+you at --recreate, which archives the prior agent (and its paused deployment)
+first rather than orphaning it.
+
 Legacy local mode (D22 prototype, laptop-bound custom tool over sqlite):
     uv run python scripts/setup_obs_analyst.py --local [--run]
 """
@@ -152,6 +157,27 @@ def _setup_local(client, args) -> dict:
     }
 
 
+def _agents_named(client, name: str) -> list:
+    """Live (non-archived) agents whose display name is exactly ``name``.
+
+    The idempotency backstop: STATE_FILE alone cannot tell whether an agent
+    already exists — the file lives only on the operator's laptop, so a fresh
+    checkout, a deleted .a2alab/, or a second machine all present as "not
+    provisioned" and the old create-path would spawn a DUPLICATE. This asks the
+    workspace itself. Archived agents keep their name but are tombstones, so
+    skip anything the API marks archived (field name varies across SDK
+    versions; check both).
+    """
+    out = []
+    for agent in client.beta.agents.list():
+        if getattr(agent, "name", None) != name:
+            continue
+        if getattr(agent, "archived_at", None) or getattr(agent, "archived", None):
+            continue
+        out.append(agent)
+    return out
+
+
 def _manual_run(client) -> None:
     state = json.loads(STATE_FILE.read_text())
     if state.get("mode") != "hosted":
@@ -211,6 +237,34 @@ def main() -> int:
         if not MANAGED_FILE.exists():
             print("no .a2alab/managed.json — run scripts/setup_managed_agent.py first")
             return 1
+        # Idempotency backstop (stops the recurring duplicate-agent orphans):
+        # never create a second agent named AGENT_NAME. STATE_FILE is laptop-
+        # local, so its absence does NOT mean the agent is absent — ask the
+        # workspace before creating.
+        existing = _agents_named(client, AGENT_NAME)
+        if existing and not args.recreate:
+            ids = ", ".join(a.id for a in existing)
+            print(
+                f"an agent named {AGENT_NAME!r} already exists ({ids}) but {STATE_FILE} is "
+                f"missing — refusing to create a duplicate. Recover the ids into {STATE_FILE}, "
+                f"or re-run with --recreate to archive it and provision a fresh one."
+            )
+            return 1
+        if args.recreate:
+            # Clean up the prior fleet BEFORE creating, so --recreate replaces
+            # rather than orphans. The old deployment (a paused schedule, so it
+            # doesn't bill, but it lingers) comes from the outgoing STATE_FILE;
+            # the agents come from the workspace by name, catching any orphan a
+            # previous non-idempotent run already stranded.
+            if STATE_FILE.exists():
+                old = json.loads(STATE_FILE.read_text())
+                old_dep = old.get("deployment_id")
+                if old_dep:
+                    client.beta.deployments.archive(old_dep)
+                    print(f"archived prior deployment {old_dep}")
+            for agent in existing:
+                client.beta.agents.archive(agent.id)
+                print(f"archived prior '{AGENT_NAME}' agent {agent.id}")
         state = _setup_local(client, args) if args.local else _setup_hosted(client, args)
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         STATE_FILE.write_text(json.dumps(state, indent=1))
