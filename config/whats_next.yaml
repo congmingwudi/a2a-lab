@@ -120,7 +120,8 @@ plans:
       with the lab's per-hop wire trace for the same run.
     platforms: [salesforce]
     specs: []
-    refs: [D25, plan/02-matrix.md]
+    workstream: WS24
+    refs: [D25, plan/02-matrix.md, plan/07-workstreams.md]
 
   - id: mulesoft-agent-fabric
     title: MuleSoft Agent Fabric vs the lab's own AWS control plane

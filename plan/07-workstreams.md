@@ -3091,3 +3091,72 @@ session returns an OTLP trace. Console exposure (items 8–10): **met** — the
 Session Trace tab makes the live read interactive and reachable from the
 Agentforce experiments that generate the sessions. Only promotion to the live
 sweep (item 11) stays open, gated on the API leaving beta and growing a bulk read.
+
+## WS24 — Agentforce SOMA: native single-org multi-agent orchestration (raised 2026-08-15)
+
+**BLOCKED on Salesforce beta enrollment.** SOMA ("Single Org, Multiple Agents")
+is Agentforce's native orchestrator-plus-connected-subagents shape. The org
+check on 2026-08-15 confirmed it is not enabled here: absent from Feature
+Manager **and** from every relevant Settings metadata type at v67
+(`AgentPlatform`/`Bot`/`EinsteinAgent`/`EinsteinCopilot`/`EinsteinGpt`/`AgentforceForDevelopers`
+— the Agentforce substrate is all ON, but no multi-agent / connect-agents flag
+exists). Enablement is therefore a Salesforce-side **beta request**, not a
+headless toggle. This workstream stays blocked until that lands; the design is
+recorded now so it is build-ready the moment it does.
+
+**What this is.** One native Agentforce orchestrator (`A2ALab_Supply_Orchestrator_SOMA`,
+a NEW bundle beside the WS8 bridge orchestrator — the bridge one is left intact
+as the comparison baseline) routes to **three connected specialist subagents —
+Logistics, Commercial/Legal, Customer-ops — all Agentforce agents in this ONE
+org**, over the **same supplier-disruption scenario as WS8**. No A2A wire, no
+trust boundary crossed: this is the field's cleanest control case.
+
+**Why it is worth building.** SOMA is the same "who owns concurrency" question
+WS8 asks, answered a fourth way. WS8's Agentforce variant-3 fans out via a
+serial Apex callout to the lab bridge (Path A, D61); SOMA fans out via **native
+agent-to-agent routing inside one org**. Same orchestrator brand, same three
+business questions, two dispatch mechanisms — so the deliverable is *what native
+buys over the bridge*. And because there is no wire between the agents, the
+native session trace SOMA emits is the **clean baseline** the cross-org (MOMA)
+and cross-vendor (A2A) hops get measured against.
+
+**The three deliverable findings.**
+
+1. **Native session trace vs the lab's wire trace.** How Agentforce's unified
+   session trace plus per-subagent independent traces line up with the lab's
+   per-hop wire trace for the same scenario. Reuses the WS23 Session-Trace OTel
+   path (D73) and the M11 harvest — no new obs plumbing — and surfaces in the
+   console's existing Session Trace tab.
+2. **Whether the D27 delegation guard even applies with no wire.** There is no
+   outbound request to stamp a rider on; the trust boundary is internal to
+   Agentforce. That absence is itself the finding — the guard is a seam
+   convention, and SOMA has no seam.
+3. **Latency vs the bridge fan-out, and whether the Apex-callout-budget
+   constraint disappears** — the constraint that makes variant-3's serial path
+   degrade by design (D61). Native routing has no Apex transaction to overrun.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Salesforce beta enrollment for Agentforce multi-agent ("connect agents") on the lab org — the one non-headless dependency; everything below is gated on it | blocked — beta request with Salesforce |
+| 2 | Learn the connected-subagent node schema once: build one orchestrator→subagent link in Agent Builder, `sf project retrieve` the `GenAiPlannerBundle`, and diff the base64 `agentGraph` to identify the cross-agent node field (existing bundles only carry `type:"subagent"` internal-topic nodes) | not started — gated on item 1 |
+| 3 | Three new specialist single-org Agentforce agents (`GenAiPlannerBundle`s): Logistics, Commercial/Legal, Customer-ops, each grounded in the supplier-disruption scenario, deployed headless via the Metadata API | not started — gated on item 1 |
+| 4 | `A2ALab_Supply_Orchestrator_SOMA` orchestrator bundle whose `agentGraph` wires the three specialists as connected subagents (native routing), leaving `A2ALab_Supply_Orchestrator` (bridge variant-3) untouched as the comparison baseline | not started — gated on items 2–3 |
+| 5 | Headless deploy script for the SOMA fleet (orchestrator + 3 subagents), sourcing `deploy/aws_preflight.sh`-equivalent org guards; no hardcoded org identifiers (`.env` only) | not started |
+| 6 | `config/scenarios.yaml` entry `supplier-disruption-soma` with its own business-case `description` (console renders it) and a `soma` topology alongside the WS8 `delegated`/`serial` variants | not started |
+| 7 | Native trace capture: pull the SOMA run's unified session trace + per-subagent independent traces via the WS23 `salesforce-otel` source (D73) / M11 harvest; record in `obs_sessions`/span events under the existing platform name | not started — gated on items 4–6 |
+| 8 | Recorded comparison run in `plan/03-results.md`: SOMA native routing vs WS8 variant-3 bridge fan-out on the identical scenario — wall latency, per-leg coverage, and trace-fidelity delta | not started |
+| 9 | Console: SOMA run renders its native session trace in the Session Trace tab, and a Details pane (D57) narrates native-routing-vs-bridge citing D61/D73/WS8/WS24 | not started |
+| 10 | Field insight (native multi-agent orchestration as the no-wire control case) + ADR D77 recording the SOMA-as-baseline decision, written when the build is committed post-enablement | not started |
+| 11 | Diagram + console-copy pass (`config/diagrams.yaml`, `plan/09-deployment-map.md`, the `*_DIAGRAM` constants) so the SOMA topology is drawn and the estate map shows the new agents | not started |
+
+### Exit criteria
+
+**Blocked** until item 1 (beta enrollment) lands. Once enabled: the build is
+expected to be fully headless via `GenAiPlannerBundle` + `agentGraph` (the same
+metadata path the lab already deploys), with item 2 the single one-time
+schema-learning step. The workstream is **met** when a `supplier-disruption-soma`
+run routes natively to three single-org subagents, its unified session trace is
+harvested and surfaced, and `plan/03-results.md` records the native-vs-bridge
+comparison against WS8 variant-3 on the identical scenario.
