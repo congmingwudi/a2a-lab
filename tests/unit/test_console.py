@@ -1793,6 +1793,71 @@ def test_monitoring_requires_sign_in(tmp_path, monkeypatch):
     assert ok.json()["stats"] is None
 
 
+# ---- WS9: /log forward auth (apikey default, opt-in SigV4) ------------------
+
+
+def test_logger_headers_apikey_default(monkeypatch):
+    """Default mode is the unchanged X-Api-Key behaviour: with a key set, the
+    forward carries it; with no key it returns None (skip, not an error)."""
+    from console.app import _logger_request_headers
+
+    monkeypatch.delenv("A2ALAB_LOGGING_AUTH", raising=False)
+    monkeypatch.setenv("A2ALAB_LOGGING_API_KEY", "sekrit-key")
+    url = "https://abc123.execute-api.us-west-2.amazonaws.com/prod/log"
+
+    headers = _logger_request_headers(url, b'{"x":1}')
+    assert headers == {"Content-Type": "application/json", "X-Api-Key": "sekrit-key"}
+
+    monkeypatch.delenv("A2ALAB_LOGGING_API_KEY", raising=False)
+    assert _logger_request_headers(url, b'{"x":1}') is None
+
+
+def test_logger_headers_iam_signs_and_parses_region(monkeypatch):
+    """A2ALAB_LOGGING_AUTH=iam SigV4-signs for execute-api with the caller's AWS
+    session — no X-Api-Key, and the region is parsed from the host when not set
+    explicitly (the logger lives in a different region than the console)."""
+    pytest.importorskip("botocore")
+    from console.app import _logger_request_headers
+
+    monkeypatch.setenv("A2ALAB_LOGGING_AUTH", "iam")
+    # Env creds beat any profile in botocore's default chain -> deterministic.
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
+    monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+    monkeypatch.delenv("A2ALAB_LOGGING_REGION", raising=False)
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("A2ALAB_LOGGING_API_KEY", raising=False)
+
+    url = "https://abc123.execute-api.us-west-2.amazonaws.com/prod/log"
+    headers = _logger_request_headers(url, b'{"x":1}')
+
+    assert headers is not None
+    assert "X-Api-Key" not in headers
+    assert headers["Authorization"].startswith("AWS4-HMAC-SHA256")
+    # Region parsed from the host is what the signature is scoped to.
+    assert "/us-west-2/execute-api/aws4_request" in headers["Authorization"]
+
+
+def test_logger_headers_iam_no_creds_returns_none(monkeypatch):
+    """iam mode with no resolvable AWS credentials skips the forward (None),
+    the same fail-quiet contract as a missing API key."""
+    pytest.importorskip("botocore")
+    import botocore.session
+
+    from console.app import _logger_request_headers
+
+    monkeypatch.setenv("A2ALAB_LOGGING_AUTH", "iam")
+    monkeypatch.setenv("A2ALAB_LOGGING_REGION", "us-west-2")
+    monkeypatch.setattr(
+        botocore.session,
+        "get_session",
+        lambda: SimpleNamespace(get_credentials=lambda: None),
+    )
+
+    url = "https://abc123.execute-api.us-west-2.amazonaws.com/prod/log"
+    assert _logger_request_headers(url, b'{"x":1}') is None
+
+
 # ---- WS23: durable experiment->session map (Session Trace picker) ----------
 
 

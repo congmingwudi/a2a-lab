@@ -1148,6 +1148,54 @@ def _viewer_forbidden(request: Request) -> None:
             )
 
 
+def _logger_request_headers(url: str, body: bytes) -> dict[str, str] | None:
+    """Auth headers for the external `/log` forward (WS9 items 16/17).
+
+    Two modes, selected by ``A2ALAB_LOGGING_AUTH`` (default ``apikey`` — the
+    current, unchanged behaviour so this ships without a coordinated flip):
+
+    - ``apikey``: the existing ``X-Api-Key`` header from A2ALAB_LOGGING_API_KEY.
+    - ``iam``: SigV4-sign the POST for ``execute-api`` using the caller's AWS
+      session, so NO long-lived key exists (the keyless D39 shape). This only
+      works once the external API Gateway `/log` route is switched to
+      ``AuthorizationType: AWS_IAM`` with a cross-account resource policy
+      trusting the lab principal — that half lives in the operator's external
+      ``aws-logging-service`` repo, not here. Until then, leave the default.
+
+    Returns ``None`` (skip the forward, never an error) when the selected mode's
+    credential is absent — same contract as a missing API key. The region for
+    SigV4 is taken from ``A2ALAB_LOGGING_REGION``, else parsed from the
+    ``*.execute-api.<region>.amazonaws.com`` host, else ``AWS_REGION`` (the
+    logger lives in a different region than the console, so it must be explicit).
+    """
+    mode = (os.environ.get("A2ALAB_LOGGING_AUTH") or "apikey").strip().lower()
+    if mode == "iam":
+        try:
+            import botocore.session
+            from botocore.auth import SigV4Auth
+            from botocore.awsrequest import AWSRequest
+        except Exception:  # noqa: BLE001 - no botocore: skip like a missing key
+            return None
+        creds = botocore.session.get_session().get_credentials()
+        if creds is None:
+            return None
+        region = os.environ.get("A2ALAB_LOGGING_REGION")
+        if not region:
+            m = re.search(r"execute-api\.([a-z0-9-]+)\.amazonaws\.com", url)
+            region = m.group(1) if m else os.environ.get("AWS_REGION")
+        if not region:
+            return None
+        aws_req = AWSRequest(
+            method="POST", url=url, data=body, headers={"Content-Type": "application/json"}
+        )
+        SigV4Auth(creds, "execute-api", region).add_auth(aws_req)
+        return dict(aws_req.headers)
+    key = os.environ.get("A2ALAB_LOGGING_API_KEY")
+    if not key:
+        return None
+    return {"Content-Type": "application/json", "X-Api-Key": key}
+
+
 def create_console_app(registry: Registry | None = None):
     state = {"registry": registry}
     # One long-lived client per target (same rule as the bridge): they cache
@@ -1780,26 +1828,30 @@ def create_console_app(registry: Registry | None = None):
 
     async def _forward_to_logger(message: str, detail: dict) -> None:
         """Fire-and-forget POST to the external AWS logger (mega-demo contract:
-        {source, level, message, detail} + X-Api-Key). A logging failure must
-        never surface — the console has already stored its own row, and the
-        forward is the operator's Slack convenience, not the source of truth.
+        {source, level, message, detail}). A logging failure must never surface
+        — the console has already stored its own row, and the forward is the
+        operator's Slack convenience, not the source of truth.
+
+        Auth is chosen by ``_logger_request_headers`` (WS9 item 16): the default
+        is the current X-Api-Key; A2ALAB_LOGGING_AUTH=iam SigV4-signs instead so
+        no long-lived key exists. The signed bytes must equal the sent bytes, so
+        we serialize once and POST that exact ``content`` (not ``json=``, which
+        would re-serialize and break the signature).
         """
         url = os.environ.get("A2ALAB_LOGGING_API_URL")
-        key = os.environ.get("A2ALAB_LOGGING_API_KEY")
-        if not url or not key:
+        if not url:
+            return
+        body = json.dumps(
+            {"source": "a2a-console", "level": "info", "message": message, "detail": detail}
+        ).encode()
+        headers = _logger_request_headers(url, body)
+        if headers is None:
+            # No credential for the selected auth mode — skip exactly like a
+            # missing key. Never a surfaced error.
             return
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                await client.post(
-                    url,
-                    headers={"Content-Type": "application/json", "X-Api-Key": key},
-                    json={
-                        "source": "a2a-console",
-                        "level": "info",
-                        "message": message,
-                        "detail": detail,
-                    },
-                )
+                await client.post(url, headers=headers, content=body)
         except Exception:  # noqa: BLE001 - swallow exactly like the mega-demo's .catch(()=>{})
             pass
 

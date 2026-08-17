@@ -1230,7 +1230,7 @@ done; the one step that does is the one that matters most.
 | 13 | Codex OTel exporter wired to the same endpoint (`scripts/codex_otel.sh`); a `metrics_exporter` mismatch found and fixed | done |
 | 14 | Static-key follow-up resolved via macOS Keychain — hooks read a Keychain service, env fallback warns on stderr | done |
 | 15 | Insight published — "a telemetry config that parses is not evidence of telemetry" | done — `measured`, `review: required` |
-| 16 | IAM-auth for the `/log` route (the true keyless D39 shape) | not started — still API-key auth (~half a day) |
+| 16 | IAM-auth for the `/log` route (the true keyless D39 shape) | in-repo half ✅ — the console forwarder now signs SigV4 for `execute-api` under `A2ALAB_LOGGING_AUTH=iam` (`_logger_request_headers`, default stays `apikey` so nothing flips unasked); region from `A2ALAB_LOGGING_REGION`/host/`AWS_REGION`, absent creds skip the forward (same fail-quiet contract as a missing key). BLOCKED on the operator's out-of-repo half: the external `aws-logging-service` `/log` route must move to `AuthorizationType: AWS_IAM` with a cross-account resource policy trusting the lab principal — both halves must land together or telemetry breaks, which is why the flag defaults off |
 | 17 | Usage-plan scoping / rate-limit on the `/log` route | not started |
 | 18 | Rotate the logging key | not started — assuming it stayed contained is not free |
 
