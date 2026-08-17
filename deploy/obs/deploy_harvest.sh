@@ -136,6 +136,14 @@ for key in (
     "A2ALAB_PG_CLUSTER_ID",       # aws: DBClusterIdentifier for the Aurora meters
     "A2ALAB_HARVEST_FUNCTION",    # aws: FunctionName for the Lambda meters
     "AZURE_FOUNDRY_RESOURCE_ID",  # azure: resource_uri (ARM id) for the Foundry meters
+    # WS4/D77: langgraph reads LangSmith (LangGraph's framework-native run
+    # store) over HTTPS with LANGSMITH_API_KEY — NOT an AWS-role read, so the
+    # key MUST ride the secret or the source degrades to `blocked` hosted.
+    # LANGCHAIN_PROJECT names the project to query (defaults to a2a-lab); the
+    # emitter-only LANGCHAIN_TRACING_V2 is not needed by the harvest reader.
+    "LANGSMITH_API_KEY",
+    "LANGCHAIN_PROJECT",
+    "LANGSMITH_ENDPOINT",         # optional; source defaults to the SaaS URL
 ):
     if os.environ.get(key):
         env[key] = os.environ[key]
