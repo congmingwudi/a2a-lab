@@ -45,19 +45,20 @@ plans:
     horizon: planned
     pitch: >
       Add lab experiments for the orchestration frameworks the estate does not
-      yet cover — LangGraph (WS4), CrewAI, and AutoGen (Microsoft) — each hosted
-      the same way the existing platforms are and wired into the same delegation
-      and trace seams, so a new framework is a directory under src/platforms/,
-      not a change to the core.
+      yet cover — CrewAI and AutoGen (Microsoft) — each hosted the same way the
+      existing platforms are and wired into the same delegation and trace seams,
+      so a new framework is a directory under src/platforms/, not a change to the
+      core. LangGraph (WS4) already proved the pattern: it is live on Heroku, in
+      the protocol matrix, and harvested through its own LangSmith telemetry.
     payoff: >
       The lab's claim is that adding a platform touches nothing in interop/ or the
       other platforms — these are the entries that keep testing it, and each
       framework answers the same questions the others already have: does it speak
       A2A natively or need a shim, where does it carry the trace id, and what does
-      its own execution log say it did. LangGraph is the closest (already a roadmap
-      workstream); CrewAI and AutoGen widen the sample to the multi-agent
-      orchestrators.
-    platforms: [langgraph, crewai, autogen, microsoft]
+      its own execution log say it did. LangGraph already shipped this way (WS4 —
+      the open-source-framework column, live on Heroku), evidence the claim holds;
+      CrewAI and AutoGen widen the sample to the multi-agent orchestrators.
+    platforms: [crewai, autogen, microsoft]
     specs: [a2a, mcp]
     workstream: WS4
     refs: [plan/07-workstreams.md]

@@ -1432,7 +1432,7 @@
     <span class="brandmark"></span>
     <h1>A2A Interop Lab</h1>
   </div>
-  <span class="sub">cross-platform agent-to-agent experiments · Agentforce × Claude × OpenAI × Google × Microsoft × AWS Strands</span>
+  <span class="sub">cross-platform, cross-hyperscaler agent-to-agent experiments</span>
   <span id="live" class="live" title="Live trace stream — the console's connection to the lab's own backend (/api/stream). When 'live', new wire-trace hops appear here the instant an experiment runs, no refresh needed. It streams under your persona sign-in, so it shows 'sign in for live' until you do.">connecting…</span>
   <span id="modeBadge" class="mode-badge" style="display:none"></span>
   <div class="theme-switch" role="group" aria-label="Theme">
@@ -8664,13 +8664,13 @@ function archSvg() {
       marker-start="url(#lnd-${l.proto}-s)" marker-end="url(#lnd-${l.proto}-e)"/>
     <text x="380" y="${l.y - 6}" text-anchor="middle" fill="var(--${l.proto})" font-size="10.5" font-weight="700">${l.label}</text>`).join("");
   return `<svg class="archsvg" viewBox="0 0 760 196" role="img"
-      aria-label="Agentforce and the remote research agents (Claude, OpenAI, Gemini, Foundry) exchanging the same request over REST, MCP, and A2A">
+      aria-label="Agentforce and the remote agent platforms (Claude, OpenAI, Gemini, Foundry, Strands, LangGraph) exchanging the same request over REST, MCP, and A2A">
     <defs>${defs}</defs>
     ${box(22, "Salesforce Agentforce", "service agent · Agent API", "Apex → bridge / direct A2A")}
-    ${box(528, "Research agents", "Claude · OpenAI · Gemini", "gpt-5-mini (Azure Foundry)")}
+    ${box(528, "Remote agent platforms", "Claude · OpenAI · Gemini", "Foundry · Strands · LangGraph")}
     ${wires}
     <text x="380" y="166" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
-      five platforms, three clouds — same scenario over each protocol, every raw wire payload recorded</text>
+      cross-platform, cross-hyperscaler — same scenario over each protocol, every raw wire payload recorded</text>
     <text x="380" y="182" text-anchor="middle" fill="#8fc0e8" font-size="10">
       …and one 1:many cell: a single task fanned out to three business units on three clouds at once</text>
   </svg>`;
@@ -8727,12 +8727,13 @@ function landingHtml() {
         <div class="kicker">Agent interoperability · experiments</div>
         <h1 class="wordmark">A2A Interop Lab</h1>
         <p class="hero-sub">Watch agent platforms talk to each other — on the wire.</p>
-        <p class="hero-body">Six agent platforms — Salesforce Agentforce, Claude, OpenAI,
-          Google Gemini on Vertex AI Agent Engine, Microsoft Foundry, and AWS Strands on Bedrock
-          AgentCore — answer the same questions by consulting each other mid-conversation, across
-          four clouds. Each direction runs over REST, MCP, and the A2A protocol — the same
-          scenario, protocols compared side by side, with every hop's raw wire payload recorded
-          so you can see exactly what each protocol puts on the wire.</p>
+        <p class="hero-body">Agent platforms across the hyperscalers — Salesforce Agentforce,
+          Claude, OpenAI, Google Gemini on Vertex AI Agent Engine, Microsoft Foundry, AWS Strands on
+          Bedrock AgentCore, and the open-source LangGraph framework on Heroku — answer the same
+          questions by consulting each other mid-conversation, cross-platform and cross-cloud. Each
+          direction runs over REST, MCP, and the A2A protocol — the same scenario, protocols
+          compared side by side, with every hop's raw wire payload recorded so you can see exactly
+          what each protocol puts on the wire.</p>
         <p class="hero-ethos">The lab's ethos is <b>honest status</b>: it calls out what works
           natively, what works via a bridge or shim it hosts, and what is blocked or beta. Every
           claim travels with a source — an ADR id, a trace id, a measured number — so a reader
