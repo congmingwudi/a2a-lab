@@ -1320,10 +1320,12 @@ insights:
     category: Observability
     # New 2026-08-12 from WS23 (D73): the Agentforce Session Trace OTel API is a
     # standards-shaped route to the SAME obs data we already harvest from the
-    # DMOs. hypothesis rung — the "same data" claim is grounded in the docs +
-    # our knowledge of the DMO store, not yet re-run against a live beta org
-    # (WS23 item 7 is held for the operator).
-    status: hypothesis
+    # DMOs. observed rung — WS23 item 7 validated the mapping against a live beta
+    # org 2026-08-12 (25 sessions enumerated, a real session's OTel GET returned
+    # an OTLP doc: 1 resourceSpans, 12 spans; plan/07-workstreams.md item 7).
+    # Not `measured` — a single live-org validation against a beta endpoint that
+    # may move, not a repeated measurement.
+    status: observed
     headline: >-
       A vendor's new "OpenTelemetry API" is usually a STANDARD ROUTE to data you
       could already get — the win is the pre-joined schema, not new information
@@ -1346,8 +1348,9 @@ insights:
       bulk coverage sweep: single-session only (no bulk read), 72h lookback, and
       beta. So the lab built the OTel source (salesforce-otel), tested the OTLP→
       store mapping, and kept the DMO path live — a one-line promotion the day
-      the API grows a bulk read. (hypothesis until WS23 item 7 validates the
-      session-id and attribute-name mapping against a live org.)
+      the API grows a bulk read. (Validated against a live org 2026-08-12 —
+      WS23 item 7: the runtime session id resolves to the OTel endpoint and the
+      OTLP attribute names match the mapping's hints.)
     advisory: >-
       When a platform announces an "OpenTelemetry" or "standard trace" API,
       ask first whether it is new DATA or a new ROUTE to data you can already
