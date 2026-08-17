@@ -485,19 +485,37 @@ Work items:
    off-VPC via the rds-data Data API. done 2026-08-16
 5. ✅ Unit tests (`tests/unit/test_langgraph_platform.py`) + `langgraph` extra
    in pyproject; D77 ADR; plan/09 estate/L6; plan/01 dev-stack diagram. done 2026-08-16
-6. ⏳ Deploy to the Heroku team `sfdc-ta` and set `A2ALAB_LANGGRAPH_BASE`, then
-   uncomment the hosted twins + remap. open — needs the operator's Heroku API
-   token + team-access confirmation (see setup below).
+6. ✅ Deployed to Heroku team `sfdc-ta` as app `a2a-lab-langgraph` (cedar
+   generation → `https://a2a-lab-langgraph-08c59c66097f.herokuapp.com`, one
+   Basic web dyno, `LANGGRAPH_BACKEND=langgraph`). `A2ALAB_LANGGRAPH_BASE` set,
+   the `langgraph-*-hosted` twins + hosted-mode remap uncommented. Live smoke
+   green: `/healthz`, faces index, token-gated A2A card advertising the real
+   origin, and a REST `/invoke` running the real ReAct agent (haiku-4-5, ~4.5s).
+   The Heroku Container Registry needs a Docker **schema2** manifest, so the
+   build pushes via buildx `oci-mediatypes=false,push=true` (Docker 29's
+   containerd store is OCI, which the registry rejects). done 2026-08-17
 7. ⏳ Obs: `langgraph_source.py` over the LangSmith runs/traces API — expected
    the richest programmatic column; say so in insights. open — after deploy.
 8. ⏳ Live validation: A2A + MCP native cells green; both directions with the
    twin; matrix + insights updated. open — after deploy.
+9. ⏳ Cross-cloud trace sink. The dyno currently runs `A2ALAB_TRACE_SINK=jsonl`
+   (ephemeral, dyno-local) so its hops are NOT yet in the shared console. The
+   D77 design — hops → shared Aurora over the rds-data Data API, off-VPC — needs
+   a **static, scoped IAM access key** as Heroku config vars (`AWS_ACCESS_KEY_ID`
+   /`AWS_SECRET_ACCESS_KEY`); the laptop only has SSO creds, which do not exist
+   inside a dyno. Minting a persistent cloud credential was held for the operator
+   (a durable secret, not a deploy). Once the key exists: `env_sync push`, then
+   flip the Heroku config var `A2ALAB_TRACE_SINK=postgres` and re-release with
+   `--skip-build` (config-only — no code change, the sink is env-selected). open.
 
 **Credentials / setup (what the operator provides — see D77):**
-1. A **Heroku API token** scoped to team `sfdc-ta` (`heroku
-   authorizations:create`, or the Account-settings API key) → `.env`
-   `HEROKU_API_KEY` (secret; synced via env_sync). The one irreducible human
-   step; everything else is the headless Platform API.
+1. A **Heroku API token** scoped to team `sfdc-ta`. In practice the operator's
+   Enterprise **SSO** login was enough: the deploy script falls back to `heroku
+   auth:token` (a short-lived session token) when `HEROKU_API_KEY` is unset, and
+   the 2026-08-17 deploy used exactly that — no long-lived key minted (SSO
+   usually disables them). Everything else is the headless Platform API. For an
+   unattended/cron deploy, mint `heroku authorizations:create` → `.env`
+   `HEROKU_API_KEY` (secret; synced via env_sync).
 2. Confirm **app-create rights** in `sfdc-ta` (Enterprise teams may lock this),
    and whether it is a **Private Space** (then `HEROKU_SPACE` is needed).
 3. `HEROKU_APP` / `HEROKU_TEAM` → `.env` (no hardcoded identifiers).

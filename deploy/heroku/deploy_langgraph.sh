@@ -101,19 +101,33 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
   # linux/amd64: Heroku runs amd64 dynos; build explicitly so an arm64 laptop
   # does not push an unrunnable image (the same trap the Fargate arm64 build
   # avoids in the other direction).
-  docker build --platform linux/amd64 -f "${ROOT}/deploy/heroku/Dockerfile" \
-    -t "$REGISTRY" "$ROOT"
-  docker push "$REGISTRY"
+  #
+  # oci-mediatypes=false + provenance=false: the Heroku Container Registry
+  # rejects OCI-format manifests with "error from registry: unsupported".
+  # Docker 29's containerd image store keeps images in OCI media types, so a
+  # plain `docker build` + `docker push` pushes an OCI manifest and fails.
+  # buildx's image exporter with oci-mediatypes=false forces a Docker schema2
+  # manifest (what Heroku accepts) and pushes it directly (push=true), so there
+  # is no separate `docker push` and no reliance on the local daemon format.
+  docker buildx build --platform linux/amd64 --provenance=false \
+    --output "type=image,name=${REGISTRY},oci-mediatypes=false,push=true" \
+    -f "${ROOT}/deploy/heroku/Dockerfile" "$ROOT"
 else
   echo "==> --skip-build: releasing the CURRENT image with refreshed config"
 fi
 
 echo "==> Releasing"
-IMAGE_ID="$(docker inspect "$REGISTRY" --format '{{.Id}}' 2>/dev/null || true)"
+# Heroku's formation `docker_image` is the image CONFIG digest (what
+# `docker inspect --format '{{.Id}}'` returns for a locally-loaded image). With
+# push=true the image is not in the local daemon, so read the config digest
+# from the pushed manifest instead.
+IMAGE_ID="$(docker buildx imagetools inspect "$REGISTRY" --raw 2>/dev/null \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["config"]["digest"])' 2>/dev/null || true)"
 if [[ -z "$IMAGE_ID" ]]; then
-  echo "    no local image to release (pull it or run a full build first)" >&2
+  echo "    could not resolve pushed image config digest (build first?)" >&2
   exit 1
 fi
+echo "    releasing image ${IMAGE_ID}"
 hapi PATCH "/apps/${APP}/formation" \
   "{\"updates\":[{\"type\":\"web\",\"docker_image\":\"${IMAGE_ID}\"}]}" \
   >/dev/null 2>&1 || \

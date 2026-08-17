@@ -499,28 +499,27 @@ targets:
 
   # WS4 hosted twins on HEROKU (app URL in ${A2ALAB_LANGGRAPH_BASE}). UNLIKE
   # every other hosted twin these do NOT ride the Fargate faces task — Heroku
-  # is a separate host (the operator's choice, D77). Kept COMMENTED until the
-  # Heroku app is deployed (deploy/heroku/deploy_langgraph.sh, needs the token
-  # you provide) so the matrix shows no phantom live cell. Uncomment the block
-  # AND the remap lines below in the same change as the first successful deploy.
-  # langgraph-rest-hosted:
-  #   platform: langgraph
-  #   protocol: rest
-  #   endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-rest
-  #   status: native
-  #   auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
-  # langgraph-mcp-hosted:
-  #   platform: langgraph
-  #   protocol: mcp
-  #   endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-mcp/mcp
-  #   status: native
-  #   auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
-  # langgraph-a2a-hosted:
-  #   platform: langgraph
-  #   protocol: a2a
-  #   endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-a2a
-  #   status: native
-  #   auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  # is a separate host (the operator's choice, D77). Live since the first
+  # Heroku deploy 2026-08-17 (deploy/heroku/deploy_langgraph.sh); the app runs
+  # LANGGRAPH_BACKEND=langgraph (real ReAct agent, claude-haiku-4-5).
+  langgraph-rest-hosted:
+    platform: langgraph
+    protocol: rest
+    endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-rest
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  langgraph-mcp-hosted:
+    platform: langgraph
+    protocol: mcp
+    endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-mcp/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  langgraph-a2a-hosted:
+    platform: langgraph
+    protocol: a2a
+    endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-a2a
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
 modes:
   # WS13/D55: claude-rest and openai-rest used to remap to the AGENTCORE
@@ -547,7 +546,7 @@ modes:
     strands-rest: strands-rest-hosted
     strands-mcp: strands-mcp-hosted
     strands-a2a: strands-a2a-hosted
-    # Uncomment with the langgraph-*-hosted twins above on first Heroku deploy:
-    # langgraph-rest: langgraph-rest-hosted
-    # langgraph-mcp: langgraph-mcp-hosted
-    # langgraph-a2a: langgraph-a2a-hosted
+    # WS4 langgraph twins live on Heroku since 2026-08-17 (D77):
+    langgraph-rest: langgraph-rest-hosted
+    langgraph-mcp: langgraph-mcp-hosted
+    langgraph-a2a: langgraph-a2a-hosted
