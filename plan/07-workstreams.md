@@ -2963,17 +2963,45 @@ parked as a potential workstream, not scheduled.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Rename `anthropic-managed-agents`→`claude-managed-agents` and `anthropic-api`→`claude-api` at every source site (managed_backend, guide/core, analyst, briefs, cma, console/app) | not started |
-| 2 | Update console badge/vendor matching in `index.html` and any diagram/config literal | not started |
-| 3 | Decide + apply the historical-row policy: one-shot `UPDATE` on `lab.trace_events` via `pg_migrate.py`, or leave history and change new rows only | not started |
-| 4 | Remove the now-redundant two remap arms from the WS19 Tableau `Target Platform` calc | not started |
+| 1 | Rename `anthropic-managed-agents`→`claude-managed-agents` and `anthropic-api`→`claude-api` at every source site (managed_backend, guide/core, analyst, briefs, cma, console/app) | done 2026-08-16 |
+| 2 | Update console badge/vendor matching in `index.html` and any diagram/config literal | done 2026-08-16 (transitional — see note) |
+| 3 | Decide + apply the historical-row policy: one-shot `UPDATE` on `lab.trace_events` via `pg_migrate.py`, or leave history and change new rows only | open — operator decision (recommendation below) |
+| 4 | Remove the now-redundant two remap arms from the WS19 Tableau `Target Platform` calc | open — blocked on item 3 |
+
+**Build note (2026-08-16, items 1–2).** Renamed all three trace labels at
+source: `anthropic-managed-agents`→`claude-managed-agents` (managed_backend,
+analyst, console/app), `anthropic-api`→`claude-api` (guide/core, console/app),
+and the `source` counterpart `anthropic-scheduler`→`claude-scheduler`
+(briefs/runner) so the exit-criteria grep can be clean. `cma.py` had no such
+literal. `config/scenarios.yaml` flow labels and the console `FRIENDLY` map /
+badge matching updated. Confirmed `anthropic-managed-agents` is a trace LABEL,
+not a `targets.yaml` registry key, so no resolution path changed.
+
+**Transitional console state (item 2).** Because the ~120 historical
+`lab.trace_events` rows keep the old `target` until item 3 runs, the console
+deliberately recognizes BOTH names (`claude-*` for new rows, `anthropic-*` for
+historical) in its badge logic and `FRIENDLY` map — the same shape as the WS19
+Tableau remap. Those `anthropic-*` arms in `index.html` are the ONLY remaining
+`anthropic-` trace-label references in `src/`; they come out in the same change
+as item 3.
+
+**Item 3 recommendation (operator's call).** A one-shot in-place `UPDATE` on
+`lab.trace_events` (`target` and `source`) via `pg_migrate.py` as owner is the
+clean shape — the generated `event_key` does not include `target`/`source`, so
+the PK is unaffected and the change is reversible with the inverse UPDATE. Doing
+it lets items 2 and 4 drop their `anthropic-*` arms and fully satisfies the exit
+criteria. Left as the operator's decision per the 2026-08-09 "not sure it's
+worth the effort" note; the SQL is trivial and can run the morning this is
+picked up.
 
 ### Exit criteria
 
 `grep anthropic- src/ config/` returns nothing that names a trace target; the
 console trace viewer and the Tableau dashboard show the same `claude-*` names for
 the same hop; the WS19 `Target Platform` remap arms are gone; and the historical-
-row policy is decided and recorded. Parked until judged worth the effort.
+row policy is decided and recorded. **Status 2026-08-16: items 1–2 met (new
+rows and every source surface now say `claude-*`); items 3–4 open, gated on the
+historical-row migration decision.**
 
 ## WS22 — Track B: cross-cloud infrastructure metrics — harvest, store, surface (raised 2026-08-11)
 

@@ -9,7 +9,7 @@
 # flow:   the planned call path, rendered as a sequence diagram + numbered
 #         steps in the console's scenario detail view BEFORE a run. Use the
 #         participant names the trace layer records (remote-caller,
-#         claude-researcher, anthropic-managed-agents, agentforce-client,
+#         claude-researcher, claude-managed-agents, agentforce-client,
 #         client, bridge, agentforce-apex) so the planned diagram lines up
 #         with the live one that streams in after "Run".
 # agents: the agents at each end; `target` names an a2a target in
@@ -217,7 +217,7 @@ scenarios:
           :8001. "remote-caller" is how the server-side trace records whoever
           invoked it.
       - source: claude-researcher
-        target: anthropic-managed-agents
+        target: claude-managed-agents
         protocol: managed-agents-api
         detail: >-
           The adapter drives a hosted Anthropic Managed Agents session —
@@ -305,7 +305,7 @@ scenarios:
           over the configured protocol — switch this leg to MCP or A2A with a
           yaml edit, no Salesforce redeploy.
       - source: claude-researcher
-        target: anthropic-managed-agents
+        target: claude-managed-agents
         protocol: managed-agents-api
         detail: >-
           Claude (model claude-haiku-4-5) produces the market research in a hosted Managed Agents
@@ -360,7 +360,7 @@ scenarios:
       let it run long, store the result where the CRM agent's retrieval
       layer can find it, and notify humans in-channel when it lands.
     flow:
-      - source: anthropic-scheduler
+      - source: claude-scheduler
         target: brief-researcher
         protocol: managed-agents-api
         detail: >-

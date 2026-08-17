@@ -2344,14 +2344,14 @@ function describeTrace(t) {
     }
   }
 
-  if (tgts.has("anthropic-managed-agents")) {
+  if (tgts.has("claude-managed-agents") || tgts.has("anthropic-managed-agents")) {
     parts.push(`The Claude agent's reasoning ran on <b>Anthropic Managed Agents</b> (hosted session, SSE event stream).`);
   } else if (tgts.has("claude-agent-sdk")) {
     parts.push(`The Claude agent's reasoning ran on the self-hosted <b>Claude Agent SDK</b>.`);
   }
 
   const afHops = hops.filter(h => h.protocol === "agentforce-api");
-  const claudeInvolved = tgts.has("anthropic-managed-agents") || tgts.has("claude-agent-sdk");
+  const claudeInvolved = tgts.has("claude-managed-agents") || tgts.has("anthropic-managed-agents") || tgts.has("claude-agent-sdk");
   if (afHops.length && !afEntry) {
     const lifecycle = afHops.map(h => (h.transport_detail || "").split(" ")[0]).join(" → ");
     if (claudeInvolved) {
@@ -8584,14 +8584,17 @@ const FRIENDLY = {
   "bridge": "Bridge",
   "claude-researcher": "Claude agent", "claude-rest": "Claude agent",
   "claude-mcp": "Claude agent", "claude-a2a": "Claude agent",
-  "anthropic-managed-agents": "Managed Agents", "claude-agent-sdk": "Agent SDK",
+  // WS21: new rows are stamped claude-managed-agents; the anthropic-* alias
+  // covers historical lab.trace_events rows until the one-shot migration runs.
+  "claude-managed-agents": "Managed Agents", "anthropic-managed-agents": "Managed Agents",
+  "claude-agent-sdk": "Agent SDK",
   "agentforce-apex": "Agentforce", "agentforce": "Agentforce",
   // First-hop source in the Agentforce → Claude scenario (the console driving
   // the Agent API); as a mid-path source it's ignored, so "You" is safe.
   "agentforce-service-agent": "Agentforce", "agentforce-client": "You",
   "openai-researcher": "OpenAI agent", "openai-rest": "OpenAI agent",
   // Async brief pattern (D16)
-  "anthropic-scheduler": "Daily cron", "brief-researcher": "Claude researcher",
+  "claude-scheduler": "Daily cron", "anthropic-scheduler": "Daily cron", "brief-researcher": "Claude researcher",
   "brief-worker": "Brief worker", "salesforce-org": "Salesforce", "web": "Web",
 };
 

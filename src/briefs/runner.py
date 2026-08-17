@@ -187,7 +187,7 @@ class BriefRunner:
         came from the deployment's initial_events) and drive it home."""
         _record_hop(
             trace_id,
-            source="anthropic-scheduler",
+            source="claude-scheduler",
             target="brief-researcher",
             protocol="managed-agents-api",
             transport_detail="scheduled deployment fired session (daily cron)",

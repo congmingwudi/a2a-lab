@@ -198,7 +198,7 @@ def _claude_interior() -> dict:
     if os.environ.get("CLAUDE_BACKEND", "managed") == "managed":
         return {
             "source": "claude-researcher",
-            "target": "anthropic-managed-agents",
+            "target": "claude-managed-agents",
             "protocol": "managed-agents-api",
             "detail": (
                 "The adapter answers on Anthropic Managed Agents (the Claude "
@@ -493,7 +493,7 @@ def cell_details(t) -> dict:
                 _lab_server_entry(t, "the Lab Guide docent"),
                 {
                     "source": "lab-guide",
-                    "target": "anthropic-api",
+                    "target": "claude-api",
                     "protocol": "internal",
                     "detail": (
                         "Direct Anthropic tool-use loop (Haiku-tier) grounded "
