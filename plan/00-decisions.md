@@ -3111,3 +3111,57 @@ so it fits the D16/D17 deliver-to-a-record shape, not in-turn orchestration).
 See WS11 item 13, D74 (the async tools + the header fix), D75 (the worker's
 non-gateway budget), D47 (the separate-invocation worker), D41 (the gateway
 ceiling this dissolves), and D61 (the Agentforce fan-out topology this rides on).
+
+## 2026-08-16 — D77: the LangGraph agent (WS4) is hosted on HEROKU, not LangGraph Platform — so it is served through the lab's OWN adapters, and it is the lab's first non-AWS-hosted platform
+
+**Context.** WS4 (plan/07) originally scoped the open-source-framework column as
+"LangGraph on **LangGraph Platform**": the managed Agent Server exposes A2A
+(`/a2a/{assistant_id}`) and MCP *natively*, and LangSmith is the queryable-SaaS
+observability backend. The operator chose to deploy the LangGraph agent to a
+**Heroku** team instead. That is a hosting-shape decision, not a framework one —
+worth recording because it changes what WS4 demonstrates and how the agent is
+served.
+
+**Decision.** Host the LangGraph agent on Heroku (one team app, container
+deploy). Because Heroku is a generic PaaS with no agent-protocol surface of its
+own, the agent is served through the lab's OWN `serve()` adapters — REST/MCP/A2A,
+exactly like `platforms/strands` and `platforms/openai` — rather than consuming
+LangGraph Platform's native endpoints. The agent INTERIOR is unchanged either
+way: a `create_react_agent` ReAct graph (agent node + `ask_agentforce` tool
+node), delegation-guarded (D27), Haiku-tier brain via `langchain-anthropic`.
+
+**Consequences.**
+- **First non-AWS host.** Every other hosted seam is on AWS (Fargate faces task,
+  AgentCore runtimes, Lambdas). LangGraph on Heroku is the lab's first platform
+  hosted off AWS — a genuinely new box in the estate (plan/09).
+- **One dyno, three protocols.** A Heroku web dyno gets exactly one HTTP `$PORT`,
+  so `python -m platforms.langgraph --protocol all` reuses the faces multiplexer
+  (`src/faces.build_faces_app(faces=LANGGRAPH_FACES)`) to mount the three
+  langgraph faces behind one origin. The `langgraph-*-hosted` twins are therefore
+  PATHS under `${A2ALAB_LANGGRAPH_BASE}` (`/langgraph-rest`, `/langgraph-mcp/mcp`,
+  `/langgraph-a2a`) — the same shape as the Fargate faces twins. `langgraph` is
+  deliberately NOT added to the module-level `FACES` tuple: that tuple is the
+  Fargate faces task, and langgraph does not ride it.
+- **Traces cross clouds via the Data API, not a VPC.** Off-VPC Heroku writes hops
+  to the shared Aurora store through the rds-data **Data API** (an HTTPS AWS API:
+  `A2ALAB_TRACE_SINK=postgres` + `A2ALAB_PG_CLUSTER_ARN`/`A2ALAB_PG_SECRET_ARN` +
+  a scoped AWS access key as a Heroku config var) — no VPC peering. This is why
+  the Heroku image carries the `aws` extra alongside `langgraph`.
+- **What WS4 loses and keeps.** It loses the "framework-vs-managed-PLATFORM"
+  contrast (we serve the protocols ourselves, so there is no native Agent Server
+  A2A/MCP to compare). It KEEPS the queryable-SaaS observability column: LangSmith
+  is host-agnostic — LangGraph/LangChain emit runs to it whenever
+  `LANGSMITH_API_KEY`/`LANGCHAIN_TRACING_V2` are set, on Heroku exactly as on
+  LangGraph Platform.
+- **Headless deploy.** `deploy/heroku/deploy_langgraph.sh` uses the Heroku
+  Platform API + Container Registry over docker+curl (app create, config vars,
+  image push, release) — no interactive `heroku login`. The one irreducible human
+  step is minting the API token (`heroku authorizations:create`). No environment
+  identifier is hardcoded: `HEROKU_APP`/`HEROKU_TEAM`/`HEROKU_API_KEY` come from
+  `.env`.
+
+**Status.** Scaffold, targets, multiplexer, deploy script, and tests are BUILT
+and committed. The `langgraph-*-hosted` twins + the hosted-mode remap are staged
+COMMENTED in `config/targets.yaml`, to be uncommented in the same change as the
+first successful deploy (so the matrix shows no phantom live cell). The deploy
+itself waits on the operator's Heroku API token and team-access confirmation.

@@ -443,44 +443,72 @@ Status 2026-07-22 (environment + first answer):
 
 ---
 
-## WS4 — LangGraph on LangGraph Platform
+## WS4 — LangGraph on Heroku
 
 **Goal:** the open-source-framework column: a LangGraph research agent
-deployed on LangGraph Platform, whose Agent Server exposes A2A
-(`/a2a/{assistant_id}`) and MCP natively; LangSmith as the first
-*fully queryable SaaS* observability backend.
+(small ReAct graph — an agent node + an `ask_agentforce` tool node) that
+delegates CRM knowledge to Agentforce, exercised over REST/MCP/A2A; LangSmith
+as the *fully queryable SaaS* observability backend.
 
-**Why:** demonstrates framework-vs-platform (the distinction customers
-conflate); LangSmith's read API is the perfect foil to OpenAI's
-write-only traces; cheap and fast to stand up.
+**Why:** adds the open-source-framework variable (LangGraph) to the platform
+column; LangSmith's read API is the perfect foil to OpenAI's write-only
+traces.
+
+**Revised 2026-08-16 (D77 — the Heroku pivot).** WS4 originally targeted
+**LangGraph Platform** (its managed Agent Server exposes A2A/MCP natively).
+The operator chose to host on **Heroku** instead — a hosting-shape change, not
+a framework one. On Heroku (a generic PaaS with no agent-protocol surface) the
+agent is served through the lab's OWN `serve()` adapters, exactly like
+`platforms/strands` and `platforms/openai`. This is the lab's **first
+non-AWS-hosted platform**. WS4 loses the framework-vs-managed-PLATFORM contrast
+but KEEPS the queryable-SaaS observability column (LangSmith is host-agnostic).
+See D77 for the full rationale, the one-dyno/three-protocol multiplexer, and the
+cross-cloud trace path (Data API, no VPC).
 
 Work items:
-- `src/platforms/langgraph/` — agent interior (small graph: research node
-  + `ask_agentforce` tool node), deployed via `langgraph deploy` (cloud
-  SaaS tier first; self-host later only if the comparison needs it).
-- Outbound: generic `A2AClient` at the deployment's A2A endpoint
-  (LangSmith API-key auth header) — target `langgraph-a2a`, native. MCP
-  cell too (`langgraph-mcp`) — first remote platform serving both.
-- Twin: `SF_LANGGRAPH_AGENT_ID`.
-- Obs: `langgraph_source.py` over the LangSmith runs/traces API —
-  expected to be the richest programmatic column; say so in insights.
+1. ✅ `src/platforms/langgraph/` — agent interior on the lab's two-seam shape:
+   `core.py` adapter + system prompt, deterministic `stub_backend.py`, and the
+   real `langgraph_backend.py` (`create_react_agent`, Haiku-tier
+   `langchain-anthropic` brain, delegation-guarded `ask_agentforce` per D27).
+   Backend selected by `LANGGRAPH_BACKEND=stub|langgraph`. done 2026-08-16
+2. ✅ Serve entry `__main__.py` (REST 8051 / MCP 8052 / A2A 8053) plus a
+   `--protocol all` multiplexer that reuses the faces app
+   (`build_faces_app(faces=LANGGRAPH_FACES)`) so one Heroku web dyno serves all
+   three protocols behind one `$PORT`. Wired into `run_local.sh`. done 2026-08-16
+3. ✅ Targets: `langgraph-rest`/`-mcp`/`-a2a` (native, local) + the paired
+   Agentforce twin `agentforce-langgraph-rest` (`SF_LANGGRAPH_AGENT_ID`, D25);
+   the `langgraph-*-hosted` Heroku twins + hosted-mode remap staged COMMENTED
+   until first deploy (no phantom live cell in the matrix). done 2026-08-16
+4. ✅ `deploy/heroku/` — Dockerfile (`langgraph` + `aws` extras) and a HEADLESS
+   Platform-API deploy script (app create, config vars, container push, release
+   over docker+curl; no `heroku login`). Traces reach the shared Aurora store
+   off-VPC via the rds-data Data API. done 2026-08-16
+5. ✅ Unit tests (`tests/unit/test_langgraph_platform.py`) + `langgraph` extra
+   in pyproject; D77 ADR; plan/09 estate/L6; plan/01 dev-stack diagram. done 2026-08-16
+6. ⏳ Deploy to the Heroku team `sfdc-ta` and set `A2ALAB_LANGGRAPH_BASE`, then
+   uncomment the hosted twins + remap. open — needs the operator's Heroku API
+   token + team-access confirmation (see setup below).
+7. ⏳ Obs: `langgraph_source.py` over the LangSmith runs/traces API — expected
+   the richest programmatic column; say so in insights. open — after deploy.
+8. ⏳ Live validation: A2A + MCP native cells green; both directions with the
+   twin; matrix + insights updated. open — after deploy.
 
-**Credentials / setup (LangSmith is new to you):**
-1. Sign up at smith.langchain.com (free/dev tier is enough to start;
-   Plus tier if we hit deployment limits). Create an org + workspace.
-2. Settings → API Keys → create a Personal Access Token →
-   .env `LANGSMITH_API_KEY`.
-3. `uv add langgraph langgraph-cli langchain` (as a `langgraph` extra);
-   deployments happen via the LangSmith UI from a GitHub repo or
-   `langgraph-cli` — decide at build time (the lab repo is private; a
-   small public deploy repo or CLI path both work).
-4. Model key for the agent brain: reuse ANTHROPIC_API_KEY or
-   OPENAI_API_KEY (decide at build; a Haiku-tier brain keeps sync budgets
-   comfortable).
+**Credentials / setup (what the operator provides — see D77):**
+1. A **Heroku API token** scoped to team `sfdc-ta` (`heroku
+   authorizations:create`, or the Account-settings API key) → `.env`
+   `HEROKU_API_KEY` (secret; synced via env_sync). The one irreducible human
+   step; everything else is the headless Platform API.
+2. Confirm **app-create rights** in `sfdc-ta` (Enterprise teams may lock this),
+   and whether it is a **Private Space** (then `HEROKU_SPACE` is needed).
+3. `HEROKU_APP` / `HEROKU_TEAM` → `.env` (no hardcoded identifiers).
+4. Model key for the brain: reuse `ANTHROPIC_API_KEY` (Haiku-tier by default,
+   `LANGGRAPH_MODEL_ID` to override) — keeps sync budgets comfortable.
+5. For LangSmith obs (item 7): `LANGSMITH_API_KEY` + `LANGCHAIN_TRACING_V2=true`
+   as Heroku config vars — host-agnostic, works the same on Heroku.
 
 **Exit criteria:** A2A + MCP native cells green; both directions with the
 twin; LangSmith obs source harvesting; insights updated
-(framework-vs-platform, observability column).
+(open-source-framework, observability column).
 
 ---
 

@@ -979,6 +979,7 @@ flowchart LR
     R8["src/platforms/foundry/core.py"]
     R9["src/console/ + src/platforms/guide/"]
     R11["src/faces/"]
+    R13["src/platforms/langgraph/<br/>(WS4/D77 — deploy pending)"]
     R10["salesforce/"]
   end
   R1 -->|"deploy/bridge/deploy_bridge.sh"| D1["ECS service a2alab-bridge"]
@@ -992,6 +993,7 @@ flowchart LR
   R8 -->|"deploy/foundry/provision_foundry.py"| D8["Foundry agents"]
   R9 -->|"deploy/console/deploy_console.sh"| D9["ECS service a2alab-console<br/>(rule on the bridge ALB)"]
   R11 -->|"deploy/faces/deploy_faces.sh"| D11["ECS service a2alab-faces<br/>(rule on the bridge ALB)"]
+  R13 -.->|"deploy/heroku/deploy_langgraph.sh"| D13["Heroku app · team sfdc-ta<br/>(one web dyno, 3 faces · PENDING)"]
   R10 -->|"Salesforce DX MCP deploy"| D10["Production org"]
 ```
 
@@ -1019,6 +1021,7 @@ flowchart LR
 | — (external, not this repo) | operator's existing `aws-logging-service` (custom Lambda + API Gateway, us-west-2) | The Slack log sink the Claude/Codex hooks already post to; `/api/track` forwards to it fire-and-forget for the operator's cross-project notifications. An outbound **edge**, not a component this repo deploys (D62) | AWS |
 | `src/faces/` (the protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces`. **One process serves all fourteen, addressed by path** (the three strands faces still run the stub — the live Strands turn runs on the AgentCore runtime, not the faces task; the faces image would need the `strands` extra + `STRANDS_BACKEND` to serve the real backend, WS5/D66) | AWS |
 | `src/briefs/` (the watcher) | `deploy/briefs/deploy_briefs.sh` | ECS service `a2alab-briefs` on the shared cluster, roles `a2alab-briefs-task` / `-exec`, secret `a2alab/runtime/briefs`. **Reuses the faces image**, no ALB, no target group — it serves nothing | AWS |
+| `src/platforms/langgraph/` | `deploy/heroku/deploy_langgraph.sh` | Heroku container app in team `sfdc-ta` (`HEROKU_APP`/`HEROKU_TEAM`/`HEROKU_API_KEY` from `.env`): one **web dyno** running `python -m platforms.langgraph --protocol all`, which reuses the faces multiplexer to serve all three langgraph faces (`/langgraph-rest`, `/langgraph-mcp/mcp`, `/langgraph-a2a`) behind one `$PORT`. Image carries the `langgraph` + `aws` extras; traces reach the shared Aurora store **off-VPC via the rds-data Data API** (no VPC peering — a scoped AWS access key config var). The lab's **first non-AWS-hosted platform** (D77). **Scaffold, targets, deploy script, and tests BUILT 2026-08-16; the deploy itself is PENDING** the operator's Heroku API token + team-access confirmation — until then the `langgraph-*-hosted` twins + remap stay commented in `config/targets.yaml` (no phantom live cell) | Heroku |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator` | `sf agent validate\|publish\|activate` | Agent Script orchestrator bundle in the prod org (WS8 variant 3, D61). Fans out by **delegating** to the bridge's `fanout:` route; reuses `A2ALabInvokeRemoteAgent` — no new Apex, no new Named Credential | Salesforce |
 | `src/bridge/app.py` `_fanout()` | (part of `deploy/bridge/deploy_bridge.sh`) | The bridge's `fanout:<scenario>` verb route — one Apex callout runs the three legs off-platform via `orchestration.dispatch()`. Ships with the bridge image; not a separate deploy (D61) | AWS |
@@ -1126,6 +1129,7 @@ The choices above that look inconsistent until you know what drove them:
 | …trust that a deploy which passes its own runbook is verified? | D48. The console's first hosted run passed every check — image, secret, rule, stable service, `/healthz` 200 — while serving every `/api` surface unauthenticated, because its runtime secret was created, shipped and never loaded, and the auth middleware treats a missing token as *auth is off*. A valid-token check proves nothing when all tokens are accepted; the negative test is the one that finds it. |
 | …make the credential analyst a Managed Agent like the other two? | It was one, and it was demoted (D44). Its work is one round trip over a report a person just collected — no tools, no schedule, no state. The agent object, setup step and state file were surface with nothing behind them. |
 | …keep the Aurora 5432 ingress closed, since everything uses the Data API? | It was, for the store's whole life, and that closed posture is the design (WS19/D69). The Salesforce Data 360 Zero Copy connector is the one reader that *cannot* use the Data API — it logs in with username/password over 5432 — so M10 opens exactly one scoped path: TLS-only, the Data Cloud tenant's eu-central-1 CIDRs only, as `lab_reader` with a 15s timeout and a 15-connection cap. No lab code opens a 5432 socket; the exception exists solely for the connector, and `pg.py`'s posture note was rewritten in the same change so the code no longer claims a closed door it no longer has. |
+| …host the LangGraph agent on AWS with the others, or on LangGraph Platform as WS4 first scoped? | D77. The operator chose Heroku, so it is the lab's first non-AWS host — the point of WS4 is the open-source *framework*, not another AWS container. Heroku gives a web dyno exactly one HTTP port, so rather than three apps we serve all three protocols behind one port with the faces multiplexer (`--protocol all`). Its traces still land in the shared Aurora store because the rds-data **Data API is an HTTPS AWS call reachable off-VPC** — a scoped access-key config var, no VPC peering. And LangGraph Platform's native A2A/MCP is the one thing we give up by self-serving, but LangSmith observability is host-agnostic, so WS4's queryable-SaaS column survives the move. |
 
 ## Presenter notes
 

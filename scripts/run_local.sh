@@ -28,7 +28,7 @@ export PYTHONPATH=src
 
 # Every port this stack listens on. Keep in sync with the run lines below —
 # this list is the cleanup contract in both directions.
-PORTS=(8001 8002 8003 8011 8012 8013 8041 8042 8043 8021 8023 8031 8032 8033 8100 8200)
+PORTS=(8001 8002 8003 8011 8012 8013 8041 8042 8043 8051 8052 8053 8021 8023 8031 8032 8033 8100 8200)
 # The brief watcher binds nothing, so it can only be matched by name.
 WATCHER_PATTERN="python -m briefs --watch"
 
@@ -140,6 +140,12 @@ run uv run python -m platforms.openai --protocol a2a  --port 8013
 run uv run python -m platforms.strands --protocol rest --port 8041
 run uv run python -m platforms.strands --protocol mcp  --port 8042
 run uv run python -m platforms.strands --protocol a2a  --port 8043
+# LangGraph agent (WS4) — backend from LANGGRAPH_BACKEND (.env; stub if unset,
+# until the `langgraph` extra + LLM key are present). Hosted twin is on HEROKU,
+# not the faces task (deploy/heroku), so it is NOT in src/faces/__init__.py.
+run uv run python -m platforms.langgraph --protocol rest --port 8051
+run uv run python -m platforms.langgraph --protocol mcp  --port 8052
+run uv run python -m platforms.langgraph --protocol a2a  --port 8053
 if [[ -n "${SF_CLIENT_ID:-}" ]]; then
   run uv run python -m platforms.agentforce.mcp_shim --port 8021
   run uv run python -m platforms.agentforce.a2a_shim --port 8023
