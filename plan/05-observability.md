@@ -14,17 +14,17 @@ platform docs; re-verify betas before building).
 
 ## What each platform lets us pull (honest matrix)
 
-All six platforms the lab harvests. The columns are deliberately not ranked —
+All seven platforms the lab harvests. The columns are deliberately not ranked —
 each is strong somewhere and absent somewhere else, and **which axis a platform
 is strong on is the finding**, not a scoreboard.
 
-| Capability | Salesforce Agentforce | Anthropic Managed Agents | OpenAI | Google Agent Engine | Microsoft Foundry | AWS Strands (Bedrock AgentCore) |
-|---|---|---|---|---|---|---|
-| List executions org-wide | ✅ SQL over STDM DMOs | ✅ `GET /v1/sessions` (paginated; no time-range filter documented) | ❌ none (usage metrics only) | ⚠️ no session/turn read API on the preview A2A surface — Cloud Logging entries per ReasoningEngine instead | ✅ KQL over App Insights `AppDependencies` | ⚠️ no session/turn read API (the Strands SDK exposes none) — the AgentCore runtime access log instead (`POST /invocations` lines) |
-| Per-execution step detail | ✅ interaction steps DMO; OTel export (beta) | ✅ `GET /v1/sessions/{id}/events` | ⚠️ `GET /v1/responses/{id}` by known id only | ⚠️ container app logs and request lines — not agent-semantic, and A2A `contextId` does not appear in the default logs | ✅ gen_ai spans: `invoke_agent` (turn), `chat <model>`, `execute_tool` (its own record of calling the lab's shim) | ❌ access log is HTTP-level (invocation + 5xx counts) — no agent-semantic events without custom instrumentation |
-| LLM request/response logs | ✅ Einstein GenAI audit DMOs | ⚠️ inside session events (thinking/tool events, token spans) | ⚠️ stored responses, 30-day TTL, fetch by id | ❌ not exposed | ✅ full input/output messages on the `chat` spans | ❌ not exposed (Bedrock does not log prompt/response by default) |
-| Real-time stream | ❌ (poll DMOs) | ✅ `GET /v1/sessions/{id}/events/stream` (SSE) | ❌ | ❌ (poll Cloud Logging) | ❌ (poll KQL) | ❌ (poll CloudWatch) |
-| Aggregate usage/cost API | ⚠️ via DMO SQL aggregation | ❌ none | ✅ `GET /v1/organization/usage/*`, `/costs` (admin key) | ✅ Cloud Monitoring — `cpu/allocation_time` and `memory/allocation_time`, the **literal billing meters**, plus publisher token counts | ⚠️ `gen_ai.usage.*` tokens on each span, aggregate by KQL; no cost API | ✅ `AWS/Bedrock` CloudWatch meters — `Input/OutputTokenCount`, `Invocations`, `InvocationLatency` per `ModelId` → est. cost. **Per-ModelId, account-wide** (attributes to Strands only because it is this account's sole Bedrock agent) |
+| Capability | Salesforce Agentforce | Anthropic Managed Agents | OpenAI | Google Agent Engine | Microsoft Foundry | AWS Strands (Bedrock AgentCore) | LangGraph (LangSmith) |
+|---|---|---|---|---|---|---|---|
+| List executions org-wide | ✅ SQL over STDM DMOs | ✅ `GET /v1/sessions` (paginated; no time-range filter documented) | ❌ none (usage metrics only) | ⚠️ no session/turn read API on the preview A2A surface — Cloud Logging entries per ReasoningEngine instead | ✅ KQL over App Insights `AppDependencies` | ⚠️ no session/turn read API (the Strands SDK exposes none) — the AgentCore runtime access log instead (`POST /invocations` lines) | ✅ `POST /api/v1/runs/query` — project-scoped, rich filter DSL + time range; a purpose-built run store (the strongest list surface here) |
+| Per-execution step detail | ✅ interaction steps DMO; OTel export (beta) | ✅ `GET /v1/sessions/{id}/events` | ⚠️ `GET /v1/responses/{id}` by known id only | ⚠️ container app logs and request lines — not agent-semantic, and A2A `contextId` does not appear in the default logs | ✅ gen_ai spans: `invoke_agent` (turn), `chat <model>`, `execute_tool` (its own record of calling the lab's shim) | ❌ access log is HTTP-level (invocation + 5xx counts) — no agent-semantic events without custom instrumentation | ✅ the full run TREE — root chain → `llm`/`tool`/`chain` child runs linked by `parent_run_id`; LangSmith exists to store exactly this |
+| LLM request/response logs | ✅ Einstein GenAI audit DMOs | ⚠️ inside session events (thinking/tool events, token spans) | ⚠️ stored responses, 30-day TTL, fetch by id | ❌ not exposed | ✅ full input/output messages on the `chat` spans | ❌ not exposed (Bedrock does not log prompt/response by default) | ✅ inputs/outputs stored on each run (the `ChatAnthropic` run carries messages), subject to the project's data-retention setting |
+| Real-time stream | ❌ (poll DMOs) | ✅ `GET /v1/sessions/{id}/events/stream` (SSE) | ❌ | ❌ (poll Cloud Logging) | ❌ (poll KQL) | ❌ (poll CloudWatch) | ❌ (poll `/runs/query`; runs land near-real-time, but there is no SSE read) |
+| Aggregate usage/cost API | ⚠️ via DMO SQL aggregation | ❌ none | ✅ `GET /v1/organization/usage/*`, `/costs` (admin key) | ✅ Cloud Monitoring — `cpu/allocation_time` and `memory/allocation_time`, the **literal billing meters**, plus publisher token counts | ⚠️ `gen_ai.usage.*` tokens on each span, aggregate by KQL; no cost API | ✅ `AWS/Bedrock` CloudWatch meters — `Input/OutputTokenCount`, `Invocations`, `InvocationLatency` per `ModelId` → est. cost. **Per-ModelId, account-wide** (attributes to Strands only because it is this account's sole Bedrock agent) | ⚠️ per-run `prompt/completion/total_tokens` rolled onto the tree + a run-stats endpoint; cost is derived from token counts, no billing meter |
 
 **Read the table by column, and the shape of each platform falls out.**
 Salesforce is queryable session/step data. Anthropic is deep per-session events
@@ -39,7 +39,14 @@ extreme of the Google end for *cost*: no session API and an HTTP-level access
 log, but clean per-`ModelId` token/latency meters from `AWS/Bedrock` — because
 it is observed through the **host cloud's** meters, not the agent platform's own
 API (there isn't one). It is the only column where the hosting cloud *is* the
-telemetry surface.
+telemetry surface. LangGraph (WS4/D77) is the opposite of Strands on that axis:
+its host (Heroku) has no agent telemetry at all, but the *framework* ships a
+first-class one — LangSmith, a purpose-built LLM-run store the app emits to with
+zero code. So it is the strongest column for **list + step detail** (a queryable
+run tree is what LangSmith is *for*), yet has no billing meter — cost is derived
+from the token counts rolled onto each run. The finding: for LangGraph the
+richest observability is neither the platform API nor the host cloud but the
+**agent framework's own SaaS**, and reading it needs nothing but an API key.
 
 Three consequences the lab actually ran into. Because Agent Engine **and**
 Strands expose no session read, their honest shape in the store is **one obs
@@ -53,7 +60,15 @@ rather than by the D27 rider (Strands is the opposite extreme: its
 because the `AWS/Bedrock` meters are dimensioned by `ModelId`, account-wide,
 they attribute to Strands **only because it is this account's sole Bedrock
 agent** — a second Bedrock agent on the same model would blur the column, and
-the capability panel says so.
+the capability panel says so. LangGraph is the counter-example to the Agent
+Engine/Strands runtime shape: LangSmith DOES expose a per-turn read, so its
+honest shape is **one obs session per turn** (root run) with the LLM/tool child
+runs as events — the run tree, not a rollup. Its `platform_ref` join is neither
+free (as Foundry's) nor absent (as Strands'): the backend stamps the lab
+`trace_id` into the run's `extra.metadata.lab_trace_id`, and the source reads it
+back — the D27-rider approach, made explicit for a framework that has its own
+metadata channel (goes live after the next Heroku rebuild; earlier turns carry
+no join and correlate to the LangSmith run id only).
 
 ### Salesforce — the richest pull surface
 - **Session Tracing Data Model (STDM)** — Data Cloud DMOs, queryable with
@@ -203,9 +218,10 @@ beside Agentforce would quietly claim otherwise. So `coding` is popped from
 `/api/obs/summary`, gets its own **Coding Agents Telemetry** console section
 with its own Harvest button, and is reachable from `/api/obs/harvest` only by
 name — the unqualified sweep behind the Observability Harvest button stays the
-six agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands — the
-last WS5/D67), because that button reports "harvested from all
-platforms". Details and measurements live in WS9 (plan/07-workstreams.md).
+seven agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands —
+the last WS5/D67 — and LangGraph via LangSmith, WS4/D77), because that button
+reports "harvested from all platforms". Details and measurements live in WS9
+(plan/07-workstreams.md).
 
 ### The other sibling: cross-cloud INFRASTRUCTURE metrics (Track B)
 

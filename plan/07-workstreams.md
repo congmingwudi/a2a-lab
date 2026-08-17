@@ -494,8 +494,25 @@ Work items:
    The Heroku Container Registry needs a Docker **schema2** manifest, so the
    build pushes via buildx `oci-mediatypes=false,push=true` (Docker 29's
    containerd store is OCI, which the registry rejects). done 2026-08-17
-7. ⏳ Obs: `langgraph_source.py` over the LangSmith runs/traces API — expected
-   the richest programmatic column; say so in insights. open — after deploy.
+7. ✅ Obs: `src/observability/langgraph_source.py` over the LangSmith runs API
+   — LangSmith is LangGraph's framework-native trace store, so this is the
+   platform-obs column (NOT a bespoke Heroku Postgres log — WS4 stays true to
+   "observe each platform through its own telemetry"). Maps one root run → one
+   obs session (rolled-up tokens/latency/model/tool-count, status) and each
+   `llm`/`tool` child → one event (the run tree; LangChain scaffolding chains
+   dropped). The wire-trace join rides `extra.metadata.lab_trace_id`, which the
+   `langgraph_backend.answer()` `ainvoke(config=…)` now stamps. Registered in
+   the CLI sweep (`scripts/obs_harvest.py`), the console Harvest endpoint, AND
+   the 6h harvest Lambda (`lambda_handlers.py`) — the seventh agent-platform
+   column; console coverage card + plan/05 matrix column updated. **Live-
+   validated 2026-08-17** against project `a2a-lab`: `ok`, 1 turn, haiku-4-5,
+   829 tokens, 1361ms (the LangSmith page cap is 100 rows — a 500 400s, fixed).
+   Two follow-ups travel with this: (a) the `lab_trace_id` join is null on turns
+   run BEFORE the backend stamp ships — it populates after the next Heroku full
+   rebuild (`src/` change, not `--skip-build`); (b) the hosted Lambda needs
+   `LANGSMITH_API_KEY` in the harvest secret (Secrets Manager) or the source
+   degrades to `blocked` — it is NOT an AWS-role read like the others. done
+   2026-08-17 (code + live read; the two follow-ups are deploy/operator steps).
 8. ⏳ Live validation: A2A + MCP native cells green; both directions with the
    twin; matrix + insights updated. open — after deploy.
 9. ⏳ Cross-cloud trace sink. The dyno currently runs `A2ALAB_TRACE_SINK=jsonl`
@@ -522,7 +539,12 @@ Work items:
 4. Model key for the brain: reuse `ANTHROPIC_API_KEY` (Haiku-tier by default,
    `LANGGRAPH_MODEL_ID` to override) — keeps sync budgets comfortable.
 5. For LangSmith obs (item 7): `LANGSMITH_API_KEY` + `LANGCHAIN_TRACING_V2=true`
-   as Heroku config vars — host-agnostic, works the same on Heroku.
+   + `LANGCHAIN_PROJECT=a2a-lab` as Heroku config vars (the emit side —
+   host-agnostic, works the same on Heroku). For the *hosted harvest* (the 6h
+   Lambda) to read those runs, the SAME `LANGSMITH_API_KEY` must also be in the
+   harvest secret (Secrets Manager, `env_sync push`) — it is the lab's own
+   personal-account key (the GCP/Azure pattern for non-Salesforce platforms).
+   Without it the langgraph source degrades to `blocked`, honestly.
 
 **Exit criteria:** A2A + MCP native cells green; both directions with the
 twin; LangSmith obs source harvesting; insights updated

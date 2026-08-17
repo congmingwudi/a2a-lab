@@ -2739,6 +2739,11 @@ const PLATFORM_LOGOS = {
   // upper). Drawn, not downloaded, like the AWS mark above — the tunnel that
   // fronts the console is the only Cloudflare credential the lab measures.
   cloudflare: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="#f6821f" d="M11.4 11.5H3.2a2.6 2.6 0 0 1-.5-5.1 3.7 3.7 0 0 1 6.9-1.2 2.9 2.9 0 0 1 4 1.6h.4a2.35 2.35 0 0 1 0 4.7z"/><path fill="#fbad41" d="M12.9 6.8a2.9 2.9 0 0 0-.3 0l-.15.03a.1.1 0 0 0-.07.07l-.1.35c-.08.3-.05.58.08.78.12.18.33.29.6.3l1.75.11a.13.13 0 0 1 .1.06.13.13 0 0 1 .01.12.17.17 0 0 1-.15.11l-1.82.11c-.99.05-2.05.85-2.42 1.83l-.13.34a.08.08 0 0 0 .07.1h6.24a.15.15 0 0 0 .15-.11 4.4 4.4 0 0 0 .16-1.18 3.24 3.24 0 0 0-3.2-3.24z"/></svg>`,
+  // LangGraph — a graph of connected nodes, the framework's own identity (its
+  // name IS the state graph). Drawn, not downloaded, like the AWS/Cloudflare
+  // marks. LangChain's dark-teal brand hue for the nodes; edges take
+  // currentColor so they survive both themes.
+  langgraph: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><g stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 4.5 12 4.5M4 4.5 8 11.5M12 4.5 8 11.5"/></g><g fill="#1c3c3c"><circle cx="4" cy="4.5" r="2.1"/><circle cx="12" cy="4.5" r="2.1"/><circle cx="8" cy="11.5" r="2.1"/></g></svg>`,
 };
 const logoSvg = key => PLATFORM_LOGOS[key] || "";
 
@@ -3118,6 +3123,7 @@ on Aurora Postgres, which is the source of truth for everything on this page (D4
 - **Google Agent Engine** — Cloud Logging entries and Cloud Monitoring meters
 - **Microsoft Foundry** — KQL over App Insights \`gen_ai\` spans
 - **AWS Strands (Bedrock AgentCore)** — AWS/Bedrock CloudWatch meters (Input/OutputTokenCount, Invocations, InvocationLatency) plus the AgentCore runtime access log; one session per deployed runtime (D67)
+- **LangGraph (LangSmith)** — the LangSmith runs API (LangGraph's framework-native trace store): one session per turn with its run tree — the LLM and tool child runs as events, tokens/latency/model rolled up (WS4/D77)
 - **coding** — CloudWatch metrics for the agents that build the lab (WS9), surfaced in its own section
 
 ### What limits what you see here
@@ -3728,9 +3734,9 @@ function obsPipelineHtml(hasData) {
     <div class="stage">
       <h5>Agent platforms</h5>
       <p>Agentforce (Data Cloud session tracing), Claude Managed Agents (session events), OpenAI,
-        Agent Engine (ADK), Foundry and AWS Strands — each platform's <i>interior</i> record of the
-        runs this lab drove, captured at emit time.</p>
-      <span class="who">agentforce · claude · openai · adk · foundry · strands</span>
+        Agent Engine (ADK), Foundry, AWS Strands and LangGraph (LangSmith) — each platform's
+        <i>interior</i> record of the runs this lab drove, captured at emit time.</p>
+      <span class="who">agentforce · claude · openai · adk · foundry · strands · langgraph</span>
     </div>
     <div class="arr">→</div>
     <div class="stage">
@@ -3831,7 +3837,7 @@ window.obsSummaryNav = ev => {
 // Agent Engine" gets ONE mark, not one per keyword the way withLogos() splices.
 const OBS_PLATFORM_LOGO = {
   claude: "anthropic", salesforce: "salesforce", openai: "openai",
-  foundry: "microsoft", adk: "gcloud", strands: "aws",
+  foundry: "microsoft", adk: "gcloud", strands: "aws", langgraph: "langgraph",
 };
 
 function obsDashboardHtml() {
@@ -5168,6 +5174,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
     GG["Vertex AI Agent Engine<br/>Cloud Logging + Monitoring meters"]
     FD["Microsoft Foundry<br/>App Insights gen_ai spans (KQL)"]
     ST["AWS Strands<br/>AWS/Bedrock meters + AgentCore access log (D67)"]
+    LG["LangGraph<br/>LangSmith runs API — per-turn run tree (D77)"]
     CD["Coding agents<br/>CloudWatch OTLP metrics (WS9)"]
   end
 
@@ -5190,6 +5197,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
   GG --> HARV
   FD --> HARV
   ST --> HARV
+  LG --> HARV
   CD --> HARV
   HARV --> S
   HARV --> E
@@ -5263,6 +5271,7 @@ const OBS_ANALYST_DIAGRAM = `flowchart TB
     GG["Agent Engine"]
     FD["Foundry"]
     ST["AWS Strands"]
+    LG["LangGraph (LangSmith)"]
   end
   HARV["Harvest Lambda<br/>every 6h, deterministic — no LLM"]
   PG[("Aurora, lab schema<br/>obs_sessions · obs_events · obs_harvest")]
@@ -5275,6 +5284,7 @@ const OBS_ANALYST_DIAGRAM = `flowchart TB
   GG --> HARV
   FD --> HARV
   ST --> HARV
+  LG --> HARV
   HARV --> PG
   PG --> MCP
   MCP <-->|"the agent asks, the server answers"| AG

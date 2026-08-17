@@ -158,8 +158,22 @@ class LangGraphBackend:
             request_payload=req.to_dict(),
         ) as hop:
             graph = self._make_graph(delegation.depth_of(req), trace_id, *delegation.user_of(req))
+            # Stamp the run so LangSmith (LangGraph's native obs, WS4/D77) can be
+            # joined back to the lab wire trace: the obs harvest reads
+            # extra.metadata.lab_trace_id off the root run (see
+            # observability/langgraph_source.py). run_name/tags make the turn
+            # legible in the LangSmith UI too. Config keys are LangChain's
+            # (run_name/metadata/tags), propagated onto the emitted trace.
+            config = {
+                "run_name": "langgraph-researcher turn",
+                "metadata": {"lab_trace_id": trace_id, "lab_session_id": req.session_id},
+                "tags": ["a2a-lab", "langgraph-researcher"],
+            }
             result = await asyncio.wait_for(
-                graph.ainvoke({"messages": [{"role": "user", "content": req.message}]}),
+                graph.ainvoke(
+                    {"messages": [{"role": "user", "content": req.message}]},
+                    config=config,
+                ),
                 float(os.environ.get("LANGGRAPH_ANSWER_TIMEOUT_S", DEFAULT_TIMEOUT_S)),
             )
             final_text = self._final_text(result)

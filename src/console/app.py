@@ -3335,6 +3335,20 @@ and console never present a combined dollar total across tools (WS12/D44).
                 "join to wire traces — platform_ref (Bedrock request-id) is null at this SDK version",
             ],
         },
+        "langgraph": {
+            "label": "LangGraph (LangSmith)",
+            "can": [
+                "query the run store (POST /runs/query): project-scoped, filter DSL, time range",
+                "the full run TREE per turn — root chain → llm/tool/chain children (parent_run_id)",
+                "LLM input/output messages + prompt/completion/total tokens on each run",
+                "join to wire traces — the backend stamps lab_trace_id into run metadata (D77)",
+            ],
+            "cannot": [
+                "a billing/cost API (cost is derived from the per-run token counts)",
+                "real-time stream (poll /runs/query; no SSE read)",
+                "join on turns run before the metadata stamp shipped (LangSmith run id only)",
+            ],
+        },
     }
 
     @app.get("/api/obs/summary")
@@ -3345,7 +3359,7 @@ and console never present a combined dollar total across tools (WS12/D44).
         finally:
             store.close()
         # WS9: coding-agent telemetry shares the store but is NOT a platform
-        # column. The coverage panel's honesty depends on its five columns
+        # column. The coverage panel's honesty depends on every column
         # being the same kind of thing — each an agent platform whose interior
         # logs the lab harvests. Claude Code is the tool that BUILT the lab;
         # listing it beside Agentforce would quietly imply otherwise.
@@ -3358,7 +3372,7 @@ and console never present a combined dollar total across tools (WS12/D44).
     async def build_telemetry():
         """What the lab cost to build, per coding tool per day (WS9).
 
-        Its own section rather than a sixth Observability column — see the
+        Its own section rather than another Observability column — see the
         note in obs_summary. Returns the setup steps too, because until the
         exporters are switched on there is nothing to show and the useful
         answer is "here is how to start collecting".
@@ -4137,11 +4151,13 @@ and console never present a combined dollar total across tools (WS12/D44).
         from observability.anthropic_source import AnthropicSource
         from observability.coding_logs_source import CodingLogsSource
         from observability.coding_source import CodingSource
+        from observability.foundry_source import FoundrySource
         from observability.infra_source import (
             AwsInfraSource,
             AzureInfraSource,
             GcpInfraSource,
         )
+        from observability.langgraph_source import LangGraphSource
         from observability.openai_source import OpenAISource
         from observability.salesforce_source import SalesforceSource
         from observability.strands_source import StrandsSource
@@ -4151,10 +4167,12 @@ and console never present a combined dollar total across tools (WS12/D44).
             "salesforce": SalesforceSource,
             "openai": OpenAISource,
             "adk": AdkSource,
+            "foundry": FoundrySource,
             "strands": StrandsSource,
+            "langgraph": LangGraphSource,
             # WS9/WS16. Reachable by name only: the Coding Agents Telemetry
             # section has its own Harvest button, and the sweep below stays the
-            # five agent platforms so Observability's "harvested from all
+            # agent platforms so Observability's "harvested from all
             # platforms" keeps meaning what it says. `coding` is the metrics
             # (cost/tokens); `coding-logs` is the behavioural log signal.
             BUILD_TELEMETRY_PLATFORM: CodingSource,
@@ -4192,12 +4210,13 @@ and console never present a combined dollar total across tools (WS12/D44).
         # `SyntaxError: Unexpected token '<'`. Raising a timeout would only
         # move the ceiling to one we do not control.
         #
-        # Delegating also fixes two things the in-process sweep got wrong. The
-        # Lambda harvests SIX platforms (this dict has four — foundry was never
-        # in it, despite the comment above saying five), and it holds the
-        # credentials the console container does not: the GCP service-account
+        # Delegating also fixes what the in-process sweep got wrong: it holds
+        # the credentials the console container does not — the GCP service-account
         # key ADK needs, the Entra principal for Foundry, the CloudWatch grants
-        # for coding. ADK failed here for exactly that reason.
+        # for coding, the LangSmith key for langgraph. ADK failed here for
+        # exactly that reason. (This dict now lists all the agent platforms —
+        # foundry and langgraph were added 2026-08-17; earlier it omitted
+        # foundry, so a single-platform Harvest of it was rejected as unknown.)
         # Defaults to the real function rather than requiring the variable, so
         # the button behaves the same on a laptop as it does hosted. The
         # in-process sweep below is NOT a working fallback and never was: it
