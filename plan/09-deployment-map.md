@@ -233,7 +233,7 @@ opposite direction from the traffic.
 flowchart LR
   subgraph GW["API Gateway HTTP API — 30s hard ceiling"]
     SHIM["a2alab-af-shim<br/>Lambda · work measures 10-19s"]
-    FAN["a2alab-fanout-mcp<br/>Lambda · legs capped 25s"]
+    FAN["a2alab-fanout-mcp<br/>Lambda · sync legs 25s (gateway-bound)<br/>async worker 135s fn timeout / 120s leg budget (D75)"]
     OMCP["a2alab-obs-mcp<br/>Lambda · SQL reads"]
   end
 
@@ -269,7 +269,7 @@ is chosen by **what the component's work costs in seconds**, not by preference.
 
 | Shape | Who | Why this one |
 |---|---|---|
-| Lambda + API Gateway HTTP API | shim, fan-out MCP, obs MCP | Cheapest thing with a public URL. Its integration timeout maxes at **30s and is not adjustable** — fine, because each of these finishes well inside it. |
+| Lambda + API Gateway HTTP API | shim, fan-out MCP, obs MCP | Cheapest thing with a public URL. Its integration timeout maxes at **30s and is not adjustable** — fine, because the *synchronous* work of each finishes well inside it. The fan-out MCP's async fire-then-poll worker is the exception: it self-invokes (`InvocationType='Event'`) **off** the gateway path and runs under a separate, larger **function timeout of 135s** sized for a **120s per-leg budget** (D75), because outlasting this 30s ceiling is the whole point of the async lane. |
 | ECS Fargate + ALB | **the bridge** | Path A's budget is **45s** (action ~85-90s → Apex 110s → bridge 45s). An HTTP API would have silently cut 15s off the lab's sync research depth. An ALB's `idle_timeout` is a settable attribute — set to **120s** on every deploy so a console edit cannot reintroduce the ceiling. |
 | Bedrock AgentCore Runtime | Claude + OpenAI + Strands self-hosted agents | The point of D26: an agent runtime with an **IAM data plane and no public HTTP endpoint**. Callers use `invoke_agent_runtime` with SigV4; there is no URL to leak. |
 | EventBridge → Lambda | obs harvest | Nothing calls it. It wakes up, pulls each platform's logs, writes Aurora, sleeps. |

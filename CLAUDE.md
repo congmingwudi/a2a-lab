@@ -23,9 +23,12 @@ scripts/run_console.sh               # the console ALONE against the hosted lab 
                                      # it resolve every target to its hosted twin, so nothing
                                      # else needs to run here. Publishing is separate and
                                      # deliberate: deploy/console/deploy_console.sh
-scripts/run_local.sh                 # full local stack (14 faces, bridge, console). Needed
-                                     # only when changing an ADAPTER rather than the console;
-                                     # fifteen of its sixteen processes are hosted now
+scripts/run_local.sh                 # full local stack (17 faces, bridge, console = 19
+                                     # processes). Needed only when changing an ADAPTER rather
+                                     # than the console; almost all have a hosted twin now —
+                                     # LangGraph's 3 faces went live on Heroku 2026-08-17 (D77),
+                                     # so recheck config/targets.yaml `hosted:` for the exact
+                                     # hosted/local ratio before quoting one
 uv run python scripts/matrix.py      # run every runnable protocol cell → appends plan/03-results.md
 uv run python scripts/sf_smoke.py    # Agentforce go/no-go (needs SF_* in .env)
 uv run python scripts/identity_preflight.py  # prove every caller identity can still do its job (D37/F6)

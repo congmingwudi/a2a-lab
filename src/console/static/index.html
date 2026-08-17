@@ -3287,7 +3287,8 @@ Aurora on demand; nothing is materialized into the Salesforce tenant):
 A semantic model over both DMOs declares the measures (each an explicit UserAgg); the dashboard
 reads the semantic model. The federation stays **live**: a render fires a real cross-region query
 from the tenant (eu-central-1) back to Aurora (us-east-1). That EU→US round trip is the honest
-latency this exhibit measures — the **L5.8** number in plan/03-results.md.
+latency this exhibit is built to measure — the **L5.8** number, still open (WS19 item 7,
+plan/07-workstreams.md; not yet recorded in plan/03-results.md).
 
 ### Where it runs, and who can open the live view
 
@@ -4393,7 +4394,11 @@ function fanoutControlsDetailHtml(s) {
         controller: a serial-outbound platform can still take the asynchronous half of A2A, but only one layer
         down, never itself. The mode rides the situation as a routing block because the Apex body carries no
         field for it (the bridge reads it and strips it before the legs see it); a stripped or absent block
-        degrades to <code>sync</code>, never to an error.</p>
+        degrades to <code>sync</code>, never to an error. <b>Caveat:</b> this radio only changes the hosted
+        stack once the bridge is redeployed with the <code>af_channel</code> routing code
+        (<code>deploy/bridge/deploy_bridge.sh</code>, WS11 item 13 — an operator step, D76); until then the
+        hosted bridge runs pre-<code>af_channel</code> code that never reads the block, so it degrades to
+        <code>sync</code> regardless of the setting here.</p>
       <ul class="steps">
         <li><b>synchronous</b> (the bridge default): the bridge blocks on <code>ask()</code> per leg,
           concurrently, and returns when all are done — bounded by the held-open callout.</li>

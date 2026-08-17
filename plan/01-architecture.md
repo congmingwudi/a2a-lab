@@ -69,7 +69,8 @@ A platform = one directory under `src/platforms/<name>/` contributing an
 elsewhere), plus one entry per exposure in `config/targets.yaml`. Nothing in
 `interop/` or other platforms changes. ADK note: Google ADK speaks A2A
 natively, so onboarding it may need no custom client at all — the first true
-native×native A2A cell (M10).
+native×native A2A cell (the WS3 ADK↔Foundry capstone — see plan/02-matrix.md;
+not M10, which now names the unrelated Data 360 / Tableau Next milestone, D69).
 
 ## Timeout engineering (Path A)
 
