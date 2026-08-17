@@ -168,7 +168,14 @@ fi
 
 # ---- code ------------------------------------------------------------------
 if [[ "$MODE" == "all" || "$MODE" == "--code" ]]; then
-  if [[ ! -f "$ZIP" ]]; then
+  # ALWAYS rebuild — never ship a bundle that happens to be on disk. A pre-built
+  # zip is exactly the --skip-build trap (CLAUDE.md) in Lambda form: on
+  # 2026-08-17 the langgraph source deployed as "ok" while the function ran a
+  # zip from six days earlier that had no langgraph_source.py, because the old
+  # guard here was `if [[ ! -f "$ZIP" ]]` and the file existed. The build is
+  # local and cheap; correctness is not. Pass --no-build to reuse an existing
+  # zip deliberately (e.g. shipping a hand-verified bundle).
+  if [[ "${2:-}" != "--no-build" ]]; then
     echo "building $ZIP..."
     deploy/obs/build_zips.sh >/dev/null
   fi
