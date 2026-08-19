@@ -2627,6 +2627,19 @@ def create_console_app(registry: Registry | None = None):
                     "latency_ms": handle.submit_ms,
                     "dispatch_mode": chosen_dispatch,
                 }
+            # The pending copy is per-scenario: submit_poll is shared by
+            # unlike agents (the ADK orchestrator on Agent Engine, the LangGraph
+            # agent on Heroku), so a hardcoded message would tell a visitor
+            # something false. Each scenario supplies submit_pending_text;
+            # otherwise fall back to a generic A2A fire-then-poll line naming the
+            # scenario, with {task} interpolated to the task id.
+            pending_tmpl = spec.get("submit_pending_text") or (
+                "⏳ Submitted over A2A fire-then-poll to "
+                f"{spec.get('title') or name} (task {{task}}). It runs "
+                "off-request; the console is polling tasks/get for the answer so "
+                "no single request is held open. Watch the call path below "
+                "stream in."
+            )
             return {
                 "ok": True,
                 "pending": True,
@@ -2640,13 +2653,7 @@ def create_console_app(registry: Registry | None = None):
                 },
                 "submit_ms": handle.submit_ms,
                 "dispatch_mode": chosen_dispatch,
-                "text": (
-                    "⏳ Submitted to the Google ADK orchestrator on Vertex AI "
-                    f"Agent Engine (task {handle.task_id[:12]}…). It runs the "
-                    "SequentialAgent[ParallelAgent→synthesiser] graph off-request; "
-                    "the console is polling tasks/get for the brief (typically "
-                    "~2 minutes). Watch the call path below stream in."
-                ),
+                "text": pending_tmpl.replace("{task}", handle.task_id[:12] + "…"),
             }
         try:
             if via_bridge:

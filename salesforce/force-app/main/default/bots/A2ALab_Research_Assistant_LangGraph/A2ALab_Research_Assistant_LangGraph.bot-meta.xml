@@ -196,7 +196,7 @@
         <includeInPrompt>false</includeInPrompt>
         <label>Routable Id</label>
     </contextVariables>
-    <description>LangGraph-paired twin of the lab&apos;s research assistant (ADR D25): identical behavior, but external research delegates to the lab&apos;s LangGraph research agent on Heroku (bridge target langgraph-rest) instead of Claude/OpenAI/Strands — keeping each cross-platform experiment a closed two-platform system.</description>
+    <description>LangGraph-paired twin of the lab&apos;s research assistant (ADR D25): identical behavior, but external research delegates to the lab&apos;s LangGraph research agent on Heroku (bridge target langgraph-a2a, async fire-then-poll) instead of Claude/OpenAI/Strands — keeping each cross-platform experiment a closed two-platform system.</description>
     <label>A2ALab Research Assistant (LangGraph-paired)</label>
     <logPrivateConversationData>false</logPrivateConversationData>
     <richContentEnabled>true</richContentEnabled>

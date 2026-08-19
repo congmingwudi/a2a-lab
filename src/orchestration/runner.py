@@ -58,6 +58,12 @@ from orchestration.legs import Leg, legs_for
 # previously had none.
 LEG_TIMEOUT_DEFAULT_S = 120.0
 
+# Budget for the bridge's single-target fire-then-poll (reverse Path A). Under
+# the Apex callout's 110s timeout (A2ALabInvokeRemoteAgent) so the bridge returns
+# before Apex gives up, and above the LangGraph dyno's 90s answer cap so a stuck
+# answer fails on the dyno first. See bridge_async_timeout_s().
+BRIDGE_ASYNC_TIMEOUT_DEFAULT_S = 100.0
+
 # Cadence for the async (fire-then-poll) dispatch mode: how long to wait between
 # `tasks/get` calls while a leg's task is still WORKING. Host-side this is a
 # free choice — the work advances on the platform regardless of whether we poll
@@ -121,6 +127,22 @@ def async_leg_timeout_s() -> float:
     the Lambda's function timeout must exceed THIS value, not the sync one
     (deploy/fanout/deploy_fanout.sh)."""
     return float(os.environ.get("A2ALAB_ASYNC_LEG_TIMEOUT_S") or LEG_TIMEOUT_DEFAULT_S)
+
+
+def bridge_async_timeout_s() -> float:
+    """Per-request budget for the BRIDGE's single-target fire-then-poll, read at
+    call time.
+
+    Distinct from async_leg_timeout_s() because the bridge's reverse Path A path
+    (Agentforce twin → Apex callout → bridge → a remote A2A face) is NOT
+    off-request like the fan-out worker: the Apex callout holds ONE synchronous
+    HTTP request open for the whole answer (A2ALabInvokeRemoteAgent sets a 110s
+    callout timeout). So the bridge must reach a terminal state and RETURN before
+    Apex gives up — 100s leaves margin under 110s, and sits above the LangGraph
+    dyno's own 90s answer cap so a stuck answer fails cleanly on the dyno first
+    (WS4/D77). The fan-out worker's 120s default would let a 115s task outlive
+    Apex's patience."""
+    return float(os.environ.get("A2ALAB_BRIDGE_ASYNC_TIMEOUT_S") or BRIDGE_ASYNC_TIMEOUT_DEFAULT_S)
 
 
 def poll_interval_s() -> float:
@@ -289,7 +311,7 @@ def _async_capable(client) -> bool:
 
 async def _run_leg_async(
     client,
-    leg: Leg,
+    leg: Leg | None,
     req: AgentRequest,
     *,
     trace_id: str,
@@ -374,6 +396,41 @@ async def _run_leg_async(
             # complete on its own. Report it rather than poll to the deadline.
             raise RuntimeError(f"task interrupted ({snapshot.state}) — needs input we cannot give")
         await asyncio.sleep(interval)
+
+
+async def run_target_async(
+    client,
+    req: AgentRequest,
+    *,
+    trace_id: str,
+    timeout_s: float,
+) -> tuple[str, str, int]:
+    """Fire-then-poll a SINGLE target, degrading to a blocking ask() when the
+    remote cannot serve the async lifecycle. Returns (text, ran_mode, polls)
+    where ran_mode is "async" | "async→sync" | "sync".
+
+    The seam the bridge's /invoke path uses for reverse Path A (WS4/D77): an
+    Agentforce twin delegates through the Apex callout, which cannot poll, so the
+    bridge runs the submit/poll loop on its behalf — no single bridge→remote
+    request is held open for the full answer, dodging a downstream router ceiling
+    (Heroku's hard 30s H12). Mirrors the sync/async decision _run_leg makes for a
+    fan-out leg, minus the Leg model (which _run_leg_async does not use).
+
+    Delegation stamping and the wrapping trace Hop are the CALLER's job — submit()
+    and poll() emit their own hops, so wrapping them would double-count."""
+    if _async_capable(client):
+        try:
+            text, polls = await _run_leg_async(
+                client, None, req, trace_id=trace_id, timeout_s=timeout_s
+            )
+            return (text or "").strip(), "async", polls
+        except AsyncLifecycleUnsupported:
+            # Remote took the submit but will not serve the poll — a genuinely
+            # submit-only endpoint. Fall through to blocking, recorded honestly.
+            resp = await asyncio.wait_for(client.ask(req), timeout=timeout_s)
+            return (resp.text or "").strip(), "async→sync", 0
+    resp = await asyncio.wait_for(client.ask(req), timeout=timeout_s)
+    return (resp.text or "").strip(), "sync", 0
 
 
 async def _run_leg(

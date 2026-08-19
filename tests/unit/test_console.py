@@ -1947,3 +1947,36 @@ def test_agentforce_run_records_labeled_otel_session(tmp_path, monkeypatch):
     d = client.get("/api/obs/otel-sessions").json()
     assert "af-session-uuid7" in d["sessions"]
     assert d["labels"]["af-session-uuid7"]["label"]  # named, not blank
+
+
+def test_submit_poll_scenarios_target_async_capable_face():
+    """Config invariant: any scenario the console drives fire-then-poll
+    (console_dispatch: submit_poll) must name a target that resolves to an
+    async-capable client — i.e. an A2A face, the only client exposing
+    submit()/poll(). A submit_poll scenario pointed at a REST/MCP face would
+    500 on the first /api/run because get_client(name).submit does not exist.
+    Guards the WS4 langgraph-to-agentforce + WS11 ADK orchestrator wiring."""
+    import console.app as console_app
+    from interop.clients.a2a import A2AClient
+
+    # submit()/poll() live only on the A2A client.
+    assert callable(getattr(A2AClient, "submit", None))
+    assert callable(getattr(A2AClient, "poll", None))
+
+    scenarios = console_app.load_scenarios()
+    reg = Registry.load()
+    submit_poll = {
+        name: spec
+        for name, spec in scenarios.items()
+        if spec.get("console_dispatch") == "submit_poll"
+    }
+    # The invariant is only meaningful if such scenarios exist.
+    assert submit_poll, "expected at least one submit_poll scenario (ADK, langgraph)"
+    for name, spec in submit_poll.items():
+        target_name = spec["target"]
+        target = reg.get(target_name)  # exact, pre-remap: the named face
+        assert target.protocol == "a2a", (
+            f"scenario '{name}' is console_dispatch: submit_poll but its target "
+            f"'{target_name}' speaks '{target.protocol}', not a2a — the console "
+            f"would call submit() on a client that has no such method"
+        )

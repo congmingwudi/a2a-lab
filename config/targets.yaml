@@ -188,6 +188,22 @@ targets:
     endpoint: http://localhost:8053
     status: native
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+    # WS4 async fire-then-poll (D77): the LangGraph A2A face is served by the
+    # lab's shared create_a2a_app (DefaultRequestHandler + InMemoryTaskStore),
+    # so submit(return_immediately)/poll(tasks/get) work for free. protocol_version
+    # pins the A2A-Version header at 1.0 (what the lab's own a2a-sdk server
+    # advertises) so the poll's tasks/get negotiates cleanly. This is what lets
+    # both directions dodge Heroku's HARD 30s router timeout (H12): no single
+    # HTTP request is held open for the full answer — submit and each poll are
+    # sub-second, and the dyno computes the answer in the background (a Heroku
+    # web dyno keeps running after the response, UNLIKE a frozen Lambda).
+    # bridge_dispatch: submit_poll makes the bridge's /invoke path drive this
+    # face fire-then-poll for REVERSE Path A (Agentforce → LangGraph): the Apex
+    # callout cannot poll, so the bridge runs submit+poll on its behalf, bounded
+    # under the Apex 110s callout. Read off the EXACT target name the bridge
+    # receives (registry.get is remap-free); the client is remapped to the
+    # hosted A2A face by client_for.
+    options: {protocol_version: "1.0", timeout: 65, bridge_dispatch: submit_poll}
 
   # The LangGraph-paired Agentforce twin (ADR D25): same org/credentials,
   # different agent — its external-research action targets a langgraph face.
@@ -520,6 +536,11 @@ targets:
     endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-a2a
     status: native
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+    # Async fire-then-poll over Heroku — see the langgraph-a2a note above. This
+    # hosted twin is the one that MATTERS for the 30s ceiling: it is the Heroku
+    # dyno, reached by the console (forward) and the bridge (reverse). bridge_dispatch
+    # mirrored here so a caller posting the hosted name directly also polls.
+    options: {protocol_version: "1.0", timeout: 65, bridge_dispatch: submit_poll}
 
 modes:
   # WS13/D55: claude-rest and openai-rest used to remap to the AGENTCORE

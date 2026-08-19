@@ -756,36 +756,66 @@ scenarios:
       LangGraph's framework-native trace store — harvested as the seventh
       agent-platform column, so the platform is observed through its own
       telemetry rather than a bespoke Heroku Postgres log.
-    target: langgraph-rest
+    target: langgraph-a2a
     via_bridge: false
     status: live
-    tags: [langgraph, heroku, open-source-framework, langsmith, agentforce, agent-api]
+    # The console drives this over A2A fire-then-poll, never a blocking ask()
+    # (WS11 pattern, D74/D76). LangGraph answers land 26–40s (Haiku ReAct +
+    # ask_agentforce consult), and Heroku's router HARD-kills any synchronous
+    # request at 30s (H12) — a 32s answer returns an "Application Error" HTML
+    # page. `submit` returns a task id in ~1-2s and the console polls tasks/get
+    # to a terminal state; the poll loop runs in the browser, so no single
+    # request is held open for the full answer and the 30s ceiling never binds.
+    # Proven on the wire 2026-08-19: an A2A submit+poll ran to 44s with zero
+    # H12, while the same-length synchronous /langgraph-rest/invoke was killed
+    # at service=30000ms. Measured against langgraph-a2a-hosted.
+    console_dispatch: submit_poll
+    submit_pending_text: >-
+      ⏳ Submitted to the LangGraph research agent on its Heroku dyno over A2A
+      fire-then-poll (task {task}). The ReAct graph runs the turn off-request —
+      its own reasoning plus the mid-answer Agentforce consult, ~26–40s — while
+      the console polls tasks/get, so no single request outlives Heroku's 30s
+      router timeout. Watch the call path below stream in.
+    tags: [langgraph, heroku, open-source-framework, langsmith, agentforce, agent-api, async]
     prompt_suffix: >-
       Consult the Salesforce Agentforce agent with your ask_agentforce tool
       as part of answering, and say what it contributed.
     note: >
-      LIVE and validated end to end 2026-08-19 (WS4 items 8 + 9 closed). The
-      LangGraph agent runs on Heroku (app a2a-lab-langgraph, team sfdc-ta;
-      deploy/heroku/deploy_langgraph.sh) with LANGGRAPH_BACKEND=langgraph.
-      Proven in one run: an account question drove the ReAct graph (haiku-4-5)
-      to its ask_agentforce tool node → the D25 LangGraph-paired twin
-      (SF_LANGGRAPH_AGENT_ID) over the Salesforce Agent API, which returned live
-      CRM data folded into the answer; the whole chain recorded FIVE hops in the
-      shared Aurora store (the inbound REST hop, the internal graph hop, and the
-      three agentforce-api session/message/delete hops). The trace reaches the
-      console because the dyno now writes A2ALAB_TRACE_SINK=postgres to Aurora
-      over the rds-data Data API (off-VPC), authenticated by a static, scoped IAM
-      key carried as dedicated Heroku config vars and mapped to the lab_writer
-      role at deploy time (WS4 item 9; D77).
+      LIVE 2026-08-19 (WS4 items 8 + 9 closed). The LangGraph agent runs on
+      Heroku (app a2a-lab-langgraph, team sfdc-ta; deploy/heroku/deploy_langgraph.sh)
+      with LANGGRAPH_BACKEND=langgraph, and the console reaches it over A2A
+      fire-then-poll — NOT a blocking REST call — because Heroku's router
+      hard-kills any synchronous request at 30s (H12) and a LangGraph answer
+      (26–40s: Haiku ReAct + the Agentforce consult) straddles that ceiling.
+      submit() returns a task id in ~1-2s and the browser polls tasks/get to a
+      terminal state, so no single request is held open for the full answer;
+      the dyno's InMemoryTaskStore keeps computing in the background (a Heroku
+      web dyno keeps running after the response, unlike a frozen Lambda). The
+      dyno's own internal answer timeout was raised past 40s to match once the
+      router ceiling no longer bound it (LANGGRAPH_ANSWER_TIMEOUT_S; D77). An
+      earlier "live" run over the synchronous REST face passed only because a
+      short 13s answer squeaked under 30s — real but fragile; the async face
+      removes the coin-flip. Behind the async transport the chain is unchanged:
+      the ReAct graph (haiku-4-5) hits its ask_agentforce tool node → the D25
+      LangGraph-paired twin (SF_LANGGRAPH_AGENT_ID) over the Salesforce Agent
+      API for live CRM data, and every hop lands in the shared Aurora store
+      because the dyno writes A2ALAB_TRACE_SINK=postgres over the rds-data Data
+      API (off-VPC), authenticated by a static, scoped IAM key mapped to the
+      lab_writer role at deploy time (WS4 item 9; D77).
     flow:
       - source: remote-caller
-        target: langgraph-rest
-        protocol: rest
+        target: langgraph-a2a
+        protocol: a2a
         detail: >-
-          You (the console, in hosted mode) POST to the LangGraph agent's REST
-          face on the Heroku dyno (langgraph-rest → langgraph-rest-hosted;
-          x-lab-token auth). One dyno multiplexes REST/MCP/A2A behind $PORT via
-          the lab's build_faces_app(faces=LANGGRAPH_FACES).
+          You (the console, in hosted mode) drive the LangGraph agent's A2A
+          face on the Heroku dyno over fire-then-poll (langgraph-a2a →
+          langgraph-a2a-hosted; x-lab-token auth): submit() returns a task id
+          in ~1-2s, then the browser polls tasks/get to a terminal state, so no
+          single request outlives Heroku's 30s H12 router timeout. One dyno
+          multiplexes REST/MCP/A2A behind $PORT via the lab's
+          build_faces_app(faces=LANGGRAPH_FACES); the A2A face is the lab's
+          shared create_a2a_app (DefaultRequestHandler + InMemoryTaskStore),
+          which serves the submit/poll lifecycle for free.
       - source: langgraph-researcher
         target: langgraph-platform
         protocol: internal
@@ -830,39 +860,47 @@ scenarios:
       the LangGraph-paired Agentforce twin (ADR D25), which answers the account
       question from its own Salesforce data (Apex action), then delegates
       outside-in market research through the lab bridge to the LangGraph
-      research agent on Heroku. The bridge resolves the langgraph face and
-      forwards over REST (Heroku is a plain PaaS reached over HTTPS + x-lab-
-      token — no IAM invoke seam like the AgentCore reverse cells), stamping the
-      D27 delegation rider on the forwarded question (visible in the raw wire
-      payload of the bridge → Heroku leg). Honest status stays via-bridge on the
-      Salesforce leg (Agentforce outbound is REST-only), native on the Heroku
+      research agent on Heroku. The bridge resolves the langgraph A2A face and,
+      because Heroku kills any single HTTP request held past 30s (router error
+      H12) and a real LangGraph answer runs 26–40s, drives it fire-then-poll:
+      it submits the question over A2A and polls tasks/get to a terminal state,
+      so the one synchronous Apex callout only ever waits on sub-second
+      submit/poll requests (WS4/D77). Heroku is still a plain PaaS reached over
+      HTTPS + x-lab-token — no IAM invoke seam like the AgentCore reverse cells.
+      The D27 delegation rider rides the forwarded question (visible in the raw
+      wire payload of the bridge → Heroku leg). Honest status stays via-bridge on
+      the Salesforce leg (Agentforce outbound is REST-only), native on the Heroku
       leg.
     target: agentforce-langgraph-rest
     via_bridge: false
-    status: coming-soon
+    status: live
     tags: [agentforce, agent-api, bridge, langgraph, heroku, open-source-framework]
     note: >
-      status: coming-soon — but the LangGraph-specific work is DONE, and the one
-      remaining blocker is shared with every reverse Path A cell, not unique to
-      LangGraph. Cleared 2026-08-19: the D25 LangGraph-paired twin is provisioned
-      and active (SF_LANGGRAPH_AGENT_ID), its A2ALab: Ask Remote Agent (LangGraph)
-      action posts bridge target=langgraph-rest, the hosted bridge now resolves
-      langgraph-rest → langgraph-rest-hosted (rebuilt so its baked targets.yaml
-      knows the Heroku face — a direct bridge call returned a real LangGraph
-      answer), and the dyno writes traces to Aurora (WS4 item 9). VALIDATED so
-      far: the twin routes, calls get_account_summary (live CRM returned), and
-      fires ask_external_researcher — which degrades to "external research
-      temporarily unavailable" for ONE reason. The remaining blocker: the
-      production org's A2ALab_Bridge Named Credential points at
-      bridge-lab.agenticthings.com — the Cloudflare tunnel to the operator's
-      laptop — which is currently unresolvable, so the Apex callout never reaches
-      the (working) hosted bridge. Closing this needs Path A cut over to the ALB
-      (bridge-lab.agenticthings.com → the a2alab-bridge ALB: a cert the ALB can
-      serve + a DNS change on a Salesforce-visible hostname — deliberately NOT
-      scripted, plan/09), or the tunnel restored to a running local bridge on
-      current config. Until the callout has a live langgraph-aware bridge to
-      reach, running would show the twin's CRM half with an empty research half,
-      so the console honestly holds this at coming-soon.
+      status: live (shipped 2026-08-19, WS4/D77) — the reverse pair now runs
+      robustly over A2A fire-then-poll, the SAME transport the forward cell uses.
+      History worth keeping: an earlier version of this note blamed an
+      "unresolvable Cloudflare tunnel / ALB cutover unscripted." THAT WAS WRONG.
+      bridge-lab.agenticthings.com was cut over from the tunnel to the
+      a2alab-bridge ALB weeks ago (WS7, "retire the laptop from the runtime
+      path"; plan/03-results.md), the production A2ALab_Bridge Named Credential
+      points at that ALB hostname, and there is no laptop and no tunnel in Path
+      A. The bogus "unresolvable" call came from testing DNS inside a sandbox
+      with no outbound DNS — not production. The REAL constraint was Heroku's
+      HARD 30s router timeout (H12): a synchronous Apex→bridge→Heroku delegation
+      of a 26–40s LangGraph answer got killed at 30s server-side (a 32s reverse
+      answer was H12'd; a 13s one passed). The fix, now live: the twin's
+      external-research action posts target=langgraph-a2a; the bridge sees that
+      target's bridge_dispatch: submit_poll flag and, instead of a blocking
+      ask(), submits to the LangGraph A2A face and polls tasks/get to a terminal
+      state — so the one synchronous Apex callout only waits on sub-second
+      submit/poll requests and the 30s ceiling is never approached. Budget chain:
+      Apex callout 110s > bridge submit+poll 100s (A2ALAB_BRIDGE_ASYNC_TIMEOUT_S)
+      > dyno answer 90s (LANGGRAPH_ANSWER_TIMEOUT_S), so the dyno fails first and
+      cleanly. Verified end to end 2026-08-19: a real twin turn ("brief me on
+      Northwind Traders") returned both the CRM section and a full
+      LangGraph-authored market-research section in 45.1s with no H12 — a
+      duration a synchronous path could not survive. A direct bridge probe of the
+      same target reported dispatch_mode=async over 10 polls.
     flow:
       - source: agentforce-client
         target: agentforce
@@ -871,7 +909,8 @@ scenarios:
           You talk to the LangGraph-paired Agentforce twin over the GA Agent
           API (session + message) — the same twin the forward cell consults
           (one twin per platform pair, D25). Its account-status topic owns the
-          answer and orchestrates the collaboration. (Twin not yet provisioned.)
+          answer and orchestrates the collaboration. (Twin provisioned + active,
+          SF_LANGGRAPH_AGENT_ID.)
       - source: agentforce
         target: agentforce-apex
         protocol: internal
@@ -884,16 +923,24 @@ scenarios:
         protocol: rest
         detail: >-
           STEP 2 — external delegation: the agent's A2ALab: Ask Remote
-          Agent (LangGraph) action POSTs through the Named Credential and
-          tunnel to the lab bridge with target=langgraph-rest.
+          Agent (LangGraph) action POSTs through the Named Credential to the
+          lab bridge (A2ALab_Bridge → the a2alab-bridge ALB, no tunnel/laptop)
+          with target=langgraph-a2a. This one Apex callout is held open for the
+          whole exchange, so it must not itself exceed ~110s — which is why the
+          bridge, not Apex, runs the poll loop on the next hop.
       - source: client
-        target: langgraph-rest
-        protocol: rest
+        target: langgraph-a2a
+        protocol: a2a
         detail: >-
-          The bridge resolves langgraph-rest (→ langgraph-rest-hosted on Heroku)
-          and forwards over REST + x-lab-token — no IAM seam, Heroku is a plain
-          PaaS. The forwarded question carries the D27 delegation rider at
-          depth 1 — inspect this hop's raw request payload to see it on the wire.
+          The bridge resolves langgraph-a2a (→ langgraph-a2a-hosted on Heroku)
+          and, seeing that target's bridge_dispatch: submit_poll flag, drives it
+          FIRE-THEN-POLL: one A2A submit returns a task id in ~1s, then the
+          bridge polls tasks/get every second until the task is terminal — so no
+          single bridge → Heroku request is held past Heroku's 30s router ceiling
+          (H12) even though the answer takes 26–40s. Heroku is still a plain PaaS
+          over HTTPS + x-lab-token, no IAM seam. The submitted question carries
+          the D27 delegation rider at depth 1 — inspect this hop's raw request
+          payload to see it on the wire.
       - source: langgraph-researcher
         target: langgraph-platform
         protocol: internal
@@ -907,8 +954,8 @@ scenarios:
         target: agentforce-a2a
         caption: >-
           Shim card — the lab's shim proxies inbound A2A to the GA Agent
-          API. Honest status: via-shim. (The D25 LangGraph-paired twin is not
-          yet provisioned.)
+          API. Honest status: via-shim. (The D25 LangGraph-paired twin is
+          provisioned + active, SF_LANGGRAPH_AGENT_ID.)
       - title: LangGraph research agent (Heroku)
         target: langgraph-a2a
         caption: >-
@@ -1629,6 +1676,11 @@ scenarios:
     # a terminal state — the poll loop runs in the browser, so no single request
     # is held open across the ~2-minute graph. Measured 2026-08-12.
     console_dispatch: submit_poll
+    submit_pending_text: >-
+      ⏳ Submitted to the Google ADK orchestrator on Vertex AI Agent Engine
+      (task {task}). It runs the SequentialAgent[ParallelAgent→synthesiser]
+      graph off-request; the console is polling tasks/get for the brief
+      (typically ~2 minutes). Watch the call path below stream in.
     # Per-run choice of HOW each declared leg calls its A2A tool (WS11/D47):
     # "sync" is a blocking ask(), "async" fires the A2A submit + poll lifecycle.
     # Both route through the SAME orchestration.runner.run_one the Managed

@@ -513,24 +513,47 @@ Work items:
    `LANGSMITH_API_KEY` in the harvest secret (Secrets Manager) or the source
    degrades to `blocked` — it is NOT an AWS-role read like the others. done
    2026-08-17 (code + live read; the two follow-ups are deploy/operator steps).
-8. ⏳ Live validation. FORWARD (langgraph-to-agentforce) is LIVE and validated
-   end to end 2026-08-19: an account question drove the ReAct graph to its
-   `ask_agentforce` node → the D25 LangGraph-paired twin over the Agent API,
-   which returned live CRM data, and the whole chain recorded FIVE hops in the
-   shared Aurora store (inbound REST + internal graph + three agentforce-api
-   session/message/delete hops). Scenario flipped to `status: live`. Two fixes
-   this took: the dyno was missing `SF_AGENT_ID` (which `AgentforceClient.
-   from_env()` hard-reads before the paired override — added to the deploy VARS,
-   mirroring deploy/agentcore/deploy.sh), and the hosted bridge was rebuilt so
-   its baked `targets.yaml` knows `langgraph-rest`. REVERSE (agentforce-to-
-   langgraph) stays `coming-soon`: the twin routes + returns CRM + fires
-   `ask_external_researcher`, and the hosted bridge resolves langgraph-rest, but
-   the production `A2ALab_Bridge` Named Credential points at the Cloudflare
-   tunnel (`bridge-lab.agenticthings.com`, currently unresolvable), so the Apex
-   callout can't reach the working bridge. Blocked on the shared Path A →
-   ALB cutover (cert + DNS on a Salesforce-visible hostname, unscripted, plan/09)
-   — not on anything LangGraph-specific. matrix + insights: open.
-9. ✅ Cross-cloud trace sink — DONE 2026-08-19. The operator authorized minting a
+8. ✅ FORWARD live over A2A fire-then-poll (langgraph-to-agentforce). The
+   binding constraint on Heroku is the router's HARD 30s H12 timeout: a
+   LangGraph answer runs 26–40s (Haiku ReAct + the Agentforce consult) and a
+   synchronous request that straddles 30s is killed with an "Application Error"
+   page. So the console drives the LangGraph A2A face fire-then-poll (WS11
+   D74/D76 pattern): `submit()` returns a task id in ~1s and the browser polls
+   `tasks/get` to a terminal state, so no single request outlives 30s. PROVEN
+   on the live dyno 2026-08-19: a submit+poll run reached `TASK_STATE_COMPLETED`
+   at 41.5s with a full answer folding in the Agentforce consult, zero H12;
+   the same-length synchronous `/langgraph-rest/invoke` was killed at
+   `service=30000ms`. Scenario `target: langgraph-rest → langgraph-a2a` +
+   `console_dispatch: submit_poll`; `LANGGRAPH_ANSWER_TIMEOUT_S` raised 40→90
+   (safe now the 30s ceiling no longer binds, kept under the 120s poll leg).
+   Earlier fixes still stand: dyno missing `SF_AGENT_ID`
+   (`AgentforceClient.from_env()` hard-reads it before the paired override —
+   added to deploy VARS), and the hosted bridge rebuilt so its baked
+   `targets.yaml` knows the Heroku faces.
+9. ✅ REVERSE (agentforce-to-langgraph) live over A2A fire-then-poll — shipped
+   2026-08-19, closing the WS4 pair. CORRECTION kept for the record: an earlier
+   note blamed an "unresolvable Cloudflare tunnel / ALB cutover unscripted." THAT
+   WAS WRONG. `bridge-lab.agenticthings.com` was cut over from the tunnel to the
+   a2alab-bridge ALB weeks ago (WS7); the production `A2ALab_Bridge` Named
+   Credential points at that ALB; no laptop, no tunnel in Path A. The bogus
+   "unresolvable" call came from testing DNS inside a sandbox with no outbound
+   DNS — not production. The real blocker was the SAME Heroku 30s H12: a
+   synchronous Apex→bridge→Heroku delegation of a 26–40s answer is killed at 30s
+   (a 32s answer was H12'd; a 13s one passed). Fix, now live: the twin's
+   `ask_external_researcher` posts `target=langgraph-a2a`; that target carries
+   `bridge_dispatch: submit_poll`, so the bridge's `/invoke` handler submits to
+   the LangGraph A2A face and polls `tasks/get` on the Apex callout's behalf
+   (`run_target_async` in `orchestration/runner.py`) — the one Apex callout only
+   ever waits on sub-second submit/poll requests. Budget: Apex 110s > bridge
+   submit+poll 100s (`A2ALAB_BRIDGE_ASYNC_TIMEOUT_S`) > dyno 90s
+   (`LANGGRAPH_ANSWER_TIMEOUT_S`). Shipped: bridge redeployed (task def :11), the
+   D25 twin republished + activated (v2). PROVEN end to end 2026-08-19: a real
+   twin turn ("brief me on Northwind Traders") returned the CRM section AND a
+   full LangGraph-authored market-research section in 45.1s with zero H12 (a
+   duration a synchronous path could not survive), and a direct bridge probe of
+   `langgraph-a2a` reported `dispatch_mode=async` over 10 polls. matrix +
+   insights: open.
+10. ✅ Cross-cloud trace sink — DONE 2026-08-19. The operator authorized minting a
    **static, scoped IAM access key** (the laptop only has SSO creds, which do not
    exist inside a dyno). It rides `.env` under DEDICATED names
    (`A2ALAB_HEROKU_AWS_ACCESS_KEY_ID`/`_SECRET_ACCESS_KEY`) so `source .env`
