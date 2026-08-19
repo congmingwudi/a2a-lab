@@ -165,10 +165,14 @@ def test_scenarios_listed(tmp_path, monkeypatch):
 
 def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
     """The two-level Experiments nav: yaml-ordered groups, every scenario
-    bucketed into one. All groups are live now — the LangGraph/CrewAI/AutoGen
-    frameworks moved from an empty "coming soon" nav placeholder to the What's
-    Next roadmap (config/whats_next.yaml: other-agent-frameworks), so no group
-    carries an `upcoming` flag."""
+    bucketed into one. A group appears once its platform has a live agent:
+    langgraph-agentforce joined when the LangGraph agent went live on Heroku
+    (WS4/D77). Its forward cell (langgraph-to-agentforce) is `live` — validated
+    end to end 2026-08-19 (ask_agentforce → the D25 twin, traces in Aurora);
+    its reverse cell (agentforce-to-langgraph) stays `coming-soon` until Path A
+    is cut over to the hosted bridge. CrewAI/AutoGen stay roadmap-only
+    (config/whats_next.yaml: other-agent-frameworks) — no live agent, no group.
+    No group carries an `upcoming` flag."""
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
     data = client.get("/api/scenarios").json()
@@ -178,14 +182,15 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "adk-agentforce",
         "foundry-agentforce",
         "strands-agentforce",
+        "langgraph-agentforce",
         "cross-cloud",
         "fan-out",
     ]
     # Every PAIR group reads first — claude/openai/adk/foundry, then
-    # strands-agentforce (WS5, live) and cross-cloud (Cross-hyperscalers) — then
-    # fan-out, the first 1:many group, so the nav stays "all the pairs, then the
-    # fan-out". No upcoming placeholders remain.
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 7)
+    # strands-agentforce (WS5) and langgraph-agentforce (WS4, Heroku) — then
+    # cross-cloud (Cross-hyperscalers) and fan-out, the first 1:many group, so
+    # the nav stays "all the pairs, then the fan-out". No upcoming placeholders.
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 8)
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]

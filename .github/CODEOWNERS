@@ -1,0 +1,8 @@
+# CODEOWNERS — https://docs.github.com/articles/about-code-owners
+#
+# Order matters: the LAST matching pattern for a changed path wins.
+# @congmingwudi is the sole owner of this project, so the catch-all below
+# assigns every path. Add more specific patterns above it if that changes.
+
+# Everything
+*   @congmingwudi

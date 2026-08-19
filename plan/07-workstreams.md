@@ -513,17 +513,35 @@ Work items:
    `LANGSMITH_API_KEY` in the harvest secret (Secrets Manager) or the source
    degrades to `blocked` — it is NOT an AWS-role read like the others. done
    2026-08-17 (code + live read; the two follow-ups are deploy/operator steps).
-8. ⏳ Live validation: A2A + MCP native cells green; both directions with the
-   twin; matrix + insights updated. open — after deploy.
-9. ⏳ Cross-cloud trace sink. The dyno currently runs `A2ALAB_TRACE_SINK=jsonl`
-   (ephemeral, dyno-local) so its hops are NOT yet in the shared console. The
-   D77 design — hops → shared Aurora over the rds-data Data API, off-VPC — needs
-   a **static, scoped IAM access key** as Heroku config vars (`AWS_ACCESS_KEY_ID`
-   /`AWS_SECRET_ACCESS_KEY`); the laptop only has SSO creds, which do not exist
-   inside a dyno. Minting a persistent cloud credential was held for the operator
-   (a durable secret, not a deploy). Once the key exists: `env_sync push`, then
-   flip the Heroku config var `A2ALAB_TRACE_SINK=postgres` and re-release with
-   `--skip-build` (config-only — no code change, the sink is env-selected). open.
+8. ⏳ Live validation. FORWARD (langgraph-to-agentforce) is LIVE and validated
+   end to end 2026-08-19: an account question drove the ReAct graph to its
+   `ask_agentforce` node → the D25 LangGraph-paired twin over the Agent API,
+   which returned live CRM data, and the whole chain recorded FIVE hops in the
+   shared Aurora store (inbound REST + internal graph + three agentforce-api
+   session/message/delete hops). Scenario flipped to `status: live`. Two fixes
+   this took: the dyno was missing `SF_AGENT_ID` (which `AgentforceClient.
+   from_env()` hard-reads before the paired override — added to the deploy VARS,
+   mirroring deploy/agentcore/deploy.sh), and the hosted bridge was rebuilt so
+   its baked `targets.yaml` knows `langgraph-rest`. REVERSE (agentforce-to-
+   langgraph) stays `coming-soon`: the twin routes + returns CRM + fires
+   `ask_external_researcher`, and the hosted bridge resolves langgraph-rest, but
+   the production `A2ALab_Bridge` Named Credential points at the Cloudflare
+   tunnel (`bridge-lab.agenticthings.com`, currently unresolvable), so the Apex
+   callout can't reach the working bridge. Blocked on the shared Path A →
+   ALB cutover (cert + DNS on a Salesforce-visible hostname, unscripted, plan/09)
+   — not on anything LangGraph-specific. matrix + insights: open.
+9. ✅ Cross-cloud trace sink — DONE 2026-08-19. The operator authorized minting a
+   **static, scoped IAM access key** (the laptop only has SSO creds, which do not
+   exist inside a dyno). It rides `.env` under DEDICATED names
+   (`A2ALAB_HEROKU_AWS_ACCESS_KEY_ID`/`_SECRET_ACCESS_KEY`) so `source .env`
+   cannot shadow the operator's SSO locally; `deploy/heroku/deploy_langgraph.sh`
+   maps them to `AWS_ACCESS_KEY_ID`/`_SECRET_ACCESS_KEY` in the pushed config
+   ONLY, swaps `A2ALAB_PG_SECRET_ARN` → the writer secret (mirroring the other
+   trace-writers), and defaults `A2ALAB_TRACE_SINK=postgres`. Re-released
+   `--skip-build` (config-only). PROVEN: a REST call to the dyno wrote two hops
+   to Aurora over the rds-data Data API (off-VPC), and the forward-delegation run
+   wrote five. Keys synced via `env_sync push` (both `.env` secret and the
+   harvest secret allowlist).
 
 **Credentials / setup (what the operator provides — see D77):**
 1. A **Heroku API token** scoped to team `sfdc-ta`. In practice the operator's

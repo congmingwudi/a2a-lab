@@ -76,11 +76,39 @@ VARS=(
   LANGGRAPH_BACKEND LANGGRAPH_MODEL_ID LANGGRAPH_ANSWER_TIMEOUT_S
   ANTHROPIC_API_KEY A2ALAB_TOKEN A2ALAB_MAX_DELEGATION_DEPTH
   A2ALAB_LANGGRAPH_BASE
-  SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_LANGGRAPH_AGENT_ID
+  # SF_AGENT_ID must ship too even though ask_agentforce runs as the
+  # LangGraph-paired twin (SF_LANGGRAPH_AGENT_ID): AgentforceClient.from_env()
+  # hard-reads SF_AGENT_ID before the D25 paired override swaps it, so omitting
+  # it makes the tool report "Agentforce is not configured" (mirrors the
+  # SF_AGENT_ID + SF_*_AGENT_ID pairing in deploy/agentcore/deploy.sh).
+  SF_MY_DOMAIN SF_CLIENT_ID SF_CLIENT_SECRET SF_AGENT_ID SF_LANGGRAPH_AGENT_ID
   A2ALAB_TRACE_SINK A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN A2ALAB_PG_DSN
   AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION
   LANGSMITH_API_KEY LANGCHAIN_TRACING_V2 LANGCHAIN_PROJECT
 )
+
+# WS4 item 9 — the dyno WRITES traces to the shared Aurora over the Data API,
+# so two overrides, computed as PLAIN shell vars (never `export`ed) so they
+# reach only the config-var payload below via ${!v} and never shadow the
+# operator's SSO for the rest of this script or any other:
+#   1. Act as the WRITER role. .env carries A2ALAB_PG_SECRET_ARN = the reader
+#      (the console's read role); handing that to the dyno would make every
+#      INSERT fail. Mirror deploy/{bridge,faces,agentcore,shim,fanout}: swap in
+#      the writer secret when present.
+#   2. Off-AWS, the dyno has no IAM role, so it needs a static access key. It
+#      lives in .env under DEDICATED names (A2ALAB_HEROKU_AWS_*) precisely so
+#      `source .env` cannot override the operator's SSO locally; map them to the
+#      standard AWS_* names here, in the pushed config only. When they are set,
+#      default the sink to postgres (the whole point of the key).
+if [[ -n "${A2ALAB_PG_WRITER_SECRET_ARN:-}" ]]; then
+  A2ALAB_PG_SECRET_ARN="$A2ALAB_PG_WRITER_SECRET_ARN"
+fi
+if [[ -n "${A2ALAB_HEROKU_AWS_ACCESS_KEY_ID:-}" && -n "${A2ALAB_HEROKU_AWS_SECRET_ACCESS_KEY:-}" ]]; then
+  AWS_ACCESS_KEY_ID="$A2ALAB_HEROKU_AWS_ACCESS_KEY_ID"
+  AWS_SECRET_ACCESS_KEY="$A2ALAB_HEROKU_AWS_SECRET_ACCESS_KEY"
+  A2ALAB_TRACE_SINK="${A2ALAB_TRACE_SINK:-postgres}"
+fi
+
 payload="{"
 first=1
 for v in "${VARS[@]}"; do
