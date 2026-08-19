@@ -1119,3 +1119,39 @@ Zero Copy means they never diverge.**
 as a floor. The number WS19 exists to publish is the **Tableau Next dashboard's
 end-to-end render** (item 6c) — the true EU→US round trip a business user sees —
 recorded here once the dashboard is built.
+
+## WS4 LangGraph pair over A2A fire-then-poll — measured 2026-08-19 (D77/D78)
+
+The binding constraint on Heroku is the router's HARD 30s timeout (**H12**): any
+single HTTP request held open past 30s is killed server-side with an
+"Application Error" page (`status=503`, `service=30000ms`). A real LangGraph
+answer runs 26–40s, so a synchronous request straddling the ceiling dies. Both
+WS4 directions dodge it with A2A fire-then-poll (submit returns a task id in
+~1s; `tasks/get` is polled to a terminal state), so no single request outlives
+30s. Measured against the live `a2a-lab-langgraph` dyno:
+
+| Path | Transport | Result | Wall time |
+|---|---|---|---|
+| Forward `langgraph-to-agentforce` | A2A submit+poll (browser polls) | `TASK_STATE_COMPLETED`, full answer incl. the Agentforce consult | **41.5s**, zero H12 |
+| Forward, same length | **synchronous** `/langgraph-rest/invoke` | killed by the router | **`service=30000ms`** (H12) |
+| Reverse `agentforce-to-langgraph` | Agentforce twin → Apex → bridge → Heroku, **bridge polls** | twin returned CRM section + a full LangGraph research section | **45.1s**, zero H12 |
+| Reverse transport probe | direct `POST /invoke/langgraph-a2a` on the bridge | `dispatch_mode=async`, 200 OK, 2,751-char report | 9.6s over **10 polls** |
+
+**The 45.1s reverse number is itself the proof of async.** A synchronous
+Apex→bridge→Heroku delegation of a 26–40s answer is H12-killed at 30s
+(measured: a 32s reverse answer was killed, a 13s one passed). A 45.1s answer
+coming back *whole* is only possible because the bridge polled — no single
+bridge→Heroku request was held that long. Correlation by trace id is not
+available on this path (the Apex invocable mints its own trace id), so the
+async claim rests on two independent signals instead: the bridge-log source IP
+was the internal ALB (`172.31.x`, the Salesforce callout — not the operator's
+public IP), and the wall-clock exceeds the 30s ceiling a sync path cannot.
+
+**Operational note — the Agentforce planner is probabilistic on the reverse.** A
+single imperative prompt sometimes *narrates* the delegation ("the external
+research agent will now gather…") without actually calling the action, so no
+Apex→bridge hop fires. A two-turn session, or phrasing that matches the
+account-status topic ("tell me what you know about account X, its opportunities
+and cases"), reliably triggers `get_account_summary` + `ask_external_researcher`.
+This is Agentforce reasoning nondeterminism, independent of the transport fix —
+worth knowing before scoring a reverse run as "the bridge didn't work."
