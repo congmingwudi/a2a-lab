@@ -23,7 +23,7 @@ artifacts. Read down until you have the detail you need, then stop.
 - **L3** — Path B end to end: the platforms reach into Salesforce
 - **L4** — identity: who authenticates as what, and which way federation runs
 - **L5** — observability: five interiors, one store
-- **L5.5** — DNS: the four hostnames, and what each one is for
+- **L5.5** — DNS: the five public hostnames, and what each one is for
 - **L5.7** — scheduled and long-running processes (the async inventory)
 - **L5.8** — the cross-region Zero Copy path: data residency and a real latency measurement
 - **L6** — code → deployment: which file becomes which running thing
@@ -105,7 +105,7 @@ flowchart TB
 **What you are looking at.** The console at the top is not a viewer — it is the
 **driver**: every experiment in this lab is fired from it, over the protocol the
 experiment names, and every hop's raw wire bytes come back to it. Below it are
-the six agent platforms, each showing the three things that actually matter for
+the seven agent platforms, each showing the three things that actually matter for
 interop: **what agents live there**, **which protocols it speaks in and out**,
 and **what its own execution logs expose**.
 
@@ -756,7 +756,7 @@ record.
 
 ---
 
-## L5.5 — DNS: the four hostnames, and what each one is for
+## L5.5 — DNS: the five public hostnames, and what each one is for
 
 ```mermaid
 flowchart LR
@@ -769,6 +769,7 @@ flowchart LR
 
   ALB["ALB a2alab-bridge<br/>:443, *.agenticthings.com origin cert"]
   TUN["cloudflared tunnel<br/>local dev only"]
+  HK["a2a-lab-langgraph.herokuapp.com<br/>Heroku-assigned domain (WS4/D77)<br/>NOT a Cloudflare record"]
 
   H1 --> ALB
   H2 --> ALB
@@ -778,13 +779,21 @@ flowchart LR
   ALB -->|"default action, no rule"| BR["a2alab-bridge<br/>Path A"]
   ALB -->|"host-header rule, prio 20"| CON["a2alab-console"]
   ALB -->|"host-header rule, prio 30"| FAC["a2alab-faces<br/>14 faces by path"]
+
+  HK --> DYN["Heroku web dyno<br/>3 langgraph faces by path"]
 ```
 
-Every public entrance to the lab is a **CNAME in Cloudflare, proxied (orange),
-with SSL/TLS mode Full (strict)** — and, since the WS13 cutover, three of the
-four point at the *same* ALB. Recorded here because a hostname is the one piece
-of the estate no script creates: each is a hand-made record, and a lab that is
-otherwise fully deployed still has four manual steps hiding in it.
+Every **AWS-fronted** entrance to the lab is a **CNAME in Cloudflare, proxied
+(orange), with SSL/TLS mode Full (strict)** — and, since the WS13 cutover, three
+of the four Cloudflare records point at the *same* ALB. Recorded here because
+such a hostname is the one piece of the AWS estate no script creates: each is a
+hand-made record, and a lab that is otherwise fully deployed still has four
+manual DNS steps hiding in it. The **one exception is the LangGraph platform**
+(WS4/D77, live 2026-08-17): its public entrance
+`a2a-lab-langgraph.herokuapp.com` is a **Heroku-assigned domain created by
+`deploy/heroku/deploy_langgraph.sh`** — not a Cloudflare record, and not manual.
+So there are five public hostnames, four of them hand-made Cloudflare CNAMEs and
+one produced by a deploy script.
 
 | Hostname | Points at | Serves | Created |
 |---|---|---|---|
@@ -792,6 +801,7 @@ otherwise fully deployed still has four manual steps hiding in it.
 | `console-lab` | the same ALB | The lab console, routed by a host-header rule (priority 20) | 2026-07-28 (WS13 item 1) |
 | `faces-lab` | the same ALB | All fourteen protocol faces, rule priority 30, addressed by **path**: `/<target-name>/...` | 2026-07-28 (WS13 item 2) |
 | `claude-rest-lab`, `claude-mcp-lab`, `claude-a2a-lab` | the `cloudflared` tunnel | Local development only. Superseded for hosted use by `faces-lab`; kept because the tunnel is now a dev convenience rather than the front door | M6 |
+| `a2a-lab-langgraph.herokuapp.com` | Heroku web dyno | The three LangGraph faces (REST/MCP/A2A) by path; the AWS bridge reaches its A2A face for reverse Path A | 2026-08-17 by `deploy/heroku/deploy_langgraph.sh` (WS4/D77) — the only entrance a script creates |
 
 **Why three hostnames and one load balancer.** The ALB terminates TLS on :443
 with the imported Cloudflare Origin certificate for `*.agenticthings.com`, so
@@ -849,7 +859,7 @@ flowchart LR
 
 | # | Process | Where it runs | Cadence | State (2026-07-30) | What it writes |
 |---|---|---|---|---|---|
-| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — six agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands — the last WS5/D67) + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16), eight harvest sources in all. The three **infra metrics** sources (`infra-aws/gcp/azure` → `lab.infra_metrics`, Track B, 2026-08-11) ride the same Lambda but are **opt-in** — the `infra` group, not the 6h sweep — so they are collected on demand, not on this schedule |
+| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — seven agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands — WS5/D67 — and LangGraph via LangSmith — WS4/D77) + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16), nine harvest sources in all. The three **infra metrics** sources (`infra-aws/gcp/azure` → `lab.infra_metrics`, Track B, 2026-08-11) ride the same Lambda but are **opt-in** — the `infra` group, not the 6h sweep — so they are collected on demand, not on this schedule |
 | 2 | **Account brief agent** (D16) | Scheduled Claude Managed Agent | `0 6 * * *`, America/Denver | **active** | an `A2ALab_Account_Brief__c` in Salesforce, via a host-side tool |
 | 3 | **Brief watcher** (D52) | ECS service `a2alab-briefs` | poll loop, `A2ALAB_BRIEF_POLL_S` = 60s | **running 1/1** | services #2's stalled tool call; `lab.lab_state` serviced-set |
 | 4 | **Observability analyst** (D23) | Scheduled Claude Managed Agent | `0 6 * * *`, America/New_York (**paused**, so on-demand only) | **paused** | `lab.obs_briefs` with `kind='observability'` |

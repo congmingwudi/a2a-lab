@@ -241,7 +241,7 @@ insights:
     status: observed
     headline: Cross-platform agent observability is radically uneven — federate agents and you own the audit trail
     evidence: >
-      Harvested side by side, six platforms give six different answers to
+      Harvested side by side, seven platforms give seven different answers to
       "what did my agent do?". Salesforce exposes the richest queryable
       telemetry (full SQL over sessions/steps/LLM calls, but requires Data
       Cloud); Anthropic exposes the deepest per-session detail (thinking and
@@ -263,14 +263,19 @@ insights:
       AWS Strands (2026-08-04, D67/WS5) is a sixth shape again: no vendor
       session API at all, so it is observed only through its HOST cloud —
       CloudWatch/Bedrock meters — with a null platform_ref and a runtime-level
-      rollup rather than a per-turn trail. Where you run the agent, not who
-      built it, decides what you can see.
+      rollup rather than a per-turn trail. LangGraph (2026-08-17, D77/WS4) is a
+      seventh and the counter-example: its host (Heroku) exposes no agent
+      telemetry, but the *framework* ships its own — LangSmith, a purpose-built
+      LLM-run store the app emits to with an API key and no code — giving the
+      strongest list + step surface here (a queryable per-turn run tree) yet no
+      billing meter. Where you run the agent — or, for a framework, what
+      framework you built on — not who built it, decides what you can see.
     advisory: >
       "Can you audit what your agents did across platforms?" is usually
       unanswerable today. Any multi-platform agent estate needs its own trace
       layer: a correlation id on every hop, raw payloads recorded, platform
       logs harvested where APIs exist. Budget for this on day one.
-    refs: [D7, D18, D22, D31, D67, plan/05-observability.md, plan/07-workstreams.md]
+    refs: [D7, D18, D22, D31, D67, D77, plan/05-observability.md, plan/07-workstreams.md]
 
   - id: managed-vs-self-hosted
     category: Hosting models

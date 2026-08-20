@@ -588,13 +588,13 @@ flowchart LR
 
 ### Cross-platform agent observability is radically uneven — federate agents and you own the audit trail
 
-*Status: observed · refs: D7, D18, D22, D31, D67, plan/05-observability.md, plan/07-workstreams.md*
+*Status: observed · refs: D7, D18, D22, D31, D67, D77, plan/05-observability.md, plan/07-workstreams.md*
 
-**What the lab showed:** Harvested side by side, six platforms give six different answers to "what did my agent do?". Salesforce exposes the richest queryable telemetry (full SQL over sessions/steps/LLM calls, but requires Data Cloud); Anthropic exposes the deepest per-session detail (thinking and tool events, but no aggregation API and pagination-walk discovery only); and OpenAI's trace dashboard is write-only with no read API, so your own tracing is the system of record.
+**What the lab showed:** Harvested side by side, seven platforms give seven different answers to "what did my agent do?". Salesforce exposes the richest queryable telemetry (full SQL over sessions/steps/LLM calls, but requires Data Cloud); Anthropic exposes the deepest per-session detail (thinking and tool events, but no aggregation API and pagination-walk discovery only); and OpenAI's trace dashboard is write-only with no read API, so your own tracing is the system of record.
 
 Google's column (2026-07-20) is the inverse shape — no session/turn API on the preview A2A surface, but Cloud Monitoring hands over token counts per model AND the literal billing meters (vCPU/GiB-seconds), so the lab can estimate a daily dollar cost the rich-session platforms expose no surface for. Microsoft's (2026-07-23) is the field's best so far: connect App Insights and every run emits agent-semantic OpenTelemetry gen_ai spans over KQL — invoke_agent, chat (per-call tokens and full messages), execute_tool — and the response id doubles as the lab's platform_ref, joining platform-interior spans to wire traces with no extra plumbing.
 
-AWS Strands (2026-08-04, D67/WS5) is a sixth shape again: no vendor session API at all, so it is observed only through its HOST cloud — CloudWatch/Bedrock meters — with a null platform_ref and a runtime-level rollup rather than a per-turn trail. Where you run the agent, not who built it, decides what you can see.
+AWS Strands (2026-08-04, D67/WS5) is a sixth shape again: no vendor session API at all, so it is observed only through its HOST cloud — CloudWatch/Bedrock meters — with a null platform_ref and a runtime-level rollup rather than a per-turn trail. LangGraph (2026-08-17, D77/WS4) is a seventh and the counter-example: its host (Heroku) exposes no agent telemetry, but the *framework* ships its own — LangSmith, a purpose-built LLM-run store the app emits to with an API key and no code — giving the strongest list + step surface here (a queryable per-turn run tree) yet no billing meter. Where you run the agent — or, for a framework, what framework you built on — not who built it, decides what you can see.
 
 **Advisor take:** "Can you audit what your agents did across platforms?" is usually unanswerable today. Any multi-platform agent estate needs its own trace layer: a correlation id on every hop, raw payloads recorded, platform logs harvested where APIs exist. Budget for this on day one.
 

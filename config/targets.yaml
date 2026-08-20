@@ -337,9 +337,9 @@ targets:
       timeout: 65
       card_path: agentCard/v1.0
       # This is a fan-out leg (WS8) and the ONLY one with no warm path — so it
-      # was cold on every supplier-disruption run, stacking cold latency into
-      # the orchestrator's poll deadline (the ADK-sync 210s overrun). Listing it
-      # here puts it in the operator warm-up panel like the other legs.
+      # is cold on every supplier-disruption run, adding cold-start latency the
+      # other legs avoid. Listing it here puts it in the operator warm-up panel
+      # like the other legs.
       warmup: true
     auth:
       scheme: azure-ad

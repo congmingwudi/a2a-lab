@@ -3135,7 +3135,7 @@ preview A2A surface at all, so its honest shape is one session per deployed engi
 events, rather than one session per turn.
 
 The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
-eight-source sweep (six agent platforms plus the two coding sources) runs longer than a browser
+nine-source sweep (seven agent platforms plus the two coding sources) runs longer than a browser
 request may stay open.`;
   return `<div class="flow">
     ${figureHtml("obsDashFig", "The architecture behind it")}
@@ -3598,8 +3598,8 @@ window.harvestObs = async ev => {
 
 // Watch lab.obs_harvest for platforms whose last_harvest_at is newer than the
 // moment we fired. Each one lands independently, so the panel fills in as they
-// finish rather than all at once — which is also the honest picture of what an
-// eight-source sweep is doing.
+// finish rather than all at once — which is also the honest picture of what a
+// nine-source sweep is doing.
 // Read a JSON response, or explain what actually answered.
 //
 // When something upstream replies instead of the app — the load balancer's 504

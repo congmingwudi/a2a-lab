@@ -24,12 +24,17 @@ either performed or discovered on 2026-07-28, when the lab moved off the laptop
 
 ## Rotate the console personas' passwords
 
-Login is persona + that **role's** shared password (D36): `ryan` and `ana` are
-operators, `vic` is a viewer, per `config/users.yaml`.
+Login is persona + that **role's** shared password (D36): `ryan` is the lab
+owner (role `master of the universe`, password `A2ALAB_MASTER_PASSWORD`), `ana`
+is an operator (`A2ALAB_OPERATOR_PASSWORD`), `vic` is a viewer
+(`A2ALAB_VIEWER_PASSWORD`), per `config/users.yaml`. The owner role is distinct
+from operator *only* so the operator password can be handed to colleagues
+without also handing out the owner's login (D36) — same permissions, separate
+credential.
 
 ```sh
 # 1. change the values
-#    A2ALAB_OPERATOR_PASSWORD= / A2ALAB_VIEWER_PASSWORD=   in .env
+#    A2ALAB_MASTER_PASSWORD= / A2ALAB_OPERATOR_PASSWORD= / A2ALAB_VIEWER_PASSWORD=   in .env
 
 # 2. keep the credential store in step (D39)
 uv run python scripts/env_sync.py push
@@ -55,7 +60,7 @@ untouched, so tokens issued before the rotation stay valid until they expire.
 ```sh
 set -a; source .env; set +a
 curl -s -X POST "https://$CONSOLE_HOSTNAME/api/login" -H 'Content-Type: application/json' \
-  -d "{\"username\":\"ryan\",\"password\":\"$A2ALAB_OPERATOR_PASSWORD\"}" | head -c 120
+  -d "{\"username\":\"ryan\",\"password\":\"$A2ALAB_MASTER_PASSWORD\"}" | head -c 120
 ```
 
 Expect a `token` and `user: {sub, name, role}`. A `401` with the *old* password
