@@ -1035,10 +1035,17 @@ resolving to the ALB, and a recorded latency showing the 45s budget intact.
 
 ## WS8 — Fan-out orchestration: the lab's missing shape (AD1, approved 2026-07-25)
 
-**Status 2026-07-26 (overnight build).** Dispatch layer built, tested, and
-**proven live**: two legs in parallel across GCP and Azure, 36.7s wall against a
-50.7s serial equivalent, and the partial-failure contract verified against a
-real dead leg rather than an injected one (plan/03-results.md).
+**Status 2026-08-12 (14 of 15 items done).** All three orchestrator variants
+are live — CMA (37.4s wall), ADK (`ParallelAgent`, 16.8s) and the Agentforce
+Agent Script variant (D61) — the fan-out legs are also exposed as a remote MCP
+server the model schedules itself (D41) over keyless GCP workload-identity
+federation, and the join rate is measured (1 of 4 join cleanly, plan/03-results.md).
+The one open item is **#15**, the Agentforce orchestrator's own recorded run.
+The original overnight dispatch proof still stands — two legs in parallel across
+GCP and Azure, 36.7s wall against a 50.7s serial equivalent, partial-failure
+contract verified against a real dead leg — but read the note under the item
+table: that run used the lab's existing general-purpose research agents, so the
+numbers describe the plumbing, not the scenario.
 
 | # | Item | State |
 |---|---|---|
@@ -1273,8 +1280,15 @@ Claude(AWS)↔ADK pair (~0.5 day) which lands first as a warm-up.
 
 ## WS9 — Build telemetry: what this lab cost to make (AD2, approved 2026-07-25)
 
-**Status 2026-07-26 (overnight build).** Everything that does not need AWS is
-done; the one step that does is the one that matters most.
+**Status 2026-08-17 (15 of 18 items done).** All the in-repo telemetry is done —
+cost/token metrics, per-repo attribution, both console sections, the harvest
+button and the D39-shaped credential. What remains all needs AWS the lab does
+not own: item 16's in-repo half landed 2026-08-17 (the SigV4 forwarder under
+`A2ALAB_LOGGING_AUTH=iam`) but is **blocked** on the operator moving the external
+`/log` route to `AWS_IAM` with a cross-account resource policy trusting the lab
+principal; item 17 (usage-plan / rate-limit) and item 18 (rotate the logging key)
+are **not started** — and 18 is increasingly overdue, since the key item 14
+flagged as urgent to rotate has now sat unrotated even longer.
 
 | # | Item | State |
 |---|---|---|
@@ -2955,7 +2969,7 @@ is the how.
 | 6 | Build the Zero-Copy data layer headless: federation views (`lab.trace_events_zc`, `lab.trace_rollup_zc`), data streams, DLOs, DMOs and DLO→DMO mappings at both hop and trace grain | **done** (2026-08-09) — all built via the Data Cloud **SSOT REST API** (not the UI D69 assumed). Federating a **view** not the base table sidesteps the composite-PK block and keeps the raw-payload jsonb out of the object Data Cloud sees (residency is now structural); a surrogate `event_key` generated column is the single hop-grain PK; the trace-grain rollup pushes the two-level `GROUP BY` down into Aurora (Tableau Semantics has no LOD). Acceleration OFF on both — rows stay in us-east-1. Live-verified via `/ssot/queryv2`: hop DMO federates 3,021 hops, rollup DMO 960 traces, every figure matching the pre-build numbers. See plan/13 §1 |
 | 7 | **Operator action:** build the Tableau Next semantic model + dashboard (visualizations, tiles) on the DMOs, and measure the L5.8 cold cross-region federation render | **operator action, partially built** — the `A2A_Lab` workspace, `New_Dashboard`, and **5 of 9 hop-grain visualizations** are live in the org (created 2026-08-09, confirmed via `sf org list metadata`: Hops_by_Protocol_Platform, Status_by_Platform, Traffic_Over_Time, Hop_Latency_Distribution, Direction_Matrix). **Remaining:** the 4 rollup-grain KPI tiles (Avg Trace Latency, Trace Success Rate, Avg/Max Hops per Trace, plan/13 §3d) and the **L5.8 cold cross-region federation render measurement** (not yet in plan/03-results.md). Still UI-only for authoring (four headless surfaces ruled out — no `SemanticModel` Metadata type, SSOT `/semantic-models` 404s, both Tableau/360 MCP servers read-only, plan/13 §3); the L5.8 number can go through the read-only Tableau Next MCP `analyze_data` |
 | 8 | Inline Tableau Next embed in the console (owner-only, server-side JWT-bearer auth) | **built headless** (2026-08-09) — `/api/tableau/frontdoor` (owner-gated) mints a `web`-scoped session via JWT-bearer → `/singleaccess`; SDK mount + `CorsWhitelistOrigin` + the `a2a_lab_tab_embed` ECA (four metadata files, JWT cert on global OAuth) all created headlessly. Resolved: client-credentials can't get `web` scope (JWT-bearer runs in user context and can), and the auraCmpDef 504 was a perms + asset-sharing gap not a platform bug (plan/13 §5). **Pending operator publish:** console full-rebuild redeploy, a dedicated minimal-privilege integration user as JWT `sub`, and the CORS origin deploy (plan/13 §6) |
-| 9 | Console entry point + `plan/02-matrix.md` finding (two views over one table, zero copy) | **console surface shipped (in a different spot than scoped); matrix finding + final nav placement after item 7** — a full working canvas + Details pane already ships as a **Tableau Next top tab inside Observability** (`index.html` `obsTableauNextHtml`/`obsTableauNextDetailsHtml`, citing D69–D72/plan/09), NOT the dedicated **Data 360** nav item under Infrastructure plan/13 §4b recommends. Still to do: paste the drafted matrix finding into `plan/02-matrix.md`'s Findings ledger (one `[N]` bracket = the item-7 L5.8 number) and decide whether to relocate the console entry to the scoped nav location. Closes the delivery-record loop (D58/D60) |
+| 9 | Console entry point + `plan/02-matrix.md` finding (two views over one table, zero copy) | **console surface shipped (in a different spot than scoped); matrix finding NOT done + final nav placement deferred to after item 7** — a full working canvas + Details pane already ships as a **Tableau Next top tab inside Observability** (`index.html` `obsTableauNextHtml`/`obsTableauNextDetailsHtml`, citing D69–D72/plan/09), NOT the dedicated **Data 360** nav item under Infrastructure plan/13 §4b recommends. Still to do: paste the drafted matrix finding into `plan/02-matrix.md`'s Findings ledger (one `[N]` bracket = the item-7 L5.8 number) and decide whether to relocate the console entry to the scoped nav location. Closes the delivery-record loop (D58/D60) |
 
 ### Exit criteria
 
