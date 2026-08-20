@@ -61,6 +61,7 @@ when overstated into product claims.
 | [14-challenging-for-accuracy.md](14-challenging-for-accuracy.md) | The output side of the loop: the model asserting two confident wrong root causes for an async failure, a one-line human challenge collapsing both, and the conventions that turned the pushback into a proof — "reproduce before you conclude," `file:line` citation, a verifying subagent, and the permission gradient as the backstop for a wrong theory that wants to act |
 | [15-managing-the-context-window.md](15-managing-the-context-window.md) | The context lifecycle: `--resume`/`--continue` replay the real transcript (not a memory of it), auto-compaction summarizes lossily when the window fills, and a deliberate `/clear` at a task seam beats riding compaction — safe only because the durable stores (04) survive the cut |
 | [screenshots/](screenshots/README.md) | Terminal screenshots captured at critical decision points — Claude as a thought partner |
+| [CLAUDE-DESIGN-HANDOFF.md](CLAUDE-DESIGN-HANDOFF.md) | *Operations, not a note:* how these notes are flattened (`bundle_for_claude_design.sh`) and uploaded into the Claude Design presentation project, with the exact prompt to send |
 
 ## Recommended presentation arc
 

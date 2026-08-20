@@ -94,3 +94,6 @@ salesforce/force-app/main/default/customMetadata/*
 
 # local SQLite artifact (mirror of the ignored traces/ store)
 lab.db
+
+# flattened Claude Design upload (build product of bundle_for_claude_design.sh)
+build-notes/claude/dist/

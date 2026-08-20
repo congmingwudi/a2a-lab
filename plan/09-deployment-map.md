@@ -1182,3 +1182,5 @@ is concrete in a way architecture diagrams usually are not.
 - `plan/03-results.md` — the measured numbers every budget here is built on
 - `plan/07-workstreams.md` — WS7 (what is left to host), WS11 (the next change)
 - `plan/04-runbooks.md` — how to deploy and recover each piece
+- `plan/15-aws-account-deploy-migration.md` — what redeploying this AWS column into
+  another account takes, a like-for-like cost model, and cheaper hosting shapes
