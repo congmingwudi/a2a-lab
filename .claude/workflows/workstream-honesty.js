@@ -12,10 +12,17 @@ export const meta = {
 
 // ── schemas ──────────────────────────────────────────────────────────────
 
-// Discover returns exactly what jira_sync.parse_plan() emits — the states the
-// board would show after a --apply — so the audit compares against the plan's
-// OWN computed claims, never a re-reading of the prose that could drift from it.
-const WORKSTREAMS = {
+// Discover returns only a small INDEX of workstreams — {ws, title, item_count}
+// — NOT their items. The prior version echoed the entire parse_plan() output
+// (24 workstreams × ~200 items) back through a structured schema and the
+// Discover agent reliably stalled producing that giant object. The states the
+// audit compares against are still the parser's OWN computed claims (never a
+// re-reading of the prose): each per-workstream Audit agent re-runs
+// parse_plan() and reads its own slice, so no single agent ever round-trips all
+// 200 items. The parser is deterministic and fast (~2s), so 24 fresh parses is
+// cheaper than one 200-item echo — and each agent gets the authoritative
+// {state, done} for its workstream straight from jira_sync.
+const WS_INDEX = {
   type: 'object',
   required: ['workstreams'],
   properties: {
@@ -23,25 +30,11 @@ const WORKSTREAMS = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['ws', 'title', 'done', 'items'],
+        required: ['ws', 'title'],
         properties: {
           ws: { type: 'string', description: 'e.g. "WS8"' },
           title: { type: 'string' },
-          done: { type: 'boolean', description: "the epic's computed done flag (all items done)" },
-          status: { type: 'string', description: 'the verbatim status paragraph' },
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              required: ['n', 'summary', 'state', 'done'],
-              properties: {
-                n: { type: 'integer' },
-                summary: { type: 'string' },
-                state: { type: 'string', description: 'the recorded state text' },
-                done: { type: 'boolean', description: 'the state as jira_sync computes it' },
-              },
-            },
-          },
+          item_count: { type: 'integer', description: 'len(items) — for the log line only' },
         },
       },
     },
@@ -132,14 +125,15 @@ phase('Discover')
 const found = await agent(
   'In this repo run, verbatim:\n' +
     "  uv run python -c \"import sys; sys.path.insert(0,'scripts'); import json, jira_sync; " +
-    'print(json.dumps(jira_sync.parse_plan()))"\n' +
-    'That prints a JSON array of workstreams, each {ws, title, adrs, done, status, ' +
-    'items:[{n, summary, state, done}]}. Return {workstreams: <that array>} unchanged — ' +
-    'keep every workstream and every item, do not sample, summarise, or re-judge any state. ' +
-    'You are a runner here, not an auditor.',
-  { schema: WORKSTREAMS, agentType: 'general-purpose', effort: 'low' },
+    "print(json.dumps([{'ws': w['ws'], 'title': w['title'], 'item_count': len(w['items'])} " +
+    'for w in jira_sync.parse_plan()]))"\n' +
+    'That prints a small JSON array — one {ws, title, item_count} per workstream, NO items. ' +
+    'Return {workstreams: <that array>} unchanged. Do NOT print or return the items themselves ' +
+    '(the per-workstream audit re-reads those); do NOT sample or re-judge. You are a runner, ' +
+    'not an auditor.',
+  { schema: WS_INDEX, agentType: 'general-purpose', effort: 'low' },
 )
-log(`${found.workstreams.length} workstreams, ${found.workstreams.reduce((n, w) => n + w.items.length, 0)} work items to audit`)
+log(`${found.workstreams.length} workstreams, ${found.workstreams.reduce((n, w) => n + (w.item_count || 0), 0)} work items to audit`)
 
 // ── Audit → Verify ─────────────────────────────────────────────────────────
 // One agent per workstream (matches insights-audit's per-insight fan-out): each
@@ -150,8 +144,15 @@ const results = await pipeline(
   found.workstreams,
   w =>
     agent(
-      `Audit workstream ${w.ws} of the A2A interop lab for DELIVERY honesty: ${JSON.stringify(w)}.\n` +
-        'For each item, claimed_done is the state the plan records today. Decide proposed_done — ' +
+      `Audit workstream ${w.ws} of the A2A interop lab for DELIVERY honesty.\n` +
+        'FIRST, get the plan\'s OWN computed claims for this workstream — run, verbatim:\n' +
+        "  uv run python -c \"import sys; sys.path.insert(0,'scripts'); import json, jira_sync; " +
+        `print(json.dumps(next(w for w in jira_sync.parse_plan() if w['ws']=='${w.ws}')))\"\n` +
+        'That prints {ws, title, adrs, done, status, items:[{n, summary, state, done}]} for ' +
+        `${w.ws} — this is the authoritative baseline (do NOT re-read the prose to guess states). ` +
+        'For each item, claimed_done = that item\'s `done`, and its recorded state text is `state`. ' +
+        'Also take the verbatim `status` paragraph from this output for the epic_status_ok check.\n' +
+        'Decide proposed_done — ' +
         'the state the EVIDENCE supports — then set drift = (proposed_done !== claimed_done).\n' +
         'Evidence, in this order of authority:\n' +
         '(1) CODE/CONFIG — does the module, adapter, client, config entry or scenario the item ' +
