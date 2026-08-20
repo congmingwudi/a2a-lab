@@ -245,10 +245,16 @@ const reconcile = await agent(
     '  import jira_sync\n' +
     '  plan = jira_sync.parse_plan()\n' +
     '  expected = {}\n' +
+    // Normalize expected keys with .strip() to match the board side below AND
+    // jira_sync's own upsert()/index (which key by summary.strip()). Jira trims
+    // trailing whitespace on save, so an issue created from a [:255] cut that
+    // landed on a space comes back trimmed — comparing a stripped board summary
+    // against an UNstripped expected key falsely reports it stale/missing. That
+    // trailing-space asymmetry twice flagged the live WS11.3/WS22.6 stories.
     '  for w in plan:\n' +
-    "      expected[f\"{w['ws']} — {w['title']}\"] = 'epic'\n" +
+    "      expected[f\"{w['ws']} — {w['title']}\".strip()] = 'epic'\n" +
     "      for it in w['items']:\n" +
-    "          expected[f\"{w['ws']}.{it['n']} — {it['summary']}\"[:255]] = 'story'\n" +
+    "          expected[f\"{w['ws']}.{it['n']} — {it['summary']}\"[:255].strip()] = 'story'\n" +
     '  index, dupes, token = {}, {}, None\n' +
     '  while True:\n' +
     "      body = {'jql': f'project = {jira_sync.PROJECT} ORDER BY key', 'maxResults': 100, 'fields': ['summary']}\n" +
