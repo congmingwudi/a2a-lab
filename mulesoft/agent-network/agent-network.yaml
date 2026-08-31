@@ -1,0 +1,206 @@
+# A2A Interop Lab — Agent Fabric agent-network (WS10 SP1 walking skeleton).
+# v2 agentic-network format (agentNetwork 2.0.0). Authored from the AF plugin's
+# own templates + agent-network-v2.d.ts. Registers the lab's six bearer-auth
+# hosted A2A faces and a single-hop broker that consults one of them. Agent
+# URLs and the gateway client id/secret arrive as deploy variables
+# (exchange.json) — no endpoint or secret is committed here.
+agentNetwork: 2.0.0
+info:
+  label: a2a-interop-lab-fabric
+  version: v1
+registry:
+  agents:
+    claude:
+      info:
+        label: Claude research agent
+      metadata:
+        platform: Anthropic
+        interfaces:
+          a2a:
+            card:
+              name: claude-research
+              description: Claude research agent (managed/sdk backend) — lab face.
+              version: 1.0.0
+              capabilities:
+                streaming: false
+                pushNotifications: false
+              defaultInputModes: [text/plain]
+              defaultOutputModes: [text/plain]
+              skills:
+                - id: ask
+                  name: Ask Claude
+                  description: Research question answered by the Claude face.
+                  tags: [research, a2a-interop-lab]
+    openai:
+      info:
+        label: OpenAI research agent
+      metadata:
+        platform: OpenAI
+        interfaces:
+          a2a:
+            card:
+              name: openai-research
+              description: OpenAI agents-sdk research agent — lab face.
+              version: 1.0.0
+              capabilities:
+                streaming: false
+                pushNotifications: false
+              defaultInputModes: [text/plain]
+              defaultOutputModes: [text/plain]
+              skills:
+                - id: ask
+                  name: Ask OpenAI
+                  description: Research question answered by the OpenAI face.
+                  tags: [research, a2a-interop-lab]
+    strands:
+      info:
+        label: Strands research agent
+      metadata:
+        platform: Strands
+        interfaces:
+          a2a:
+            card:
+              name: strands-research
+              description: AWS Strands research agent — lab face.
+              version: 1.0.0
+              capabilities:
+                streaming: false
+                pushNotifications: false
+              defaultInputModes: [text/plain]
+              defaultOutputModes: [text/plain]
+              skills:
+                - id: ask
+                  name: Ask Strands
+                  description: Research question answered by the Strands face.
+                  tags: [research, a2a-interop-lab]
+    guide:
+      info:
+        label: Lab Guide docent
+      metadata:
+        platform: Guide
+        interfaces:
+          a2a:
+            card:
+              name: lab-guide
+              description: The lab's own docent agent served as a lab face.
+              version: 1.0.0
+              capabilities:
+                streaming: false
+                pushNotifications: false
+              defaultInputModes: [text/plain]
+              defaultOutputModes: [text/plain]
+              skills:
+                - id: ask
+                  name: Ask the Lab Guide
+                  description: Answer grounded in the lab's own docs/decisions.
+                  tags: [docent, a2a-interop-lab]
+    agentforce:
+      info:
+        label: Agentforce (via hosted A2A shim)
+      metadata:
+        platform: Agentforce
+        interfaces:
+          a2a:
+            card:
+              name: agentforce-a2a
+              description: Salesforce Agentforce, reached via the hosted A2A shim (D28).
+              version: 1.0.0
+              capabilities:
+                streaming: false
+                pushNotifications: false
+              defaultInputModes: [text/plain]
+              defaultOutputModes: [text/plain]
+              skills:
+                - id: ask
+                  name: Ask Agentforce
+                  description: Salesforce Agent API answer, translated by the shim.
+                  tags: [salesforce, a2a-interop-lab]
+    langgraph:
+      info:
+        label: LangGraph research agent (Heroku)
+      metadata:
+        platform: LangGraph
+        interfaces:
+          a2a:
+            card:
+              name: langgraph-research
+              description: LangGraph research agent hosted on Heroku — lab face.
+              version: 1.0.0
+              capabilities:
+                streaming: false
+                pushNotifications: false
+              defaultInputModes: [text/plain]
+              defaultOutputModes: [text/plain]
+              skills:
+                - id: ask
+                  name: Ask LangGraph
+                  description: Research question answered by the LangGraph face.
+                  tags: [research, a2a-interop-lab]
+context:
+  connections:
+    claudeConn:
+      kind: a2a
+      ref:
+        name: claude
+      url: ${claude.url}
+      authentication: &gwOauth
+        kind: oauth2-client-credentials
+        clientId: ${gwClientId}
+        clientSecret: ${gwClientSecret}
+        token:
+          url: https://console-lab.agenticthings.com/oauth/token
+          bodyEncoding: form
+          timeout: 10
+        scopes: [a2a.invoke]
+    openaiConn:
+      kind: a2a
+      ref:
+        name: openai
+      url: ${openai.url}
+      authentication: *gwOauth
+    strandsConn:
+      kind: a2a
+      ref:
+        name: strands
+      url: ${strands.url}
+      authentication: *gwOauth
+    guideConn:
+      kind: a2a
+      ref:
+        name: guide
+      url: ${guide.url}
+      authentication: *gwOauth
+    agentforceConn:
+      kind: a2a
+      ref:
+        name: agentforce
+      url: ${agentforce.url}
+      authentication: *gwOauth
+    langgraphConn:
+      kind: a2a
+      ref:
+        name: langgraph
+      url: ${langgraph.url}
+      authentication: *gwOauth
+brokers:
+  broker1:
+    kind: AgentScript
+    info:
+      label: Lab broker (SP1)
+    implementation: ./brokers/broker1.agent
+    interfaces:
+      a2a:
+        card:
+          name: lab-broker
+          description: A2A Interop Lab broker — SP1 single-hop walking skeleton.
+          version: 1.0.0
+          capabilities:
+            streaming: false
+            pushNotifications: false
+          defaultInputModes: [text/plain]
+          defaultOutputModes: [text/plain]
+          skills:
+            - id: consult
+              name: Consult a lab face
+              description: Forwards the question to one registered lab face and returns its answer.
+              tags: [broker, a2a-interop-lab]

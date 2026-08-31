@@ -1,0 +1,21 @@
+{
+  "main": "agent-network.yaml",
+  "name": "a2a-interop-lab-fabric",
+  "classifier": "agentic-network",
+  "descriptorVersion": "1.0.0",
+  "apiVersion": "1.0.0",
+  "tags": ["a2a-interop-lab", "ws10"],
+  "dependencies": [],
+  "metadata": {
+    "variables": {
+      "claude":     { "url": { "description": "Claude A2A face URL", "default": "", "secret": false } },
+      "openai":     { "url": { "description": "OpenAI A2A face URL", "default": "", "secret": false } },
+      "strands":    { "url": { "description": "Strands A2A face URL", "default": "", "secret": false } },
+      "guide":      { "url": { "description": "Lab Guide A2A face URL", "default": "", "secret": false } },
+      "agentforce": { "url": { "description": "Agentforce hosted A2A shim URL", "default": "", "secret": false } },
+      "langgraph":  { "url": { "description": "LangGraph (Heroku) A2A face URL", "default": "", "secret": false } },
+      "gwClientId":     { "description": "Lab client-credentials client id for /oauth/token", "default": "", "secret": true },
+      "gwClientSecret": { "description": "Lab client-credentials client secret for /oauth/token", "default": "", "secret": true }
+    }
+  }
+}
