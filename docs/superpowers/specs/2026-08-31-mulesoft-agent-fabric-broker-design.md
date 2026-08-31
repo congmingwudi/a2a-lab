@@ -237,16 +237,63 @@ build → publish → deploy → token-acquisition → egress → a real face ca
 - **Claude verifies** read-only via the `mulesoft-platform` MCP and the lab console/trace
   after deploy.
 
-### 4.10 Proof of done (SP1)
+### 4.10 Operator interface — how you drive and observe it
+The lab console is the primary surface, deliberately: WS10 exists to see the fabric
+through the *same* lens as the rest of the lab, not to make the operator live in
+Anypoint's UI. Two mechanisms, one of which lands in SP1:
+
+- **Broker as an outbound target (SP1).** Add the broker's gateway A2A ingress to
+  `config/targets.yaml` (e.g. `mule-broker-a2a`, honest `status: via-fabric`). Because the
+  lab's `A2AClient` is protocol-generic and resolves targets through
+  `interop.registry.Registry`, the console's *existing* Run button, protocol badges, raw
+  request/response capture, and SSE live tail drive the broker with **zero new client
+  code** — it is indistinguishable in mechanism from calling `claude-a2a`. This is the SP1
+  test interface. (Ingress auth to the broker — how the console authenticates *to* the
+  gateway — is a confirm-at-implementation item; see §8.)
+- **Dedicated "Agent Fabric" console section (deferred to SP4, tracked as a todo
+  workstream).** A D57 canvas section — top tabs as peers `Broker | Registry | Governance`,
+  each with a `Details` sub-tab narrating what produces it (the AgentGraph deploy, the
+  `credential-injection-oauth2` egress, the registered agents/policies) citing this spec
+  and the ADRs so the chips linkify — reading fabric state read-only via the
+  `mulesoft-platform` MCP. This is the build-vs-buy *presentation*; it is recorded as a
+  work item under `## WS10` in `plan/07-workstreams.md` so it survives as a story, not just
+  a line in this spec.
+
+**The unified trace view is the payoff.** Because the broker's egress returns to the faces
+carrying the same `metadata.trace_id`, one fabric experiment lands trace events on *both*
+sides of a single trace — the lab→broker call and the broker→faces fan-out — so the console
+renders the hand-built faces and the bought fabric as one timeline:
+
+```mermaid
+graph LR
+  U["Console Run"] -->|A2A trace_id=T| BK["Mule Broker (gateway ingress)"]
+  BK -->|A2A trace_id=T + Bearer lab-JWT| F1["claude face"]
+  U --> TR["traces/*.jsonl → lab.db, grouped by trace_id=T"]
+  BK --> TR
+  F1 --> TR
+  TR --> V["ONE console trace: hand-built face + fabric hops"]
+```
+
+This is **contingent on the broker forwarding `metadata.trace_id` on egress** (whether
+AgentScript propagates inbound message metadata to outbound A2A calls) — the key open item
+for the unified view, verified early in SP2 (§8). The fabric's own surfaces (Anypoint
+agent-network visualizer, Anypoint Monitoring fed by the `tracing` +
+`agent-connection-telemetry` policies, governance reports) are the *buy* side's native
+view; we cite them in the SP4 comparison but they are not the operator's home base.
+
+### 4.11 Proof of done (SP1)
 1. `POST console-lab.agenticthings.com/oauth/token` with the gw client-credentials returns
    a valid RS256 lab JWT (verified with the lab public key, `sub=mulesoft-omni-gateway`).
 2. Unit tests: `authenticate_client` accept/reject; `issue_service_token` claims + TTL;
    `/oauth/token` route (happy path + bad creds → 401); `AdapterExecutor` stamps
    `lab_user` into the trace when the middleware sets it.
-3. A test A2A call to the deployed broker returns a real answer from the claude face.
-4. The lab trace for that call shows the hop attributed to `mulesoft-omni-gateway`.
+3. **Deterministic proof** — a `scripts/`-level A2A call to the deployed broker returns a
+   real answer from the claude face, with pytest assertions on the resulting trace (hop
+   present, attributed to `mulesoft-omni-gateway`). CI-friendly.
+4. **Human proof** — the same call driven from the **console Run** button, eyeballing the
+   unified trace (the lab→broker→claude-face timeline) in the console.
 
-### 4.11 Explicitly out of SP1 (YAGNI)
+### 4.12 Explicitly out of SP1 (YAGNI)
 WS8 supplier-disruption orchestration (SP2); governance policy showcase (SP3); the
 build-vs-buy matrix (SP4); adk/foundry reachability; MCP-server registrations
 (`registry.mcps.*`); any broker routing/fan-out/LLM planning.
@@ -270,11 +317,18 @@ equivalent (the delegation guard D27, `TokenAuthMiddleware`, the trace layer) to
 the fabric does declaratively vs what the lab hand-codes. JWT rotation/short-TTL hardening
 and any refresh-endpoint tightening also land here.
 
-### SP4 — Build-vs-buy matrix
-The customer-facing output: a structured comparison (fed into `plan/02-matrix.md` /
-`config/insights.yaml` and the console) of hand-built interop vs Agent Fabric across
-identity, governance, registry/discovery, telemetry, authoring model, sizing/cost, and
-operational surface — grounded in what SP1–SP3 actually exercised, not brochure claims.
+### SP4 — Build-vs-buy matrix + the dedicated console section
+Two deliverables:
+- **The dedicated "Agent Fabric" console section** (deferred here from the SP1 interface
+  decision) — a D57 canvas section, top tabs `Broker | Registry | Governance` as peers,
+  each with a `Details` sub-tab, reading fabric state read-only via the `mulesoft-platform`
+  MCP and citing this spec + ADRs. Recorded as a work item under `## WS10` in
+  `plan/07-workstreams.md` so it imports as a story.
+- **The matrix** — the customer-facing output: a structured comparison (fed into
+  `plan/02-matrix.md` / `config/insights.yaml` and the console) of hand-built interop vs
+  Agent Fabric across identity, governance, registry/discovery, telemetry, authoring model,
+  sizing/cost, and operational surface — grounded in what SP1–SP3 actually exercised, not
+  brochure claims.
 
 ## 6. Cross-cutting conventions this design must honor
 
@@ -321,6 +375,15 @@ lab-side changes, which are environment-independent.
 - **Console `/oauth/token` exposure.** A public, unauthenticated-by-middleware mint route is
   correct for client-credentials but must validate credentials strictly and rate-limit /
   log; treat it with the same care as `/api/login`.
+- **Broker ingress auth (SP1).** How the lab console authenticates *to* the broker's gateway
+  ingress — a shared token, a client-id-enforcement inbound policy, or trusted-registry
+  membership. Determines what the `mule-broker-a2a` target carries in `config/targets.yaml`.
+  Confirm when the broker's ingress is stood up.
+- **`trace_id` propagation through the broker (SP2 — gates the unified trace view).**
+  Whether AgentScript forwards inbound `metadata.trace_id` to its outbound A2A calls. If it
+  does, one experiment renders as a single lab+fabric trace (§4.10); if not, the two sides
+  correlate only by timestamp/heuristic and the unified view needs a fallback. Verify early
+  in SP2 before investing in the console section.
 
 ## 9. References
 - `plan/07-workstreams.md` — WS10 (this work), WS8 (SP2 scenario), the WS6/U-series lab
