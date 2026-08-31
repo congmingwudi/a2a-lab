@@ -171,3 +171,18 @@ def test_escaped_newlines_in_the_env_key_are_restored(monkeypatch, tmp_path):
     private_pem = identity.ensure_keypair()[0].read_text()
     monkeypatch.setenv(identity.PRIVATE_KEY_ENV, private_pem.replace("\n", "\\n"))
     assert identity._private_key() == private_pem
+
+
+def test_machine_caller_is_in_directory_but_has_no_password_login(monkeypatch):
+    from interop import identity
+
+    users = identity.load_users()
+    assert "mulesoft-omni-gateway" in users
+    assert users["mulesoft-omni-gateway"]["role"] == "machine"
+
+    # A machine caller has NO console password (ROLE_PASSWORD_ENVS has no
+    # 'machine' key), so /api/login's authenticate() must fail closed for it
+    # even if a password is supplied.
+    monkeypatch.delenv("A2ALAB_OPERATOR_PASSWORD", raising=False)
+    with pytest.raises(ValueError):
+        identity.authenticate("mulesoft-omni-gateway", "anything")
