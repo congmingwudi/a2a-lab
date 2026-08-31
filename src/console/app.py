@@ -1809,6 +1809,35 @@ def create_console_app(registry: Registry | None = None):
         user["role_label"] = identity.role_label(user.get("role"))
         return {"token": token, "user": user}
 
+    @app.post("/oauth/token")
+    async def oauth_token(request: Request):
+        """Public client-credentials token endpoint (WS10 SP1). A machine
+        caller (the MuleSoft Omni Gateway) POSTs form-encoded
+        client_credentials; we mint a SHORT-LIVED RS256 lab JWT for the mapped
+        subject. Lives on the console because the console is the only surface
+        that legitimately holds the signing key (A2ALAB_JWT_PRIVATE_KEY) — the
+        RS256 invariant (spec §3). Exempt from the console JWT exactly as
+        /api/login is. Parsed with the stdlib to avoid a python-multipart
+        dependency escaping the Docker image."""
+        from urllib.parse import parse_qs
+
+        from interop import identity
+
+        raw = (await request.body()).decode("utf-8", errors="replace")
+        form = {k: v[0] for k, v in parse_qs(raw).items()}
+        if form.get("grant_type") != "client_credentials":
+            raise HTTPException(status_code=400, detail="unsupported_grant_type")
+        try:
+            subject = identity.authenticate_client(
+                form.get("client_id", ""), form.get("client_secret", "")
+            )
+            token = identity.issue_service_token(subject)
+        except ValueError:
+            # One generic 401 — no probing which of id/secret was wrong.
+            raise HTTPException(status_code=401, detail="invalid_client") from None
+        ttl = int(os.environ.get(identity.SERVICE_TTL_ENV, str(identity.DEFAULT_SERVICE_TTL_S)))
+        return {"access_token": token, "token_type": "Bearer", "expires_in": ttl}
+
     # WS18 — console usage analytics. The browser posts anonymous interaction
     # events (a visit before sign-in, a persona login, a top-level section nav)
     # to this same-origin route; the route stores a PII-free row in
@@ -2233,9 +2262,7 @@ def create_console_app(registry: Registry | None = None):
         trace_dir = _trace_dir()
         trace_dir.mkdir(parents=True, exist_ok=True)
         ts = round(time.time(), 3)
-        (trace_dir / WARMUP_CLEARED).write_text(
-            json.dumps({"ts": ts}), encoding="utf-8"
-        )
+        (trace_dir / WARMUP_CLEARED).write_text(json.dumps({"ts": ts}), encoding="utf-8")
         return {"cleared": ts}
 
     @app.post("/api/warmup/{name}")
@@ -4670,6 +4697,13 @@ and console never present a combined dollar total across tools (WS12/D44).
             "/healthz",
             "/api/users",
             "/api/login",
+            # WS10 SP1: the gateway's client-credentials token fetch is
+            # unauthenticated-by-middleware (it IS the credential exchange),
+            # exactly like /api/login. authenticate_client validates the gw
+            # client id/secret strictly and fails closed; the route mints only
+            # a short-lived machine JWT (sub=mulesoft-omni-gateway), never a
+            # human session.
+            "/oauth/token",
             # WS18: an UNAUTHENTICATED visit must be logged before any sign-in,
             # so the usage beacon cannot sit behind the persona JWT. Write-only,
             # returns 204, stores a PII-free row — exempting it discloses
