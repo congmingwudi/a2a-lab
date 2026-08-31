@@ -8282,7 +8282,13 @@ function insightsDetailsHtml() {
   <i>platform or protocol</i>, not in the test. That is what turns running the lab into learning
   from it: the honest protocol matrix (plan/02-matrix.md) records what each platform can and
   cannot do with a status kept deliberately honest (<code>native / via-bridge / via-shim /
-  blocked-beta</code>), and the recorded runs (plan/03-results.md) supply the numbers. An insight
+  via-fabric / blocked-beta</code> — <code>via-fabric</code> added for WS10's MuleSoft Agent
+  Fabric broker cell, whose code is built but whose broker is not yet deployed past the
+  MuleSoft Design environment; the fabric's machine caller mints its own lab credential at
+  <code>POST /oauth/token</code>, a public, credential-gated route living beside
+  <code>/api/login</code> on the same console task — see the "One signing key, two public
+  mints" diagram on the Security &amp; trust insights below), and the recorded runs
+  (plan/03-results.md) supply the numbers. An insight
   is what remains once a pattern holds across more than one cell and survives that record.</p>
 
   <h3>The evidence ladder — and why it is trustworthy</h3>

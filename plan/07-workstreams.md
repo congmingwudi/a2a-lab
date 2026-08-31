@@ -1595,12 +1595,21 @@ scheduled.
 
 ## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
 
-**Status: NOT STARTED.** Research and planning only — no Agent Fabric build,
-no code, config, deploy script or ADR yet. Gated on the Phase 0 entitlement
-check below, and scheduled last. (This line is explicit so the delivery record
-does not inherit the status of the `## Lab Guide` section that follows: both are
-un-numbered sub-sections inside WS10's span, and `jira_sync.py` would otherwise
-read the Lab Guide's "built" status as WS10's.)
+**Status: SP1 walking skeleton BUILT, not yet deployed/proven live.** The
+Phase 0 entitlement check passed and the Omni Gateway `agent-network-shared-gw`
+is provisioned and **RUNNING in the Design environment** (operator work,
+2026-08-31). Against that gateway, SP1's code is committed on this branch:
+the machine caller identity, the client-credentials mint, the console's
+`/oauth/token` route, wiretap caller attribution, the six-agent descriptor set
+plus a 1-hop broker, and the `mule-broker-a2a` console target — see the
+numbered items below. **Not yet done, and not claimed here:** the broker
+itself has not been built/published/deployed onto the gateway (that is an
+`anypoint-cli-v4 agent-network` run against the descriptors, plan/09-deployment-map.md
+L6), no live call has been made through it, and the Design→Production move is
+a separate, deliberate operator step. (This status line is explicit so the
+delivery record does not inherit the status of the `## Lab Guide` section that
+follows: both are un-numbered sub-sections inside WS10's span, and
+`jira_sync.py` would otherwise read the Lab Guide's "built" status as WS10's.)
 
 **Goal.** Stand up Agent Fabric against the lab's own agents and produce a
 customer-facing **build-vs-buy comparison matrix**.
@@ -1628,6 +1637,34 @@ the lab's measured version-wall evidence, is the comparison's most valuable
 output.
 
 **Effort:** ~1 week after Phase 0 clears.
+
+**SP1 walking skeleton — status by item (built on branch `ws10-sp1-agent-fabric`):**
+
+1. ✅ Machine caller identity: `mulesoft-omni-gateway` added to
+   `config/users.yaml` as a service identity, distinct from the human personas.
+2. ✅ Client-credentials mint in `src/interop/identity.py`
+   (`authenticate_client` + `issue_service_token`), issuing a short-lived
+   RS256 lab JWT for a validated gateway client id/secret.
+3. ✅ Console `POST /oauth/token` route (`src/console/app.py`) — a
+   credential-gated peer of `/api/login` on the same console task, exempt from
+   the console JWT gate for the same reason `/api/login` is (D36).
+4. ✅ Wiretap caller attribution (`src/interop/servers/wiretap.py`): the A2A
+   hop's trace `source` becomes the verified lab caller, so a fabric-routed
+   call is attributed to `mulesoft-omni-gateway` rather than to the generic
+   A2A entry point.
+5. ✅ The `mulesoft/` agentic-network descriptor set — six agent descriptors
+   (one per lab face) plus a 1-hop broker, `oauth2-client-credentials` wired
+   for the broker's egress back to the faces.
+6. ✅ `mule-broker-a2a` console target (`config/targets.yaml`, status
+   `via-fabric`) — the broker's A2A ingress, reached by the console's existing
+   Run button like any other protocol-generic target.
+7. ✅ Deterministic smoke (`scripts/mule_broker_smoke.py`) + a live
+   trace-attribution proof (`tests/live/test_mule_broker.py`) — code and tests
+   committed; the live run itself is held for the operator until the broker is
+   deployed (item below).
+8. ⏳ **SP4 — a dedicated Agent Fabric console section** (build-vs-buy
+   comparison matrix, sizing-cost readout for the forced-`large` gateway
+   entitlement): deferred, not started.
 
 ---
 
