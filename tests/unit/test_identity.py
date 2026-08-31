@@ -186,3 +186,51 @@ def test_machine_caller_is_in_directory_but_has_no_password_login(monkeypatch):
     monkeypatch.delenv("A2ALAB_OPERATOR_PASSWORD", raising=False)
     with pytest.raises(ValueError):
         identity.authenticate("mulesoft-omni-gateway", "anything")
+
+
+def test_issue_service_token_mints_short_lived_machine_jwt(monkeypatch):
+    from interop import identity
+
+    monkeypatch.setenv("A2ALAB_SERVICE_JWT_TTL_S", "120")
+    token = identity.issue_service_token("mulesoft-omni-gateway")
+    claims = identity.verify_token(token)
+    assert claims is not None
+    assert claims["iss"] == "a2a-lab"
+    assert claims["sub"] == "mulesoft-omni-gateway"
+    assert claims["role"] == "machine"
+    assert claims["exp"] - claims["iat"] == 120
+
+
+def test_issue_service_token_rejects_unknown_subject():
+    from interop import identity
+
+    with pytest.raises(ValueError):
+        identity.issue_service_token("nobody")
+
+
+def test_authenticate_client_accepts_matching_creds_and_returns_subject(monkeypatch):
+    from interop import identity
+
+    monkeypatch.setenv("A2ALAB_MULE_GW_CLIENT_ID", "gw-id-123")
+    monkeypatch.setenv("A2ALAB_MULE_GW_CLIENT_SECRET", "gw-secret-abc")
+    assert identity.authenticate_client("gw-id-123", "gw-secret-abc") == "mulesoft-omni-gateway"
+
+
+def test_authenticate_client_rejects_bad_creds(monkeypatch):
+    from interop import identity
+
+    monkeypatch.setenv("A2ALAB_MULE_GW_CLIENT_ID", "gw-id-123")
+    monkeypatch.setenv("A2ALAB_MULE_GW_CLIENT_SECRET", "gw-secret-abc")
+    with pytest.raises(ValueError):
+        identity.authenticate_client("gw-id-123", "wrong")
+    with pytest.raises(ValueError):
+        identity.authenticate_client("", "")
+
+
+def test_authenticate_client_fails_closed_when_unconfigured(monkeypatch):
+    from interop import identity
+
+    monkeypatch.delenv("A2ALAB_MULE_GW_CLIENT_ID", raising=False)
+    monkeypatch.delenv("A2ALAB_MULE_GW_CLIENT_SECRET", raising=False)
+    with pytest.raises(ValueError):
+        identity.authenticate_client("gw-id-123", "gw-secret-abc")
