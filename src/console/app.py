@@ -2262,7 +2262,9 @@ def create_console_app(registry: Registry | None = None):
         trace_dir = _trace_dir()
         trace_dir.mkdir(parents=True, exist_ok=True)
         ts = round(time.time(), 3)
-        (trace_dir / WARMUP_CLEARED).write_text(json.dumps({"ts": ts}), encoding="utf-8")
+        (trace_dir / WARMUP_CLEARED).write_text(
+            json.dumps({"ts": ts}), encoding="utf-8"
+        )
         return {"cleared": ts}
 
     @app.post("/api/warmup/{name}")
