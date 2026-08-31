@@ -6,6 +6,7 @@ export const meta = {
     { title: 'Discover', detail: 'parse the matrix + registry into one claim per cell' },
     { title: 'Audit', detail: 'one agent per cell cross-checking status vs evidence' },
     { title: 'Verify', detail: 'adversarial refutation of claimed discrepancies' },
+    { title: 'Log', detail: 'persist the run to traces/workflows/ (gitignored)' },
   ],
 }
 
@@ -95,8 +96,27 @@ const results = await pipeline(
 const flat = results.filter(Boolean)
 const confirmed = flat.filter(f => f.verdict === 'discrepancy' && f.upheld)
 log(`${flat.length} audited · ${confirmed.length} confirmed discrepancies`)
-return {
+const result = {
   audited: flat.length,
   consistent: flat.filter(f => f.verdict === 'consistent').length,
   confirmed_discrepancies: confirmed,
 }
+
+// Persist this run to the gitignored archive (traces/ — never git). The workflow
+// runtime has no fs and no clock, so a final agent stamps the time and writes it.
+phase('Log')
+await agent(
+  'Persist this "matrix-honesty-sweep" workflow run to the gitignored run-log archive. ' +
+    'Do EXACTLY these steps, nothing else:\n' +
+    '1. Run bash: `mkdir -p traces/workflows && date -u +%Y-%m-%dT%H-%M-%SZ`\n' +
+    '2. Use the timestamp it prints as TS.\n' +
+    '3. Use the Write tool to create `traces/workflows/matrix-honesty-sweep-<TS>.json` with EXACTLY ' +
+    'the content between the markers, verbatim (no edits, no reformatting, and drop the marker lines):\n' +
+    '===BEGIN===\n' +
+    JSON.stringify(result, null, 2) +
+    '\n===END===\n' +
+    'Reply with only the path you wrote.',
+  { phase: 'Log', label: 'log-run', agentType: 'general-purpose', effort: 'low' },
+)
+
+return result

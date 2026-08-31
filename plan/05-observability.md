@@ -214,13 +214,22 @@ reaches CloudWatch via cursorscope hooks and its cumulative counters are read
 with `increase()`; D64.) That panel's
 honesty rests on every column being an agent platform whose interior the lab
 harvests; the tools that BUILT the lab are a different subject, and listing them
-beside Agentforce would quietly claim otherwise. So `coding` is popped from
-`/api/obs/summary`, gets its own **Coding Agents Telemetry** console section
-with its own Harvest button, and is reachable from `/api/obs/harvest` only by
-name — the unqualified sweep behind the Observability Harvest button stays the
-seven agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands —
-the last WS5/D67 — and LangGraph via LangSmith, WS4/D77), because that button
-reports "harvested from all platforms". Details and measurements live in WS9
+beside Agentforce would quietly claim otherwise. So the enforcement is at the
+**display layer**: `coding` (and `coding-logs`) are popped from
+`/api/obs/summary` (src/console/app.py) so they never render as **columns** in
+the coverage panel, and each gets its own **Coding Agents Telemetry** console
+section with its own Harvest button. They are NOT, however, held out of the
+harvest itself: the unqualified sweep behind the Observability Harvest button is
+a **nine-source** sweep — the seven agent platforms (Salesforce, Anthropic,
+OpenAI, ADK, Foundry, Strands — the last WS5/D67 — and LangGraph via LangSmith,
+WS4/D77) **plus the two coding sources** — because the harvest Lambda's
+`default_sweep` (`[n for n in sources if n not in INFRA]`,
+src/observability/lambda_handlers.py) and `scripts/obs_harvest.py` with no args
+both pull all nine. The guarantee is precisely "not a coverage **column**", not
+"not in the unqualified harvest **sweep**" — the console's own Details pane says
+the same ("a full nine-source sweep (seven agent platforms plus the two coding
+sources)"). Only the three INFRASTRUCTURE sources (Track B, below) are actually
+excluded from the default sweep. Details and measurements live in WS9
 (plan/07-workstreams.md).
 
 ### The other sibling: cross-cloud INFRASTRUCTURE metrics (Track B)

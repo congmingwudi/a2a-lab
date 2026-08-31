@@ -2,6 +2,7 @@ import pytest
 
 import importlib
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -473,6 +474,36 @@ def test_warmup_non_warmable_404(tmp_path, monkeypatch):
     client = TestClient(app)
     assert client.post("/api/warmup/claude-rest").status_code == 404  # no warmup flag
     assert client.post("/api/warmup/nope").status_code == 404  # unknown target
+
+
+def test_warmup_clear_hides_display_but_keeps_the_file(tmp_path, monkeypatch):
+    """Clear is a display reset, never a delete: the panel goes blank but every
+    recorded row survives in warmups.jsonl (the cold-start comparison + the
+    Moirai forecast series). A later warm re-appears above the watermark."""
+    trace_dir = tmp_path / "traces"
+    app = make_app(trace_dir, monkeypatch, WarmupRegistry())
+    client = TestClient(app)
+
+    rec = client.post("/api/warmup/claude-agentcore").json()
+    assert client.get("/api/warmup").json()["targets"][0]["last"] == rec
+
+    cleared = client.post("/api/warmup/clear")
+    assert cleared.status_code == 200 and cleared.json()["cleared"] >= rec["ts"]
+
+    # Display: every row reset to "never warmed" …
+    listed = client.get("/api/warmup").json()["targets"]
+    assert all(t["last"] is None and t["history"] == [] for t in listed)
+    # … but the raw record is untouched (comparison / forecast data preserved).
+    assert json.loads((trace_dir / "warmups.jsonl").read_text().splitlines()[-1]) == rec
+
+    # A fresh warm lands above the watermark and shows again.
+    time.sleep(0.005)  # round(ts, 3) is ms; guarantee a strictly-later stamp
+    rec2 = client.post("/api/warmup/claude-agentcore").json()
+    shown = next(t for t in client.get("/api/warmup").json()["targets"]
+                 if t["name"] == "claude-agentcore")
+    assert shown["last"] == rec2 and rec2 != rec
+    # and BOTH attempts remain on disk — clear never truncated anything.
+    assert len((trace_dir / "warmups.jsonl").read_text().splitlines()) == 2
 
 
 def test_run_async_scenario_returns_immediately(tmp_path, monkeypatch):

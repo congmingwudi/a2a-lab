@@ -38,16 +38,22 @@ uv run python scripts/obs_harvest.py coding coding-logs  # the coding-agent tele
                                      # behavioural log signal (edit-acceptance, tool mix, latency,
                                      # WS16/D59). Same pull as the Harvest button in the console's
                                      # Coding Agents Telemetry section (DevOps category → Cost /
-                                     # Behaviour tabs). NEITHER is in the unqualified sweep — they
-                                     # are the tools that built the lab, not agent platforms.
+                                     # Behaviour tabs). BOTH are pulled by the unqualified sweep
+                                     # (default_sweep = all sources minus INFRA, so nine: seven
+                                     # platforms + coding + coding-logs), but are popped from
+                                     # /api/obs/summary so they are never a COVERAGE COLUMN — the
+                                     # guarantee is display-layer, they are the tools that built
+                                     # the lab, not agent platforms.
 uv run python scripts/obs_harvest.py infra  # Track B (Moirai exploration): cross-cloud
                                      # INFRASTRUCTURE metrics → lab.infra_metrics. Three sources
                                      # (infra-aws/gcp/azure) read config/infra_metrics.yaml and
                                      # pull CloudWatch / GCP Cloud Monitoring / Azure Monitor
                                      # RUNTIME metrics (Fargate/Aurora/Lambda, Vertex, Foundry) as
                                      # a dense regular grid — the SRE sibling of the M11 agent-log
-                                     # harvest. Like coding, opt-in and NOT in the unqualified
-                                     # sweep (infrastructure is not a platform column).
+                                     # harvest. Opt-in and — UNLIKE coding, which the default
+                                     # sweep DOES pull — genuinely excluded from it: the three
+                                     # INFRA sources are the only sources default_sweep holds out
+                                     # (infrastructure is not a platform column).
 scripts/claude_otel.sh               # launch Claude Code with the behavioural LOGS exporter on
                                      # (WS16): opt-in wrapper, content flags OFF, own logs
                                      # credential; a plain `claude` exports metrics only.

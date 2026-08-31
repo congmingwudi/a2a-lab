@@ -960,8 +960,15 @@ def _parse_lines(data: bytes) -> list[dict]:
 
 
 # Warm-up records live next to the traces (same isolated dir under tests):
-# one JSON line per attempt, kept forever — the cold-start comparison data.
+# one JSON line per attempt, kept forever — the cold-start comparison data
+# (and a declared Moirai forecast series, plan/explore-moirai-timeseries-
+# forecasting.md). So "Clear results" NEVER touches this file; it only moves the
+# display watermark below, which hides older attempts from the panel while every
+# row stays on disk for the comparison and the forecast.
 WARMUP_LOG = "warmups.jsonl"
+# The panel's "cleared-before" watermark: {"ts": <epoch>}. A view filter, not a
+# delete — GET /api/warmup shows only attempts newer than this ts.
+WARMUP_CLEARED = "warmup_cleared.json"
 
 
 def _read_warmups() -> list[dict]:
@@ -969,6 +976,16 @@ def _read_warmups() -> list[dict]:
     if not path.exists():
         return []
     return _parse_lines(path.read_bytes())
+
+
+def _read_warmup_cleared_ts() -> float:
+    path = _trace_dir() / WARMUP_CLEARED
+    if not path.exists():
+        return 0.0
+    try:
+        return float(json.loads(path.read_text(encoding="utf-8")).get("ts", 0) or 0)
+    except (ValueError, OSError, json.JSONDecodeError):
+        return 0.0
 
 
 def _record_warmup(record: dict) -> None:
@@ -2181,8 +2198,13 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/warmup")
     async def warmup_status():
+        # The watermark hides older attempts from the PANEL only — the raw
+        # warmups.jsonl below still holds every row for the comparison/forecast.
+        cleared_ts = _read_warmup_cleared_ts()
         by_target: dict[str, list[dict]] = {}
         for rec in _read_warmups():
+            if rec.get("ts", 0) <= cleared_ts:
+                continue
             by_target.setdefault(rec.get("target", "?"), []).append(rec)
         out = []
         for t in get_registry().targets.values():
@@ -2200,6 +2222,21 @@ def create_console_app(registry: Registry | None = None):
                 }
             )
         return {"targets": out}
+
+    @app.post("/api/warmup/clear")
+    async def warmup_clear():
+        # Reset the PANEL, not the data: stamp the watermark to now so every
+        # attempt so far drops out of the display. warmups.jsonl is untouched —
+        # the cold-start comparison and the Moirai series keep every row. Must
+        # be registered BEFORE /api/warmup/{name} or {name} would capture
+        # "clear". Operator-only via the /api/warmup prefix gate (D36).
+        trace_dir = _trace_dir()
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        ts = round(time.time(), 3)
+        (trace_dir / WARMUP_CLEARED).write_text(
+            json.dumps({"ts": ts}), encoding="utf-8"
+        )
+        return {"cleared": ts}
 
     @app.post("/api/warmup/{name}")
     async def warmup(name: str):

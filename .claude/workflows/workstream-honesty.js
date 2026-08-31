@@ -7,6 +7,7 @@ export const meta = {
     { title: 'Audit', detail: 'one agent per workstream, each item state vs code / deploy / git / results' },
     { title: 'Verify', detail: 'adversarial refutation of each claimed drift — keep the claim if uncertain' },
     { title: 'Reconcile', detail: 'expected board (parser) vs live board — enumerate stale/missing, delete nothing' },
+    { title: 'Log', detail: 'persist the run to traces/workflows/ (gitignored)' },
   ],
 }
 
@@ -286,7 +287,7 @@ const artifact =
       `${(reconcile?.duplicate_summaries || []).length} duplicate summaries.`)
 log(artifact)
 
-return {
+const result = {
   audited: flat.length,
   // The plan edits to make (each a done/not-done flip with evidence). Apply
   // these to plan/07, then re-run jira_sync (--apply) BEFORE reading `stale` as
@@ -297,3 +298,22 @@ return {
   reconcile, // read-only orphan report; deletion is an operator step (plan/11)
   artifact,
 }
+
+// Persist this run to the gitignored archive (traces/ — never git). The workflow
+// runtime has no fs and no clock, so a final agent stamps the time and writes it.
+phase('Log')
+await agent(
+  'Persist this "workstream-honesty" workflow run to the gitignored run-log archive. ' +
+    'Do EXACTLY these steps, nothing else:\n' +
+    '1. Run bash: `mkdir -p traces/workflows && date -u +%Y-%m-%dT%H-%M-%SZ`\n' +
+    '2. Use the timestamp it prints as TS.\n' +
+    '3. Use the Write tool to create `traces/workflows/workstream-honesty-<TS>.json` with EXACTLY ' +
+    'the content between the markers, verbatim (no edits, no reformatting, and drop the marker lines):\n' +
+    '===BEGIN===\n' +
+    JSON.stringify(result, null, 2) +
+    '\n===END===\n' +
+    'Reply with only the path you wrote.',
+  { phase: 'Log', label: 'log-run', agentType: 'general-purpose', effort: 'low' },
+)
+
+return result

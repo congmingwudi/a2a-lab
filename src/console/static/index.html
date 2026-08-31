@@ -1216,7 +1216,12 @@
   .gear-btn.on { color: var(--fg); background: var(--elevated); }
   .warm-panel { position: absolute; right: 0; top: 36px; width: 540px; z-index: 5;
                 background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-                box-shadow: 0 12px 32px var(--shadow-lg); overflow: hidden; }
+                box-shadow: 0 12px 32px var(--shadow-lg); overflow: hidden;
+                display: flex; flex-direction: column; max-height: calc(100vh - 52px); }
+  /* Header, failure banner and footer stay pinned; only the rows scroll — so the
+     "Warm all" button in the footer is always reachable however many rows pile up. */
+  .warm-panel > h3, .warm-panel > .warm-alert, .warm-panel > .warm-foot { flex: 0 0 auto; }
+  .warm-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   .warm-panel h3 { display: flex; align-items: center; margin: 0; padding: 10px 14px; font-size: 11px;
                    color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
                    border-bottom: 1px solid var(--border); }
@@ -8449,6 +8454,18 @@ window.warmAll = async () => {
   for (const t of warm.targets) await warmTarget(t.name); // sequential, top to bottom
 };
 
+// Clear the PANEL's results — a display reset, not a delete. The server stamps
+// a "cleared-before" watermark; warmups.jsonl keeps every row for the
+// cross-platform comparison and the Moirai forecast series. After it, every row
+// reads "never warmed" until re-warmed, and it survives logout (server-side).
+window.clearWarm = async () => {
+  if (Object.keys(warm.inflight).length) return; // don't clear mid-warm
+  try {
+    const r = await fetch(apiUrl("/api/warmup/clear"), { method: "POST" });
+    if (r.ok) await loadWarmup(); // re-fetch: rows now filtered past the watermark
+  } catch { /* network drop — nothing changed server-side */ }
+};
+
 // A warm-up's duration says what the LAST ATTEMPT hit; it does not say what
 // the runtime is now. Those were conflated (>20s was tagged "cold"), so a
 // successful 41s wake — the warm-up doing exactly its job — displayed as
@@ -8548,12 +8565,16 @@ function renderWarmPanel() {
   panel.innerHTML = `
     <h3>Runtime warm-up <button class="x" onclick="toggleWarmPanel(event)" title="Close" aria-label="Close">✕</button></h3>
     ${banner}
-    ${warm.targets.map(t => warmRowHtml(t, anyBusy)).join("")
-      || `<div class="empty" style="padding:14px">No warmable targets — flag them with
-          <span class="mono">options.warmup</span> in config/targets.yaml.</div>`}
+    <div class="warm-body">
+      ${warm.targets.map(t => warmRowHtml(t, anyBusy)).join("")
+        || `<div class="empty" style="padding:14px">No warmable targets — flag them with
+            <span class="mono">options.warmup</span> in config/targets.yaml.</div>`}
+    </div>
     <div class="warm-foot">
       <span class="note">First invoke after idle or a runtime update is a cold start — every duration
         is recorded for the cross-platform comparison.</span>
+      <button class="ghost" onclick="clearWarm()" title="Reset the panel — hides these results; the recorded durations are kept for the comparison"
+        ${anyBusy || !warm.targets.some(t => t.last) ? "disabled" : ""}>Clear results</button>
       <button class="ghost" onclick="warmAll()" ${anyBusy || !warm.targets.length ? "disabled" : ""}>Warm all</button>
     </div>`;
 }

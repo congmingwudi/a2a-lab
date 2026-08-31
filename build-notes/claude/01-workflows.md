@@ -27,7 +27,42 @@ A third, `.claude/workflows/architecture-sweep.js`, was added later for a
 different failure mode — diagrams and console copy describing a system that has
 since moved. It follows the same three-phase shape; why it is a separate sweep
 rather than an extension of these two is the subject of
-[11-rules-and-sweeps.md](11-rules-and-sweeps.md).
+[11-rules-and-sweeps.md](11-rules-and-sweeps.md). A fourth,
+`workstream-honesty.js`, audits `plan/07` item states against code/deploy/git and
+reconciles the Jira board.
+
+## Run logs — where findings land
+
+Each sweep ends in a **`Log` phase** that persists its full return object (findings +
+recommendations) to `traces/workflows/<name>-<UTC-timestamp>.json`, one file per run.
+`traces/` is **gitignored** (`.gitignore:6`) — the deliberate choice, because a finding
+can quote live evidence (an `architecture-sweep` detail may include an ARN, which embeds
+the AWS account id, and CLAUDE.md forbids account identifiers in the repo; only the AWS
+half is test-guarded, so GCP/Azure/MuleSoft ids would leak silently). The raw archive
+stays local; the *curated, sanitized* conclusion is promoted to git by hand — an edit to
+the drifted surface plus a `Correction (…, <sweep>)` note in `plan/00-decisions.md`.
+
+The workflow runtime has **no filesystem and no clock** (`Date.now()`/`new Date()` throw),
+so the persist can't happen in the script body — the `Log` phase spawns a final
+`general-purpose` agent (built-in, not a `.claude/agents/` file) that runs
+`date -u` for the timestamp and uses the `Write` tool. If that agent fails, `agent()`
+returns null and the workflow still returns its result normally — logging never blocks the
+finding.
+
+**Gotcha — a by-name run uses a SESSION-CACHED copy of the script, not the file on
+disk.** Editing `.claude/workflows/<name>.js` mid-session does **not** change what
+`Workflow({name})` executes: the saved-workflow registry is read once and cached, so a
+run started *after* an edit still runs the pre-edit body (the per-run persisted script
+under `…/workflows/scripts/<name>-<runId>.js` is the ground truth of what actually ran —
+grep it, don't assume). This is exactly how the `Log` phase silently no-op'd on
+2026-08-31: the file had the phase, the cached run didn't, and `traces/workflows/` was
+never created. The edit takes effect in a **fresh session** (or when invoked with
+`{scriptPath}`, which forces a disk read). So the reliable, cache-proof path is that the
+**invoker persists the returned `result`** — every completed run's full result is saved in
+`…/workflows/<runId>.json` under `.result`, so a lost log is always recoverable
+deterministically (`json.dumps(result, indent=2)` → `traces/workflows/<name>-<UTC>.json`)
+without re-running the fan-out. Treat the in-script `Log` phase as best-effort; treat
+persisting the returned result as the guarantee.
 
 ## The pattern: Discover → Audit → Verify
 
