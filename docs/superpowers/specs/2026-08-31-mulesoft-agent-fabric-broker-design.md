@@ -188,14 +188,26 @@ container start (`deploy/console/deploy_console.sh:66`); the two new env vars
 (`A2ALAB_MULE_GW_CLIENT_ID` / `_SECRET`) join that set.
 
 ### 4.6 Identity attribution (SP1 scope, per decision)
-Teach the A2A `AdapterExecutor` (`src/interop/servers/a2a.py`) to read
-`scope["state"]["lab_user"]` — set by the middleware on a verified JWT — and stamp it onto
-the `AgentRequest` metadata / `TraceEvent` so the hop is recorded as caller
-`mulesoft-omni-gateway`, mirroring how the console consumes it (`console/app.py:2624`).
-This is the payoff that makes the JWT choice meaningful over the shared token: fabric
-calls are *attributed*, and that attribution is direct build-vs-buy evidence (the fabric
-acquires and rotates a real lab identity through a standard policy). The middleware
-already verifies and populates `lab_user`; only consumption is new.
+Teach `WireTapMiddleware` (`src/interop/servers/wiretap.py`) — **not** the
+`AdapterExecutor` — to read `scope["state"]["lab_user"]` and use its `sub` as the
+`TraceEvent.source`, so the inbound A2A hop is recorded as caller
+`mulesoft-omni-gateway`. This is a correction to the naive placement: `AdapterExecutor.execute`
+(`src/interop/servers/a2a.py:72`) receives only an a2a-sdk `RequestContext` and has **no ASGI
+`scope`**, and it does not author the hop's trace row anyway. `WireTapMiddleware` is the only
+A2A component that both sees `scope` (it is a pure ASGI middleware, `wiretap.py:87`) and
+writes the inbound `TraceEvent` (`wiretap.py:153`, currently
+`source=_extract_caller(body) or "remote-caller"`). It runs downstream of
+`TokenAuthMiddleware` in the same `scope` (the faces wrap
+`TokenAuthMiddleware(create_a2a_app(...))`, `adapter.py:53`), so the claims the middleware
+stashed on a verified JWT are visible. The new precedence is: a verified `lab_user.sub`
+wins, else the existing `_extract_caller(body)`, else `"remote-caller"` — non-regressive,
+because today's callers (console Run, foundry/adk→shim) present the shared `A2ALAB_TOKEN` or
+cloud-IAM bearers, so `lab_user` is unset for them and the source is unchanged.
+
+This is the payoff that makes the JWT choice meaningful over the shared token: fabric calls
+are *attributed*, and that attribution is direct build-vs-buy evidence (the fabric acquires
+and rotates a real lab identity through a standard policy). The middleware already verifies
+and populates `lab_user`; only consumption is new.
 
 ### 4.7 Fabric-side connection (refresh, gateway-native)
 Each a2a connection is authored with:
