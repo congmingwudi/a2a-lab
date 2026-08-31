@@ -1153,16 +1153,35 @@ _OPERATOR_ONLY = {
 
 
 def _viewer_forbidden(request: Request) -> None:
-    user = request.scope.get("state", {}).get("lab_user") or {}
-    if user.get("role") != "viewer":
-        return
+    """Operator-only gate for the spend-incurring endpoints (D36).
+
+    Two callers legitimately reach these paths: an operator/owner persona JWT,
+    and the header-borne shared service token — which sets NO ``lab_user`` (it
+    identifies no one, but is the operator's own legacy credential). EVERY other
+    verified persona is denied: a ``viewer``, and — since WS10 SP1 — the
+    ``machine`` gateway identity, whose client-credentials token is an attributed
+    *faces* caller, never an operator of this console. Role is resolved from the
+    directory (like ``_is_operator``), not from the token claim, so a stale claim
+    cannot escalate.
+    """
+    from interop import identity
+
     path = request.url.path
-    for action, prefixes in _OPERATOR_ONLY.items():
-        if any(path.startswith(p) for p in prefixes):
-            raise HTTPException(
-                status_code=403,
-                detail=f"viewer role — '{action}' is operator-only (D36 role model)",
-            )
+    action = next(
+        (a for a, prefixes in _OPERATOR_ONLY.items() if any(path.startswith(p) for p in prefixes)),
+        None,
+    )
+    if action is None:
+        return  # not an operator-only path — open to viewers too (traces, insights)
+    claims = request.scope.get("state", {}).get("lab_user")
+    if not claims:
+        return  # shared service token (no persona) — the operator's own credential
+    role = identity.load_users().get(claims.get("sub"), {}).get("role")
+    if not identity.is_operator_role(role):
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{action}' is operator-only (D36 role model)",
+        )
 
 
 def _logger_request_headers(url: str, body: bytes) -> dict[str, str] | None:
@@ -1827,15 +1846,15 @@ def create_console_app(registry: Registry | None = None):
         form = {k: v[0] for k, v in parse_qs(raw).items()}
         if form.get("grant_type") != "client_credentials":
             raise HTTPException(status_code=400, detail="unsupported_grant_type")
+        ttl = int(os.environ.get(identity.SERVICE_TTL_ENV, str(identity.DEFAULT_SERVICE_TTL_S)))
         try:
             subject = identity.authenticate_client(
                 form.get("client_id", ""), form.get("client_secret", "")
             )
-            token = identity.issue_service_token(subject)
+            token = identity.issue_service_token(subject, ttl=ttl)
         except ValueError:
             # One generic 401 — no probing which of id/secret was wrong.
             raise HTTPException(status_code=401, detail="invalid_client") from None
-        ttl = int(os.environ.get(identity.SERVICE_TTL_ENV, str(identity.DEFAULT_SERVICE_TTL_S)))
         return {"access_token": token, "token_type": "Bearer", "expires_in": ttl}
 
     # WS18 — console usage analytics. The browser posts anonymous interaction

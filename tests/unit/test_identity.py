@@ -208,6 +208,23 @@ def test_issue_service_token_rejects_unknown_subject():
         identity.issue_service_token("nobody")
 
 
+def test_issue_service_token_role_ceiling(monkeypatch):
+    """Fail-closed: the mint must never issue a token for a human/operator
+    subject, only a directory entry whose role is 'machine' (WS10 SP1)."""
+    from interop import identity
+
+    users = {
+        "mulesoft-omni-gateway": {"name": "MuleSoft Omni Gateway", "role": "machine"},
+        "ryan": {"name": "Ryan Cox", "role": "operator"},
+    }
+    token = identity.issue_service_token("mulesoft-omni-gateway", users=users)
+    claims = identity.verify_token(token)
+    assert claims is not None and claims["role"] == "machine"
+
+    with pytest.raises(ValueError, match="not a machine identity"):
+        identity.issue_service_token("ryan", users=users)
+
+
 def test_authenticate_client_accepts_matching_creds_and_returns_subject(monkeypatch):
     from interop import identity
 

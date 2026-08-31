@@ -235,8 +235,13 @@ def issue_service_token(
 ) -> str:
     """A SHORT-LIVED lab JWT for a MACHINE caller — no human password, no
     /api/login. Safe to keep short precisely because the caller refreshes
-    (WS10 spec §4.7). Same claim shape as issue_token; only the TTL differs."""
+    (WS10 spec §4.7). Same claim shape as issue_token; only the TTL differs.
+    Fails closed unless ``subject`` is a ``machine`` identity: this mint must
+    never issue a token for a human/operator subject."""
     directory = users if users is not None else load_users()
+    entry = directory.get(subject)
+    if entry is None or entry.get("role") != "machine":
+        raise ValueError(f"issue_service_token: '{subject}' is not a machine identity")
     if ttl is None:
         ttl = int(os.environ.get(SERVICE_TTL_ENV, str(DEFAULT_SERVICE_TTL_S)))
     return _issue(subject, ttl, directory)
