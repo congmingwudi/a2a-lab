@@ -59,3 +59,13 @@ def test_no_account_identifiers_in_descriptors():
     blob = " ".join(p.read_text() for p in ROOT.rglob("*") if p.is_file())
     assert "00b44e97" not in blob  # the MuleSoft root BG id (auto-memory)
     assert "salesforce-5782" not in blob  # the org domain
+
+
+def test_broker_target_registered_as_via_fabric():
+    from interop.registry import Registry
+
+    reg = Registry.load()
+    target = reg.get("mule-broker-a2a")
+    assert target.protocol == "a2a"
+    assert target.platform == "mulesoft"
+    assert target.status == "via-fabric"
