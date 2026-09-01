@@ -1595,12 +1595,15 @@ scheduled.
 
 ## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
 
-**Status: NOT STARTED.** Research and planning only — no Agent Fabric build,
-no code, config, deploy script or ADR yet. Gated on the Phase 0 entitlement
-check below, and scheduled last. (This line is explicit so the delivery record
-does not inherit the status of the `## Lab Guide` section that follows: both are
-un-numbered sub-sections inside WS10's span, and `jira_sync.py` would otherwise
-read the Lab Guide's "built" status as WS10's.)
+**Status: BUILD STARTED — Omni Gateway live (2026-08-31).** The Phase 0
+entitlement check passed, the managed-gateway entitlement was raised, and the
+Agent Fabric Omni Gateway is now provisioned and RUNNING (see "UNBLOCKED"
+below). Remaining WS10 build: the agent-network project (broker deploy) and
+registering the lab's A2A agents, then the build-vs-buy comparison matrix. (The
+status line is explicit so the delivery record does not inherit the status of the
+`## Lab Guide` section that follows: both are un-numbered sub-sections inside
+WS10's span, and `jira_sync.py` would otherwise read the Lab Guide's "built"
+status as WS10's.)
 
 **Goal.** Stand up Agent Fabric against the lab's own agents and produce a
 customer-facing **build-vs-buy comparison matrix**.
@@ -1628,6 +1631,100 @@ the lab's measured version-wall evidence, is the comparison's most valuable
 output.
 
 **Effort:** ~1 week after Phase 0 clears.
+
+**Phase 0 prerequisite — MuleSoft MCP Connected Apps (recorded 2026-08-30).**
+WS10 compares against MuleSoft through two MCP servers, each backed by its own
+Anypoint Connected App. Anypoint's app types are mutually exclusive, so two apps
+are required. Creating a Connected App is the one irreducible UI step (the account
+is SSO-federated — no headless password→token path, and no CLI command creates
+Connected Apps); everything after it is scriptable. Concrete client id/secret
+values are **not in this repo** — they live in `~/.claude.json` under the project's
+`mcpServers` (local MCP scope, gitignored), entered by the operator. The required
+configuration shape:
+
+- **App for `mulesoft-platform`** (remote streamable-http `https://omni.mulesoft.com/mcp`,
+  the WS10 comparison surface): type **"App acts on behalf of a user"**, grant
+  **Authorization Code + Refresh Token**, redirect URI **`http://localhost:8299/callback`**.
+  **Scopes: `full` (Full access) AND `offline_access`** — the latter is labelled
+  **"Background Access"** in the Anypoint scope picker. Read/viewer scopes are NOT
+  enough: the server hard-codes `scope=full offline_access` (OAuth resource
+  `https://omni.mulesoft.com/`), so anything less is rejected at the authorize step
+  with `invalid_scope`. A client-credentials ("acts on its own behalf") app also
+  fails here — the interactive `response_type=code` flow needs the on-behalf-of-user type.
+- **App for `mulesoft-dx`** (stdio `mulesoft-mcp-server`, the DX/build surface) and
+  the `anypoint-cli-v4` automation: type **"App acts on its own behalf"**, grant
+  **client_credentials**, broad admin across the three envs (Design/Sandbox/Production).
+  Authenticates non-interactively from `ANYPOINT_CLIENT_ID/_SECRET/_REGION` — no
+  browser step.
+
+**OAuth debug trap (cost a full session to diagnose):** a scope/grant misconfiguration
+surfaces in Claude Code as *"Authentication failed / Invalid state parameter"*, which is
+a **red herring**. The `:8299` callback listener parses only the URL query string, but
+Anypoint returns authorize errors in the URL **fragment**
+(`#error=invalid_scope&...&state=<which actually matches>`); seeing no query `code`/`state`,
+the listener misreports it as a state mismatch. To get the real error, open the failing
+URL, click Allow, and read the full address-bar URL off the redirect page — don't chase
+state/port/process theories.
+
+**Phase 0 result — entitlement PASSED (2026-08-30).** Verified read-only through the live
+Platform-MCP catalog tools: the MuleSoft provider reports **connected** with gateway
+support; the org has the three standard environments (Design/Sandbox/Production); and
+**CloudHub 2.0 shared-spaces are available in every environment, including a US host
+(`cloudhub-us-east-1`, matching the lab's us-east-1 residency) and EU hosts** — this is
+the "CH2.0 host" requirement the gate was waiting on. The Agent Catalog and MCP Server
+Catalog both return data (12 agents, 105 MCP servers). **Honest framing for the
+comparison:** those catalog entries are MuleSoft's **public/trusted registry**, not the
+lab's — the lab's own org has **zero** agents, MCP servers, LLMs, or Omni Gateways
+registered yet. So Phase 0 proves two separate things — discovery/governance works, and
+the build path is entitled — but nothing of ours is in the fabric. The build (stand up
+an Omni Gateway into a CH2.0 space, then register the lab's A2A agents) remains the gated
+step and is scoped separately.
+
+**Build attempt — BLOCKED on managed-gateway entitlement (2026-08-31, operator go-ahead
+given).** With go-ahead to stand up the Omni Gateway, every provisioning path was tried and
+every one is rejected by the same platform-side resource check. **No managed Omni Gateway of
+any size can be provisioned on this org.** Findings, so the next attempt does not re-walk them:
+
+- **Valid size tokens are `small` and `large` only** (lowercase — read from the AF plugin's
+  `utils/constants.js`: `GATEWAY_SMALL_SIZE='small'`, `GATEWAY_LARGE_SIZE='large'`). **There is
+  no `medium`.** Earlier "invalid Gateway size" errors were the wrong token form
+  (`managedGatewaySmall`/`Medium`), not a platform limit — that string is how the *server*
+  names the resource in its error, not what the API accepts as input.
+- **The AF-plugin path (`agent-network setup gateways`) is unusable here.** On a shared
+  CloudHub space it forces single-gateway mode, which hardcodes **`large`**
+  (`gateways.js`: `ingressSize = mode === Separate ? SMALL : LARGE`; separate mode is rejected
+  on shared spaces via `separateGatewayModeNotSupportedInSharedSpace`). Large → 409
+  "Insufficient resources (managedGatewayLarge)" in **both** Sandbox and Production.
+- **The native CLI path (`runtime-mgr gateways managed create <name> <targetId> <size>`) lets
+  you pick the size** but hits the same wall. `small` → 409 "Insufficient resources
+  (managedGatewaySmall)" in **Sandbox (2 vCore) AND Production (3 vCore)**. The native CLI
+  wants the **lowercase** target id (`cloudhub-us-east-1`); the AF plugin wants the display
+  form (`Cloudhub-US-East-1`) — opposite conventions for the same target.
+- **Interpretation:** the smallest gateway is rejected even in the largest environment, so
+  this is a **managed-gateway entitlement gate, not a vCore near-miss** — `managedGatewaySmall`
+  reads as a distinct entitlement SKU the org does not hold. Per-env vCore counts (Prod 3 /
+  Sandbox 2 / Design 2) are real but not the binding constraint here.
+- **Nothing was created** — all attempts were pre-provision rejections (no gateway, no cost,
+  no cleanup needed).
+- **Unblock path (needs someone else to act):** raise the org's managed-gateway / Omni Gateway
+  entitlement via a MuleSoft subscription change, OR pursue a self-managed **private space /
+  Runtime Fabric** target (a different, larger setup and a separate resource class — entitlement
+  shows `vpcs:1`), which the shared-space gate does not cover. Until then WS10's build stays at
+  Phase 0: discovery/governance proven, provisioning blocked.
+
+**UNBLOCKED — Omni Gateway provisioned (2026-08-31).** The operator raised the managed-gateway
+entitlement (Unblock path 1). `get_omni_gateway_usage_report` flipped from an effective zero to
+`small: {consumed 0, limit 2}`, `large: {consumed 0, limit 2}` — the entitlement SKU the org
+lacked is now held. With that, the supported AF-plugin path ran clean:
+`anypoint-cli-v4 agent-network setup gateways -t Cloudhub-US-East-1` created
+**`agent-network-shared-gw`** (managed, `large`, runtime 1.9.16, `apiLimits: 500`) on the shared
+space `cloudhub-us-east-1`, **status RUNNING** — no 409. Usage now reads `large: {consumed 1}`.
+It landed in the **Design** environment (the CLI session's default), not Production. Auth note:
+the raw CLI's stored username/password session is stale and can't renew headlessly (SSO-federated,
+per `plan/15`); the operator ran the one CLI command from their authenticated shell (App-2
+client-credentials), while verification runs read-only through the authenticated `mulesoft-platform`
+MCP. Full record in `plan/15-mulesoft-agent-fabric-gateway-blocker.md`. **Next:** agent-network
+project (broker) + register the lab's A2A agents.
 
 ---
 
