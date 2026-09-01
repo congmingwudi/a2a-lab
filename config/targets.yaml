@@ -5,6 +5,7 @@
 #   native       the platform speaks this protocol itself
 #   via-bridge   Path A: Agentforce REST callout -> bridge -> this protocol
 #   via-shim     Path B: this protocol -> shim -> Agentforce Agent API
+#   via-fabric   WS10: routed THROUGH a MuleSoft Agent Fabric broker/Omni Gateway
 #   blocked-beta the native path exists but is gated (documented, not run)
 #
 # ${VAR} values expand from the environment (.env).
@@ -397,6 +398,22 @@ targets:
     # inside this; a COLD one can exceed it, so warm it first (warmup: true).
     options: {timeout: 110, transport: http_json, warmup: true, protocol_version: "1.0"}
     auth: {scheme: google-adc}
+
+  # ---- MuleSoft Agent Fabric broker (WS10 SP1). The broker's gateway A2A
+  # ingress, driven by the console's existing Run button as an ordinary A2A
+  # target — the payoff of the protocol-generic client. The broker's egress
+  # back to the faces authenticates as mulesoft-omni-gateway via the
+  # gateway-native oauth2-client-credentials token fetch (spec §4.7); this
+  # target is the INGRESS the console calls. endpoint is set post-deploy to the
+  # gateway ingress URL. Ingress auth is a confirm-at-deploy item (spec §8):
+  # fill `auth` once the broker's inbound policy is known.
+  mule-broker-a2a:
+    platform: mulesoft
+    protocol: a2a
+    endpoint: ${A2ALAB_MULE_BROKER_URL}
+    status: via-fabric
+    auth: {}
+    options: {protocol_version: "1.0", timeout: 65}
 
 # Deployment modes (D26): A2ALAB_MODE=hosted transparently remaps these
 # names wherever a client is resolved (bridge, custom tools, console runs) —

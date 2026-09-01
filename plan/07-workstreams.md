@@ -1595,15 +1595,25 @@ scheduled.
 
 ## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
 
-**Status: BUILD STARTED — Omni Gateway live (2026-08-31).** The Phase 0
-entitlement check passed, the managed-gateway entitlement was raised, and the
-Agent Fabric Omni Gateway is now provisioned and RUNNING (see "UNBLOCKED"
-below). Remaining WS10 build: the agent-network project (broker deploy) and
-registering the lab's A2A agents, then the build-vs-buy comparison matrix. (The
-status line is explicit so the delivery record does not inherit the status of the
-`## Lab Guide` section that follows: both are un-numbered sub-sections inside
-WS10's span, and `jira_sync.py` would otherwise read the Lab Guide's "built"
-status as WS10's.)
+**Status: SP1 walking skeleton BUILT; Omni Gateways live in Design + Production;
+broker deploy BLOCKED on environment (2026-09-01).** Phase 0 passed, the
+managed-gateway entitlement was raised, and Omni Gateways
+(`agent-network-shared-gw`) are provisioned and **RUNNING** in both the Design
+and Production environments (operator work, 2026-08-31/09-01). SP1's code is
+built and merged to main: the machine caller identity, the client-credentials
+mint, the console `/oauth/token` route, wiretap caller attribution, the
+six-agent descriptor set plus a 1-hop broker, and the `mule-broker-a2a` console
+target (numbered items below). **Not yet done, and not claimed here:** the
+broker is not yet deployed onto a gateway. `agent-network project build` and
+`publish` succeed, but `deploy` against Design **fails** — a Design-type
+environment has no API Manager runtime and cannot host the six agent-connection
+API instances (full analysis in `plan/15-mulesoft-agent-fabric-gateway-blocker.md`).
+The deploy must retarget **Sandbox or Production**; no live call has been made
+through the broker yet, and the promote-to-Production step is a separate,
+deliberate operator action. (This status line is explicit so the delivery record
+does not inherit the status of the `## Lab Guide` section that follows: both are
+un-numbered sub-sections inside WS10's span, and `jira_sync.py` would otherwise
+read the Lab Guide's "built" status as WS10's.)
 
 **Goal.** Stand up Agent Fabric against the lab's own agents and produce a
 customer-facing **build-vs-buy comparison matrix**.
@@ -1725,6 +1735,52 @@ per `plan/15`); the operator ran the one CLI command from their authenticated sh
 client-credentials), while verification runs read-only through the authenticated `mulesoft-platform`
 MCP. Full record in `plan/15-mulesoft-agent-fabric-gateway-blocker.md`. **Next:** agent-network
 project (broker) + register the lab's A2A agents.
+
+**SP1 walking skeleton — status by item (built on branch `ws10-sp1-agent-fabric`, now merged to main):**
+
+1. ✅ Machine caller identity: `mulesoft-omni-gateway` added to
+   `config/users.yaml` as a service identity, distinct from the human personas.
+2. ✅ Client-credentials mint in `src/interop/identity.py`
+   (`authenticate_client` + `issue_service_token`), issuing a short-lived
+   RS256 lab JWT for a validated gateway client id/secret.
+3. ✅ Console `POST /oauth/token` route (`src/console/app.py`) — a
+   credential-gated peer of `/api/login` on the same console task, exempt from
+   the console JWT gate for the same reason `/api/login` is (D36).
+4. ✅ Wiretap caller attribution (`src/interop/servers/wiretap.py`): the A2A
+   hop's trace `source` becomes the verified lab caller, so a fabric-routed
+   call is attributed to `mulesoft-omni-gateway` rather than to the generic
+   A2A entry point.
+5. ✅ The `mulesoft/` agentic-network descriptor set — six agent descriptors
+   (one per lab face) plus a 1-hop broker, `oauth2-client-credentials` wired
+   for the broker's egress back to the faces.
+6. ✅ `mule-broker-a2a` console target (`config/targets.yaml`, status
+   `via-fabric`) — the broker's A2A ingress, reached by the console's existing
+   Run button like any other protocol-generic target.
+7. ✅ Deterministic smoke (`scripts/mule_broker_smoke.py`) + a live
+   trace-attribution proof (`tests/live/test_mule_broker.py`) — code and tests
+   committed; the live run itself is held for the operator until the broker is
+   deployed (item below).
+8. ⏳ **SP4 — a dedicated Agent Fabric console section** (build-vs-buy
+   comparison matrix, sizing-cost readout for the forced-`large` gateway
+   entitlement): deferred, not started.
+
+**Broker deploy attempt — blocked on the Design environment (2026-09-01).** With
+the descriptors rendered (GAV fix: `exchange.json.template` + `render_exchange.py`,
+org id from `.env`, gitignored render), `agent-network project build` and
+`publish` both succeeded. `deploy --gateway agent-network-shared-gw` against the
+Design env then failed: for each of the six agent connections the toolchain POSTs
+to API Manager `.../environments/{Design}/apis` and gets 400 "the environment …
+either does not exist or you don't have permissions for it", aborting the broker.
+Diagnosed read-only via `mulesoft-platform` MCP — **not** a credential problem
+(identical failure under the org-owner CLI session AND App-2 broad-admin
+client-credentials): a **Design-type environment is design-only and has no API
+Manager runtime**, so API instances cannot be created there (confirmed by org
+history — every API instance in the org lives in `sandbox`; the Design env has
+zero). The Design gateway is therefore on a structurally-incapable environment.
+**Next (operator):** drop the Design gateway and deploy the broker to the existing
+Production gateway (or stand up a Sandbox gateway first to validate). Full
+analysis and the recommended commands are in
+`plan/15-mulesoft-agent-fabric-gateway-blocker.md`.
 
 ---
 

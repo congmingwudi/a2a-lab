@@ -1153,16 +1153,35 @@ _OPERATOR_ONLY = {
 
 
 def _viewer_forbidden(request: Request) -> None:
-    user = request.scope.get("state", {}).get("lab_user") or {}
-    if user.get("role") != "viewer":
-        return
+    """Operator-only gate for the spend-incurring endpoints (D36).
+
+    Two callers legitimately reach these paths: an operator/owner persona JWT,
+    and the header-borne shared service token — which sets NO ``lab_user`` (it
+    identifies no one, but is the operator's own legacy credential). EVERY other
+    verified persona is denied: a ``viewer``, and — since WS10 SP1 — the
+    ``machine`` gateway identity, whose client-credentials token is an attributed
+    *faces* caller, never an operator of this console. Role is resolved from the
+    directory (like ``_is_operator``), not from the token claim, so a stale claim
+    cannot escalate.
+    """
+    from interop import identity
+
     path = request.url.path
-    for action, prefixes in _OPERATOR_ONLY.items():
-        if any(path.startswith(p) for p in prefixes):
-            raise HTTPException(
-                status_code=403,
-                detail=f"viewer role — '{action}' is operator-only (D36 role model)",
-            )
+    action = next(
+        (a for a, prefixes in _OPERATOR_ONLY.items() if any(path.startswith(p) for p in prefixes)),
+        None,
+    )
+    if action is None:
+        return  # not an operator-only path — open to viewers too (traces, insights)
+    claims = request.scope.get("state", {}).get("lab_user")
+    if not claims:
+        return  # shared service token (no persona) — the operator's own credential
+    role = identity.load_users().get(claims.get("sub"), {}).get("role")
+    if not identity.is_operator_role(role):
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{action}' is operator-only (D36 role model)",
+        )
 
 
 def _logger_request_headers(url: str, body: bytes) -> dict[str, str] | None:
@@ -1766,7 +1785,15 @@ def create_console_app(registry: Registry | None = None):
     async def users():
         """The lab user directory (WS6 U1) — feeds the console's sign-in
         picker. Demo-scale IdP: no passwords, the experiment is identity
-        PROPAGATION and authorization, not credential UX."""
+        PROPAGATION and authorization, not credential UX.
+
+        Machine principals (role=machine, e.g. the MuleSoft Omni Gateway,
+        WS10 SP1) are OMITTED: they have no console password
+        (identity.ROLE_PASSWORD_ENVS has no 'machine' key, so /api/login
+        fails closed for them) and authenticate only via client-credentials
+        at /oauth/token. Listing one in the human sign-in picker would read
+        as a login whose password is missing, which it is not — it is a
+        service caller, not a persona."""
         from interop import identity
 
         labels = identity.load_role_labels()
@@ -1782,6 +1809,7 @@ def create_console_app(registry: Registry | None = None):
                     "role_label": identity.role_label(e.get("role") or "viewer", labels),
                 }
                 for u, e in identity.load_users().items()
+                if (e.get("role") or "viewer") != "machine"
             ]
         }
 
@@ -1808,6 +1836,35 @@ def create_console_app(registry: Registry | None = None):
         # the delegation wire); this is only how it reads on screen.
         user["role_label"] = identity.role_label(user.get("role"))
         return {"token": token, "user": user}
+
+    @app.post("/oauth/token")
+    async def oauth_token(request: Request):
+        """Public client-credentials token endpoint (WS10 SP1). A machine
+        caller (the MuleSoft Omni Gateway) POSTs form-encoded
+        client_credentials; we mint a SHORT-LIVED RS256 lab JWT for the mapped
+        subject. Lives on the console because the console is the only surface
+        that legitimately holds the signing key (A2ALAB_JWT_PRIVATE_KEY) — the
+        RS256 invariant (spec §3). Exempt from the console JWT exactly as
+        /api/login is. Parsed with the stdlib to avoid a python-multipart
+        dependency escaping the Docker image."""
+        from urllib.parse import parse_qs
+
+        from interop import identity
+
+        raw = (await request.body()).decode("utf-8", errors="replace")
+        form = {k: v[0] for k, v in parse_qs(raw).items()}
+        if form.get("grant_type") != "client_credentials":
+            raise HTTPException(status_code=400, detail="unsupported_grant_type")
+        ttl = int(os.environ.get(identity.SERVICE_TTL_ENV, str(identity.DEFAULT_SERVICE_TTL_S)))
+        try:
+            subject = identity.authenticate_client(
+                form.get("client_id", ""), form.get("client_secret", "")
+            )
+            token = identity.issue_service_token(subject, ttl=ttl)
+        except ValueError:
+            # One generic 401 — no probing which of id/secret was wrong.
+            raise HTTPException(status_code=401, detail="invalid_client") from None
+        return {"access_token": token, "token_type": "Bearer", "expires_in": ttl}
 
     # WS18 — console usage analytics. The browser posts anonymous interaction
     # events (a visit before sign-in, a persona login, a top-level section nav)
@@ -4670,6 +4727,13 @@ and console never present a combined dollar total across tools (WS12/D44).
             "/healthz",
             "/api/users",
             "/api/login",
+            # WS10 SP1: the gateway's client-credentials token fetch is
+            # unauthenticated-by-middleware (it IS the credential exchange),
+            # exactly like /api/login. authenticate_client validates the gw
+            # client id/secret strictly and fails closed; the route mints only
+            # a short-lived machine JWT (sub=mulesoft-omni-gateway), never a
+            # human session.
+            "/oauth/token",
             # WS18: an UNAUTHENTICATED visit must be logged before any sign-in,
             # so the usage beacon cannot sit behind the persona JWT. Write-only,
             # returns 204, stores a PII-free row — exempting it discloses

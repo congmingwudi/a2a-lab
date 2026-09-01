@@ -658,6 +658,62 @@ def test_viewer_allowed_surfaces(tmp_path, monkeypatch):
         assert r.status_code == 200, f"{path} blocked a viewer: {r.status_code}"
 
 
+def _machine_headers(monkeypatch, tmp_path):
+    """The MuleSoft Omni Gateway's client-credentials identity (WS10 SP1):
+    role 'machine' in the real config/users.yaml directory — an attributed
+    faces caller, never an operator of this console."""
+    from interop import identity
+
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    token = identity.issue_service_token("mulesoft-omni-gateway")
+    return {"authorization": f"Bearer {token}"}
+
+
+def test_machine_role_403_on_operator_surfaces(tmp_path, monkeypatch):
+    """The bug this fix closes: _viewer_forbidden used to deny ONLY
+    role == 'viewer', so the machine gateway token (neither viewer nor
+    operator) fell through to the spend-incurring endpoints. It must be
+    denied exactly like a viewer."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    headers = _machine_headers(monkeypatch, tmp_path)
+    r = client.post("/api/run", headers=headers, json={})
+    assert r.status_code == 403, f"machine role let through: {r.status_code}"
+    assert "operator-only" in r.json()["detail"]
+
+
+def test_operator_role_reaches_operator_surfaces(tmp_path, monkeypatch):
+    from interop import identity
+
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    # ana holds role 'operator' in the real config/users.yaml directory.
+    headers = {"authorization": f"Bearer {identity.issue_token('ana')}"}
+    r = client.post("/api/run", headers=headers, json={"target": "claude-rest", "message": "hi"})
+    assert r.status_code != 403, f"operator role blocked: {r.status_code}"
+    assert r.json()["ok"] is True
+
+
+def test_shared_service_token_still_reaches_operator_surfaces(tmp_path, monkeypatch):
+    """The header-borne shared token (no persona) is the operator's own
+    legacy credential and must stay allowed on the operator-only paths."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    r = client.post(
+        "/api/run",
+        headers={"x-lab-token": "sekrit"},
+        json={"target": "claude-rest", "message": "hi"},
+    )
+    assert r.status_code != 403
+    assert r.json()["ok"] is True
+
+
 def test_owner_role_keeps_the_full_operator_privilege_set(tmp_path, monkeypatch):
     """The lab owner's role ("master of the universe", D36) is DISTINCT from
     operator so the operator password can be handed to colleagues without the
@@ -828,6 +884,22 @@ def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
     assert client.get("/api/docs/docs/lab-guide-mcp.md").status_code == 200
     for path in ("/api/traces", "/api/insights", "/api/obs/sessions", "/api/config"):
         assert client.get(path).status_code == 401, path
+
+
+def test_users_picker_omits_machine_principals(tmp_path, monkeypatch):
+    # WS10 SP1: the sign-in picker (/api/users) must not list machine
+    # principals (e.g. the MuleSoft Omni Gateway) — they have no console
+    # password and authenticate only via /oauth/token, so showing one reads
+    # as a login with a missing password.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    users = client.get("/api/users").json()["users"]
+    roles = {u["role"] for u in users}
+    assert "machine" not in roles
+    assert "mulesoft-omni-gateway" not in {u["username"] for u in users}
+    # The human personas are still listed.
+    assert {"ryan", "ana", "vic"} <= {u["username"] for u in users}
 
 
 # ---- insight sign-off (console: Insights → Approve / Request changes) ------

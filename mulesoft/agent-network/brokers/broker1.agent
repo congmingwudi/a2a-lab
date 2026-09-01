@@ -1,0 +1,31 @@
+# @dialect: AGENTFABRIC=1.1
+config:
+  agent_name: "Lab Broker (SP1)"
+
+actions:
+  consultClaude:
+    target: "a2a://claudeConn"
+    kind: "a2a:send_message"
+
+trigger brokerTrigger:
+  kind: "a2a"
+  target: "brokers://broker1/a2a"
+  on_message: ->
+    transition to @executor.consult
+
+executor consult:
+  do: ->
+    run @actions.consultClaude
+      with message = @request.payload.message.parts[0].text
+  on_exit: ->
+    transition to @echo.done
+
+echo done:
+  kind: "a2a:status_update_event"
+  state: "TASK_STATE_COMPLETED"
+  message: a2a.message({
+    messageId: uuid(),
+    parts: [
+      a2a.textPart(@executor.consult.output)
+    ]
+  })
