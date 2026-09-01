@@ -340,6 +340,17 @@ if os.environ.get("A2ALAB_CONSOLE_GCP_AUDIENCE"):
     env["A2ALAB_GCP_WORKLOAD_AUDIENCE"] = os.environ["A2ALAB_CONSOLE_GCP_AUDIENCE"]
     env["A2ALAB_GCP_IMPERSONATE_SA"] = os.environ["A2ALAB_CONSOLE_GCP_SA"]
 
+# The MuleSoft Agent Fabric broker ingress (WS10 SP1), set EXPLICITLY — the same
+# D48 blind spot. targets.yaml's `mule-broker-a2a` reads it as
+# `${A2ALAB_MULE_BROKER_URL}`, which registry._expand_env resolves via a dynamic
+# os.environ.get(group), NOT a string-literal subscript the scan above can see.
+# A MISSING var expands to "" (registry.py), so without this the hosted console
+# resolves the broker target to an empty endpoint and errors on the card fetch
+# rather than reaching the gateway. It is a CloudHub ingress URL, not a secret,
+# so it belongs in plain env.
+if os.environ.get("A2ALAB_MULE_BROKER_URL"):
+    env["A2ALAB_MULE_BROKER_URL"] = os.environ["A2ALAB_MULE_BROKER_URL"]
+
 # The Managed Agents ids, set EXPLICITLY — the third instance of the D48 blind
 # spot. managed_backend.py reads them as os.environ.get(AGENT_ID_ENV), through
 # module constants, and the scan above only matches string literals. Locally

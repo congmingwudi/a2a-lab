@@ -8283,8 +8283,9 @@ function insightsDetailsHtml() {
   from it: the honest protocol matrix (plan/02-matrix.md) records what each platform can and
   cannot do with a status kept deliberately honest (<code>native / via-bridge / via-shim /
   via-fabric / blocked-beta</code> — <code>via-fabric</code> added for WS10's MuleSoft Agent
-  Fabric broker cell, whose code is built but whose broker is not yet deployed past the
-  MuleSoft Design environment; the fabric's machine caller mints its own lab credential at
+  Fabric broker cell, whose broker is now deployed to Production (RUNNING on the Omni Gateway,
+  edge 1.13.5) though the broker&rarr;face consult is not yet proven end to end; the fabric's
+  machine caller mints its own lab credential at
   <code>POST /oauth/token</code>, a public, credential-gated route living beside
   <code>/api/login</code> on the same console task — see the "One signing key, two public
   mints" diagram on the Security &amp; trust insights below), and the recorded runs

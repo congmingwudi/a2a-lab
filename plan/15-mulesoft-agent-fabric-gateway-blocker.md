@@ -583,3 +583,116 @@ whose error is only visible in the vendor's runtime logs — the exact opacity a
 avoids, where every hop is a line in our own CloudWatch + Aurora trace). The lab-side A2A
 substrate is proven; the bought orchestration layer is where the remaining work and the
 reduced observability now sit.
+
+## `TASK_STATE_FAILED` diagnosed — the broker's AgentScript itself, not the egress (2026-09-01, latest)
+
+Picking up the buy-side residual above: the Anypoint Runtime Manager log the previous step
+called for is **walled off from a headless session** — the CH2.0 managed gateway has **no CLI
+logs verb** (`cloudhub-application` is CH1.0-only; the `cloudhub` / `agent-network` topics
+have no logs verb), and the `anypoint-cli-v4` token store is encrypted at rest (only the CLI
+can decrypt it; reading the raw bytes is correctly blocked). So instead of the log, the fault
+was localised by **reading the shipped AgentScript dialect** — and it turns out to sit
+*upstream* of the egress, in the broker script itself. This **supersedes** the three egress
+hypotheses (dialect / oauth2-cc / routing) for the observed `~1s` failure.
+
+**Root cause — `@executor.<node>.output` is not a supported accessor.** `broker1.agent`'s
+`echo done` built its reply from `a2a.textPart(@executor.consult.output)`. In the AgentScript
+dialect an **executor runs an action for its side-effect and does NOT expose the result as
+`.output`** — only reasoning/generator nodes have an `@<node_type>.<node_name>.output`. Three
+independent sources in the shipped dialect
+(`~/.local/share/anypoint-cli-v4-public/node_modules/@sf-agentscript/agentfabric-dialect/`)
+confirm this:
+- `src/schema.ts:453` — documents `@<node_type>.<node_name>.output` for reasoning/generator
+  results, never for an executor.
+- `src/lint/passes/rules/execute-rules.ts` — "@outputs.<node> is not supported for node
+  outputs."
+- the canonical `mulesoft-anypoint-cli-agent-fabric-plugin/templates/agentic-network/brokers/
+  broker1.agent.template` AND the dialect's own `it-help-investigation.agent` fixture: BOTH
+  consume an A2A sub-agent's answer **only** inside an `orchestrator.reasoning.actions` block
+  and echo `@orchestrator.<n>.output` (the LLM's structured result) — never an executor's.
+
+`agent-network project build` does **not** catch this (the old broker compiled, published and
+deployed fine), so the reference resolves to nothing at runtime, the echo's message
+construction throws, and A2A packages that as `TASK_STATE_FAILED` **delivered as HTTP 200** —
+which is exactly why the gateway telemetry read 100% recent "success" while the client raised
+`RuntimeError`. It also matches the timing evidence in the section above: the broker failed in
+`~1s` with **no** `POST /claude-a2a/` in the faces log and **no** `POST /oauth/token` in the
+console log — the graph throws at instantiation, evaluating the unresolved reference, before
+any node runs (a failing egress would show the outbound face call and take ~28s).
+
+**Why we can't just "relay Claude's answer" — a first-class build-vs-buy finding.** The only
+dialect pattern that consumes an A2A sub-agent's answer is an **LLM orchestrator**
+(`config.default_llm` + a `reasoning` block whose `@orchestrator.<n>.output` you echo). That
+path is blocked for this org, confirmed live this session via the `mulesoft-platform` MCP:
+`list_llms` → **0 LLMs registered**, and `fetch_model_wallets` → **"The Model Wallet feature
+is not enabled for this organization."** So MuleSoft Agent Fabric has **no deterministic "call
+one A2A agent and return its raw text" primitive** — relaying an agent's answer is always
+LLM-mediated, and therefore gated behind Model Wallet enablement. (The lab's own hand-built
+bridge relays a face's answer verbatim with no LLM in the path — the build side pays nothing
+for this.)
+
+**Fix applied (SP1 walking skeleton) — build-validated, not yet deployed.** `broker1.agent`
+rewritten to a deterministic `trigger → executor → echo`: the executor still
+`run @actions.consultClaude` (so the identity-attributed A2A hop still fires into the lab
+trace — the thing SP1 exists to prove; `run @actions.*` in an executor accepts
+`a2a:send_message` kind per execute-rules, so the consult is unaffected), and `echo done` now
+returns a **fixed literal** confirmation (`a2a.textPart("Lab Broker (SP1): consulted the
+Claude lab face over A2A. See the lab trace for the identity-attributed hop.")`) — the same
+lint-valid shape the template's error branch uses. `agent-network project build` **passes**
+("Broker broker1 built successfully ✅"). The diff is in the working tree
+(`mulesoft/agent-network/brokers/broker1.agent`), not yet published/deployed.
+
+**The redeploy is also the discriminating experiment.** The old broker's output reference is
+*definitely* broken, but whether it is the *whole* fault or whether the broker→face consult
+*also* fails is settled by the result and its timing/logs:
+- **smoke green in ~28s, with a `POST /claude-a2a/` in `/ecs/a2alab-faces`** ⇒ H-A fully
+  confirmed: the graph now runs, the executor fires the consult, the echo returns the literal.
+- **fails fast (~1s) again with no face call** ⇒ something else in graph construction throws.
+- **fails after ~28s with a face call present** ⇒ the consult *egress* is the fault → back to
+  the dialect / oauth2-cc work in the sections above.
+
+**Next session — the exact recipe (operator-run; the classifier gates `publish`/`deploy` as
+outward mutations of the shared Exchange asset + Production gateway, same class as the earlier
+`runtime-mgr gateways managed edit`).** From a fresh shell:
+
+```bash
+cd /Users/ryan.cox/projects/claude-code/rc-a2a
+set -a; source .env; set +a
+cd mulesoft/agent-network
+
+uv run python render_exchange.py                       # renders exchange.json from .env org id
+anypoint-cli-v4 agent-network project build            # validates broker1.agent (already green)
+anypoint-cli-v4 agent-network project publish          # pushes the updated broker to Exchange
+
+ANYPOINT_ENV=Production anypoint-cli-v4 agent-network project deploy \
+  --gateway agent-network-shared-gw \
+  --property claude.url:https://${FACES_HOSTNAME}/claude-a2a/ \
+  --property openai.url:https://${FACES_HOSTNAME}/openai-a2a/ \
+  --property strands.url:https://${FACES_HOSTNAME}/strands-a2a/ \
+  --property guide.url:https://${FACES_HOSTNAME}/guide-a2a/ \
+  --property agentforce.url:https://${FACES_HOSTNAME}/agentforce-a2a/ \
+  --property langgraph.url:${A2ALAB_LANGGRAPH_BASE}/langgraph-a2a/ \
+  --property gwClientId:${A2ALAB_MULE_GW_CLIENT_ID} \
+  --property gwClientSecret:${A2ALAB_MULE_GW_CLIENT_SECRET}
+```
+
+Then the smoke (from the repo root, `.env` sourced):
+
+```bash
+uv run python scripts/mule_broker_smoke.py "In one sentence, what is A2A?"
+```
+
+`publish` must run **before** `deploy` — deploy pulls the broker from Exchange, so the edit
+has to be published there first (publish auto-bumps the network asset version, as it did
+1.0.0→1.0.1 before). Success: deploy recreates the six connection instances without a `3004`
+policy error (as on `edge 1.13.5`), and the smoke prints `answer: Lab Broker (SP1): consulted
+the Claude lab face…` and exits 0 with **no** `RuntimeError`.
+
+**Still open after this (unchanged):** the Task 1 console full rebuild (plan/07 stories +
+`config/targets.yaml` `transport: http_json` pin + `index.html` copy); drop the Design gateway
+(`12cb93d2-…`, structurally can't host anything); rotate the leaked
+`A2ALAB_MULE_GW_CLIENT_SECRET`. Uncommitted working-tree changes to fold into the Task 1
+commit: this session's `broker1.agent` + this `plan/15` update, plus the prior session's
+faces auth discovery-suffix fix (`src/interop/servers/auth.py` + `tests/unit/test_faces.py`)
+and JWT-public-key wiring (`deploy/faces/deploy_faces.sh`) — both already live hosted, not yet
+committed — and the console/config/index.html changes staged for Task 1.

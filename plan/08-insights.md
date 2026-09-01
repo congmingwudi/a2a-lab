@@ -24,7 +24,7 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Advise customers to consolidate within a trust domain and federate across trust domains — and to treat "we'll never need interop" with suspicion: your vendors are already shipping agents, so the second platform usually arrives whether you chose it or not.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -57,6 +57,8 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
@@ -73,6 +75,8 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
+    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
     HSHIM -.hops.-> OBSDB
@@ -225,7 +229,7 @@ Only two platforms speak a protocol natively: Google Vertex AI Agent Engine (A2A
 
 **Advisor take:** Plan for bridges and adapters as permanent, first-class, observable components of an interop program — not temporary scaffolding. Ask every vendor "which protocols do you speak natively, in which direction, GA or beta?" and demand wire-level evidence.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -258,6 +262,8 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
@@ -274,6 +280,8 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
+    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
     HSHIM -.hops.-> OBSDB
@@ -447,6 +455,27 @@ flowchart LR
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
 ```
 
+**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
+
+```mermaid
+flowchart LR
+    subgraph CONSOLE["Console task (Fargate) — one signing key, two public mints"]
+        KEY[("A2ALAB_JWT_PRIVATE_KEY (RS256)")]
+        LOGIN["POST /api/login<br/>persona + shared password (D36)"]
+        OAUTH["POST /oauth/token<br/>client_credentials (WS10 SP1)"]
+        LOGIN --> KEY
+        OAUTH --> KEY
+    end
+
+    HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
+    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, RUNNING · broker deployed (edge 1.13.5)"]
+
+    HUMAN -- "username + password" --> LOGIN
+    MULE -- "gateway client id/secret" --> OAUTH
+    KEY -- "8h persona JWT" --> HUMAN
+    KEY -- "short-lived JWT<br/>sub=mulesoft-omni-gateway" --> MULE
+```
+
 ### Agent-to-agent graphs grow edges nobody drew — govern the actual topology, not the diagram
 
 *Status: observed · refs: D25*
@@ -455,7 +484,7 @@ flowchart LR
 
 **Advisor take:** Once agents can call agents, delegation chains form transitively — including across billing, compliance, and data boundaries. Enforce closed systems per use case, and monitor real topology from traces. This governance problem arrives with your second platform, not your tenth.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -488,6 +517,8 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
@@ -504,6 +535,8 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
+    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
     HSHIM -.hops.-> OBSDB
@@ -582,6 +615,27 @@ flowchart LR
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
+```
+
+**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
+
+```mermaid
+flowchart LR
+    subgraph CONSOLE["Console task (Fargate) — one signing key, two public mints"]
+        KEY[("A2ALAB_JWT_PRIVATE_KEY (RS256)")]
+        LOGIN["POST /api/login<br/>persona + shared password (D36)"]
+        OAUTH["POST /oauth/token<br/>client_credentials (WS10 SP1)"]
+        LOGIN --> KEY
+        OAUTH --> KEY
+    end
+
+    HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
+    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, RUNNING · broker deployed (edge 1.13.5)"]
+
+    HUMAN -- "username + password" --> LOGIN
+    MULE -- "gateway client id/secret" --> OAUTH
+    KEY -- "8h persona JWT" --> HUMAN
+    KEY -- "short-lived JWT<br/>sub=mulesoft-omni-gateway" --> MULE
 ```
 
 ## Observability

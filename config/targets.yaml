@@ -413,7 +413,17 @@ targets:
     endpoint: ${A2ALAB_MULE_BROKER_URL}
     status: via-fabric
     auth: {}
-    options: {protocol_version: "1.0", timeout: 65}
+    # The broker publishes a MINIMAL agent card (no url / preferredTransport /
+    # protocolVersion), so a2a-sdk card negotiation fails with "no compatible
+    # transports found". Pin the transport to skip discovery: the broker speaks
+    # the lf.a2a.v1 protobuf-JSON dialect (PascalCase SendMessage, ROLE_USER,
+    # A2A-Version: 1.0) = the HTTP+JSON REST binding, not JSON-RPC. card_path
+    # still points at the served card for the wiretap record.
+    options:
+      protocol_version: "1.0"
+      timeout: 65
+      transport: http_json
+      card_path: .well-known/agent-card.json
 
 # Deployment modes (D26): A2ALAB_MODE=hosted transparently remaps these
 # names wherever a client is resolved (bridge, custom tools, console runs) —

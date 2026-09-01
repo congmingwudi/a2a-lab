@@ -20,12 +20,20 @@ executor consult:
   on_exit: ->
     transition to @echo.done
 
+# A deterministic broker cannot RELAY the sub-agent's answer text: in the
+# AgentScript dialect an A2A sub-agent is consumed only inside an
+# `orchestrator.reasoning.actions` block, whose `@orchestrator.<n>.output` is the
+# LLM's structured result — there is no `@executor.<n>.output` for a plain `run`
+# of an a2a:send_message (executors run actions for their side-effect). The LLM
+# path is blocked for this org: 0 LLMs registered and Model Wallet not enabled
+# (see plan/15). So SP1 echoes a fixed confirmation — the `run` above still fires
+# the identity-attributed A2A hop into the lab trace, which is what SP1 proves.
 echo done:
   kind: "a2a:status_update_event"
   state: "TASK_STATE_COMPLETED"
   message: a2a.message({
     messageId: uuid(),
     parts: [
-      a2a.textPart(@executor.consult.output)
+      a2a.textPart("Lab Broker (SP1): consulted the Claude lab face over A2A. See the lab trace for the identity-attributed hop.")
     ]
   })

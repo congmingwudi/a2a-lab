@@ -1595,25 +1595,29 @@ scheduled.
 
 ## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
 
-**Status: SP1 walking skeleton BUILT; Omni Gateways live in Design + Production;
-broker deploy BLOCKED on environment (2026-09-01).** Phase 0 passed, the
-managed-gateway entitlement was raised, and Omni Gateways
-(`agent-network-shared-gw`) are provisioned and **RUNNING** in both the Design
-and Production environments (operator work, 2026-08-31/09-01). SP1's code is
-built and merged to main: the machine caller identity, the client-credentials
-mint, the console `/oauth/token` route, wiretap caller attribution, the
-six-agent descriptor set plus a 1-hop broker, and the `mule-broker-a2a` console
-target (numbered items below). **Not yet done, and not claimed here:** the
-broker is not yet deployed onto a gateway. `agent-network project build` and
-`publish` succeed, but `deploy` against Design **fails** — a Design-type
-environment has no API Manager runtime and cannot host the six agent-connection
-API instances (full analysis in `plan/15-mulesoft-agent-fabric-gateway-blocker.md`).
-The deploy must retarget **Sandbox or Production**; no live call has been made
-through the broker yet, and the promote-to-Production step is a separate,
-deliberate operator action. (This status line is explicit so the delivery record
-does not inherit the status of the `## Lab Guide` section that follows: both are
-un-numbered sub-sections inside WS10's span, and `jira_sync.py` would otherwise
-read the Lab Guide's "built" status as WS10's.)
+**Status: SP1 walking skeleton BUILT and DEPLOYED to Production; broker RUNNING;
+broker→face consult unproven end to end (2026-09-01).** Phase 0 passed, the
+managed-gateway entitlement was raised, and the Omni Gateway
+(`agent-network-shared-gw`) is provisioned and **RUNNING in Production**
+(operator work, 2026-08-31/09-01). SP1's code is built and merged to main: the
+machine caller identity, the client-credentials mint, the console `/oauth/token`
+route, wiretap caller attribution, the six-agent descriptor set plus a 1-hop
+AgentScript broker, and the `mule-broker-a2a` console target (numbered items
+below). **Deployed 2026-09-01:** `agent-network project build`/`publish`/`deploy`
+succeeded against the Production gateway once it was upgraded in place to
+`edge 1.13.5` (the first runtime carrying the auto-applied Agent Fabric policies
+— the `edge 1.9.16` the gateway shipped with 400'd on `tracing` 1.1.1 + siblings
+having no runtime build). All six agent-connection API instances and the broker
+are RUNNING at the gateway ingress `/broker1/`. **Not yet proven, and not claimed
+here:** the console→broker **ingress** works (`scripts/mule_broker_smoke.py` gets
+a `SendMessage` accepted), but the broker's **egress** consult back to the faces
+returns `TASK_STATE_FAILED` — leading suspect the broker's `lf.a2a.v1` protobuf
+dialect vs the faces' JSON-RPC A2A; the isolation test needs live egress and is
+held for the operator. Full analysis in
+`plan/15-mulesoft-agent-fabric-gateway-blocker.md`. (This status line is explicit
+so the delivery record does not inherit the status of the `## Lab Guide` section
+that follows: both are un-numbered sub-sections inside WS10's span, and
+`jira_sync.py` would otherwise read the Lab Guide's "built" status as WS10's.)
 
 **Goal.** Stand up Agent Fabric against the lab's own agents and produce a
 customer-facing **build-vs-buy comparison matrix**.
@@ -1758,9 +1762,19 @@ project (broker) + register the lab's A2A agents.
    Run button like any other protocol-generic target.
 7. ✅ Deterministic smoke (`scripts/mule_broker_smoke.py`) + a live
    trace-attribution proof (`tests/live/test_mule_broker.py`) — code and tests
-   committed; the live run itself is held for the operator until the broker is
-   deployed (item below).
-8. ⏳ **SP4 — a dedicated Agent Fabric console section** (build-vs-buy
+   committed. The smoke has now **run against the live Production broker**: it
+   fetches the card, binds HTTP+JSON, and gets a `SendMessage` accepted (ingress
+   proven). The live trace-attribution proof is still blocked on the broker→face
+   consult (`TASK_STATE_FAILED`, item 8) and remains held for the operator.
+8. ✅ **Broker deployed to Production on `edge 1.13.5`** (2026-09-01) — the six
+   agent-connection API instances (`claudeConn`, `openaiConn`, `strandsConn`,
+   `guideConn`, `agentforceConn`, `langgraphConn`) + the AgentScript broker
+   RUNNING at ingress `/broker1/`, reached via `oauth2-client-credentials` to the
+   console `/oauth/token`. Open: the broker→face **consult** returns
+   `TASK_STATE_FAILED` (leading suspect: `lf.a2a.v1` protobuf vs JSON-RPC on the
+   egress hop), so the skeleton is deployed but not yet proven end to end
+   (`plan/15-mulesoft-agent-fabric-gateway-blocker.md`).
+9. ⏳ **SP4 — a dedicated Agent Fabric console section** (build-vs-buy
    comparison matrix, sizing-cost readout for the forced-`large` gateway
    entitlement): deferred, not started.
 
@@ -1777,9 +1791,31 @@ client-credentials): a **Design-type environment is design-only and has no API
 Manager runtime**, so API instances cannot be created there (confirmed by org
 history — every API instance in the org lives in `sandbox`; the Design env has
 zero). The Design gateway is therefore on a structurally-incapable environment.
-**Next (operator):** drop the Design gateway and deploy the broker to the existing
-Production gateway (or stand up a Sandbox gateway first to validate). Full
-analysis and the recommended commands are in
+The fix (taken, below) was to deploy to Production instead. Full analysis and the
+recommended commands are in `plan/15-mulesoft-agent-fabric-gateway-blocker.md`.
+
+**Broker deploy — RESOLVED, deployed to Production on `edge 1.13.5` (2026-09-01).**
+Deployed straight to the Production gateway (`type: production`, so API Manager
+accepted it), skipping Sandbox on this solo POC org. The first attempt got
+*past* the Design blocker — it created all six agent-connection API instances —
+then failed one step later with `errorCode 3004 → 400 "Policy <id> does not have
+implementation for the selected runtime"`. Root cause was a **gateway-runtime ↔
+policy-artifact version gap**: Agent Fabric auto-applies four policies to every
+connection (`a-two-a-v1-agent-card`, `agent-connection-telemetry`, `tracing`
+1.1.1, `credential-injection-oauth2` — none from our descriptor), and the
+gateway's `edge 1.9.16` runtime had no compiled build for `tracing` 1.1.1 and a
+sibling. `--disable-tracing` does **not** remove the policy (it controls
+functionality, not application), and LTS is the wrong direction (AF policies are
+new artifacts). The operator upgraded the gateway **in place** to `edge 1.13.5`
+(`runtime-mgr gateways managed edit … --version latest --releaseChannel edge` —
+no new entitlement, `large` 2/2 unchanged); the re-deploy then **succeeded end to
+end**, confirming the diagnosis (the newer edge build is the first to carry the
+policy implementations). **Still open:** the broker→face egress consult returns
+`TASK_STATE_FAILED` — the ingress is proven (smoke gets `SendMessage` accepted)
+but the downstream consult is not; the isolation test that distinguishes the
+dialect-mismatch hypothesis from an oauth2-cc token-fetch failure needs live
+egress and is held for the operator. Also pending: **drop the Design gateway**
+(`12cb93d2-…`, structurally can never host anything). Full record in
 `plan/15-mulesoft-agent-fabric-gateway-blocker.md`.
 
 ---

@@ -426,7 +426,7 @@ flowchart TB
   end
   SM -.->|"env_sync.py<br/>.env lives here too"| OPER
 
-  MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>cloudhub-us-east-1, Design env<br/>RUNNING; broker not yet published"]
+  MULE["MuleSoft Omni Gateway + AgentScript broker<br/>agent-network-shared-gw (edge 1.13.5)<br/>cloudhub-us-east-1, Production<br/>RUNNING; broker deployed, consult unproven"]
   MULE -->|"client_credentials"| MACH
 ```
 
@@ -456,13 +456,18 @@ console already holds for `/api/login`, and is exempt from the console JWT
 gate for the identical reason `/api/login` is: it *is* the credential
 exchange (D36's public-surface rule extended to a machine caller). The caller
 is the MuleSoft **Omni Gateway** `agent-network-shared-gw` — a managed
-`large` gateway on `cloudhub-us-east-1`, provisioned and **RUNNING in the
-Design environment**. Honestly: the gateway existing does not mean the
-fabric's agent-network **broker** is deployed — that is a separate
-build/publish/deploy step (L6 below) the operator has not yet run, and moving
-the broker from Design to Production is a further, deliberate operator step.
-Until then, `mule-broker-a2a` in `config/targets.yaml` (status `via-fabric`,
-plan/02-matrix.md) has a real target shape and no live endpoint.
+`large` gateway on `cloudhub-us-east-1`, provisioned and **RUNNING in
+Production** (upgraded in place to `edge 1.13.5`, the first runtime that
+ships the auto-applied Agent Fabric policies — see plan/15). As of
+2026-09-01 the agent-network **broker** is **deployed**: `build` + `publish`
++ `deploy` succeeded, creating all six agent-connection API instances and
+the 1-hop AgentScript broker (RUNNING at the gateway ingress `/broker1/`).
+So `mule-broker-a2a` in `config/targets.yaml` (status `via-fabric`,
+plan/02-matrix.md) now has a live endpoint the console can call. Honestly:
+the console→broker **ingress** hop works, but the broker's **egress**
+consult back to the faces still returns `TASK_STATE_FAILED` (leading
+suspect: the broker's `lf.a2a.v1` protobuf dialect vs the faces' JSON-RPC
+A2A) — so the skeleton is deployed but not yet proven end to end.
 
 **Why the federation box is lopsided.** AWS trusts `accounts.google.com`
 natively and needs **one** role. Google needs **five** objects before it will
@@ -1051,7 +1056,7 @@ flowchart LR
 | `src/faces/` (the protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces`. **One process serves all fourteen, addressed by path** (the three strands faces still run the stub — the live Strands turn runs on the AgentCore runtime, not the faces task; the faces image would need the `strands` extra + `STRANDS_BACKEND` to serve the real backend, WS5/D66) | AWS |
 | `src/briefs/` (the watcher) | `deploy/briefs/deploy_briefs.sh` | ECS service `a2alab-briefs` on the shared cluster, roles `a2alab-briefs-task` / `-exec`, secret `a2alab/runtime/briefs`. **Reuses the faces image**, no ALB, no target group — it serves nothing | AWS |
 | `src/platforms/langgraph/` | `deploy/heroku/deploy_langgraph.sh` | Heroku container app in team `sfdc-ta` (`HEROKU_APP`/`HEROKU_TEAM`/`HEROKU_API_KEY` from `.env`): one **web dyno** running `python -m platforms.langgraph --protocol all`, which reuses the faces multiplexer to serve all three langgraph faces (`/langgraph-rest`, `/langgraph-mcp/mcp`, `/langgraph-a2a`) behind one `$PORT`. Image carries the `langgraph` + `aws` extras and pushes as a Docker **schema2** manifest (buildx `oci-mediatypes=false,push=true` — Heroku's registry rejects the OCI manifest Docker 29's containerd store emits). The lab's **first non-AWS-hosted platform** (D77). **LIVE 2026-08-17** (app `a2a-lab-langgraph`, `LANGGRAPH_BACKEND=langgraph`, one Basic dyno); the `langgraph-*-hosted` twins + hosted-mode remap are uncommented in `config/targets.yaml`. **Cross-cloud trace sink LIVE 2026-08-19 (WS4 item 9):** the dyno now runs `A2ALAB_TRACE_SINK=postgres` and writes its hops to the shared Aurora store **off-VPC via the rds-data Data API** (an HTTPS AWS call, no VPC peering) — authenticated by a static scoped AWS access-key config var held under dedicated `A2ALAB_HEROKU_AWS_*` names (so `source .env` never shadows the operator's SSO locally), acting as the `lab_writer` role via the writer-secret swap. Proven end to end by the forward delegation trace `verify-fwd-1787158072` (5 hops incl. the agentforce-api leg) landing in `lab.trace_events`. Flipping the sink was a config-only `--skip-build` re-release | Heroku |
-| `mulesoft/agent-network/` | `anypoint-cli-v4 agent-network project build\|publish\|deploy --gateway agent-network-shared-gw` | Registers the six agent descriptors + a 1-hop broker on the Omni Gateway (WS10 SP1). **Not yet run** — the operator's step, held for the reconcile-against-scaffold items in the SP1 plan; the gateway itself is provisioned and RUNNING, the broker is not yet published | MuleSoft CloudHub 2.0 (us-east-1) |
+| `mulesoft/agent-network/` | `ANYPOINT_ENV=Production anypoint-cli-v4 agent-network project build\|publish\|deploy --gateway agent-network-shared-gw` | Registers the six agent descriptors + a 1-hop AgentScript broker on the Omni Gateway (WS10 SP1). **Deployed to Production 2026-09-01** on `edge 1.13.5` — all six agent-connection API instances (`claudeConn`, `openaiConn`, `strandsConn`, `guideConn`, `agentforceConn`, `langgraphConn`) + the broker RUNNING at ingress `/broker1/`. The `edge 1.9.16` runtime the gateway shipped with lacked builds for the auto-applied Agent Fabric policies (`tracing` 1.1.1 + siblings), so the deploy 400'd until the gateway was edited in place to `edge 1.13.5` (plan/15). **Open:** the broker→face consult returns `TASK_STATE_FAILED` — deployed, not yet proven end to end | MuleSoft CloudHub 2.0 (us-east-1) |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator` | `sf agent validate\|publish\|activate` | Agent Script orchestrator bundle in the prod org (WS8 variant 3, D61). Fans out by **delegating** to the bridge's `fanout:` route; reuses `A2ALabInvokeRemoteAgent` — no new Apex, no new Named Credential | Salesforce |
 | `src/bridge/app.py` `_fanout()` | (part of `deploy/bridge/deploy_bridge.sh`) | The bridge's `fanout:<scenario>` verb route — one Apex callout runs the three legs off-platform via `orchestration.dispatch()`. Ships with the bridge image; not a separate deploy (D61) | AWS |

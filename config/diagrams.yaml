@@ -42,7 +42,7 @@ diagrams:
   - id: console-two-mints
     title: "One signing key, two public mints"
     caption: >
-      /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway. Design env only until the operator's Production move.
+      /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
     insights: [credential-locality, least-privilege-is-identity]
     readme: false
     mermaid: |
@@ -56,7 +56,7 @@ diagrams:
           end
 
           HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
-          MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Design env, broker not yet published"]
+          MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, RUNNING · broker deployed (edge 1.13.5)"]
 
           HUMAN -- "username + password" --> LOGIN
           MULE -- "gateway client id/secret" --> OAUTH
@@ -65,7 +65,7 @@ diagrams:
   - id: platform-map
     title: "The platform map"
     caption: >
-      Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+      Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
     insights: [protocol-reality-check, emergent-topology, when-to-federate]
     readme: true
     mermaid: |
@@ -99,6 +99,8 @@ diagrams:
           ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
           FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
+          MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+
           APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
           APEX -- "direct A2A (D30)" --> ADK
           BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
@@ -115,6 +117,8 @@ diagrams:
           FDY -- "A2A (0.3 dialect)" --> HSHIM
           ADK -- "cross-hyperscaler A2A" --> FDY
           HSHIM --> AGENTAPI
+          CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+          MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
           CONSOLE -.scenarios.-> BR
           CONSOLE -.reads.-> OBSDB
           HSHIM -.hops.-> OBSDB

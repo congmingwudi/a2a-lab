@@ -75,12 +75,17 @@ def test_exchange_template_has_gav_with_org_id_as_placeholder():
 
 def test_no_account_identifiers_in_descriptors():
     # Region-only hostnames are fine; an org id / BG name must never appear.
-    # Scan every committed descriptor, but skip the rendered exchange.json —
-    # it is gitignored and deliberately carries the real org id locally.
+    # Scan every committed descriptor, but skip two gitignored things this
+    # filesystem walk (unlike git) would otherwise pick up: the rendered
+    # exchange.json (deliberately carries the real org id locally), and the
+    # `target/` Maven/AF build output — binary `project.zip` bundles that
+    # `read_text()` can't decode and that carry no committed descriptor anyway.
     files = [
         p
         for p in ROOT.rglob("*")
-        if p.is_file() and p.name != "exchange.json"
+        if p.is_file()
+        and p.name != "exchange.json"
+        and "target" not in p.relative_to(ROOT).parts
     ]
     blob = " ".join(p.read_text() for p in files)
     assert "00b44e97" not in blob  # the MuleSoft root BG id (auto-memory)
