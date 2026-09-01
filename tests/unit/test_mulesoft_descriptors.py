@@ -44,8 +44,14 @@ def test_broker_references_the_agentscript_source():
     assert (ROOT / "brokers" / "broker1.agent").exists()
 
 
-def test_exchange_declares_gw_secret_as_secured_variable_and_no_literals():
-    ex = json.loads((ROOT / "exchange.json").read_text())
+# The committed source of truth is the .template — the real exchange.json is
+# rendered from it by render_exchange.py (org id substituted from .env) and is
+# gitignored, so it may or may not exist on disk during a test run.
+EXCHANGE_TEMPLATE = ROOT / "exchange.json.template"
+
+
+def test_exchange_template_declares_gw_secret_as_secured_variable_and_no_literals():
+    ex = json.loads(EXCHANGE_TEMPLATE.read_text())
     variables = ex["metadata"]["variables"]
     assert set(variables) == SIX | {"gwClientId", "gwClientSecret"}
     assert variables["gwClientSecret"]["secret"] is True
@@ -54,9 +60,29 @@ def test_exchange_declares_gw_secret_as_secured_variable_and_no_literals():
     assert variables["gwClientId"].get("default", "") == ""
 
 
+def test_exchange_template_has_gav_with_org_id_as_placeholder():
+    # `agent-network project build` requires Exchange GAV coordinates, and
+    # `project publish` checks the session owns the org named by groupId — so
+    # groupId/organizationId are the org id. They must ride a .env placeholder,
+    # never a committed literal (root CLAUDE.md: no account identifier in repo).
+    raw = EXCHANGE_TEMPLATE.read_text()
+    ex = json.loads(raw)
+    assert ex["assetId"]  # committed literals, not account identifiers
+    assert ex["version"]
+    assert ex["groupId"] == "${A2ALAB_MULE_ORG_ID}"
+    assert ex["organizationId"] == "${A2ALAB_MULE_ORG_ID}"
+
+
 def test_no_account_identifiers_in_descriptors():
     # Region-only hostnames are fine; an org id / BG name must never appear.
-    blob = " ".join(p.read_text() for p in ROOT.rglob("*") if p.is_file())
+    # Scan every committed descriptor, but skip the rendered exchange.json —
+    # it is gitignored and deliberately carries the real org id locally.
+    files = [
+        p
+        for p in ROOT.rglob("*")
+        if p.is_file() and p.name != "exchange.json"
+    ]
+    blob = " ".join(p.read_text() for p in files)
     assert "00b44e97" not in blob  # the MuleSoft root BG id (auto-memory)
     assert "salesforce-5782" not in blob  # the org domain
 

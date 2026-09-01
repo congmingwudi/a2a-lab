@@ -16,11 +16,18 @@ The hosted Agentforce A2A shim one of the six faces proxies through is `D28`.
 ```
 mulesoft/
   README.md                          — this file
-  .gitignore                         — ignores build output (target/)
+  .gitignore                         — ignores build output (target/) and the
+                                        rendered exchange.json
   agent-network/
-    exchange.json                    — Exchange descriptor: name, classifier,
-                                        main file, and the deploy-variable
+    exchange.json.template           — COMMITTED Exchange descriptor: name,
+                                        classifier, main file, GAV coordinates
+                                        (org id as a ${A2ALAB_MULE_ORG_ID}
+                                        placeholder), and the deploy-variable
                                         contract (no secret values, no org id)
+    exchange.json                    — GENERATED, gitignored: the template with
+                                        the real org id substituted from .env
+    render_exchange.py               — renders the template → exchange.json,
+                                        substituting A2ALAB_MULE_ORG_ID from .env
     agent-network.yaml               — the v2 agentic-network descriptor:
                                         registry.agents.{claude,openai,strands,
                                         guide,agentforce,langgraph}, one A2A
@@ -36,11 +43,26 @@ plugin's own `templates/agentic-network/*.template` files and the published
 
 ## What's committed vs. what's supplied at deploy time
 
-Nothing in this directory names a face URL, a MuleSoft org id, a business
-group, or a secret value — consistent with the repo-wide rule that no account
-identifier is hardcoded anywhere (see the root `CLAUDE.md`). Every face URL
-and both gateway OAuth credentials are **deploy variables** declared in
-`exchange.json` with empty defaults, supplied at deploy time:
+Nothing committed here names a face URL, a MuleSoft org id, a business group,
+or a secret value — consistent with the repo-wide rule that no account
+identifier is hardcoded anywhere (see the root `CLAUDE.md`).
+
+The Agent Fabric descriptor requires Exchange GAV coordinates
+(`organizationId` / `groupId` / `assetId` / `version`), and `groupId` **is**
+the MuleSoft org id — `project publish` checks the authenticated session owns
+the org that `groupId` names. `assetId` (`a2a-interop-lab-fabric`) and
+`version` (`1.0.0`) are safe literals and are committed; `groupId` /
+`organizationId` are a `${A2ALAB_MULE_ORG_ID}` placeholder in
+`exchange.json.template`. Before build/publish/deploy, render the real
+descriptor once in the worktree (the org id comes from `.env`, and the output
+is gitignored — the same pattern as `A2ALab_GCP.externalCredential-meta.xml`):
+
+```
+uv run python mulesoft/agent-network/render_exchange.py
+```
+
+Every face URL and both gateway OAuth credentials are **deploy variables**
+declared in the descriptor with empty defaults, supplied at deploy time:
 
 ```
 agent-network project deploy --gateway agent-network-shared-gw \
@@ -66,7 +88,7 @@ account identifier; the same literal already appears in
 ## Lifecycle commands
 
 ```
-anypoint-cli-v4 agent-network project create    # scaffold (operator, one-time reconcile)
+uv run python mulesoft/agent-network/render_exchange.py   # render exchange.json from .env (first)
 anypoint-cli-v4 agent-network project build      # compiles + validates the AgentScript broker
 anypoint-cli-v4 agent-network project publish    # publishes agent-network.yaml + exchange.json to Exchange
 anypoint-cli-v4 agent-network project deploy --gateway agent-network-shared-gw \
@@ -79,18 +101,18 @@ entitlement gate was cleared).
 
 ## Operator-vs-Claude division (spec §4.9)
 
-This SP1 task authored the five files above by hand from the plugin's own
+This SP1 task authored the descriptors above by hand from the plugin's own
 templates and the v2 schema — the deterministic YAML/JSON shape that
 `tests/unit/test_mulesoft_descriptors.py` guards. Three things are
 deliberately **not** done here and remain the operator's:
 
-- **Reconcile**: running `anypoint-cli-v4 agent-network project create` in a
-  throwaway directory to emit the canonical scaffold, then diffing it
-  against the committed `exchange.json` to lock the `groupId` / `assetId` /
-  `version` conventions (an org id must never be committed, so the operator
-  supplies these at `create`/`publish` time) and confirm how the toolchain
-  handles the YAML anchor (`&gwOauth` / `*gwOauth`) used to keep the six
-  identical auth blocks DRY.
+- **Render**: `render_exchange.py` materializes the real `exchange.json`
+  from the committed template, substituting the org id from `.env`
+  (`A2ALAB_MULE_ORG_ID`). The GAV shape is taken verbatim from the plugin's
+  `templates/agentic-network/exchange.json.template` (`organizationId` /
+  `groupId` / `assetId` / `version`); confirm how the toolchain handles the
+  YAML anchor (`&gwOauth` / `*gwOauth`) used to keep the six identical auth
+  blocks DRY when `build` first runs.
 - **Build**: `agent-network project build` is the only compiler validation
   of `broker1.agent` — the highest-uncertainty artifact in this set (its
   action-input binding and `@request.payload` reference are taken from the
@@ -107,6 +129,7 @@ deliberately **not** done here and remain the operator's:
 MuleSoft toolchain or credentials: the registry has exactly the six faces;
 every connection is `kind: a2a` with `oauth2-client-credentials` pointed at
 the console token URL; the broker references `./brokers/broker1.agent`;
-`exchange.json` declares the gateway secret as a secured variable with no
-committed value; and no account identifier appears anywhere under
-`mulesoft/agent-network/`.
+`exchange.json.template` declares the gateway secret as a secured variable
+with no committed value and carries GAV with the org id as a
+`${A2ALAB_MULE_ORG_ID}` placeholder; and no account identifier appears in any
+committed file under `mulesoft/agent-network/`.

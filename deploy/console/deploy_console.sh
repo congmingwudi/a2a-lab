@@ -101,6 +101,17 @@ keys = [
     # all and rejected every login with a correct-looking "wrong user or
     # password".
     "A2ALAB_MASTER_PASSWORD", "A2ALAB_OPERATOR_PASSWORD", "A2ALAB_VIEWER_PASSWORD",
+    # WS10 SP1: the MuleSoft Omni Gateway's client-credentials pair. The console
+    # validates the gateway's POST /oauth/token against these two via
+    # identity.authenticate_client, then mints a role=machine JWT. They are the
+    # D48 blind spot AGAIN: authenticate_client reads them indirectly
+    # (os.environ.get(id_env) where id_env comes from the SERVICE_CLIENTS dict),
+    # so the ENV_JSON scan below — which only matches os.environ["LITERAL"] —
+    # never sees them. Enumerate them here or the hosted console runs with both
+    # unset, authenticate_client hits `continue` (not configured), and every
+    # /oauth/token returns "invalid client": SP1 ships broken. Anypoint side is
+    # the matching secured deployment variable (spec §4).
+    "A2ALAB_MULE_GW_CLIENT_ID", "A2ALAB_MULE_GW_CLIENT_SECRET",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
 

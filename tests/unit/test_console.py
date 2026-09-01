@@ -886,6 +886,22 @@ def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
         assert client.get(path).status_code == 401, path
 
 
+def test_users_picker_omits_machine_principals(tmp_path, monkeypatch):
+    # WS10 SP1: the sign-in picker (/api/users) must not list machine
+    # principals (e.g. the MuleSoft Omni Gateway) — they have no console
+    # password and authenticate only via /oauth/token, so showing one reads
+    # as a login with a missing password.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    users = client.get("/api/users").json()["users"]
+    roles = {u["role"] for u in users}
+    assert "machine" not in roles
+    assert "mulesoft-omni-gateway" not in {u["username"] for u in users}
+    # The human personas are still listed.
+    assert {"ryan", "ana", "vic"} <= {u["username"] for u in users}
+
+
 # ---- insight sign-off (console: Insights → Approve / Request changes) ------
 
 

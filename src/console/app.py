@@ -1785,7 +1785,15 @@ def create_console_app(registry: Registry | None = None):
     async def users():
         """The lab user directory (WS6 U1) — feeds the console's sign-in
         picker. Demo-scale IdP: no passwords, the experiment is identity
-        PROPAGATION and authorization, not credential UX."""
+        PROPAGATION and authorization, not credential UX.
+
+        Machine principals (role=machine, e.g. the MuleSoft Omni Gateway,
+        WS10 SP1) are OMITTED: they have no console password
+        (identity.ROLE_PASSWORD_ENVS has no 'machine' key, so /api/login
+        fails closed for them) and authenticate only via client-credentials
+        at /oauth/token. Listing one in the human sign-in picker would read
+        as a login whose password is missing, which it is not — it is a
+        service caller, not a persona."""
         from interop import identity
 
         labels = identity.load_role_labels()
@@ -1801,6 +1809,7 @@ def create_console_app(registry: Registry | None = None):
                     "role_label": identity.role_label(e.get("role") or "viewer", labels),
                 }
                 for u, e in identity.load_users().items()
+                if (e.get("role") or "viewer") != "machine"
             ]
         }
 

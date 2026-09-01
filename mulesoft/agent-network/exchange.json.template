@@ -2,9 +2,13 @@
   "main": "agent-network.yaml",
   "name": "a2a-interop-lab-fabric",
   "classifier": "agentic-network",
+  "organizationId": "${A2ALAB_MULE_ORG_ID}",
   "descriptorVersion": "1.0.0",
   "apiVersion": "1.0.0",
   "tags": ["a2a-interop-lab", "ws10"],
+  "groupId": "${A2ALAB_MULE_ORG_ID}",
+  "assetId": "a2a-interop-lab-fabric",
+  "version": "1.0.0",
   "dependencies": [],
   "metadata": {
     "variables": {
