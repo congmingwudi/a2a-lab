@@ -68,7 +68,7 @@ fi
 # from one secret, never carried on the task definition.
 SECRET_NAME=a2alab/runtime/faces
 SECRET_JSON=$(python3 - <<'PY'
-import json, os
+import json, os, pathlib
 keys = [
     "A2ALAB_TOKEN",          # the console's own service token
     "ANTHROPIC_API_KEY",     # the Lab Guide answers in-process
@@ -82,7 +82,26 @@ keys = [
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
 ]
-print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
+payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
+
+# The lab JWT VERIFY key — public half ONLY. A face verifies lab JWTs (WS6 U1:
+# a signed per-user or machine credential accepted wherever the shared
+# A2ALAB_TOKEN is), and the RS256 design is precisely that a verifying seam
+# holds the public key and NEVER the signing key — so, unlike the console
+# (which issues and carries both), the faces get only lab_jwt_public.pem.
+# Without it identity.public_key() silently generates a FRESH keypair per task
+# and every console-signed JWT fails verification with a 401 — invisible until
+# the first caller authenticates to a face by minted JWT rather than the shared
+# token (the WS10 MuleSoft Omni Gateway, which surfaced exactly this). Env wins
+# if already set; else the local PEM (the same file the console deploy reads).
+key_dir = pathlib.Path(os.environ.get("A2ALAB_JWT_DIR", ".a2alab"))
+_pub = key_dir / "lab_jwt_public.pem"
+if os.environ.get("A2ALAB_JWT_PUBLIC_KEY"):
+    payload["A2ALAB_JWT_PUBLIC_KEY"] = os.environ["A2ALAB_JWT_PUBLIC_KEY"]
+elif _pub.exists():
+    payload["A2ALAB_JWT_PUBLIC_KEY"] = _pub.read_text()
+
+print(json.dumps(payload))
 PY
 )
 aws secretsmanager describe-secret --region "$REGION" --secret-id "$SECRET_NAME" >/dev/null 2>&1 \

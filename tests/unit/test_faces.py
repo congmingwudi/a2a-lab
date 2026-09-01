@@ -51,6 +51,43 @@ def test_a2a_cards_advertise_their_own_mounted_url(monkeypatch):
             assert resp.json()["url"] == f"https://faces.example.com/{prefix}/"
 
 
+def test_a2a_cards_are_discoverable_without_a_token(monkeypatch):
+    """The A2A card must be fetchable ANONYMOUSLY even when the face is mounted
+    under a prefix — clients (incl. the MuleSoft Omni Gateway) fetch the card
+    before they hold any credential; credential injection applies to the invoke,
+    not to discovery. This regressed once: a mounted face sees the FULL prefixed
+    path (/claude-a2a/.well-known/agent-card.json, prefix in root_path), so the
+    exact-match exemption missed and the face 401'd its own public card. The
+    other card test always sent the token, so it never caught this."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    with TestClient(build_faces_app("https://faces.example.com/")) as client:
+        for prefix in ("claude-a2a", "openai-a2a", "guide-a2a", "agentforce-a2a"):
+            # No X-Lab-Token: discovery is public.
+            resp = client.get(f"/{prefix}/.well-known/agent-card.json")
+            assert resp.status_code == 200, f"{prefix} card should be anonymous"
+            assert resp.json()["url"] == f"https://faces.example.com/{prefix}/"
+        # But the INVOKE on that same face stays gated without a token.
+        blocked = client.post(
+            "/claude-a2a/",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "message/send",
+                "params": {
+                    "message": {
+                        "role": "user",
+                        "messageId": "m1",
+                        "parts": [{"kind": "text", "text": "hi"}],
+                    }
+                },
+            },
+        )
+        assert blocked.status_code == 401, "message/send must still require a token"
+        # And a PER-FACE health path stays gated — only the top-level ALB
+        # /healthz is open (the discovery exemption must not widen to health).
+        assert client.get("/claude-a2a/healthz").status_code == 401
+
+
 def test_mcp_faces_have_a_started_transport(monkeypatch):
     """Starlette's Mount does NOT run a mounted app's lifespan, and FastMCP
     starts its streamable-HTTP session manager there. Without the parent

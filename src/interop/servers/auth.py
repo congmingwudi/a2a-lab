@@ -21,6 +21,19 @@ TOKEN_ENV = "A2ALAB_TOKEN"
 TOKEN_HEADER = "x-lab-token"
 EXEMPT_PATHS = ("/healthz", "/ping", "/.well-known/agent-card.json")
 
+# Discovery suffixes that must stay open even when the app is MOUNTED under a
+# prefix. The A2A spec (and every well-behaved client, incl. the MuleSoft Omni
+# Gateway) fetches the agent card ANONYMOUSLY before it ever sends a message —
+# credential injection applies to the invoke, not to card discovery. A mounted
+# face sees scope["path"] as the full "/claude-a2a/.well-known/agent-card.json"
+# (modern Starlette reports the prefix in root_path, not by stripping path), so
+# the exact-match EXEMPT_PATHS above never fires for it and the face 401s its
+# own public card. Suffix-matching these keeps discovery open regardless of the
+# mount prefix WITHOUT widening the health-path exemption (a per-face /healthz
+# stays gated — only the unwrapped top-level ALB /healthz is open). The legacy
+# /.well-known/agent.json is included for pre-0.3 A2A clients.
+DISCOVERY_SUFFIXES = ("/.well-known/agent-card.json", "/.well-known/agent.json")
+
 
 def _looks_like_jwt(value: str) -> bool:
     from interop.identity import looks_like_jwt
@@ -71,6 +84,7 @@ class TokenAuthMiddleware:
         if (
             not expected
             or path in self.exempt_paths
+            or path.endswith(DISCOVERY_SUFFIXES)
             or any(path.startswith(p) for p in self.exempt_prefixes)
         ):
             await self.app(scope, receive, send)
