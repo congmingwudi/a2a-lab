@@ -171,3 +171,83 @@ def test_escaped_newlines_in_the_env_key_are_restored(monkeypatch, tmp_path):
     private_pem = identity.ensure_keypair()[0].read_text()
     monkeypatch.setenv(identity.PRIVATE_KEY_ENV, private_pem.replace("\n", "\\n"))
     assert identity._private_key() == private_pem
+
+
+def test_machine_caller_is_in_directory_but_has_no_password_login(monkeypatch):
+    from interop import identity
+
+    users = identity.load_users()
+    assert "mulesoft-omni-gateway" in users
+    assert users["mulesoft-omni-gateway"]["role"] == "machine"
+
+    # A machine caller has NO console password (ROLE_PASSWORD_ENVS has no
+    # 'machine' key), so /api/login's authenticate() must fail closed for it
+    # even if a password is supplied.
+    monkeypatch.delenv("A2ALAB_OPERATOR_PASSWORD", raising=False)
+    with pytest.raises(ValueError):
+        identity.authenticate("mulesoft-omni-gateway", "anything")
+
+
+def test_issue_service_token_mints_short_lived_machine_jwt(monkeypatch):
+    from interop import identity
+
+    monkeypatch.setenv("A2ALAB_SERVICE_JWT_TTL_S", "120")
+    token = identity.issue_service_token("mulesoft-omni-gateway")
+    claims = identity.verify_token(token)
+    assert claims is not None
+    assert claims["iss"] == "a2a-lab"
+    assert claims["sub"] == "mulesoft-omni-gateway"
+    assert claims["role"] == "machine"
+    assert claims["exp"] - claims["iat"] == 120
+
+
+def test_issue_service_token_rejects_unknown_subject():
+    from interop import identity
+
+    with pytest.raises(ValueError):
+        identity.issue_service_token("nobody")
+
+
+def test_issue_service_token_role_ceiling(monkeypatch):
+    """Fail-closed: the mint must never issue a token for a human/operator
+    subject, only a directory entry whose role is 'machine' (WS10 SP1)."""
+    from interop import identity
+
+    users = {
+        "mulesoft-omni-gateway": {"name": "MuleSoft Omni Gateway", "role": "machine"},
+        "ryan": {"name": "Ryan Cox", "role": "operator"},
+    }
+    token = identity.issue_service_token("mulesoft-omni-gateway", users=users)
+    claims = identity.verify_token(token)
+    assert claims is not None and claims["role"] == "machine"
+
+    with pytest.raises(ValueError, match="not a machine identity"):
+        identity.issue_service_token("ryan", users=users)
+
+
+def test_authenticate_client_accepts_matching_creds_and_returns_subject(monkeypatch):
+    from interop import identity
+
+    monkeypatch.setenv("A2ALAB_MULE_GW_CLIENT_ID", "gw-id-123")
+    monkeypatch.setenv("A2ALAB_MULE_GW_CLIENT_SECRET", "gw-secret-abc")
+    assert identity.authenticate_client("gw-id-123", "gw-secret-abc") == "mulesoft-omni-gateway"
+
+
+def test_authenticate_client_rejects_bad_creds(monkeypatch):
+    from interop import identity
+
+    monkeypatch.setenv("A2ALAB_MULE_GW_CLIENT_ID", "gw-id-123")
+    monkeypatch.setenv("A2ALAB_MULE_GW_CLIENT_SECRET", "gw-secret-abc")
+    with pytest.raises(ValueError):
+        identity.authenticate_client("gw-id-123", "wrong")
+    with pytest.raises(ValueError):
+        identity.authenticate_client("", "")
+
+
+def test_authenticate_client_fails_closed_when_unconfigured(monkeypatch):
+    from interop import identity
+
+    monkeypatch.delenv("A2ALAB_MULE_GW_CLIENT_ID", raising=False)
+    monkeypatch.delenv("A2ALAB_MULE_GW_CLIENT_SECRET", raising=False)
+    with pytest.raises(ValueError):
+        identity.authenticate_client("gw-id-123", "gw-secret-abc")

@@ -33,7 +33,7 @@ def test_sqlite_sink_roundtrip_with_platform_ref(tmp_path):
     with Hop(
         "trace-1",
         source="claude-researcher",
-        target="anthropic-managed-agents",
+        target="claude-managed-agents",
         protocol="managed-agents-api",
         transport_detail="sessions.events send/stream",
         request_payload={"message": "hi"},

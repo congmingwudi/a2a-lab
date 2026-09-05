@@ -227,3 +227,16 @@ interop.
   implement. The move is the same trust-under-pressure one the cost sentinel
   already makes — name what backs a claim, and refuse the claim the backing
   cannot support (WS12/D44).
+- **A PaaS front-door timeout is a protocol problem, and A2A already has the
+  answer** (WS4/D78, measured 2026-08-19). Heroku's router kills any request held
+  past 30s (H12); a LangGraph answer runs 26–40s, so *synchronous* delegation
+  dies at the front door — nothing to do with the framework or the lab code.
+  Both WS4 directions became robust by switching transport, not host: A2A
+  fire-then-poll (submit + `tasks/get`) keeps every request sub-second. The
+  reverse cell (`agentforce-to-langgraph`) surfaced the reusable rule from D76 —
+  **the poll loop runs wherever the caller can afford to wait.** Forward, that is
+  the browser; reverse, the Apex callout holds ONE synchronous call and cannot
+  poll, so the BRIDGE polls on its behalf (a long-lived Fargate service can, a
+  frozen Lambda could not). Honest status unchanged: `via-bridge` on the
+  Salesforce leg (Agentforce outbound is REST-only), `native` on the Heroku leg —
+  the transport got more robust, the platform's protocol standing did not change.

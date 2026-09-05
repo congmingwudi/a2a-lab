@@ -28,6 +28,7 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         AzureInfraSource,
         GcpInfraSource,
     )
+    from observability.langgraph_source import LangGraphSource
     from observability.openai_source import OpenAISource
     from observability.pg import PgObsStore
     from observability.salesforce_source import SalesforceSource
@@ -65,6 +66,12 @@ def handler(event, context):  # noqa: ARG001 - AWS signature
         # deploy/obs/deploy_harvest.sh). No new secret (D39): both reads are
         # signed with the Lambda's role.
         "strands": StrandsSource,
+        # langgraph reads LangSmith (LangGraph's framework-native run store,
+        # WS4/D77) over HTTPS with LANGSMITH_API_KEY. UNLIKE the others this is
+        # NOT an AWS-role read: the key must be in the harvest secret (Secrets
+        # Manager) so prepare() puts it on the env — otherwise this source
+        # degrades to `blocked`, honestly. No AWS grant needed.
+        "langgraph": LangGraphSource,
         # Track B (plan/explore-moirai-timeseries-forecasting.md): cross-cloud
         # INFRASTRUCTURE metrics to lab.infra_metrics. Reads CloudWatch in this
         # account with the Lambda's role (needs cloudwatch:GetMetricData, the

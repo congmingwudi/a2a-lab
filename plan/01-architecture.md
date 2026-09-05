@@ -11,6 +11,9 @@ Salesforce Agentforce (custom Service agent; Apex action → Named Credential)
                                                 ▼
    claude servers  REST :8001 | MCP :8002 | A2A :8003    (openai :8011/12/13, M9)
    agentforce shims        MCP :8021 | A2A :8023          (proxy → Agent API)
+   guide servers   REST :8031 | MCP :8032 | A2A :8033    (the lab docent, D35)
+   strands servers REST :8041 | MCP :8042 | A2A :8043    (WS5; hosted twin → AgentCore)
+   langgraph srvrs REST :8051 | MCP :8052 | A2A :8053    (WS4; hosted → Heroku, D77)
    lab console :8200 (trace viewer, SSE live tail)
    cloudflared tunnel → claude-*-lab.agenticthings.com  (local dev stack; run_local.sh)
 
@@ -66,7 +69,8 @@ A platform = one directory under `src/platforms/<name>/` contributing an
 elsewhere), plus one entry per exposure in `config/targets.yaml`. Nothing in
 `interop/` or other platforms changes. ADK note: Google ADK speaks A2A
 natively, so onboarding it may need no custom client at all — the first true
-native×native A2A cell (M10).
+native×native A2A cell (the WS3 ADK↔Foundry capstone — see plan/02-matrix.md;
+not M10, which now names the unrelated Data 360 / Tableau Next milestone, D69).
 
 ## Timeout engineering (Path A)
 

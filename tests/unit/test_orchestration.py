@@ -727,3 +727,54 @@ async def test_sync_mode_is_unchanged_and_records_sync():
     assert all(r.dispatch_mode == "sync" and r.polls == 0 for r in result.results)
     assert "dispatch:" not in result.render()
     assert "async" not in result.render()
+
+
+@pytest.mark.asyncio
+async def test_run_target_async_degrades_to_sync_when_remote_is_submit_only(monkeypatch):
+    """run_target_async is the bridge's single-target seam (WS4/D77 reverse Path
+    A). When the remote takes a submit but will not serve the poll (a genuinely
+    submit-only endpoint), it falls back to a blocking ask() and reports the
+    honest async→sync mode — never surfacing the AsyncLifecycleUnsupported."""
+    from orchestration.runner import AsyncLifecycleUnsupported, run_target_async
+    from interop.models import AgentRequest
+
+    class SubmitOnlyClient:
+        async def submit(self, req):
+            raise AsyncLifecycleUnsupported("no task route")
+
+        async def poll(self, *a, **k):  # present so _async_capable() is True
+            raise AssertionError("poll should not be reached")
+
+        async def ask(self, req):
+            return AgentResponse(text="blocking fallback answer", session_id=req.session_id)
+
+    text, mode, polls = await run_target_async(
+        SubmitOnlyClient(),
+        AgentRequest(message="q", trace_id="t"),
+        trace_id="t",
+        timeout_s=5.0,
+    )
+    assert text == "blocking fallback answer"
+    assert mode == "async→sync"
+    assert polls == 0
+
+
+@pytest.mark.asyncio
+async def test_run_target_async_uses_blocking_for_non_async_client():
+    """A client with no submit/poll pair (rest/mcp/agentforce) is answered with a
+    blocking ask() and reported as sync — the flag on such a target is a no-op,
+    not an error."""
+    from orchestration.runner import run_target_async
+    from interop.models import AgentRequest
+
+    class RestOnlyClient:
+        async def ask(self, req):
+            return AgentResponse(text="rest answer", session_id=req.session_id)
+
+    text, mode, polls = await run_target_async(
+        RestOnlyClient(),
+        AgentRequest(message="q", trace_id="t"),
+        trace_id="t",
+        timeout_s=5.0,
+    )
+    assert (text, mode, polls) == ("rest answer", "sync", 0)

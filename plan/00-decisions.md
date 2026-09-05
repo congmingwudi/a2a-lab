@@ -3111,3 +3111,142 @@ so it fits the D16/D17 deliver-to-a-record shape, not in-turn orchestration).
 See WS11 item 13, D74 (the async tools + the header fix), D75 (the worker's
 non-gateway budget), D47 (the separate-invocation worker), D41 (the gateway
 ceiling this dissolves), and D61 (the Agentforce fan-out topology this rides on).
+
+## 2026-08-16 — D77: the LangGraph agent (WS4) is hosted on HEROKU, not LangGraph Platform — so it is served through the lab's OWN adapters, and it is the lab's first non-AWS-hosted platform
+
+**Context.** WS4 (plan/07) originally scoped the open-source-framework column as
+"LangGraph on **LangGraph Platform**": the managed Agent Server exposes A2A
+(`/a2a/{assistant_id}`) and MCP *natively*, and LangSmith is the queryable-SaaS
+observability backend. The operator chose to deploy the LangGraph agent to a
+**Heroku** team instead. That is a hosting-shape decision, not a framework one —
+worth recording because it changes what WS4 demonstrates and how the agent is
+served.
+
+**Decision.** Host the LangGraph agent on Heroku (one team app, container
+deploy). Because Heroku is a generic PaaS with no agent-protocol surface of its
+own, the agent is served through the lab's OWN `serve()` adapters — REST/MCP/A2A,
+exactly like `platforms/strands` and `platforms/openai` — rather than consuming
+LangGraph Platform's native endpoints. The agent INTERIOR is unchanged either
+way: a `create_react_agent` ReAct graph (agent node + `ask_agentforce` tool
+node), delegation-guarded (D27), Haiku-tier brain via `langchain-anthropic`.
+
+**Consequences.**
+- **First non-AWS host.** Every other hosted seam is on AWS (Fargate faces task,
+  AgentCore runtimes, Lambdas). LangGraph on Heroku is the lab's first platform
+  hosted off AWS — a genuinely new box in the estate (plan/09).
+- **One dyno, three protocols.** A Heroku web dyno gets exactly one HTTP `$PORT`,
+  so `python -m platforms.langgraph --protocol all` reuses the faces multiplexer
+  (`src/faces.build_faces_app(faces=LANGGRAPH_FACES)`) to mount the three
+  langgraph faces behind one origin. The `langgraph-*-hosted` twins are therefore
+  PATHS under `${A2ALAB_LANGGRAPH_BASE}` (`/langgraph-rest`, `/langgraph-mcp/mcp`,
+  `/langgraph-a2a`) — the same shape as the Fargate faces twins. `langgraph` is
+  deliberately NOT added to the module-level `FACES` tuple: that tuple is the
+  Fargate faces task, and langgraph does not ride it.
+- **Traces cross clouds via the Data API, not a VPC.** Off-VPC Heroku writes hops
+  to the shared Aurora store through the rds-data **Data API** (an HTTPS AWS API:
+  `A2ALAB_TRACE_SINK=postgres` + `A2ALAB_PG_CLUSTER_ARN`/`A2ALAB_PG_SECRET_ARN` +
+  a scoped AWS access key as a Heroku config var) — no VPC peering. This is why
+  the Heroku image carries the `aws` extra alongside `langgraph`.
+- **What WS4 loses and keeps.** It loses the "framework-vs-managed-PLATFORM"
+  contrast (we serve the protocols ourselves, so there is no native Agent Server
+  A2A/MCP to compare). It KEEPS the queryable-SaaS observability column: LangSmith
+  is host-agnostic — LangGraph/LangChain emit runs to it whenever
+  `LANGSMITH_API_KEY`/`LANGCHAIN_TRACING_V2` are set, on Heroku exactly as on
+  LangGraph Platform.
+- **Headless deploy.** `deploy/heroku/deploy_langgraph.sh` uses the Heroku
+  Platform API + Container Registry over docker+curl (app create, config vars,
+  image push, release) — no interactive `heroku login`. The one irreducible human
+  step is minting the API token (`heroku authorizations:create`). No environment
+  identifier is hardcoded: `HEROKU_APP`/`HEROKU_TEAM`/`HEROKU_API_KEY` come from
+  `.env`.
+
+**Status.** Scaffold, targets, multiplexer, deploy script, and tests are BUILT
+and committed. The `langgraph-*-hosted` twins + the hosted-mode remap are staged
+COMMENTED in `config/targets.yaml`, to be uncommented in the same change as the
+first successful deploy (so the matrix shows no phantom live cell). The deploy
+itself waits on the operator's Heroku API token and team-access confirmation.
+
+**Addendum (LIVE 2026-08-17, commit `29942a5`).** Deployed to Heroku team
+`sfdc-ta` as app `a2a-lab-langgraph`; the hosted twins + remap were uncommented
+in the same change. The one non-obvious deploy gotcha: Heroku's Container
+Registry rejects OCI manifests, and Docker 29's containerd store emits OCI, so
+the build pushes via buildx `--output type=image,oci-mediatypes=false,push=true`
+(Docker schema2). Cross-cloud trace sink went live 2026-08-19 (WS4 item 10).
+
+## 2026-08-19 — D78: the LangGraph pair goes live over A2A fire-then-poll — and for the REVERSE direction the BRIDGE runs the poll loop, because the Apex callout cannot
+
+**Context.** D77 hosts the LangGraph agent on a Heroku web dyno. Heroku's router
+enforces a HARD 30s request ceiling (error **H12**): any single HTTP request held
+open past 30s is killed server-side with an "Application Error" page. A real
+LangGraph answer runs **26–40s** (Haiku ReAct + the Agentforce consult), so a
+*synchronous* request that straddles 30s dies — measured, not theoretical: a 32s
+reverse answer was H12'd, a 13s one passed (plan/03). This is not a LangGraph
+fault or a lab-code fault; it is the PaaS's front-door timeout, the same
+gateway-ceiling problem WS11 was written for, now on a different host.
+
+**Decision.** Serve BOTH WS4 directions over the WS11 A2A fire-then-poll
+lifecycle (D74/D76): `submit()` returns a task id in ~1s, then `tasks/get` is
+polled to a terminal state, so no single request is ever held past the ceiling.
+The interesting half is WHERE the poll loop runs, which differs by direction —
+the same principle D76 recorded for the three supplier-disruption controllers.
+
+- **Forward (`langgraph-to-agentforce`) — the browser polls.** The console's
+  `/api/run` submits and its `/api/run/poll` drives `tasks/get`, exactly the
+  existing `console_dispatch: submit_poll` path. The scenario retargeted
+  `langgraph-rest → langgraph-a2a`. Ships with a CONSOLE redeploy alone: the live
+  dyno's A2A face already serves submit/poll (shared `create_a2a_app` +
+  `InMemoryTaskStore`), so no LangGraph redeploy is needed for the transport.
+
+- **Reverse (`agentforce-to-langgraph`) — the BRIDGE polls, on Apex's behalf.**
+  Agentforce's outbound is one synchronous Apex callout; Apex cannot itself poll.
+  So the bridge absorbs the loop: a target flagged **`bridge_dispatch:
+  submit_poll`** in `config/targets.yaml` is driven by `run_target_async()`
+  (`src/orchestration/runner.py`, reusing `_run_leg_async`) instead of a blocking
+  `client.ask()`. The bridge submits + polls the Heroku A2A face and returns the
+  finished answer to the one Apex callout — which therefore only ever waits on
+  sub-second requests. The bridge can do this precisely because it is a
+  long-lived Fargate service, not a frozen Lambda: it keeps computing between the
+  sub-second HTTP turns. `run_target_async` degrades honestly — a remote that
+  takes the submit but won't serve the poll falls back to blocking `ask()` and
+  reports `dispatch_mode: async→sync`; a non-async client (rest/mcp/agentforce)
+  reports `sync`, so the flag is a safe no-op on the wrong target.
+
+**Consequences.**
+- **A new opt-in target option, mirroring `console_dispatch`.** `bridge_dispatch:
+  submit_poll` is read off the EXACT target name (`reg.get(...)`, remap-free), so
+  `langgraph-a2a` carries the flag while the `A2ALAB_MODE=hosted` bridge still
+  remaps the *client* to `langgraph-a2a-hosted` on Heroku. New reverse async
+  seams set this flag rather than branching in `app.py`.
+- **A three-level timeout ladder, innermost-fails-first.** Apex callout **110s** >
+  bridge submit+poll **100s** (`A2ALAB_BRIDGE_ASYNC_TIMEOUT_S`) > dyno answer
+  **90s** (`LANGGRAPH_ANSWER_TIMEOUT_S`, raised 40→90 now the 30s ceiling no
+  longer binds). The ordering is the design: the dyno gives up before the bridge,
+  the bridge before Apex, so a stuck answer surfaces as a clean timeout at the
+  right layer, never as a caller waiting on a dead request.
+- **Deploy order matters: bridge first, then the twin.** The new bridge image
+  must be PRIMARY (it holds the submit_poll branch + the baked `targets.yaml`
+  flag) BEFORE the twin is republished to post `target=langgraph-a2a`. Reversed,
+  the old bridge would call blocking `.ask()` to the A2A face and H12 again. This
+  is the general rule for any "producer emits a new value the consumer must
+  already understand" cutover.
+- **Republishing the twin is a production agent change.** The D25 LangGraph-paired
+  twin's `ask_external_researcher` action (and its input schema) now name
+  `langgraph-a2a`; shipped by editing the `.agent` authoring bundle then
+  `sf agent validate → publish → activate` against `a2alab-prod` (v2).
+
+**Corrected on the way (worth recording).** An earlier version of this work
+claimed the reverse was blocked on an "unresolvable Cloudflare tunnel / ALB
+cutover unscripted." **That was wrong.** `bridge-lab.agenticthings.com` was cut
+over from the tunnel to the `a2alab-bridge` ALB weeks earlier (WS7); the
+production `A2ALab_Bridge` Named Credential points at that ALB; there is no
+laptop and no tunnel in Path A. The bogus "unresolvable" call came from testing
+DNS *inside a sandbox with no outbound DNS*, not from production. The wrong reason
+was corrected in `config/scenarios.yaml`, `plan/07`, `deploy/bridge/deploy_bridge.sh`,
+and the operator memory in the same change.
+
+**Status.** LIVE, shipped 2026-08-19 (commit `e80010d`). Bridge redeployed (task
+def `:11`), twin republished + activated (v2), scenario flipped `coming-soon →
+live`, console redeployed (full rebuild — scenarios + plan baked in). Proven end
+to end — see plan/03 (a real twin turn returned CRM + LangGraph research in 45.1s
+with zero H12; a direct bridge probe reported `dispatch_mode=async` over 10
+polls).

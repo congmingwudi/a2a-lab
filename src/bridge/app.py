@@ -130,7 +130,40 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
                 user_token=user_token,
             )
             req.metadata = {**(req.metadata or {}), **meta}
-            resp = await get_client(target_name).ask(req)
+            client = get_client(target_name)
+            # WS11/D77: a target flagged bridge_dispatch: submit_poll is driven
+            # fire-then-poll instead of a blocking ask() — the reverse Path A fix
+            # for a remote behind a hard router timeout (Heroku's 30s H12). The
+            # Apex callout cannot poll, so the bridge runs submit + poll here on
+            # its behalf; each request is sub-second and the answer computes in
+            # the remote's background, so no single bridge→remote request outlives
+            # the ceiling. Bounded under the Apex callout's 110s so the bridge
+            # returns first. Non-async-capable targets fall back to sync, honestly
+            # recorded. Absent flag → the unchanged blocking path.
+            if target.options.get("bridge_dispatch") == "submit_poll":
+                from orchestration.runner import bridge_async_timeout_s, run_target_async
+
+                text, ran_mode, polls = await run_target_async(
+                    client,
+                    req,
+                    trace_id=req.trace_id,
+                    timeout_s=bridge_async_timeout_s(),
+                )
+                payload = {
+                    "text": text,
+                    "session_id": req.session_id,
+                    "bridge": {
+                        "target": target_name,
+                        "protocol": target.protocol,
+                        "status": target.status,
+                        "dispatch_mode": ran_mode,
+                        "polls": polls,
+                        "total_ms": int((time.perf_counter() - start) * 1000),
+                    },
+                }
+                hop.response_payload = payload
+                return payload
+            resp = await client.ask(req)
             payload = resp.to_dict()
             payload["bridge"] = {
                 "target": target_name,

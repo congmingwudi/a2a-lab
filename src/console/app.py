@@ -198,7 +198,7 @@ def _claude_interior() -> dict:
     if os.environ.get("CLAUDE_BACKEND", "managed") == "managed":
         return {
             "source": "claude-researcher",
-            "target": "anthropic-managed-agents",
+            "target": "claude-managed-agents",
             "protocol": "managed-agents-api",
             "detail": (
                 "The adapter answers on Anthropic Managed Agents (the Claude "
@@ -493,7 +493,7 @@ def cell_details(t) -> dict:
                 _lab_server_entry(t, "the Lab Guide docent"),
                 {
                     "source": "lab-guide",
-                    "target": "anthropic-api",
+                    "target": "claude-api",
                     "protocol": "internal",
                     "detail": (
                         "Direct Anthropic tool-use loop (Haiku-tier) grounded "
@@ -960,8 +960,15 @@ def _parse_lines(data: bytes) -> list[dict]:
 
 
 # Warm-up records live next to the traces (same isolated dir under tests):
-# one JSON line per attempt, kept forever — the cold-start comparison data.
+# one JSON line per attempt, kept forever — the cold-start comparison data
+# (and a declared Moirai forecast series, plan/explore-moirai-timeseries-
+# forecasting.md). So "Clear results" NEVER touches this file; it only moves the
+# display watermark below, which hides older attempts from the panel while every
+# row stays on disk for the comparison and the forecast.
 WARMUP_LOG = "warmups.jsonl"
+# The panel's "cleared-before" watermark: {"ts": <epoch>}. A view filter, not a
+# delete — GET /api/warmup shows only attempts newer than this ts.
+WARMUP_CLEARED = "warmup_cleared.json"
 
 
 def _read_warmups() -> list[dict]:
@@ -969,6 +976,16 @@ def _read_warmups() -> list[dict]:
     if not path.exists():
         return []
     return _parse_lines(path.read_bytes())
+
+
+def _read_warmup_cleared_ts() -> float:
+    path = _trace_dir() / WARMUP_CLEARED
+    if not path.exists():
+        return 0.0
+    try:
+        return float(json.loads(path.read_text(encoding="utf-8")).get("ts", 0) or 0)
+    except (ValueError, OSError, json.JSONDecodeError):
+        return 0.0
 
 
 def _record_warmup(record: dict) -> None:
@@ -1136,16 +1153,83 @@ _OPERATOR_ONLY = {
 
 
 def _viewer_forbidden(request: Request) -> None:
-    user = request.scope.get("state", {}).get("lab_user") or {}
-    if user.get("role") != "viewer":
-        return
+    """Operator-only gate for the spend-incurring endpoints (D36).
+
+    Two callers legitimately reach these paths: an operator/owner persona JWT,
+    and the header-borne shared service token — which sets NO ``lab_user`` (it
+    identifies no one, but is the operator's own legacy credential). EVERY other
+    verified persona is denied: a ``viewer``, and — since WS10 SP1 — the
+    ``machine`` gateway identity, whose client-credentials token is an attributed
+    *faces* caller, never an operator of this console. Role is resolved from the
+    directory (like ``_is_operator``), not from the token claim, so a stale claim
+    cannot escalate.
+    """
+    from interop import identity
+
     path = request.url.path
-    for action, prefixes in _OPERATOR_ONLY.items():
-        if any(path.startswith(p) for p in prefixes):
-            raise HTTPException(
-                status_code=403,
-                detail=f"viewer role — '{action}' is operator-only (D36 role model)",
-            )
+    action = next(
+        (a for a, prefixes in _OPERATOR_ONLY.items() if any(path.startswith(p) for p in prefixes)),
+        None,
+    )
+    if action is None:
+        return  # not an operator-only path — open to viewers too (traces, insights)
+    claims = request.scope.get("state", {}).get("lab_user")
+    if not claims:
+        return  # shared service token (no persona) — the operator's own credential
+    role = identity.load_users().get(claims.get("sub"), {}).get("role")
+    if not identity.is_operator_role(role):
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{action}' is operator-only (D36 role model)",
+        )
+
+
+def _logger_request_headers(url: str, body: bytes) -> dict[str, str] | None:
+    """Auth headers for the external `/log` forward (WS9 items 16/17).
+
+    Two modes, selected by ``A2ALAB_LOGGING_AUTH`` (default ``apikey`` — the
+    current, unchanged behaviour so this ships without a coordinated flip):
+
+    - ``apikey``: the existing ``X-Api-Key`` header from A2ALAB_LOGGING_API_KEY.
+    - ``iam``: SigV4-sign the POST for ``execute-api`` using the caller's AWS
+      session, so NO long-lived key exists (the keyless D39 shape). This only
+      works once the external API Gateway `/log` route is switched to
+      ``AuthorizationType: AWS_IAM`` with a cross-account resource policy
+      trusting the lab principal — that half lives in the operator's external
+      ``aws-logging-service`` repo, not here. Until then, leave the default.
+
+    Returns ``None`` (skip the forward, never an error) when the selected mode's
+    credential is absent — same contract as a missing API key. The region for
+    SigV4 is taken from ``A2ALAB_LOGGING_REGION``, else parsed from the
+    ``*.execute-api.<region>.amazonaws.com`` host, else ``AWS_REGION`` (the
+    logger lives in a different region than the console, so it must be explicit).
+    """
+    mode = (os.environ.get("A2ALAB_LOGGING_AUTH") or "apikey").strip().lower()
+    if mode == "iam":
+        try:
+            import botocore.session
+            from botocore.auth import SigV4Auth
+            from botocore.awsrequest import AWSRequest
+        except Exception:  # noqa: BLE001 - no botocore: skip like a missing key
+            return None
+        creds = botocore.session.get_session().get_credentials()
+        if creds is None:
+            return None
+        region = os.environ.get("A2ALAB_LOGGING_REGION")
+        if not region:
+            m = re.search(r"execute-api\.([a-z0-9-]+)\.amazonaws\.com", url)
+            region = m.group(1) if m else os.environ.get("AWS_REGION")
+        if not region:
+            return None
+        aws_req = AWSRequest(
+            method="POST", url=url, data=body, headers={"Content-Type": "application/json"}
+        )
+        SigV4Auth(creds, "execute-api", region).add_auth(aws_req)
+        return dict(aws_req.headers)
+    key = os.environ.get("A2ALAB_LOGGING_API_KEY")
+    if not key:
+        return None
+    return {"Content-Type": "application/json", "X-Api-Key": key}
 
 
 def create_console_app(registry: Registry | None = None):
@@ -1701,7 +1785,15 @@ def create_console_app(registry: Registry | None = None):
     async def users():
         """The lab user directory (WS6 U1) — feeds the console's sign-in
         picker. Demo-scale IdP: no passwords, the experiment is identity
-        PROPAGATION and authorization, not credential UX."""
+        PROPAGATION and authorization, not credential UX.
+
+        Machine principals (role=machine, e.g. the MuleSoft Omni Gateway,
+        WS10 SP1) are OMITTED: they have no console password
+        (identity.ROLE_PASSWORD_ENVS has no 'machine' key, so /api/login
+        fails closed for them) and authenticate only via client-credentials
+        at /oauth/token. Listing one in the human sign-in picker would read
+        as a login whose password is missing, which it is not — it is a
+        service caller, not a persona."""
         from interop import identity
 
         labels = identity.load_role_labels()
@@ -1717,6 +1809,7 @@ def create_console_app(registry: Registry | None = None):
                     "role_label": identity.role_label(e.get("role") or "viewer", labels),
                 }
                 for u, e in identity.load_users().items()
+                if (e.get("role") or "viewer") != "machine"
             ]
         }
 
@@ -1743,6 +1836,35 @@ def create_console_app(registry: Registry | None = None):
         # the delegation wire); this is only how it reads on screen.
         user["role_label"] = identity.role_label(user.get("role"))
         return {"token": token, "user": user}
+
+    @app.post("/oauth/token")
+    async def oauth_token(request: Request):
+        """Public client-credentials token endpoint (WS10 SP1). A machine
+        caller (the MuleSoft Omni Gateway) POSTs form-encoded
+        client_credentials; we mint a SHORT-LIVED RS256 lab JWT for the mapped
+        subject. Lives on the console because the console is the only surface
+        that legitimately holds the signing key (A2ALAB_JWT_PRIVATE_KEY) — the
+        RS256 invariant (spec §3). Exempt from the console JWT exactly as
+        /api/login is. Parsed with the stdlib to avoid a python-multipart
+        dependency escaping the Docker image."""
+        from urllib.parse import parse_qs
+
+        from interop import identity
+
+        raw = (await request.body()).decode("utf-8", errors="replace")
+        form = {k: v[0] for k, v in parse_qs(raw).items()}
+        if form.get("grant_type") != "client_credentials":
+            raise HTTPException(status_code=400, detail="unsupported_grant_type")
+        ttl = int(os.environ.get(identity.SERVICE_TTL_ENV, str(identity.DEFAULT_SERVICE_TTL_S)))
+        try:
+            subject = identity.authenticate_client(
+                form.get("client_id", ""), form.get("client_secret", "")
+            )
+            token = identity.issue_service_token(subject, ttl=ttl)
+        except ValueError:
+            # One generic 401 — no probing which of id/secret was wrong.
+            raise HTTPException(status_code=401, detail="invalid_client") from None
+        return {"access_token": token, "token_type": "Bearer", "expires_in": ttl}
 
     # WS18 — console usage analytics. The browser posts anonymous interaction
     # events (a visit before sign-in, a persona login, a top-level section nav)
@@ -1780,26 +1902,30 @@ def create_console_app(registry: Registry | None = None):
 
     async def _forward_to_logger(message: str, detail: dict) -> None:
         """Fire-and-forget POST to the external AWS logger (mega-demo contract:
-        {source, level, message, detail} + X-Api-Key). A logging failure must
-        never surface — the console has already stored its own row, and the
-        forward is the operator's Slack convenience, not the source of truth.
+        {source, level, message, detail}). A logging failure must never surface
+        — the console has already stored its own row, and the forward is the
+        operator's Slack convenience, not the source of truth.
+
+        Auth is chosen by ``_logger_request_headers`` (WS9 item 16): the default
+        is the current X-Api-Key; A2ALAB_LOGGING_AUTH=iam SigV4-signs instead so
+        no long-lived key exists. The signed bytes must equal the sent bytes, so
+        we serialize once and POST that exact ``content`` (not ``json=``, which
+        would re-serialize and break the signature).
         """
         url = os.environ.get("A2ALAB_LOGGING_API_URL")
-        key = os.environ.get("A2ALAB_LOGGING_API_KEY")
-        if not url or not key:
+        if not url:
+            return
+        body = json.dumps(
+            {"source": "a2a-console", "level": "info", "message": message, "detail": detail}
+        ).encode()
+        headers = _logger_request_headers(url, body)
+        if headers is None:
+            # No credential for the selected auth mode — skip exactly like a
+            # missing key. Never a surfaced error.
             return
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                await client.post(
-                    url,
-                    headers={"Content-Type": "application/json", "X-Api-Key": key},
-                    json={
-                        "source": "a2a-console",
-                        "level": "info",
-                        "message": message,
-                        "detail": detail,
-                    },
-                )
+                await client.post(url, headers=headers, content=body)
         except Exception:  # noqa: BLE001 - swallow exactly like the mega-demo's .catch(()=>{})
             pass
 
@@ -2129,8 +2255,13 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/warmup")
     async def warmup_status():
+        # The watermark hides older attempts from the PANEL only — the raw
+        # warmups.jsonl below still holds every row for the comparison/forecast.
+        cleared_ts = _read_warmup_cleared_ts()
         by_target: dict[str, list[dict]] = {}
         for rec in _read_warmups():
+            if rec.get("ts", 0) <= cleared_ts:
+                continue
             by_target.setdefault(rec.get("target", "?"), []).append(rec)
         out = []
         for t in get_registry().targets.values():
@@ -2148,6 +2279,21 @@ def create_console_app(registry: Registry | None = None):
                 }
             )
         return {"targets": out}
+
+    @app.post("/api/warmup/clear")
+    async def warmup_clear():
+        # Reset the PANEL, not the data: stamp the watermark to now so every
+        # attempt so far drops out of the display. warmups.jsonl is untouched —
+        # the cold-start comparison and the Moirai series keep every row. Must
+        # be registered BEFORE /api/warmup/{name} or {name} would capture
+        # "clear". Operator-only via the /api/warmup prefix gate (D36).
+        trace_dir = _trace_dir()
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        ts = round(time.time(), 3)
+        (trace_dir / WARMUP_CLEARED).write_text(
+            json.dumps({"ts": ts}), encoding="utf-8"
+        )
+        return {"cleared": ts}
 
     @app.post("/api/warmup/{name}")
     async def warmup(name: str):
@@ -2575,6 +2721,19 @@ def create_console_app(registry: Registry | None = None):
                     "latency_ms": handle.submit_ms,
                     "dispatch_mode": chosen_dispatch,
                 }
+            # The pending copy is per-scenario: submit_poll is shared by
+            # unlike agents (the ADK orchestrator on Agent Engine, the LangGraph
+            # agent on Heroku), so a hardcoded message would tell a visitor
+            # something false. Each scenario supplies submit_pending_text;
+            # otherwise fall back to a generic A2A fire-then-poll line naming the
+            # scenario, with {task} interpolated to the task id.
+            pending_tmpl = spec.get("submit_pending_text") or (
+                "⏳ Submitted over A2A fire-then-poll to "
+                f"{spec.get('title') or name} (task {{task}}). It runs "
+                "off-request; the console is polling tasks/get for the answer so "
+                "no single request is held open. Watch the call path below "
+                "stream in."
+            )
             return {
                 "ok": True,
                 "pending": True,
@@ -2588,13 +2747,7 @@ def create_console_app(registry: Registry | None = None):
                 },
                 "submit_ms": handle.submit_ms,
                 "dispatch_mode": chosen_dispatch,
-                "text": (
-                    "⏳ Submitted to the Google ADK orchestrator on Vertex AI "
-                    f"Agent Engine (task {handle.task_id[:12]}…). It runs the "
-                    "SequentialAgent[ParallelAgent→synthesiser] graph off-request; "
-                    "the console is polling tasks/get for the brief (typically "
-                    "~2 minutes). Watch the call path below stream in."
-                ),
+                "text": pending_tmpl.replace("{task}", handle.task_id[:12] + "…"),
             }
         try:
             if via_bridge:
@@ -3283,6 +3436,20 @@ and console never present a combined dollar total across tools (WS12/D44).
                 "join to wire traces — platform_ref (Bedrock request-id) is null at this SDK version",
             ],
         },
+        "langgraph": {
+            "label": "LangGraph (LangSmith)",
+            "can": [
+                "query the run store (POST /runs/query): project-scoped, filter DSL, time range",
+                "the full run TREE per turn — root chain → llm/tool/chain children (parent_run_id)",
+                "LLM input/output messages + prompt/completion/total tokens on each run",
+                "join to wire traces — the backend stamps lab_trace_id into run metadata (D77)",
+            ],
+            "cannot": [
+                "a billing/cost API (cost is derived from the per-run token counts)",
+                "real-time stream (poll /runs/query; no SSE read)",
+                "join on turns run before the metadata stamp shipped (LangSmith run id only)",
+            ],
+        },
     }
 
     @app.get("/api/obs/summary")
@@ -3293,7 +3460,7 @@ and console never present a combined dollar total across tools (WS12/D44).
         finally:
             store.close()
         # WS9: coding-agent telemetry shares the store but is NOT a platform
-        # column. The coverage panel's honesty depends on its five columns
+        # column. The coverage panel's honesty depends on every column
         # being the same kind of thing — each an agent platform whose interior
         # logs the lab harvests. Claude Code is the tool that BUILT the lab;
         # listing it beside Agentforce would quietly imply otherwise.
@@ -3306,7 +3473,7 @@ and console never present a combined dollar total across tools (WS12/D44).
     async def build_telemetry():
         """What the lab cost to build, per coding tool per day (WS9).
 
-        Its own section rather than a sixth Observability column — see the
+        Its own section rather than another Observability column — see the
         note in obs_summary. Returns the setup steps too, because until the
         exporters are switched on there is nothing to show and the useful
         answer is "here is how to start collecting".
@@ -4085,11 +4252,13 @@ and console never present a combined dollar total across tools (WS12/D44).
         from observability.anthropic_source import AnthropicSource
         from observability.coding_logs_source import CodingLogsSource
         from observability.coding_source import CodingSource
+        from observability.foundry_source import FoundrySource
         from observability.infra_source import (
             AwsInfraSource,
             AzureInfraSource,
             GcpInfraSource,
         )
+        from observability.langgraph_source import LangGraphSource
         from observability.openai_source import OpenAISource
         from observability.salesforce_source import SalesforceSource
         from observability.strands_source import StrandsSource
@@ -4099,10 +4268,12 @@ and console never present a combined dollar total across tools (WS12/D44).
             "salesforce": SalesforceSource,
             "openai": OpenAISource,
             "adk": AdkSource,
+            "foundry": FoundrySource,
             "strands": StrandsSource,
+            "langgraph": LangGraphSource,
             # WS9/WS16. Reachable by name only: the Coding Agents Telemetry
             # section has its own Harvest button, and the sweep below stays the
-            # five agent platforms so Observability's "harvested from all
+            # agent platforms so Observability's "harvested from all
             # platforms" keeps meaning what it says. `coding` is the metrics
             # (cost/tokens); `coding-logs` is the behavioural log signal.
             BUILD_TELEMETRY_PLATFORM: CodingSource,
@@ -4140,12 +4311,13 @@ and console never present a combined dollar total across tools (WS12/D44).
         # `SyntaxError: Unexpected token '<'`. Raising a timeout would only
         # move the ceiling to one we do not control.
         #
-        # Delegating also fixes two things the in-process sweep got wrong. The
-        # Lambda harvests SIX platforms (this dict has four — foundry was never
-        # in it, despite the comment above saying five), and it holds the
-        # credentials the console container does not: the GCP service-account
+        # Delegating also fixes what the in-process sweep got wrong: it holds
+        # the credentials the console container does not — the GCP service-account
         # key ADK needs, the Entra principal for Foundry, the CloudWatch grants
-        # for coding. ADK failed here for exactly that reason.
+        # for coding, the LangSmith key for langgraph. ADK failed here for
+        # exactly that reason. (This dict now lists all the agent platforms —
+        # foundry and langgraph were added 2026-08-17; earlier it omitted
+        # foundry, so a single-platform Harvest of it was rejected as unknown.)
         # Defaults to the real function rather than requiring the variable, so
         # the button behaves the same on a laptop as it does hosted. The
         # in-process sweep below is NOT a working fallback and never was: it
@@ -4555,6 +4727,13 @@ and console never present a combined dollar total across tools (WS12/D44).
             "/healthz",
             "/api/users",
             "/api/login",
+            # WS10 SP1: the gateway's client-credentials token fetch is
+            # unauthenticated-by-middleware (it IS the credential exchange),
+            # exactly like /api/login. authenticate_client validates the gw
+            # client id/secret strictly and fails closed; the route mints only
+            # a short-lived machine JWT (sub=mulesoft-omni-gateway), never a
+            # human session.
+            "/oauth/token",
             # WS18: an UNAUTHENTICATED visit must be logged before any sign-in,
             # so the usage beacon cannot sit behind the persona JWT. Write-only,
             # returns 204, stores a PII-free row — exempting it discloses

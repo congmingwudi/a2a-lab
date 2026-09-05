@@ -94,6 +94,14 @@ def _adapter(platform: str):
         from platforms.guide.core import make_adapter
 
         return make_adapter()
+    if platform == "langgraph":
+        # Not in the module-level FACES tuple (that is the Fargate faces task,
+        # and langgraph is hosted on Heroku, WS4/D77) — but the dispatch is
+        # shared so a langgraph-only faces app (build_faces_app(faces=...)) can
+        # multiplex its three protocols behind one Heroku $PORT.
+        from platforms.langgraph.core import make_adapter
+
+        return make_adapter()
     if platform == "agentforce":
         from platforms.agentforce.proxy import AgentforceProxyAdapter
 
@@ -101,7 +109,10 @@ def _adapter(platform: str):
     raise ValueError(f"unknown platform for a face: {platform}")
 
 
-def build_faces_app(public_base: str | None = None) -> Starlette:
+def build_faces_app(
+    public_base: str | None = None,
+    faces: tuple[tuple[str, str, str], ...] | None = None,
+) -> Starlette:
     """Mount every face under its own prefix on one ASGI app.
 
     `public_base` is the externally reachable origin (e.g.
@@ -109,14 +120,20 @@ def build_faces_app(public_base: str | None = None) -> Starlette:
     AgentCard advertises an absolute URL that a client then calls back — get it
     wrong and the card points somewhere unreachable, which is the one failure a
     smoke test of the mount itself would not catch.
+
+    `faces` selects which faces to mount, defaulting to the full FACES tuple
+    (the Fargate faces task). A subset lets one host serve one platform's
+    protocols behind a single port — e.g. the langgraph-only app on Heroku
+    (WS4), which passes its own public_base (${A2ALAB_LANGGRAPH_BASE}).
     """
     from interop.adapter import build_app
 
+    faces = faces or FACES
     base = (public_base or os.environ.get(PUBLIC_BASE_ENV) or "").rstrip("/")
     routes: list = []
     mounted: list[str] = []
     sub_apps: list = []
-    for prefix, platform, protocol in FACES:
+    for prefix, platform, protocol in faces:
         kwargs = {}
         if protocol == "a2a":
             # No base configured is a local smoke test; the card then advertises

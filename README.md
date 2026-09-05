@@ -296,6 +296,8 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
@@ -312,6 +314,8 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
+    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
     HSHIM -.hops.-> OBSDB

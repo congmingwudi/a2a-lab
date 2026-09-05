@@ -2,6 +2,7 @@ import pytest
 
 import importlib
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -165,10 +166,14 @@ def test_scenarios_listed(tmp_path, monkeypatch):
 
 def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
     """The two-level Experiments nav: yaml-ordered groups, every scenario
-    bucketed into one. All groups are live now — the LangGraph/CrewAI/AutoGen
-    frameworks moved from an empty "coming soon" nav placeholder to the What's
-    Next roadmap (config/whats_next.yaml: other-agent-frameworks), so no group
-    carries an `upcoming` flag."""
+    bucketed into one. A group appears once its platform has a live agent:
+    langgraph-agentforce joined when the LangGraph agent went live on Heroku
+    (WS4/D77). Its forward cell (langgraph-to-agentforce) is `live` — validated
+    end to end 2026-08-19 (ask_agentforce → the D25 twin, traces in Aurora);
+    its reverse cell (agentforce-to-langgraph) stays `coming-soon` until Path A
+    is cut over to the hosted bridge. CrewAI/AutoGen stay roadmap-only
+    (config/whats_next.yaml: other-agent-frameworks) — no live agent, no group.
+    No group carries an `upcoming` flag."""
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
     data = client.get("/api/scenarios").json()
@@ -178,14 +183,15 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "adk-agentforce",
         "foundry-agentforce",
         "strands-agentforce",
+        "langgraph-agentforce",
         "cross-cloud",
         "fan-out",
     ]
     # Every PAIR group reads first — claude/openai/adk/foundry, then
-    # strands-agentforce (WS5, live) and cross-cloud (Cross-hyperscalers) — then
-    # fan-out, the first 1:many group, so the nav stays "all the pairs, then the
-    # fan-out". No upcoming placeholders remain.
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 7)
+    # strands-agentforce (WS5) and langgraph-agentforce (WS4, Heroku) — then
+    # cross-cloud (Cross-hyperscalers) and fan-out, the first 1:many group, so
+    # the nav stays "all the pairs, then the fan-out". No upcoming placeholders.
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 8)
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
@@ -470,6 +476,36 @@ def test_warmup_non_warmable_404(tmp_path, monkeypatch):
     assert client.post("/api/warmup/nope").status_code == 404  # unknown target
 
 
+def test_warmup_clear_hides_display_but_keeps_the_file(tmp_path, monkeypatch):
+    """Clear is a display reset, never a delete: the panel goes blank but every
+    recorded row survives in warmups.jsonl (the cold-start comparison + the
+    Moirai forecast series). A later warm re-appears above the watermark."""
+    trace_dir = tmp_path / "traces"
+    app = make_app(trace_dir, monkeypatch, WarmupRegistry())
+    client = TestClient(app)
+
+    rec = client.post("/api/warmup/claude-agentcore").json()
+    assert client.get("/api/warmup").json()["targets"][0]["last"] == rec
+
+    cleared = client.post("/api/warmup/clear")
+    assert cleared.status_code == 200 and cleared.json()["cleared"] >= rec["ts"]
+
+    # Display: every row reset to "never warmed" …
+    listed = client.get("/api/warmup").json()["targets"]
+    assert all(t["last"] is None and t["history"] == [] for t in listed)
+    # … but the raw record is untouched (comparison / forecast data preserved).
+    assert json.loads((trace_dir / "warmups.jsonl").read_text().splitlines()[-1]) == rec
+
+    # A fresh warm lands above the watermark and shows again.
+    time.sleep(0.005)  # round(ts, 3) is ms; guarantee a strictly-later stamp
+    rec2 = client.post("/api/warmup/claude-agentcore").json()
+    shown = next(t for t in client.get("/api/warmup").json()["targets"]
+                 if t["name"] == "claude-agentcore")
+    assert shown["last"] == rec2 and rec2 != rec
+    # and BOTH attempts remain on disk — clear never truncated anything.
+    assert len((trace_dir / "warmups.jsonl").read_text().splitlines()) == 2
+
+
 def test_run_async_scenario_returns_immediately(tmp_path, monkeypatch):
     """D16: async scenarios fire a background research run and ack at once."""
     import briefs.runner as brief_runner
@@ -620,6 +656,62 @@ def test_viewer_allowed_surfaces(tmp_path, monkeypatch):
     ):
         r = client.get(path, headers=headers)
         assert r.status_code == 200, f"{path} blocked a viewer: {r.status_code}"
+
+
+def _machine_headers(monkeypatch, tmp_path):
+    """The MuleSoft Omni Gateway's client-credentials identity (WS10 SP1):
+    role 'machine' in the real config/users.yaml directory — an attributed
+    faces caller, never an operator of this console."""
+    from interop import identity
+
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    token = identity.issue_service_token("mulesoft-omni-gateway")
+    return {"authorization": f"Bearer {token}"}
+
+
+def test_machine_role_403_on_operator_surfaces(tmp_path, monkeypatch):
+    """The bug this fix closes: _viewer_forbidden used to deny ONLY
+    role == 'viewer', so the machine gateway token (neither viewer nor
+    operator) fell through to the spend-incurring endpoints. It must be
+    denied exactly like a viewer."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    headers = _machine_headers(monkeypatch, tmp_path)
+    r = client.post("/api/run", headers=headers, json={})
+    assert r.status_code == 403, f"machine role let through: {r.status_code}"
+    assert "operator-only" in r.json()["detail"]
+
+
+def test_operator_role_reaches_operator_surfaces(tmp_path, monkeypatch):
+    from interop import identity
+
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    # ana holds role 'operator' in the real config/users.yaml directory.
+    headers = {"authorization": f"Bearer {identity.issue_token('ana')}"}
+    r = client.post("/api/run", headers=headers, json={"target": "claude-rest", "message": "hi"})
+    assert r.status_code != 403, f"operator role blocked: {r.status_code}"
+    assert r.json()["ok"] is True
+
+
+def test_shared_service_token_still_reaches_operator_surfaces(tmp_path, monkeypatch):
+    """The header-borne shared token (no persona) is the operator's own
+    legacy credential and must stay allowed on the operator-only paths."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    r = client.post(
+        "/api/run",
+        headers={"x-lab-token": "sekrit"},
+        json={"target": "claude-rest", "message": "hi"},
+    )
+    assert r.status_code != 403
+    assert r.json()["ok"] is True
 
 
 def test_owner_role_keeps_the_full_operator_privilege_set(tmp_path, monkeypatch):
@@ -792,6 +884,22 @@ def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
     assert client.get("/api/docs/docs/lab-guide-mcp.md").status_code == 200
     for path in ("/api/traces", "/api/insights", "/api/obs/sessions", "/api/config"):
         assert client.get(path).status_code == 401, path
+
+
+def test_users_picker_omits_machine_principals(tmp_path, monkeypatch):
+    # WS10 SP1: the sign-in picker (/api/users) must not list machine
+    # principals (e.g. the MuleSoft Omni Gateway) — they have no console
+    # password and authenticate only via /oauth/token, so showing one reads
+    # as a login with a missing password.
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    users = client.get("/api/users").json()["users"]
+    roles = {u["role"] for u in users}
+    assert "machine" not in roles
+    assert "mulesoft-omni-gateway" not in {u["username"] for u in users}
+    # The human personas are still listed.
+    assert {"ryan", "ana", "vic"} <= {u["username"] for u in users}
 
 
 # ---- insight sign-off (console: Insights → Approve / Request changes) ------
@@ -1793,6 +1901,71 @@ def test_monitoring_requires_sign_in(tmp_path, monkeypatch):
     assert ok.json()["stats"] is None
 
 
+# ---- WS9: /log forward auth (apikey default, opt-in SigV4) ------------------
+
+
+def test_logger_headers_apikey_default(monkeypatch):
+    """Default mode is the unchanged X-Api-Key behaviour: with a key set, the
+    forward carries it; with no key it returns None (skip, not an error)."""
+    from console.app import _logger_request_headers
+
+    monkeypatch.delenv("A2ALAB_LOGGING_AUTH", raising=False)
+    monkeypatch.setenv("A2ALAB_LOGGING_API_KEY", "sekrit-key")
+    url = "https://abc123.execute-api.us-west-2.amazonaws.com/prod/log"
+
+    headers = _logger_request_headers(url, b'{"x":1}')
+    assert headers == {"Content-Type": "application/json", "X-Api-Key": "sekrit-key"}
+
+    monkeypatch.delenv("A2ALAB_LOGGING_API_KEY", raising=False)
+    assert _logger_request_headers(url, b'{"x":1}') is None
+
+
+def test_logger_headers_iam_signs_and_parses_region(monkeypatch):
+    """A2ALAB_LOGGING_AUTH=iam SigV4-signs for execute-api with the caller's AWS
+    session — no X-Api-Key, and the region is parsed from the host when not set
+    explicitly (the logger lives in a different region than the console)."""
+    pytest.importorskip("botocore")
+    from console.app import _logger_request_headers
+
+    monkeypatch.setenv("A2ALAB_LOGGING_AUTH", "iam")
+    # Env creds beat any profile in botocore's default chain -> deterministic.
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
+    monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+    monkeypatch.delenv("A2ALAB_LOGGING_REGION", raising=False)
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("A2ALAB_LOGGING_API_KEY", raising=False)
+
+    url = "https://abc123.execute-api.us-west-2.amazonaws.com/prod/log"
+    headers = _logger_request_headers(url, b'{"x":1}')
+
+    assert headers is not None
+    assert "X-Api-Key" not in headers
+    assert headers["Authorization"].startswith("AWS4-HMAC-SHA256")
+    # Region parsed from the host is what the signature is scoped to.
+    assert "/us-west-2/execute-api/aws4_request" in headers["Authorization"]
+
+
+def test_logger_headers_iam_no_creds_returns_none(monkeypatch):
+    """iam mode with no resolvable AWS credentials skips the forward (None),
+    the same fail-quiet contract as a missing API key."""
+    pytest.importorskip("botocore")
+    import botocore.session
+
+    from console.app import _logger_request_headers
+
+    monkeypatch.setenv("A2ALAB_LOGGING_AUTH", "iam")
+    monkeypatch.setenv("A2ALAB_LOGGING_REGION", "us-west-2")
+    monkeypatch.setattr(
+        botocore.session,
+        "get_session",
+        lambda: SimpleNamespace(get_credentials=lambda: None),
+    )
+
+    url = "https://abc123.execute-api.us-west-2.amazonaws.com/prod/log"
+    assert _logger_request_headers(url, b'{"x":1}') is None
+
+
 # ---- WS23: durable experiment->session map (Session Trace picker) ----------
 
 
@@ -1877,3 +2050,36 @@ def test_agentforce_run_records_labeled_otel_session(tmp_path, monkeypatch):
     d = client.get("/api/obs/otel-sessions").json()
     assert "af-session-uuid7" in d["sessions"]
     assert d["labels"]["af-session-uuid7"]["label"]  # named, not blank
+
+
+def test_submit_poll_scenarios_target_async_capable_face():
+    """Config invariant: any scenario the console drives fire-then-poll
+    (console_dispatch: submit_poll) must name a target that resolves to an
+    async-capable client — i.e. an A2A face, the only client exposing
+    submit()/poll(). A submit_poll scenario pointed at a REST/MCP face would
+    500 on the first /api/run because get_client(name).submit does not exist.
+    Guards the WS4 langgraph-to-agentforce + WS11 ADK orchestrator wiring."""
+    import console.app as console_app
+    from interop.clients.a2a import A2AClient
+
+    # submit()/poll() live only on the A2A client.
+    assert callable(getattr(A2AClient, "submit", None))
+    assert callable(getattr(A2AClient, "poll", None))
+
+    scenarios = console_app.load_scenarios()
+    reg = Registry.load()
+    submit_poll = {
+        name: spec
+        for name, spec in scenarios.items()
+        if spec.get("console_dispatch") == "submit_poll"
+    }
+    # The invariant is only meaningful if such scenarios exist.
+    assert submit_poll, "expected at least one submit_poll scenario (ADK, langgraph)"
+    for name, spec in submit_poll.items():
+        target_name = spec["target"]
+        target = reg.get(target_name)  # exact, pre-remap: the named face
+        assert target.protocol == "a2a", (
+            f"scenario '{name}' is console_dispatch: submit_poll but its target "
+            f"'{target_name}' speaks '{target.protocol}', not a2a — the console "
+            f"would call submit() on a client that has no such method"
+        )

@@ -10,6 +10,11 @@
 #   viewer   — everything read-only: insights, obs dashboard, Lab Guide,
 #              experiment details, wire traces; execution (runs,
 #              warm-ups, harvest/analyze) is operator-only
+#   machine  — a non-human client-credentials caller (WS10 SP1). NO console
+#              password (identity.ROLE_PASSWORD_ENVS has no 'machine' key), so
+#              it can never sign in through /api/login; it obtains a
+#              SHORT-LIVED lab JWT only through the client-credentials mint
+#              (identity.issue_service_token, exposed at console /oauth/token).
 #
 # `reviewer: true` is a separate grant from the role: it signs off insights
 # the lab publishes under its own name (console: Insights → Approve /
@@ -35,3 +40,6 @@ users:
   vic:
     name: Vic the Visitor
     role: viewer
+  mulesoft-omni-gateway:
+    name: MuleSoft Omni Gateway
+    role: machine

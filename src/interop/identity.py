@@ -33,6 +33,18 @@ DEFAULT_KEY_DIR = ".a2alab"
 TTL_ENV = "A2ALAB_JWT_TTL_S"
 DEFAULT_TTL_S = 8 * 3600  # a demo day
 
+SERVICE_TTL_ENV = "A2ALAB_SERVICE_JWT_TTL_S"
+DEFAULT_SERVICE_TTL_S = 300  # short: the machine caller refreshes (WS10 spec §4.7)
+
+# Machine client-credentials callers (WS10 SP1). Maps the lab subject to mint
+# to the env vars holding its expected client_id / client_secret. A machine
+# caller has NO console password (ROLE_PASSWORD_ENVS has no 'machine' key), so
+# it can never be obtained through /api/login — only through the client-creds
+# mint (issue_service_token) below. Add a row to register another machine caller.
+SERVICE_CLIENTS: dict[str, tuple[str, str]] = {
+    "mulesoft-omni-gateway": ("A2ALAB_MULE_GW_CLIENT_ID", "A2ALAB_MULE_GW_CLIENT_SECRET"),
+}
+
 _PRIVATE_PEM = "lab_jwt_private.pem"
 _PUBLIC_PEM = "lab_jwt_public.pem"
 
@@ -192,14 +204,14 @@ def authenticate(username: str, password: str, users: dict[str, dict] | None = N
     return issue_token(username, users=directory)
 
 
-def issue_token(username: str, users: dict[str, dict] | None = None) -> str:
-    """A lab JWT for a directory user: {sub, name, role, iss, iat, exp}."""
-    directory = users if users is not None else load_users()
+def _issue(username: str, ttl: int, directory: dict[str, dict]) -> str:
+    """Sign a lab JWT for a directory user with an explicit TTL: the single
+    place claims are constructed, so the human (issue_token) and machine
+    (issue_service_token) paths cannot drift."""
     entry = directory.get(username)
     if entry is None:
         raise ValueError(f"unknown user '{username}' — see config/users.yaml")
     now = int(time.time())
-    ttl = int(os.environ.get(TTL_ENV, str(DEFAULT_TTL_S)))
     claims = {
         "iss": ISSUER,
         "sub": username,
@@ -209,6 +221,51 @@ def issue_token(username: str, users: dict[str, dict] | None = None) -> str:
         "exp": now + ttl,
     }
     return jwt.encode(claims, _private_key(), algorithm="RS256")
+
+
+def issue_token(username: str, users: dict[str, dict] | None = None) -> str:
+    """A lab JWT for a directory user: {sub, name, role, iss, iat, exp}."""
+    directory = users if users is not None else load_users()
+    ttl = int(os.environ.get(TTL_ENV, str(DEFAULT_TTL_S)))
+    return _issue(username, ttl, directory)
+
+
+def issue_service_token(
+    subject: str, ttl: int | None = None, users: dict[str, dict] | None = None
+) -> str:
+    """A SHORT-LIVED lab JWT for a MACHINE caller — no human password, no
+    /api/login. Safe to keep short precisely because the caller refreshes
+    (WS10 spec §4.7). Same claim shape as issue_token; only the TTL differs.
+    Fails closed unless ``subject`` is a ``machine`` identity: this mint must
+    never issue a token for a human/operator subject."""
+    directory = users if users is not None else load_users()
+    entry = directory.get(subject)
+    if entry is None or entry.get("role") != "machine":
+        raise ValueError(f"issue_service_token: '{subject}' is not a machine identity")
+    if ttl is None:
+        ttl = int(os.environ.get(SERVICE_TTL_ENV, str(DEFAULT_SERVICE_TTL_S)))
+    return _issue(subject, ttl, directory)
+
+
+def authenticate_client(client_id: str, client_secret: str) -> str:
+    """Validate a machine client-credentials pair against SERVICE_CLIENTS and
+    return the lab subject to mint for. Fail CLOSED: missing input, an
+    unconfigured client (either env unset), or a mismatch all raise ValueError.
+    Both comparisons are constant-time (hmac.compare_digest)."""
+    import hmac
+
+    if not client_id or not client_secret:
+        raise ValueError("missing client credentials")
+    for subject, (id_env, secret_env) in SERVICE_CLIENTS.items():
+        expected_id = os.environ.get(id_env, "")
+        expected_secret = os.environ.get(secret_env, "")
+        if not expected_id or not expected_secret:
+            continue  # not configured on this deployment — cannot match
+        if hmac.compare_digest(client_id, expected_id) and hmac.compare_digest(
+            client_secret, expected_secret
+        ):
+            return subject
+    raise ValueError("unknown or invalid client credentials")
 
 
 def verify_token(token: str, public_pem: str | None = None) -> dict[str, Any] | None:

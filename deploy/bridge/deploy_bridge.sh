@@ -357,10 +357,11 @@ watch:  aws ecs describe-services --cluster $CLUSTER --services $NAME --region $
 logs:   aws logs tail /ecs/$NAME --region $REGION --follow
 smoke:  curl -s http://$ALB_DNS/healthz
 
-STILL MANUAL — TLS and DNS, deliberately:
+DNS/TLS — already cut over (WS7, "retire the laptop from the runtime path"):
   Salesforce's A2ALab_Bridge named credential points at
-  https://bridge-lab.agenticthings.com, today the Cloudflare tunnel to your
-  laptop. Cutting Path A over needs a certificate the ALB can serve and a DNS
-  change, both of which touch a Salesforce-visible hostname — so they are not
-  scripted. Verify everything on the ALB hostname above FIRST, then cut over.
+  https://bridge-lab.agenticthings.com, which now resolves to THIS ALB (not the
+  old Cloudflare tunnel to a laptop — that dependency was retired). A code or
+  config change here reaches production Path A as soon as this service goes
+  PRIMARY; there is no separate cutover step. Smoke the ALB hostname above to
+  confirm before relying on it.
 EOF

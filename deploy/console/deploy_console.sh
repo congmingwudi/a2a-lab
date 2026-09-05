@@ -101,6 +101,17 @@ keys = [
     # all and rejected every login with a correct-looking "wrong user or
     # password".
     "A2ALAB_MASTER_PASSWORD", "A2ALAB_OPERATOR_PASSWORD", "A2ALAB_VIEWER_PASSWORD",
+    # WS10 SP1: the MuleSoft Omni Gateway's client-credentials pair. The console
+    # validates the gateway's POST /oauth/token against these two via
+    # identity.authenticate_client, then mints a role=machine JWT. They are the
+    # D48 blind spot AGAIN: authenticate_client reads them indirectly
+    # (os.environ.get(id_env) where id_env comes from the SERVICE_CLIENTS dict),
+    # so the ENV_JSON scan below — which only matches a literal-string subscript
+    # of os.environ[...] — never sees them. Enumerate them here or the hosted console runs with both
+    # unset, authenticate_client hits `continue` (not configured), and every
+    # /oauth/token returns "invalid client": SP1 ships broken. Anypoint side is
+    # the matching secured deployment variable (spec §4).
+    "A2ALAB_MULE_GW_CLIENT_ID", "A2ALAB_MULE_GW_CLIENT_SECRET",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
 
@@ -328,6 +339,17 @@ env["A2ALAB_HARVEST_FUNCTION"] = os.environ.get("A2ALAB_HARVEST_FUNCTION", "a2al
 if os.environ.get("A2ALAB_CONSOLE_GCP_AUDIENCE"):
     env["A2ALAB_GCP_WORKLOAD_AUDIENCE"] = os.environ["A2ALAB_CONSOLE_GCP_AUDIENCE"]
     env["A2ALAB_GCP_IMPERSONATE_SA"] = os.environ["A2ALAB_CONSOLE_GCP_SA"]
+
+# The MuleSoft Agent Fabric broker ingress (WS10 SP1), set EXPLICITLY — the same
+# D48 blind spot. targets.yaml's `mule-broker-a2a` reads it as
+# `${A2ALAB_MULE_BROKER_URL}`, which registry._expand_env resolves via a dynamic
+# os.environ.get(group), NOT a string-literal subscript the scan above can see.
+# A MISSING var expands to "" (registry.py), so without this the hosted console
+# resolves the broker target to an empty endpoint and errors on the card fetch
+# rather than reaching the gateway. It is a CloudHub ingress URL, not a secret,
+# so it belongs in plain env.
+if os.environ.get("A2ALAB_MULE_BROKER_URL"):
+    env["A2ALAB_MULE_BROKER_URL"] = os.environ["A2ALAB_MULE_BROKER_URL"]
 
 # The Managed Agents ids, set EXPLICITLY — the third instance of the D48 blind
 # spot. managed_backend.py reads them as os.environ.get(AGENT_ID_ENV), through

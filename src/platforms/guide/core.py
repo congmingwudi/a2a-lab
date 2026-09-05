@@ -274,7 +274,7 @@ class GuideAdapter:
         with Hop(
             trace_id,
             source="lab-guide",
-            target="anthropic-api",
+            target="claude-api",
             protocol="internal",
             transport_detail=f"messages.stream tool loop ({guide_model()})",
             request_payload={"message": req.message},

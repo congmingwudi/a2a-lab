@@ -24,15 +24,19 @@ from observability.coding_logs_source import CodingLogsSource
 from observability.coding_source import CodingSource
 from observability.foundry_source import FoundrySource
 from observability.infra_source import AwsInfraSource, AzureInfraSource, GcpInfraSource
+from observability.langgraph_source import LangGraphSource
 from observability.openai_source import OpenAISource
 from observability.salesforce_otel_source import SalesforceOtelSource
 from observability.salesforce_source import SalesforceSource
 from observability.strands_source import StrandsSource
 
-# The five agent-platform sources — the coverage sweep and its "harvested from
-# all platforms" claim. Everything below the divider shares only the harvest
-# seam and the store; each is reachable by name but NEVER in the unqualified
-# sweep, so the five columns keep meaning what they say.
+# The agent-platform sources — the coverage sweep and its "harvested from all
+# platforms" claim. Everything below the divider shares only the harvest seam
+# and the store; each is reachable by name but NEVER in the unqualified sweep,
+# so these columns keep meaning what they say. Each observes its platform
+# through that platform's OWN native telemetry: Anthropic sessions, Data 360,
+# OpenAI Responses, Vertex, Azure, CloudWatch (Bedrock), and — for langgraph —
+# LangSmith, LangGraph's framework-native trace surface (WS4/D77).
 PLATFORM_SOURCES = {
     "claude": AnthropicSource,
     "salesforce": SalesforceSource,
@@ -40,6 +44,7 @@ PLATFORM_SOURCES = {
     "adk": AdkSource,
     "foundry": FoundrySource,
     "strands": StrandsSource,
+    "langgraph": LangGraphSource,
 }
 
 # WS9/WS16: the coding agents that BUILT the lab, rendered in their own console

@@ -136,6 +136,14 @@ for key in (
     "A2ALAB_PG_CLUSTER_ID",       # aws: DBClusterIdentifier for the Aurora meters
     "A2ALAB_HARVEST_FUNCTION",    # aws: FunctionName for the Lambda meters
     "AZURE_FOUNDRY_RESOURCE_ID",  # azure: resource_uri (ARM id) for the Foundry meters
+    # WS4/D77: langgraph reads LangSmith (LangGraph's framework-native run
+    # store) over HTTPS with LANGSMITH_API_KEY — NOT an AWS-role read, so the
+    # key MUST ride the secret or the source degrades to `blocked` hosted.
+    # LANGCHAIN_PROJECT names the project to query (defaults to a2a-lab); the
+    # emitter-only LANGCHAIN_TRACING_V2 is not needed by the harvest reader.
+    "LANGSMITH_API_KEY",
+    "LANGCHAIN_PROJECT",
+    "LANGSMITH_ENDPOINT",         # optional; source defaults to the SaaS URL
 ):
     if os.environ.get(key):
         env[key] = os.environ[key]
@@ -160,7 +168,14 @@ fi
 
 # ---- code ------------------------------------------------------------------
 if [[ "$MODE" == "all" || "$MODE" == "--code" ]]; then
-  if [[ ! -f "$ZIP" ]]; then
+  # ALWAYS rebuild — never ship a bundle that happens to be on disk. A pre-built
+  # zip is exactly the --skip-build trap (CLAUDE.md) in Lambda form: on
+  # 2026-08-17 the langgraph source deployed as "ok" while the function ran a
+  # zip from six days earlier that had no langgraph_source.py, because the old
+  # guard here was `if [[ ! -f "$ZIP" ]]` and the file existed. The build is
+  # local and cheap; correctness is not. Pass --no-build to reuse an existing
+  # zip deliberately (e.g. shipping a hand-verified bundle).
+  if [[ "${2:-}" != "--no-build" ]]; then
     echo "building $ZIP..."
     deploy/obs/build_zips.sh >/dev/null
   fi

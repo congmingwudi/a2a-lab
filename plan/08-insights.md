@@ -24,7 +24,7 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Advise customers to consolidate within a trust domain and federate across trust domains — and to treat "we'll never need interop" with suspicion: your vendors are already shipping agents, so the second platform usually arrives whether you chose it or not.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -57,6 +57,8 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
@@ -73,6 +75,8 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
+    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
     HSHIM -.hops.-> OBSDB
@@ -225,7 +229,7 @@ Only two platforms speak a protocol natively: Google Vertex AI Agent Engine (A2A
 
 **Advisor take:** Plan for bridges and adapters as permanent, first-class, observable components of an interop program — not temporary scaffolding. Ask every vendor "which protocols do you speak natively, in which direction, GA or beta?" and demand wire-level evidence.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -258,6 +262,8 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
@@ -274,6 +280,8 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
+    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
     HSHIM -.hops.-> OBSDB
@@ -447,6 +455,27 @@ flowchart LR
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
 ```
 
+**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
+
+```mermaid
+flowchart LR
+    subgraph CONSOLE["Console task (Fargate) — one signing key, two public mints"]
+        KEY[("A2ALAB_JWT_PRIVATE_KEY (RS256)")]
+        LOGIN["POST /api/login<br/>persona + shared password (D36)"]
+        OAUTH["POST /oauth/token<br/>client_credentials (WS10 SP1)"]
+        LOGIN --> KEY
+        OAUTH --> KEY
+    end
+
+    HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
+    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, RUNNING · broker deployed (edge 1.13.5)"]
+
+    HUMAN -- "username + password" --> LOGIN
+    MULE -- "gateway client id/secret" --> OAUTH
+    KEY -- "8h persona JWT" --> HUMAN
+    KEY -- "short-lived JWT<br/>sub=mulesoft-omni-gateway" --> MULE
+```
+
 ### Agent-to-agent graphs grow edges nobody drew — govern the actual topology, not the diagram
 
 *Status: observed · refs: D25*
@@ -455,7 +484,7 @@ flowchart LR
 
 **Advisor take:** Once agents can call agents, delegation chains form transitively — including across billing, compliance, and data boundaries. Enforce closed systems per use case, and monitor real topology from traces. This governance problem arrives with your second platform, not your tenth.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions.
+**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -488,6 +517,8 @@ flowchart LR
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
 
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
     BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
@@ -504,6 +535,8 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
+    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
     HSHIM -.hops.-> OBSDB
@@ -584,17 +617,38 @@ flowchart LR
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
 ```
 
+**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
+
+```mermaid
+flowchart LR
+    subgraph CONSOLE["Console task (Fargate) — one signing key, two public mints"]
+        KEY[("A2ALAB_JWT_PRIVATE_KEY (RS256)")]
+        LOGIN["POST /api/login<br/>persona + shared password (D36)"]
+        OAUTH["POST /oauth/token<br/>client_credentials (WS10 SP1)"]
+        LOGIN --> KEY
+        OAUTH --> KEY
+    end
+
+    HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
+    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, RUNNING · broker deployed (edge 1.13.5)"]
+
+    HUMAN -- "username + password" --> LOGIN
+    MULE -- "gateway client id/secret" --> OAUTH
+    KEY -- "8h persona JWT" --> HUMAN
+    KEY -- "short-lived JWT<br/>sub=mulesoft-omni-gateway" --> MULE
+```
+
 ## Observability
 
 ### Cross-platform agent observability is radically uneven — federate agents and you own the audit trail
 
-*Status: observed · refs: D7, D18, D22, D31, D67, plan/05-observability.md, plan/07-workstreams.md*
+*Status: observed · refs: D7, D18, D22, D31, D67, D77, plan/05-observability.md, plan/07-workstreams.md*
 
-**What the lab showed:** Harvested side by side, six platforms give six different answers to "what did my agent do?". Salesforce exposes the richest queryable telemetry (full SQL over sessions/steps/LLM calls, but requires Data Cloud); Anthropic exposes the deepest per-session detail (thinking and tool events, but no aggregation API and pagination-walk discovery only); and OpenAI's trace dashboard is write-only with no read API, so your own tracing is the system of record.
+**What the lab showed:** Harvested side by side, seven platforms give seven different answers to "what did my agent do?". Salesforce exposes the richest queryable telemetry (full SQL over sessions/steps/LLM calls, but requires Data Cloud); Anthropic exposes the deepest per-session detail (thinking and tool events, but no aggregation API and pagination-walk discovery only); and OpenAI's trace dashboard is write-only with no read API, so your own tracing is the system of record.
 
 Google's column (2026-07-20) is the inverse shape — no session/turn API on the preview A2A surface, but Cloud Monitoring hands over token counts per model AND the literal billing meters (vCPU/GiB-seconds), so the lab can estimate a daily dollar cost the rich-session platforms expose no surface for. Microsoft's (2026-07-23) is the field's best so far: connect App Insights and every run emits agent-semantic OpenTelemetry gen_ai spans over KQL — invoke_agent, chat (per-call tokens and full messages), execute_tool — and the response id doubles as the lab's platform_ref, joining platform-interior spans to wire traces with no extra plumbing.
 
-AWS Strands (2026-08-04, D67/WS5) is a sixth shape again: no vendor session API at all, so it is observed only through its HOST cloud — CloudWatch/Bedrock meters — with a null platform_ref and a runtime-level rollup rather than a per-turn trail. Where you run the agent, not who built it, decides what you can see.
+AWS Strands (2026-08-04, D67/WS5) is a sixth shape again: no vendor session API at all, so it is observed only through its HOST cloud — CloudWatch/Bedrock meters — with a null platform_ref and a runtime-level rollup rather than a per-turn trail. LangGraph (2026-08-17, D77/WS4) is a seventh and the counter-example: its host (Heroku) exposes no agent telemetry, but the *framework* ships its own — LangSmith, a purpose-built LLM-run store the app emits to with an API key and no code — giving the strongest list + step surface here (a queryable per-turn run tree) yet no billing meter. Where you run the agent — or, for a framework, what framework you built on — not who built it, decides what you can see.
 
 **Advisor take:** "Can you audit what your agents did across platforms?" is usually unanswerable today. Any multi-platform agent estate needs its own trace layer: a correlation id on every hop, raw payloads recorded, platform logs harvested where APIs exist. Budget for this on day one.
 
@@ -712,9 +766,9 @@ flowchart TB
 
 ### A vendor's new "OpenTelemetry API" is usually a STANDARD ROUTE to data you could already get — the win is the pre-joined schema, not new information
 
-*Status: hypothesis · refs: D73, plan/05-observability.md, plan/07-workstreams.md, src/observability/salesforce_otel_source.py, src/observability/salesforce_source.py*
+*Status: observed · refs: D73, plan/05-observability.md, plan/07-workstreams.md, src/observability/salesforce_otel_source.py, src/observability/salesforce_source.py*
 
-**What the lab showed:** Agentforce shipped a Session Trace OTel API (beta) that returns a session's trace as an OTLP/JSON resourceSpans document — turns, messages, LLM calls, actions, metric scores and feedback, each a span. The lab already harvests that same picture the hard way: SELECT FIELDS(ALL) over four Session Tracing DMOs (ssot__AiAgentSession/Interaction/InteractionMessage/ InteractionStep__dlm), a manual interaction→session foreign-key walk, 200-row OFFSET paging, backfill of referenced sessions, and field-name heuristics because the ssot__* column names drift between orgs. Reading the docs against that DMO source, the OTel endpoint is the SAME Data 360 record through a pre-joined view — so it changes retrieval, not truth: no dashboard number would move. What it removes is real: the server does the join (the orphan bug class that once stranded 823 events in Aurora cannot occur), a stable OTLP schema replaces the drift-prone column heuristics, and it is one round trip per session instead of four paged DMO scans. What ruled out switching the LIVE harvest is three beta limits, each fatal to a bulk coverage sweep: single-session only (no bulk read), 72h lookback, and beta. So the lab built the OTel source (salesforce-otel), tested the OTLP→ store mapping, and kept the DMO path live — a one-line promotion the day the API grows a bulk read. (hypothesis until WS23 item 7 validates the session-id and attribute-name mapping against a live org.)
+**What the lab showed:** Agentforce shipped a Session Trace OTel API (beta) that returns a session's trace as an OTLP/JSON resourceSpans document — turns, messages, LLM calls, actions, metric scores and feedback, each a span. The lab already harvests that same picture the hard way: SELECT FIELDS(ALL) over four Session Tracing DMOs (ssot__AiAgentSession/Interaction/InteractionMessage/ InteractionStep__dlm), a manual interaction→session foreign-key walk, 200-row OFFSET paging, backfill of referenced sessions, and field-name heuristics because the ssot__* column names drift between orgs. Reading the docs against that DMO source, the OTel endpoint is the SAME Data 360 record through a pre-joined view — so it changes retrieval, not truth: no dashboard number would move. What it removes is real: the server does the join (the orphan bug class that once stranded 823 events in Aurora cannot occur), a stable OTLP schema replaces the drift-prone column heuristics, and it is one round trip per session instead of four paged DMO scans. What ruled out switching the LIVE harvest is three beta limits, each fatal to a bulk coverage sweep: single-session only (no bulk read), 72h lookback, and beta. So the lab built the OTel source (salesforce-otel), tested the OTLP→ store mapping, and kept the DMO path live — a one-line promotion the day the API grows a bulk read. (Validated against a live org 2026-08-12 — WS23 item 7: the runtime session id resolves to the OTel endpoint and the OTLP attribute names match the mapping's hints.)
 
 **Advisor take:** When a platform announces an "OpenTelemetry" or "standard trace" API, ask first whether it is new DATA or a new ROUTE to data you can already reach — usually the latter, a pre-joined projection of the same store. That reframes the decision: the payoff is a stabler schema and fewer join bugs, not richer analysis, so weigh it as an ENGINEERING simplification, not a capability. And do not switch your live pull to a beta endpoint just because it is cleaner: if it is single-session or short-lookback where your current path is bulk-and-historical, build it alongside under its own name, prove it is byte-for-byte the same data, and keep the promotion one line away — capability without overclaiming it replaces the measured path.
 

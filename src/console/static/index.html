@@ -1216,7 +1216,12 @@
   .gear-btn.on { color: var(--fg); background: var(--elevated); }
   .warm-panel { position: absolute; right: 0; top: 36px; width: 540px; z-index: 5;
                 background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-                box-shadow: 0 12px 32px var(--shadow-lg); overflow: hidden; }
+                box-shadow: 0 12px 32px var(--shadow-lg); overflow: hidden;
+                display: flex; flex-direction: column; max-height: calc(100vh - 52px); }
+  /* Header, failure banner and footer stay pinned; only the rows scroll — so the
+     "Warm all" button in the footer is always reachable however many rows pile up. */
+  .warm-panel > h3, .warm-panel > .warm-alert, .warm-panel > .warm-foot { flex: 0 0 auto; }
+  .warm-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   .warm-panel h3 { display: flex; align-items: center; margin: 0; padding: 10px 14px; font-size: 11px;
                    color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
                    border-bottom: 1px solid var(--border); }
@@ -1432,7 +1437,7 @@
     <span class="brandmark"></span>
     <h1>A2A Interop Lab</h1>
   </div>
-  <span class="sub">cross-platform agent-to-agent experiments · Agentforce × Claude × OpenAI × Google × Microsoft × AWS Strands</span>
+  <span class="sub">cross-platform, cross-hyperscaler agent-to-agent experiments</span>
   <span id="live" class="live" title="Live trace stream — the console's connection to the lab's own backend (/api/stream). When 'live', new wire-trace hops appear here the instant an experiment runs, no refresh needed. It streams under your persona sign-in, so it shows 'sign in for live' until you do.">connecting…</span>
   <span id="modeBadge" class="mode-badge" style="display:none"></span>
   <div class="theme-switch" role="group" aria-label="Theme">
@@ -2344,14 +2349,14 @@ function describeTrace(t) {
     }
   }
 
-  if (tgts.has("anthropic-managed-agents")) {
+  if (tgts.has("claude-managed-agents") || tgts.has("anthropic-managed-agents")) {
     parts.push(`The Claude agent's reasoning ran on <b>Anthropic Managed Agents</b> (hosted session, SSE event stream).`);
   } else if (tgts.has("claude-agent-sdk")) {
     parts.push(`The Claude agent's reasoning ran on the self-hosted <b>Claude Agent SDK</b>.`);
   }
 
   const afHops = hops.filter(h => h.protocol === "agentforce-api");
-  const claudeInvolved = tgts.has("anthropic-managed-agents") || tgts.has("claude-agent-sdk");
+  const claudeInvolved = tgts.has("claude-managed-agents") || tgts.has("anthropic-managed-agents") || tgts.has("claude-agent-sdk");
   if (afHops.length && !afEntry) {
     const lifecycle = afHops.map(h => (h.transport_detail || "").split(" ")[0]).join(" → ");
     if (claudeInvolved) {
@@ -2739,6 +2744,11 @@ const PLATFORM_LOGOS = {
   // upper). Drawn, not downloaded, like the AWS mark above — the tunnel that
   // fronts the console is the only Cloudflare credential the lab measures.
   cloudflare: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><path fill="#f6821f" d="M11.4 11.5H3.2a2.6 2.6 0 0 1-.5-5.1 3.7 3.7 0 0 1 6.9-1.2 2.9 2.9 0 0 1 4 1.6h.4a2.35 2.35 0 0 1 0 4.7z"/><path fill="#fbad41" d="M12.9 6.8a2.9 2.9 0 0 0-.3 0l-.15.03a.1.1 0 0 0-.07.07l-.1.35c-.08.3-.05.58.08.78.12.18.33.29.6.3l1.75.11a.13.13 0 0 1 .1.06.13.13 0 0 1 .01.12.17.17 0 0 1-.15.11l-1.82.11c-.99.05-2.05.85-2.42 1.83l-.13.34a.08.08 0 0 0 .07.1h6.24a.15.15 0 0 0 .15-.11 4.4 4.4 0 0 0 .16-1.18 3.24 3.24 0 0 0-3.2-3.24z"/></svg>`,
+  // LangGraph — a graph of connected nodes, the framework's own identity (its
+  // name IS the state graph). Drawn, not downloaded, like the AWS/Cloudflare
+  // marks. LangChain's dark-teal brand hue for the nodes; edges take
+  // currentColor so they survive both themes.
+  langgraph: `<svg class="plogo" viewBox="0 0 16 16" aria-hidden="true"><g stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 4.5 12 4.5M4 4.5 8 11.5M12 4.5 8 11.5"/></g><g fill="#1c3c3c"><circle cx="4" cy="4.5" r="2.1"/><circle cx="12" cy="4.5" r="2.1"/><circle cx="8" cy="11.5" r="2.1"/></g></svg>`,
 };
 const logoSvg = key => PLATFORM_LOGOS[key] || "";
 
@@ -3118,6 +3128,7 @@ on Aurora Postgres, which is the source of truth for everything on this page (D4
 - **Google Agent Engine** — Cloud Logging entries and Cloud Monitoring meters
 - **Microsoft Foundry** — KQL over App Insights \`gen_ai\` spans
 - **AWS Strands (Bedrock AgentCore)** — AWS/Bedrock CloudWatch meters (Input/OutputTokenCount, Invocations, InvocationLatency) plus the AgentCore runtime access log; one session per deployed runtime (D67)
+- **LangGraph (LangSmith)** — the LangSmith runs API (LangGraph's framework-native trace store): one session per turn with its run tree — the LLM and tool child runs as events, tokens/latency/model rolled up (WS4/D77)
 - **coding** — CloudWatch metrics for the agents that build the lab (WS9), surfaced in its own section
 
 ### What limits what you see here
@@ -3129,7 +3140,7 @@ preview A2A surface at all, so its honest shape is one session per deployed engi
 events, rather than one session per turn.
 
 The **Harvest** button fires the harvest Lambda and polls for the timestamps to move (D54); a full
-eight-source sweep (six agent platforms plus the two coding sources) runs longer than a browser
+nine-source sweep (seven agent platforms plus the two coding sources) runs longer than a browser
 request may stay open.`;
   return `<div class="flow">
     ${figureHtml("obsDashFig", "The architecture behind it")}
@@ -3287,7 +3298,8 @@ Aurora on demand; nothing is materialized into the Salesforce tenant):
 A semantic model over both DMOs declares the measures (each an explicit UserAgg); the dashboard
 reads the semantic model. The federation stays **live**: a render fires a real cross-region query
 from the tenant (eu-central-1) back to Aurora (us-east-1). That EU→US round trip is the honest
-latency this exhibit measures — the **L5.8** number in plan/03-results.md.
+latency this exhibit is built to measure — the **L5.8** number, still open (WS19 item 7,
+plan/07-workstreams.md; not yet recorded in plan/03-results.md).
 
 ### Where it runs, and who can open the live view
 
@@ -3591,8 +3603,8 @@ window.harvestObs = async ev => {
 
 // Watch lab.obs_harvest for platforms whose last_harvest_at is newer than the
 // moment we fired. Each one lands independently, so the panel fills in as they
-// finish rather than all at once — which is also the honest picture of what an
-// eight-source sweep is doing.
+// finish rather than all at once — which is also the honest picture of what a
+// nine-source sweep is doing.
 // Read a JSON response, or explain what actually answered.
 //
 // When something upstream replies instead of the app — the load balancer's 504
@@ -3727,9 +3739,9 @@ function obsPipelineHtml(hasData) {
     <div class="stage">
       <h5>Agent platforms</h5>
       <p>Agentforce (Data Cloud session tracing), Claude Managed Agents (session events), OpenAI,
-        Agent Engine (ADK), Foundry and AWS Strands — each platform's <i>interior</i> record of the
-        runs this lab drove, captured at emit time.</p>
-      <span class="who">agentforce · claude · openai · adk · foundry · strands</span>
+        Agent Engine (ADK), Foundry, AWS Strands and LangGraph (LangSmith) — each platform's
+        <i>interior</i> record of the runs this lab drove, captured at emit time.</p>
+      <span class="who">agentforce · claude · openai · adk · foundry · strands · langgraph</span>
     </div>
     <div class="arr">→</div>
     <div class="stage">
@@ -3830,7 +3842,7 @@ window.obsSummaryNav = ev => {
 // Agent Engine" gets ONE mark, not one per keyword the way withLogos() splices.
 const OBS_PLATFORM_LOGO = {
   claude: "anthropic", salesforce: "salesforce", openai: "openai",
-  foundry: "microsoft", adk: "gcloud", strands: "aws",
+  foundry: "microsoft", adk: "gcloud", strands: "aws", langgraph: "langgraph",
 };
 
 function obsDashboardHtml() {
@@ -4393,7 +4405,11 @@ function fanoutControlsDetailHtml(s) {
         controller: a serial-outbound platform can still take the asynchronous half of A2A, but only one layer
         down, never itself. The mode rides the situation as a routing block because the Apex body carries no
         field for it (the bridge reads it and strips it before the legs see it); a stripped or absent block
-        degrades to <code>sync</code>, never to an error.</p>
+        degrades to <code>sync</code>, never to an error. <b>Caveat:</b> this radio only changes the hosted
+        stack once the bridge is redeployed with the <code>af_channel</code> routing code
+        (<code>deploy/bridge/deploy_bridge.sh</code>, WS11 item 13 — an operator step, D76); until then the
+        hosted bridge runs pre-<code>af_channel</code> code that never reads the block, so it degrades to
+        <code>sync</code> regardless of the setting here.</p>
       <ul class="steps">
         <li><b>synchronous</b> (the bridge default): the bridge blocks on <code>ask()</code> per leg,
           concurrently, and returns when all are done — bounded by the held-open callout.</li>
@@ -5163,6 +5179,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
     GG["Vertex AI Agent Engine<br/>Cloud Logging + Monitoring meters"]
     FD["Microsoft Foundry<br/>App Insights gen_ai spans (KQL)"]
     ST["AWS Strands<br/>AWS/Bedrock meters + AgentCore access log (D67)"]
+    LG["LangGraph<br/>LangSmith runs API — per-turn run tree (D77)"]
     CD["Coding agents<br/>CloudWatch OTLP metrics (WS9)"]
   end
 
@@ -5185,6 +5202,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
   GG --> HARV
   FD --> HARV
   ST --> HARV
+  LG --> HARV
   CD --> HARV
   HARV --> S
   HARV --> E
@@ -5258,6 +5276,7 @@ const OBS_ANALYST_DIAGRAM = `flowchart TB
     GG["Agent Engine"]
     FD["Foundry"]
     ST["AWS Strands"]
+    LG["LangGraph (LangSmith)"]
   end
   HARV["Harvest Lambda<br/>every 6h, deterministic — no LLM"]
   PG[("Aurora, lab schema<br/>obs_sessions · obs_events · obs_harvest")]
@@ -5270,6 +5289,7 @@ const OBS_ANALYST_DIAGRAM = `flowchart TB
   GG --> HARV
   FD --> HARV
   ST --> HARV
+  LG --> HARV
   HARV --> PG
   PG --> MCP
   MCP <-->|"the agent asks, the server answers"| AG
@@ -8262,7 +8282,14 @@ function insightsDetailsHtml() {
   <i>platform or protocol</i>, not in the test. That is what turns running the lab into learning
   from it: the honest protocol matrix (plan/02-matrix.md) records what each platform can and
   cannot do with a status kept deliberately honest (<code>native / via-bridge / via-shim /
-  blocked-beta</code>), and the recorded runs (plan/03-results.md) supply the numbers. An insight
+  via-fabric / blocked-beta</code> — <code>via-fabric</code> added for WS10's MuleSoft Agent
+  Fabric broker cell, whose broker is now deployed to Production (RUNNING on the Omni Gateway,
+  edge 1.13.5) though the broker&rarr;face consult is not yet proven end to end; the fabric's
+  machine caller mints its own lab credential at
+  <code>POST /oauth/token</code>, a public, credential-gated route living beside
+  <code>/api/login</code> on the same console task — see the "One signing key, two public
+  mints" diagram on the Security &amp; trust insights below), and the recorded runs
+  (plan/03-results.md) supply the numbers. An insight
   is what remains once a pattern holds across more than one cell and survives that record.</p>
 
   <h3>The evidence ladder — and why it is trustworthy</h3>
@@ -8434,6 +8461,18 @@ window.warmAll = async () => {
   for (const t of warm.targets) await warmTarget(t.name); // sequential, top to bottom
 };
 
+// Clear the PANEL's results — a display reset, not a delete. The server stamps
+// a "cleared-before" watermark; warmups.jsonl keeps every row for the
+// cross-platform comparison and the Moirai forecast series. After it, every row
+// reads "never warmed" until re-warmed, and it survives logout (server-side).
+window.clearWarm = async () => {
+  if (Object.keys(warm.inflight).length) return; // don't clear mid-warm
+  try {
+    const r = await fetch(apiUrl("/api/warmup/clear"), { method: "POST" });
+    if (r.ok) await loadWarmup(); // re-fetch: rows now filtered past the watermark
+  } catch { /* network drop — nothing changed server-side */ }
+};
+
 // A warm-up's duration says what the LAST ATTEMPT hit; it does not say what
 // the runtime is now. Those were conflated (>20s was tagged "cold"), so a
 // successful 41s wake — the warm-up doing exactly its job — displayed as
@@ -8533,12 +8572,16 @@ function renderWarmPanel() {
   panel.innerHTML = `
     <h3>Runtime warm-up <button class="x" onclick="toggleWarmPanel(event)" title="Close" aria-label="Close">✕</button></h3>
     ${banner}
-    ${warm.targets.map(t => warmRowHtml(t, anyBusy)).join("")
-      || `<div class="empty" style="padding:14px">No warmable targets — flag them with
-          <span class="mono">options.warmup</span> in config/targets.yaml.</div>`}
+    <div class="warm-body">
+      ${warm.targets.map(t => warmRowHtml(t, anyBusy)).join("")
+        || `<div class="empty" style="padding:14px">No warmable targets — flag them with
+            <span class="mono">options.warmup</span> in config/targets.yaml.</div>`}
+    </div>
     <div class="warm-foot">
       <span class="note">First invoke after idle or a runtime update is a cold start — every duration
         is recorded for the cross-platform comparison.</span>
+      <button class="ghost" onclick="clearWarm()" title="Reset the panel — hides these results; the recorded durations are kept for the comparison"
+        ${anyBusy || !warm.targets.some(t => t.last) ? "disabled" : ""}>Clear results</button>
       <button class="ghost" onclick="warmAll()" ${anyBusy || !warm.targets.length ? "disabled" : ""}>Warm all</button>
     </div>`;
 }
@@ -8584,14 +8627,17 @@ const FRIENDLY = {
   "bridge": "Bridge",
   "claude-researcher": "Claude agent", "claude-rest": "Claude agent",
   "claude-mcp": "Claude agent", "claude-a2a": "Claude agent",
-  "anthropic-managed-agents": "Managed Agents", "claude-agent-sdk": "Agent SDK",
+  // WS21: new rows are stamped claude-managed-agents; the anthropic-* alias
+  // covers historical lab.trace_events rows until the one-shot migration runs.
+  "claude-managed-agents": "Managed Agents", "anthropic-managed-agents": "Managed Agents",
+  "claude-agent-sdk": "Agent SDK",
   "agentforce-apex": "Agentforce", "agentforce": "Agentforce",
   // First-hop source in the Agentforce → Claude scenario (the console driving
   // the Agent API); as a mid-path source it's ignored, so "You" is safe.
   "agentforce-service-agent": "Agentforce", "agentforce-client": "You",
   "openai-researcher": "OpenAI agent", "openai-rest": "OpenAI agent",
   // Async brief pattern (D16)
-  "anthropic-scheduler": "Daily cron", "brief-researcher": "Claude researcher",
+  "claude-scheduler": "Daily cron", "anthropic-scheduler": "Daily cron", "brief-researcher": "Claude researcher",
   "brief-worker": "Brief worker", "salesforce-org": "Salesforce", "web": "Web",
 };
 
@@ -8646,13 +8692,13 @@ function archSvg() {
       marker-start="url(#lnd-${l.proto}-s)" marker-end="url(#lnd-${l.proto}-e)"/>
     <text x="380" y="${l.y - 6}" text-anchor="middle" fill="var(--${l.proto})" font-size="10.5" font-weight="700">${l.label}</text>`).join("");
   return `<svg class="archsvg" viewBox="0 0 760 196" role="img"
-      aria-label="Agentforce and the remote research agents (Claude, OpenAI, Gemini, Foundry) exchanging the same request over REST, MCP, and A2A">
+      aria-label="Agentforce and the remote agent platforms (Claude, OpenAI, Gemini, Foundry, Strands, LangGraph) exchanging the same request over REST, MCP, and A2A">
     <defs>${defs}</defs>
     ${box(22, "Salesforce Agentforce", "service agent · Agent API", "Apex → bridge / direct A2A")}
-    ${box(528, "Research agents", "Claude · OpenAI · Gemini", "gpt-5-mini (Azure Foundry)")}
+    ${box(528, "Remote agent platforms", "Claude · OpenAI · Gemini", "Foundry · Strands · LangGraph")}
     ${wires}
     <text x="380" y="166" text-anchor="middle" fill="#8fc0e8" font-size="10.5">
-      five platforms, three clouds — same scenario over each protocol, every raw wire payload recorded</text>
+      cross-platform, cross-hyperscaler — same scenario over each protocol, every raw wire payload recorded</text>
     <text x="380" y="182" text-anchor="middle" fill="#8fc0e8" font-size="10">
       …and one 1:many cell: a single task fanned out to three business units on three clouds at once</text>
   </svg>`;
@@ -8709,12 +8755,13 @@ function landingHtml() {
         <div class="kicker">Agent interoperability · experiments</div>
         <h1 class="wordmark">A2A Interop Lab</h1>
         <p class="hero-sub">Watch agent platforms talk to each other — on the wire.</p>
-        <p class="hero-body">Six agent platforms — Salesforce Agentforce, Claude, OpenAI,
-          Google Gemini on Vertex AI Agent Engine, Microsoft Foundry, and AWS Strands on Bedrock
-          AgentCore — answer the same questions by consulting each other mid-conversation, across
-          four clouds. Each direction runs over REST, MCP, and the A2A protocol — the same
-          scenario, protocols compared side by side, with every hop's raw wire payload recorded
-          so you can see exactly what each protocol puts on the wire.</p>
+        <p class="hero-body">Agent platforms across the hyperscalers — Salesforce Agentforce,
+          Claude, OpenAI, Google Gemini on Vertex AI Agent Engine, Microsoft Foundry, AWS Strands on
+          Bedrock AgentCore, and the open-source LangGraph framework on Heroku — answer the same
+          questions by consulting each other mid-conversation, cross-platform and cross-cloud. Each
+          direction runs over REST, MCP, and the A2A protocol — the same scenario, protocols
+          compared side by side, with every hop's raw wire payload recorded so you can see exactly
+          what each protocol puts on the wire.</p>
         <p class="hero-ethos">The lab's ethos is <b>honest status</b>: it calls out what works
           natively, what works via a bridge or shim it hosts, and what is blocked or beta. Every
           claim travels with a source — an ADR id, a trace id, a measured number — so a reader

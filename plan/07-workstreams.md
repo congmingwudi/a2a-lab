@@ -443,44 +443,153 @@ Status 2026-07-22 (environment + first answer):
 
 ---
 
-## WS4 — LangGraph on LangGraph Platform
+## WS4 — LangGraph on Heroku
 
 **Goal:** the open-source-framework column: a LangGraph research agent
-deployed on LangGraph Platform, whose Agent Server exposes A2A
-(`/a2a/{assistant_id}`) and MCP natively; LangSmith as the first
-*fully queryable SaaS* observability backend.
+(small ReAct graph — an agent node + an `ask_agentforce` tool node) that
+delegates CRM knowledge to Agentforce, exercised over REST/MCP/A2A; LangSmith
+as the *fully queryable SaaS* observability backend.
 
-**Why:** demonstrates framework-vs-platform (the distinction customers
-conflate); LangSmith's read API is the perfect foil to OpenAI's
-write-only traces; cheap and fast to stand up.
+**Why:** adds the open-source-framework variable (LangGraph) to the platform
+column; LangSmith's read API is the perfect foil to OpenAI's write-only
+traces.
+
+**Revised 2026-08-16 (D77 — the Heroku pivot).** WS4 originally targeted
+**LangGraph Platform** (its managed Agent Server exposes A2A/MCP natively).
+The operator chose to host on **Heroku** instead — a hosting-shape change, not
+a framework one. On Heroku (a generic PaaS with no agent-protocol surface) the
+agent is served through the lab's OWN `serve()` adapters, exactly like
+`platforms/strands` and `platforms/openai`. This is the lab's **first
+non-AWS-hosted platform**. WS4 loses the framework-vs-managed-PLATFORM contrast
+but KEEPS the queryable-SaaS observability column (LangSmith is host-agnostic).
+See D77 for the full rationale, the one-dyno/three-protocol multiplexer, and the
+cross-cloud trace path (Data API, no VPC).
 
 Work items:
-- `src/platforms/langgraph/` — agent interior (small graph: research node
-  + `ask_agentforce` tool node), deployed via `langgraph deploy` (cloud
-  SaaS tier first; self-host later only if the comparison needs it).
-- Outbound: generic `A2AClient` at the deployment's A2A endpoint
-  (LangSmith API-key auth header) — target `langgraph-a2a`, native. MCP
-  cell too (`langgraph-mcp`) — first remote platform serving both.
-- Twin: `SF_LANGGRAPH_AGENT_ID`.
-- Obs: `langgraph_source.py` over the LangSmith runs/traces API —
-  expected to be the richest programmatic column; say so in insights.
+1. ✅ `src/platforms/langgraph/` — agent interior on the lab's two-seam shape:
+   `core.py` adapter + system prompt, deterministic `stub_backend.py`, and the
+   real `langgraph_backend.py` (`create_react_agent`, Haiku-tier
+   `langchain-anthropic` brain, delegation-guarded `ask_agentforce` per D27).
+   Backend selected by `LANGGRAPH_BACKEND=stub|langgraph`. done 2026-08-16
+2. ✅ Serve entry `__main__.py` (REST 8051 / MCP 8052 / A2A 8053) plus a
+   `--protocol all` multiplexer that reuses the faces app
+   (`build_faces_app(faces=LANGGRAPH_FACES)`) so one Heroku web dyno serves all
+   three protocols behind one `$PORT`. Wired into `run_local.sh`. done 2026-08-16
+3. ✅ Targets: `langgraph-rest`/`-mcp`/`-a2a` (native, local) + the paired
+   Agentforce twin `agentforce-langgraph-rest` (`SF_LANGGRAPH_AGENT_ID`, D25);
+   the `langgraph-*-hosted` Heroku twins + hosted-mode remap staged COMMENTED
+   until first deploy (no phantom live cell in the matrix). done 2026-08-16
+4. ✅ `deploy/heroku/` — Dockerfile (`langgraph` + `aws` extras) and a HEADLESS
+   Platform-API deploy script (app create, config vars, container push, release
+   over docker+curl; no `heroku login`). Traces reach the shared Aurora store
+   off-VPC via the rds-data Data API. done 2026-08-16
+5. ✅ Unit tests (`tests/unit/test_langgraph_platform.py`) + `langgraph` extra
+   in pyproject; D77 ADR; plan/09 estate/L6; plan/01 dev-stack diagram. done 2026-08-16
+6. ✅ Deployed to Heroku team `sfdc-ta` as app `a2a-lab-langgraph` (cedar
+   generation → `https://a2a-lab-langgraph-08c59c66097f.herokuapp.com`, one
+   Basic web dyno, `LANGGRAPH_BACKEND=langgraph`). `A2ALAB_LANGGRAPH_BASE` set,
+   the `langgraph-*-hosted` twins + hosted-mode remap uncommented. Live smoke
+   green: `/healthz`, faces index, token-gated A2A card advertising the real
+   origin, and a REST `/invoke` running the real ReAct agent (haiku-4-5, ~4.5s).
+   The Heroku Container Registry needs a Docker **schema2** manifest, so the
+   build pushes via buildx `oci-mediatypes=false,push=true` (Docker 29's
+   containerd store is OCI, which the registry rejects). done 2026-08-17
+7. ✅ Obs: `src/observability/langgraph_source.py` over the LangSmith runs API
+   — LangSmith is LangGraph's framework-native trace store, so this is the
+   platform-obs column (NOT a bespoke Heroku Postgres log — WS4 stays true to
+   "observe each platform through its own telemetry"). Maps one root run → one
+   obs session (rolled-up tokens/latency/model/tool-count, status) and each
+   `llm`/`tool` child → one event (the run tree; LangChain scaffolding chains
+   dropped). The wire-trace join rides `extra.metadata.lab_trace_id`, which the
+   `langgraph_backend.answer()` `ainvoke(config=…)` now stamps. Registered in
+   the CLI sweep (`scripts/obs_harvest.py`), the console Harvest endpoint, AND
+   the 6h harvest Lambda (`lambda_handlers.py`) — the seventh agent-platform
+   column; console coverage card + plan/05 matrix column updated. **Live-
+   validated 2026-08-17** against project `a2a-lab`: `ok`, 1 turn, haiku-4-5,
+   829 tokens, 1361ms (the LangSmith page cap is 100 rows — a 500 400s, fixed).
+   Two follow-ups travel with this: (a) the `lab_trace_id` join is null on turns
+   run BEFORE the backend stamp ships — it populates after the next Heroku full
+   rebuild (`src/` change, not `--skip-build`); (b) the hosted Lambda needs
+   `LANGSMITH_API_KEY` in the harvest secret (Secrets Manager) or the source
+   degrades to `blocked` — it is NOT an AWS-role read like the others. done
+   2026-08-17 (code + live read; the two follow-ups are deploy/operator steps).
+8. ✅ FORWARD live over A2A fire-then-poll (langgraph-to-agentforce). The
+   binding constraint on Heroku is the router's HARD 30s H12 timeout: a
+   LangGraph answer runs 26–40s (Haiku ReAct + the Agentforce consult) and a
+   synchronous request that straddles 30s is killed with an "Application Error"
+   page. So the console drives the LangGraph A2A face fire-then-poll (WS11
+   D74/D76 pattern): `submit()` returns a task id in ~1s and the browser polls
+   `tasks/get` to a terminal state, so no single request outlives 30s. PROVEN
+   on the live dyno 2026-08-19: a submit+poll run reached `TASK_STATE_COMPLETED`
+   at 41.5s with a full answer folding in the Agentforce consult, zero H12;
+   the same-length synchronous `/langgraph-rest/invoke` was killed at
+   `service=30000ms`. Scenario `target: langgraph-rest → langgraph-a2a` +
+   `console_dispatch: submit_poll`; `LANGGRAPH_ANSWER_TIMEOUT_S` raised 40→90
+   (safe now the 30s ceiling no longer binds, kept under the 120s poll leg).
+   Earlier fixes still stand: dyno missing `SF_AGENT_ID`
+   (`AgentforceClient.from_env()` hard-reads it before the paired override —
+   added to deploy VARS), and the hosted bridge rebuilt so its baked
+   `targets.yaml` knows the Heroku faces.
+9. ✅ REVERSE (agentforce-to-langgraph) live over A2A fire-then-poll — shipped
+   2026-08-19, closing the WS4 pair. CORRECTION kept for the record: an earlier
+   note blamed an "unresolvable Cloudflare tunnel / ALB cutover unscripted." THAT
+   WAS WRONG. `bridge-lab.agenticthings.com` was cut over from the tunnel to the
+   a2alab-bridge ALB weeks ago (WS7); the production `A2ALab_Bridge` Named
+   Credential points at that ALB; no laptop, no tunnel in Path A. The bogus
+   "unresolvable" call came from testing DNS inside a sandbox with no outbound
+   DNS — not production. The real blocker was the SAME Heroku 30s H12: a
+   synchronous Apex→bridge→Heroku delegation of a 26–40s answer is killed at 30s
+   (a 32s answer was H12'd; a 13s one passed). Fix, now live: the twin's
+   `ask_external_researcher` posts `target=langgraph-a2a`; that target carries
+   `bridge_dispatch: submit_poll`, so the bridge's `/invoke` handler submits to
+   the LangGraph A2A face and polls `tasks/get` on the Apex callout's behalf
+   (`run_target_async` in `orchestration/runner.py`) — the one Apex callout only
+   ever waits on sub-second submit/poll requests. Budget: Apex 110s > bridge
+   submit+poll 100s (`A2ALAB_BRIDGE_ASYNC_TIMEOUT_S`) > dyno 90s
+   (`LANGGRAPH_ANSWER_TIMEOUT_S`). Shipped: bridge redeployed (task def :11), the
+   D25 twin republished + activated (v2). PROVEN end to end 2026-08-19: a real
+   twin turn ("brief me on Northwind Traders") returned the CRM section AND a
+   full LangGraph-authored market-research section in 45.1s with zero H12 (a
+   duration a synchronous path could not survive), and a direct bridge probe of
+   `langgraph-a2a` reported `dispatch_mode=async` over 10 polls. matrix +
+   insights: open.
+10. ✅ Cross-cloud trace sink — DONE 2026-08-19. The operator authorized minting a
+   **static, scoped IAM access key** (the laptop only has SSO creds, which do not
+   exist inside a dyno). It rides `.env` under DEDICATED names
+   (`A2ALAB_HEROKU_AWS_ACCESS_KEY_ID`/`_SECRET_ACCESS_KEY`) so `source .env`
+   cannot shadow the operator's SSO locally; `deploy/heroku/deploy_langgraph.sh`
+   maps them to `AWS_ACCESS_KEY_ID`/`_SECRET_ACCESS_KEY` in the pushed config
+   ONLY, swaps `A2ALAB_PG_SECRET_ARN` → the writer secret (mirroring the other
+   trace-writers), and defaults `A2ALAB_TRACE_SINK=postgres`. Re-released
+   `--skip-build` (config-only). PROVEN: a REST call to the dyno wrote two hops
+   to Aurora over the rds-data Data API (off-VPC), and the forward-delegation run
+   wrote five. Keys synced via `env_sync push` (both `.env` secret and the
+   harvest secret allowlist).
 
-**Credentials / setup (LangSmith is new to you):**
-1. Sign up at smith.langchain.com (free/dev tier is enough to start;
-   Plus tier if we hit deployment limits). Create an org + workspace.
-2. Settings → API Keys → create a Personal Access Token →
-   .env `LANGSMITH_API_KEY`.
-3. `uv add langgraph langgraph-cli langchain` (as a `langgraph` extra);
-   deployments happen via the LangSmith UI from a GitHub repo or
-   `langgraph-cli` — decide at build time (the lab repo is private; a
-   small public deploy repo or CLI path both work).
-4. Model key for the agent brain: reuse ANTHROPIC_API_KEY or
-   OPENAI_API_KEY (decide at build; a Haiku-tier brain keeps sync budgets
-   comfortable).
+**Credentials / setup (what the operator provides — see D77):**
+1. A **Heroku API token** scoped to team `sfdc-ta`. In practice the operator's
+   Enterprise **SSO** login was enough: the deploy script falls back to `heroku
+   auth:token` (a short-lived session token) when `HEROKU_API_KEY` is unset, and
+   the 2026-08-17 deploy used exactly that — no long-lived key minted (SSO
+   usually disables them). Everything else is the headless Platform API. For an
+   unattended/cron deploy, mint `heroku authorizations:create` → `.env`
+   `HEROKU_API_KEY` (secret; synced via env_sync).
+2. Confirm **app-create rights** in `sfdc-ta` (Enterprise teams may lock this),
+   and whether it is a **Private Space** (then `HEROKU_SPACE` is needed).
+3. `HEROKU_APP` / `HEROKU_TEAM` → `.env` (no hardcoded identifiers).
+4. Model key for the brain: reuse `ANTHROPIC_API_KEY` (Haiku-tier by default,
+   `LANGGRAPH_MODEL_ID` to override) — keeps sync budgets comfortable.
+5. For LangSmith obs (item 7): `LANGSMITH_API_KEY` + `LANGCHAIN_TRACING_V2=true`
+   + `LANGCHAIN_PROJECT=a2a-lab` as Heroku config vars (the emit side —
+   host-agnostic, works the same on Heroku). For the *hosted harvest* (the 6h
+   Lambda) to read those runs, the SAME `LANGSMITH_API_KEY` must also be in the
+   harvest secret (Secrets Manager, `env_sync push`) — it is the lab's own
+   personal-account key (the GCP/Azure pattern for non-Salesforce platforms).
+   Without it the langgraph source degrades to `blocked`, honestly.
 
 **Exit criteria:** A2A + MCP native cells green; both directions with the
 twin; LangSmith obs source harvesting; insights updated
-(framework-vs-platform, observability column).
+(open-source-framework, observability column).
 
 ---
 
@@ -926,10 +1035,17 @@ resolving to the ALB, and a recorded latency showing the 45s budget intact.
 
 ## WS8 — Fan-out orchestration: the lab's missing shape (AD1, approved 2026-07-25)
 
-**Status 2026-07-26 (overnight build).** Dispatch layer built, tested, and
-**proven live**: two legs in parallel across GCP and Azure, 36.7s wall against a
-50.7s serial equivalent, and the partial-failure contract verified against a
-real dead leg rather than an injected one (plan/03-results.md).
+**Status 2026-08-12 (14 of 15 items done).** All three orchestrator variants
+are live — CMA (37.4s wall), ADK (`ParallelAgent`, 16.8s) and the Agentforce
+Agent Script variant (D61) — the fan-out legs are also exposed as a remote MCP
+server the model schedules itself (D41) over keyless GCP workload-identity
+federation, and the join rate is measured (1 of 4 join cleanly, plan/03-results.md).
+The one open item is **#15**, the Agentforce orchestrator's own recorded run.
+The original overnight dispatch proof still stands — two legs in parallel across
+GCP and Azure, 36.7s wall against a 50.7s serial equivalent, partial-failure
+contract verified against a real dead leg — but read the note under the item
+table: that run used the lab's existing general-purpose research agents, so the
+numbers describe the plumbing, not the scenario.
 
 | # | Item | State |
 |---|---|---|
@@ -1164,8 +1280,15 @@ Claude(AWS)↔ADK pair (~0.5 day) which lands first as a warm-up.
 
 ## WS9 — Build telemetry: what this lab cost to make (AD2, approved 2026-07-25)
 
-**Status 2026-07-26 (overnight build).** Everything that does not need AWS is
-done; the one step that does is the one that matters most.
+**Status 2026-08-17 (15 of 18 items done).** All the in-repo telemetry is done —
+cost/token metrics, per-repo attribution, both console sections, the harvest
+button and the D39-shaped credential. What remains all needs AWS the lab does
+not own: item 16's in-repo half landed 2026-08-17 (the SigV4 forwarder under
+`A2ALAB_LOGGING_AUTH=iam`) but is **blocked** on the operator moving the external
+`/log` route to `AWS_IAM` with a cross-account resource policy trusting the lab
+principal; item 17 (usage-plan / rate-limit) and item 18 (rotate the logging key)
+are **not started** — and 18 is increasingly overdue, since the key item 14
+flagged as urgent to rotate has now sat unrotated even longer.
 
 | # | Item | State |
 |---|---|---|
@@ -1184,7 +1307,7 @@ done; the one step that does is the one that matters most.
 | 13 | Codex OTel exporter wired to the same endpoint (`scripts/codex_otel.sh`); a `metrics_exporter` mismatch found and fixed | done |
 | 14 | Static-key follow-up resolved via macOS Keychain — hooks read a Keychain service, env fallback warns on stderr | done |
 | 15 | Insight published — "a telemetry config that parses is not evidence of telemetry" | done — `measured`, `review: required` |
-| 16 | IAM-auth for the `/log` route (the true keyless D39 shape) | not started — still API-key auth (~half a day) |
+| 16 | IAM-auth for the `/log` route (the true keyless D39 shape) | in-repo half ✅ — the console forwarder now signs SigV4 for `execute-api` under `A2ALAB_LOGGING_AUTH=iam` (`_logger_request_headers`, default stays `apikey` so nothing flips unasked); region from `A2ALAB_LOGGING_REGION`/host/`AWS_REGION`, absent creds skip the forward (same fail-quiet contract as a missing key). BLOCKED on the operator's out-of-repo half: the external `aws-logging-service` `/log` route must move to `AuthorizationType: AWS_IAM` with a cross-account resource policy trusting the lab principal — both halves must land together or telemetry breaks, which is why the flag defaults off |
 | 17 | Usage-plan scoping / rate-limit on the `/log` route | not started |
 | 18 | Rotate the logging key | not started — assuming it stayed contained is not free |
 
@@ -1472,12 +1595,29 @@ scheduled.
 
 ## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
 
-**Status: NOT STARTED.** Research and planning only — no Agent Fabric build,
-no code, config, deploy script or ADR yet. Gated on the Phase 0 entitlement
-check below, and scheduled last. (This line is explicit so the delivery record
-does not inherit the status of the `## Lab Guide` section that follows: both are
-un-numbered sub-sections inside WS10's span, and `jira_sync.py` would otherwise
-read the Lab Guide's "built" status as WS10's.)
+**Status: SP1 walking skeleton BUILT and DEPLOYED to Production; broker RUNNING;
+broker→face consult unproven end to end (2026-09-01).** Phase 0 passed, the
+managed-gateway entitlement was raised, and the Omni Gateway
+(`agent-network-shared-gw`) is provisioned and **RUNNING in Production**
+(operator work, 2026-08-31/09-01). SP1's code is built and merged to main: the
+machine caller identity, the client-credentials mint, the console `/oauth/token`
+route, wiretap caller attribution, the six-agent descriptor set plus a 1-hop
+AgentScript broker, and the `mule-broker-a2a` console target (numbered items
+below). **Deployed 2026-09-01:** `agent-network project build`/`publish`/`deploy`
+succeeded against the Production gateway once it was upgraded in place to
+`edge 1.13.5` (the first runtime carrying the auto-applied Agent Fabric policies
+— the `edge 1.9.16` the gateway shipped with 400'd on `tracing` 1.1.1 + siblings
+having no runtime build). All six agent-connection API instances and the broker
+are RUNNING at the gateway ingress `/broker1/`. **Not yet proven, and not claimed
+here:** the console→broker **ingress** works (`scripts/mule_broker_smoke.py` gets
+a `SendMessage` accepted), but the broker's **egress** consult back to the faces
+returns `TASK_STATE_FAILED` — leading suspect the broker's `lf.a2a.v1` protobuf
+dialect vs the faces' JSON-RPC A2A; the isolation test needs live egress and is
+held for the operator. Full analysis in
+`plan/15-mulesoft-agent-fabric-gateway-blocker.md`. (This status line is explicit
+so the delivery record does not inherit the status of the `## Lab Guide` section
+that follows: both are un-numbered sub-sections inside WS10's span, and
+`jira_sync.py` would otherwise read the Lab Guide's "built" status as WS10's.)
 
 **Goal.** Stand up Agent Fabric against the lab's own agents and produce a
 customer-facing **build-vs-buy comparison matrix**.
@@ -1505,6 +1645,178 @@ the lab's measured version-wall evidence, is the comparison's most valuable
 output.
 
 **Effort:** ~1 week after Phase 0 clears.
+
+**Phase 0 prerequisite — MuleSoft MCP Connected Apps (recorded 2026-08-30).**
+WS10 compares against MuleSoft through two MCP servers, each backed by its own
+Anypoint Connected App. Anypoint's app types are mutually exclusive, so two apps
+are required. Creating a Connected App is the one irreducible UI step (the account
+is SSO-federated — no headless password→token path, and no CLI command creates
+Connected Apps); everything after it is scriptable. Concrete client id/secret
+values are **not in this repo** — they live in `~/.claude.json` under the project's
+`mcpServers` (local MCP scope, gitignored), entered by the operator. The required
+configuration shape:
+
+- **App for `mulesoft-platform`** (remote streamable-http `https://omni.mulesoft.com/mcp`,
+  the WS10 comparison surface): type **"App acts on behalf of a user"**, grant
+  **Authorization Code + Refresh Token**, redirect URI **`http://localhost:8299/callback`**.
+  **Scopes: `full` (Full access) AND `offline_access`** — the latter is labelled
+  **"Background Access"** in the Anypoint scope picker. Read/viewer scopes are NOT
+  enough: the server hard-codes `scope=full offline_access` (OAuth resource
+  `https://omni.mulesoft.com/`), so anything less is rejected at the authorize step
+  with `invalid_scope`. A client-credentials ("acts on its own behalf") app also
+  fails here — the interactive `response_type=code` flow needs the on-behalf-of-user type.
+- **App for `mulesoft-dx`** (stdio `mulesoft-mcp-server`, the DX/build surface) and
+  the `anypoint-cli-v4` automation: type **"App acts on its own behalf"**, grant
+  **client_credentials**, broad admin across the three envs (Design/Sandbox/Production).
+  Authenticates non-interactively from `ANYPOINT_CLIENT_ID/_SECRET/_REGION` — no
+  browser step.
+
+**OAuth debug trap (cost a full session to diagnose):** a scope/grant misconfiguration
+surfaces in Claude Code as *"Authentication failed / Invalid state parameter"*, which is
+a **red herring**. The `:8299` callback listener parses only the URL query string, but
+Anypoint returns authorize errors in the URL **fragment**
+(`#error=invalid_scope&...&state=<which actually matches>`); seeing no query `code`/`state`,
+the listener misreports it as a state mismatch. To get the real error, open the failing
+URL, click Allow, and read the full address-bar URL off the redirect page — don't chase
+state/port/process theories.
+
+**Phase 0 result — entitlement PASSED (2026-08-30).** Verified read-only through the live
+Platform-MCP catalog tools: the MuleSoft provider reports **connected** with gateway
+support; the org has the three standard environments (Design/Sandbox/Production); and
+**CloudHub 2.0 shared-spaces are available in every environment, including a US host
+(`cloudhub-us-east-1`, matching the lab's us-east-1 residency) and EU hosts** — this is
+the "CH2.0 host" requirement the gate was waiting on. The Agent Catalog and MCP Server
+Catalog both return data (12 agents, 105 MCP servers). **Honest framing for the
+comparison:** those catalog entries are MuleSoft's **public/trusted registry**, not the
+lab's — the lab's own org has **zero** agents, MCP servers, LLMs, or Omni Gateways
+registered yet. So Phase 0 proves two separate things — discovery/governance works, and
+the build path is entitled — but nothing of ours is in the fabric. The build (stand up
+an Omni Gateway into a CH2.0 space, then register the lab's A2A agents) remains the gated
+step and is scoped separately.
+
+**Build attempt — BLOCKED on managed-gateway entitlement (2026-08-31, operator go-ahead
+given).** With go-ahead to stand up the Omni Gateway, every provisioning path was tried and
+every one is rejected by the same platform-side resource check. **No managed Omni Gateway of
+any size can be provisioned on this org.** Findings, so the next attempt does not re-walk them:
+
+- **Valid size tokens are `small` and `large` only** (lowercase — read from the AF plugin's
+  `utils/constants.js`: `GATEWAY_SMALL_SIZE='small'`, `GATEWAY_LARGE_SIZE='large'`). **There is
+  no `medium`.** Earlier "invalid Gateway size" errors were the wrong token form
+  (`managedGatewaySmall`/`Medium`), not a platform limit — that string is how the *server*
+  names the resource in its error, not what the API accepts as input.
+- **The AF-plugin path (`agent-network setup gateways`) is unusable here.** On a shared
+  CloudHub space it forces single-gateway mode, which hardcodes **`large`**
+  (`gateways.js`: `ingressSize = mode === Separate ? SMALL : LARGE`; separate mode is rejected
+  on shared spaces via `separateGatewayModeNotSupportedInSharedSpace`). Large → 409
+  "Insufficient resources (managedGatewayLarge)" in **both** Sandbox and Production.
+- **The native CLI path (`runtime-mgr gateways managed create <name> <targetId> <size>`) lets
+  you pick the size** but hits the same wall. `small` → 409 "Insufficient resources
+  (managedGatewaySmall)" in **Sandbox (2 vCore) AND Production (3 vCore)**. The native CLI
+  wants the **lowercase** target id (`cloudhub-us-east-1`); the AF plugin wants the display
+  form (`Cloudhub-US-East-1`) — opposite conventions for the same target.
+- **Interpretation:** the smallest gateway is rejected even in the largest environment, so
+  this is a **managed-gateway entitlement gate, not a vCore near-miss** — `managedGatewaySmall`
+  reads as a distinct entitlement SKU the org does not hold. Per-env vCore counts (Prod 3 /
+  Sandbox 2 / Design 2) are real but not the binding constraint here.
+- **Nothing was created** — all attempts were pre-provision rejections (no gateway, no cost,
+  no cleanup needed).
+- **Unblock path (needs someone else to act):** raise the org's managed-gateway / Omni Gateway
+  entitlement via a MuleSoft subscription change, OR pursue a self-managed **private space /
+  Runtime Fabric** target (a different, larger setup and a separate resource class — entitlement
+  shows `vpcs:1`), which the shared-space gate does not cover. Until then WS10's build stays at
+  Phase 0: discovery/governance proven, provisioning blocked.
+
+**UNBLOCKED — Omni Gateway provisioned (2026-08-31).** The operator raised the managed-gateway
+entitlement (Unblock path 1). `get_omni_gateway_usage_report` flipped from an effective zero to
+`small: {consumed 0, limit 2}`, `large: {consumed 0, limit 2}` — the entitlement SKU the org
+lacked is now held. With that, the supported AF-plugin path ran clean:
+`anypoint-cli-v4 agent-network setup gateways -t Cloudhub-US-East-1` created
+**`agent-network-shared-gw`** (managed, `large`, runtime 1.9.16, `apiLimits: 500`) on the shared
+space `cloudhub-us-east-1`, **status RUNNING** — no 409. Usage now reads `large: {consumed 1}`.
+It landed in the **Design** environment (the CLI session's default), not Production. Auth note:
+the raw CLI's stored username/password session is stale and can't renew headlessly (SSO-federated,
+per `plan/15`); the operator ran the one CLI command from their authenticated shell (App-2
+client-credentials), while verification runs read-only through the authenticated `mulesoft-platform`
+MCP. Full record in `plan/15-mulesoft-agent-fabric-gateway-blocker.md`. **Next:** agent-network
+project (broker) + register the lab's A2A agents.
+
+**SP1 walking skeleton — status by item (built on branch `ws10-sp1-agent-fabric`, now merged to main):**
+
+1. ✅ Machine caller identity: `mulesoft-omni-gateway` added to
+   `config/users.yaml` as a service identity, distinct from the human personas.
+2. ✅ Client-credentials mint in `src/interop/identity.py`
+   (`authenticate_client` + `issue_service_token`), issuing a short-lived
+   RS256 lab JWT for a validated gateway client id/secret.
+3. ✅ Console `POST /oauth/token` route (`src/console/app.py`) — a
+   credential-gated peer of `/api/login` on the same console task, exempt from
+   the console JWT gate for the same reason `/api/login` is (D36).
+4. ✅ Wiretap caller attribution (`src/interop/servers/wiretap.py`): the A2A
+   hop's trace `source` becomes the verified lab caller, so a fabric-routed
+   call is attributed to `mulesoft-omni-gateway` rather than to the generic
+   A2A entry point.
+5. ✅ The `mulesoft/` agentic-network descriptor set — six agent descriptors
+   (one per lab face) plus a 1-hop broker, `oauth2-client-credentials` wired
+   for the broker's egress back to the faces.
+6. ✅ `mule-broker-a2a` console target (`config/targets.yaml`, status
+   `via-fabric`) — the broker's A2A ingress, reached by the console's existing
+   Run button like any other protocol-generic target.
+7. ✅ Deterministic smoke (`scripts/mule_broker_smoke.py`) + a live
+   trace-attribution proof (`tests/live/test_mule_broker.py`) — code and tests
+   committed. The smoke has now **run against the live Production broker**: it
+   fetches the card, binds HTTP+JSON, and gets a `SendMessage` accepted (ingress
+   proven). The live trace-attribution proof is still blocked on the broker→face
+   consult (`TASK_STATE_FAILED`, item 8) and remains held for the operator.
+8. ✅ **Broker deployed to Production on `edge 1.13.5`** (2026-09-01) — the six
+   agent-connection API instances (`claudeConn`, `openaiConn`, `strandsConn`,
+   `guideConn`, `agentforceConn`, `langgraphConn`) + the AgentScript broker
+   RUNNING at ingress `/broker1/`, reached via `oauth2-client-credentials` to the
+   console `/oauth/token`. Open: the broker→face **consult** returns
+   `TASK_STATE_FAILED` (leading suspect: `lf.a2a.v1` protobuf vs JSON-RPC on the
+   egress hop), so the skeleton is deployed but not yet proven end to end
+   (`plan/15-mulesoft-agent-fabric-gateway-blocker.md`).
+9. ⏳ **SP4 — a dedicated Agent Fabric console section** (build-vs-buy
+   comparison matrix, sizing-cost readout for the forced-`large` gateway
+   entitlement): deferred, not started.
+
+**Broker deploy attempt — blocked on the Design environment (2026-09-01).** With
+the descriptors rendered (GAV fix: `exchange.json.template` + `render_exchange.py`,
+org id from `.env`, gitignored render), `agent-network project build` and
+`publish` both succeeded. `deploy --gateway agent-network-shared-gw` against the
+Design env then failed: for each of the six agent connections the toolchain POSTs
+to API Manager `.../environments/{Design}/apis` and gets 400 "the environment …
+either does not exist or you don't have permissions for it", aborting the broker.
+Diagnosed read-only via `mulesoft-platform` MCP — **not** a credential problem
+(identical failure under the org-owner CLI session AND App-2 broad-admin
+client-credentials): a **Design-type environment is design-only and has no API
+Manager runtime**, so API instances cannot be created there (confirmed by org
+history — every API instance in the org lives in `sandbox`; the Design env has
+zero). The Design gateway is therefore on a structurally-incapable environment.
+The fix (taken, below) was to deploy to Production instead. Full analysis and the
+recommended commands are in `plan/15-mulesoft-agent-fabric-gateway-blocker.md`.
+
+**Broker deploy — RESOLVED, deployed to Production on `edge 1.13.5` (2026-09-01).**
+Deployed straight to the Production gateway (`type: production`, so API Manager
+accepted it), skipping Sandbox on this solo POC org. The first attempt got
+*past* the Design blocker — it created all six agent-connection API instances —
+then failed one step later with `errorCode 3004 → 400 "Policy <id> does not have
+implementation for the selected runtime"`. Root cause was a **gateway-runtime ↔
+policy-artifact version gap**: Agent Fabric auto-applies four policies to every
+connection (`a-two-a-v1-agent-card`, `agent-connection-telemetry`, `tracing`
+1.1.1, `credential-injection-oauth2` — none from our descriptor), and the
+gateway's `edge 1.9.16` runtime had no compiled build for `tracing` 1.1.1 and a
+sibling. `--disable-tracing` does **not** remove the policy (it controls
+functionality, not application), and LTS is the wrong direction (AF policies are
+new artifacts). The operator upgraded the gateway **in place** to `edge 1.13.5`
+(`runtime-mgr gateways managed edit … --version latest --releaseChannel edge` —
+no new entitlement, `large` 2/2 unchanged); the re-deploy then **succeeded end to
+end**, confirming the diagnosis (the newer edge build is the first to carry the
+policy implementations). **Still open:** the broker→face egress consult returns
+`TASK_STATE_FAILED` — the ingress is proven (smoke gets `SendMessage` accepted)
+but the downstream consult is not; the isolation test that distinguishes the
+dialect-mismatch hypothesis from an oauth2-cc token-fetch failure needs live
+egress and is held for the operator. Also pending: **drop the Design gateway**
+(`12cb93d2-…`, structurally can never host anything). Full record in
+`plan/15-mulesoft-agent-fabric-gateway-blocker.md`.
 
 ---
 
@@ -2846,7 +3158,7 @@ is the how.
 | 6 | Build the Zero-Copy data layer headless: federation views (`lab.trace_events_zc`, `lab.trace_rollup_zc`), data streams, DLOs, DMOs and DLO→DMO mappings at both hop and trace grain | **done** (2026-08-09) — all built via the Data Cloud **SSOT REST API** (not the UI D69 assumed). Federating a **view** not the base table sidesteps the composite-PK block and keeps the raw-payload jsonb out of the object Data Cloud sees (residency is now structural); a surrogate `event_key` generated column is the single hop-grain PK; the trace-grain rollup pushes the two-level `GROUP BY` down into Aurora (Tableau Semantics has no LOD). Acceleration OFF on both — rows stay in us-east-1. Live-verified via `/ssot/queryv2`: hop DMO federates 3,021 hops, rollup DMO 960 traces, every figure matching the pre-build numbers. See plan/13 §1 |
 | 7 | **Operator action:** build the Tableau Next semantic model + dashboard (visualizations, tiles) on the DMOs, and measure the L5.8 cold cross-region federation render | **operator action, partially built** — the `A2A_Lab` workspace, `New_Dashboard`, and **5 of 9 hop-grain visualizations** are live in the org (created 2026-08-09, confirmed via `sf org list metadata`: Hops_by_Protocol_Platform, Status_by_Platform, Traffic_Over_Time, Hop_Latency_Distribution, Direction_Matrix). **Remaining:** the 4 rollup-grain KPI tiles (Avg Trace Latency, Trace Success Rate, Avg/Max Hops per Trace, plan/13 §3d) and the **L5.8 cold cross-region federation render measurement** (not yet in plan/03-results.md). Still UI-only for authoring (four headless surfaces ruled out — no `SemanticModel` Metadata type, SSOT `/semantic-models` 404s, both Tableau/360 MCP servers read-only, plan/13 §3); the L5.8 number can go through the read-only Tableau Next MCP `analyze_data` |
 | 8 | Inline Tableau Next embed in the console (owner-only, server-side JWT-bearer auth) | **built headless** (2026-08-09) — `/api/tableau/frontdoor` (owner-gated) mints a `web`-scoped session via JWT-bearer → `/singleaccess`; SDK mount + `CorsWhitelistOrigin` + the `a2a_lab_tab_embed` ECA (four metadata files, JWT cert on global OAuth) all created headlessly. Resolved: client-credentials can't get `web` scope (JWT-bearer runs in user context and can), and the auraCmpDef 504 was a perms + asset-sharing gap not a platform bug (plan/13 §5). **Pending operator publish:** console full-rebuild redeploy, a dedicated minimal-privilege integration user as JWT `sub`, and the CORS origin deploy (plan/13 §6) |
-| 9 | Console entry point + `plan/02-matrix.md` finding (two views over one table, zero copy) | **console surface shipped (in a different spot than scoped); matrix finding + final nav placement after item 7** — a full working canvas + Details pane already ships as a **Tableau Next top tab inside Observability** (`index.html` `obsTableauNextHtml`/`obsTableauNextDetailsHtml`, citing D69–D72/plan/09), NOT the dedicated **Data 360** nav item under Infrastructure plan/13 §4b recommends. Still to do: paste the drafted matrix finding into `plan/02-matrix.md`'s Findings ledger (one `[N]` bracket = the item-7 L5.8 number) and decide whether to relocate the console entry to the scoped nav location. Closes the delivery-record loop (D58/D60) |
+| 9 | Console entry point + `plan/02-matrix.md` finding (two views over one table, zero copy) | **console surface shipped (in a different spot than scoped); matrix finding NOT done + final nav placement deferred to after item 7** — a full working canvas + Details pane already ships as a **Tableau Next top tab inside Observability** (`index.html` `obsTableauNextHtml`/`obsTableauNextDetailsHtml`, citing D69–D72/plan/09), NOT the dedicated **Data 360** nav item under Infrastructure plan/13 §4b recommends. Still to do: paste the drafted matrix finding into `plan/02-matrix.md`'s Findings ledger (one `[N]` bracket = the item-7 L5.8 number) and decide whether to relocate the console entry to the scoped nav location. Closes the delivery-record loop (D58/D60) |
 
 ### Exit criteria
 
@@ -2963,17 +3275,45 @@ parked as a potential workstream, not scheduled.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Rename `anthropic-managed-agents`→`claude-managed-agents` and `anthropic-api`→`claude-api` at every source site (managed_backend, guide/core, analyst, briefs, cma, console/app) | not started |
-| 2 | Update console badge/vendor matching in `index.html` and any diagram/config literal | not started |
-| 3 | Decide + apply the historical-row policy: one-shot `UPDATE` on `lab.trace_events` via `pg_migrate.py`, or leave history and change new rows only | not started |
-| 4 | Remove the now-redundant two remap arms from the WS19 Tableau `Target Platform` calc | not started |
+| 1 | Rename `anthropic-managed-agents`→`claude-managed-agents` and `anthropic-api`→`claude-api` at every source site (managed_backend, guide/core, analyst, briefs, cma, console/app) | done 2026-08-16 |
+| 2 | Update console badge/vendor matching in `index.html` and any diagram/config literal | done 2026-08-16 (transitional — see note) |
+| 3 | Decide + apply the historical-row policy: one-shot `UPDATE` on `lab.trace_events` via `pg_migrate.py`, or leave history and change new rows only | open — operator decision (recommendation below) |
+| 4 | Remove the now-redundant two remap arms from the WS19 Tableau `Target Platform` calc | open — blocked on item 3 |
+
+**Build note (2026-08-16, items 1–2).** Renamed all three trace labels at
+source: `anthropic-managed-agents`→`claude-managed-agents` (managed_backend,
+analyst, console/app), `anthropic-api`→`claude-api` (guide/core, console/app),
+and the `source` counterpart `anthropic-scheduler`→`claude-scheduler`
+(briefs/runner) so the exit-criteria grep can be clean. `cma.py` had no such
+literal. `config/scenarios.yaml` flow labels and the console `FRIENDLY` map /
+badge matching updated. Confirmed `anthropic-managed-agents` is a trace LABEL,
+not a `targets.yaml` registry key, so no resolution path changed.
+
+**Transitional console state (item 2).** Because the ~120 historical
+`lab.trace_events` rows keep the old `target` until item 3 runs, the console
+deliberately recognizes BOTH names (`claude-*` for new rows, `anthropic-*` for
+historical) in its badge logic and `FRIENDLY` map — the same shape as the WS19
+Tableau remap. Those `anthropic-*` arms in `index.html` are the ONLY remaining
+`anthropic-` trace-label references in `src/`; they come out in the same change
+as item 3.
+
+**Item 3 recommendation (operator's call).** A one-shot in-place `UPDATE` on
+`lab.trace_events` (`target` and `source`) via `pg_migrate.py` as owner is the
+clean shape — the generated `event_key` does not include `target`/`source`, so
+the PK is unaffected and the change is reversible with the inverse UPDATE. Doing
+it lets items 2 and 4 drop their `anthropic-*` arms and fully satisfies the exit
+criteria. Left as the operator's decision per the 2026-08-09 "not sure it's
+worth the effort" note; the SQL is trivial and can run the morning this is
+picked up.
 
 ### Exit criteria
 
 `grep anthropic- src/ config/` returns nothing that names a trace target; the
 console trace viewer and the Tableau dashboard show the same `claude-*` names for
 the same hop; the WS19 `Target Platform` remap arms are gone; and the historical-
-row policy is decided and recorded. Parked until judged worth the effort.
+row policy is decided and recorded. **Status 2026-08-16: items 1–2 met (new
+rows and every source surface now say `claude-*`); items 3–4 open, gated on the
+historical-row migration decision.**
 
 ## WS22 — Track B: cross-cloud infrastructure metrics — harvest, store, surface (raised 2026-08-11)
 
@@ -3091,3 +3431,72 @@ session returns an OTLP trace. Console exposure (items 8–10): **met** — the
 Session Trace tab makes the live read interactive and reachable from the
 Agentforce experiments that generate the sessions. Only promotion to the live
 sweep (item 11) stays open, gated on the API leaving beta and growing a bulk read.
+
+## WS24 — Agentforce SOMA: native single-org multi-agent orchestration (raised 2026-08-15)
+
+**BLOCKED on Salesforce beta enrollment.** SOMA ("Single Org, Multiple Agents")
+is Agentforce's native orchestrator-plus-connected-subagents shape. The org
+check on 2026-08-15 confirmed it is not enabled here: absent from Feature
+Manager **and** from every relevant Settings metadata type at v67
+(`AgentPlatform`/`Bot`/`EinsteinAgent`/`EinsteinCopilot`/`EinsteinGpt`/`AgentforceForDevelopers`
+— the Agentforce substrate is all ON, but no multi-agent / connect-agents flag
+exists). Enablement is therefore a Salesforce-side **beta request**, not a
+headless toggle. This workstream stays blocked until that lands; the design is
+recorded now so it is build-ready the moment it does.
+
+**What this is.** One native Agentforce orchestrator (`A2ALab_Supply_Orchestrator_SOMA`,
+a NEW bundle beside the WS8 bridge orchestrator — the bridge one is left intact
+as the comparison baseline) routes to **three connected specialist subagents —
+Logistics, Commercial/Legal, Customer-ops — all Agentforce agents in this ONE
+org**, over the **same supplier-disruption scenario as WS8**. No A2A wire, no
+trust boundary crossed: this is the field's cleanest control case.
+
+**Why it is worth building.** SOMA is the same "who owns concurrency" question
+WS8 asks, answered a fourth way. WS8's Agentforce variant-3 fans out via a
+serial Apex callout to the lab bridge (Path A, D61); SOMA fans out via **native
+agent-to-agent routing inside one org**. Same orchestrator brand, same three
+business questions, two dispatch mechanisms — so the deliverable is *what native
+buys over the bridge*. And because there is no wire between the agents, the
+native session trace SOMA emits is the **clean baseline** the cross-org (MOMA)
+and cross-vendor (A2A) hops get measured against.
+
+**The three deliverable findings.**
+
+1. **Native session trace vs the lab's wire trace.** How Agentforce's unified
+   session trace plus per-subagent independent traces line up with the lab's
+   per-hop wire trace for the same scenario. Reuses the WS23 Session-Trace OTel
+   path (D73) and the M11 harvest — no new obs plumbing — and surfaces in the
+   console's existing Session Trace tab.
+2. **Whether the D27 delegation guard even applies with no wire.** There is no
+   outbound request to stamp a rider on; the trust boundary is internal to
+   Agentforce. That absence is itself the finding — the guard is a seam
+   convention, and SOMA has no seam.
+3. **Latency vs the bridge fan-out, and whether the Apex-callout-budget
+   constraint disappears** — the constraint that makes variant-3's serial path
+   degrade by design (D61). Native routing has no Apex transaction to overrun.
+
+### Work items
+
+| # | Item | State |
+|---|---|---|
+| 1 | Salesforce beta enrollment for Agentforce multi-agent ("connect agents") on the lab org — the one non-headless dependency; everything below is gated on it | blocked — beta request with Salesforce |
+| 2 | Learn the connected-subagent node schema once: build one orchestrator→subagent link in Agent Builder, `sf project retrieve` the `GenAiPlannerBundle`, and diff the base64 `agentGraph` to identify the cross-agent node field (existing bundles only carry `type:"subagent"` internal-topic nodes) | not started — gated on item 1 |
+| 3 | Three new specialist single-org Agentforce agents (`GenAiPlannerBundle`s): Logistics, Commercial/Legal, Customer-ops, each grounded in the supplier-disruption scenario, deployed headless via the Metadata API | not started — gated on item 1 |
+| 4 | `A2ALab_Supply_Orchestrator_SOMA` orchestrator bundle whose `agentGraph` wires the three specialists as connected subagents (native routing), leaving `A2ALab_Supply_Orchestrator` (bridge variant-3) untouched as the comparison baseline | not started — gated on items 2–3 |
+| 5 | Headless deploy script for the SOMA fleet (orchestrator + 3 subagents), sourcing `deploy/aws_preflight.sh`-equivalent org guards; no hardcoded org identifiers (`.env` only) | not started |
+| 6 | `config/scenarios.yaml` entry `supplier-disruption-soma` with its own business-case `description` (console renders it) and a `soma` topology alongside the WS8 `delegated`/`serial` variants | not started |
+| 7 | Native trace capture: pull the SOMA run's unified session trace + per-subagent independent traces via the WS23 `salesforce-otel` source (D73) / M11 harvest; record in `obs_sessions`/span events under the existing platform name | not started — gated on items 4–6 |
+| 8 | Recorded comparison run in `plan/03-results.md`: SOMA native routing vs WS8 variant-3 bridge fan-out on the identical scenario — wall latency, per-leg coverage, and trace-fidelity delta | not started |
+| 9 | Console: SOMA run renders its native session trace in the Session Trace tab, and a Details pane (D57) narrates native-routing-vs-bridge citing D61/D73/WS8/WS24 | not started |
+| 10 | Field insight (native multi-agent orchestration as the no-wire control case) + ADR D77 recording the SOMA-as-baseline decision, written when the build is committed post-enablement | not started |
+| 11 | Diagram + console-copy pass (`config/diagrams.yaml`, `plan/09-deployment-map.md`, the `*_DIAGRAM` constants) so the SOMA topology is drawn and the estate map shows the new agents | not started |
+
+### Exit criteria
+
+**Blocked** until item 1 (beta enrollment) lands. Once enabled: the build is
+expected to be fully headless via `GenAiPlannerBundle` + `agentGraph` (the same
+metadata path the lab already deploys), with item 2 the single one-time
+schema-learning step. The workstream is **met** when a `supplier-disruption-soma`
+run routes natively to three single-org subagents, its unified session trace is
+harvested and surfaced, and `plan/03-results.md` records the native-vs-bridge
+comparison against WS8 variant-3 on the identical scenario.

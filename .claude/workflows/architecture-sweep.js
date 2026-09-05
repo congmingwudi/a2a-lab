@@ -6,6 +6,7 @@ export const meta = {
     { title: 'Inventory', detail: 'collect every architectural assertion — diagrams, Details panes, plan prose' },
     { title: 'Check', detail: 'one agent per assertion, against deploy scripts and live infrastructure' },
     { title: 'Verify', detail: 'adversarial refutation before anything is reported as wrong' },
+    { title: 'Log', detail: 'persist the run to traces/workflows/ (gitignored)' },
   ],
 }
 
@@ -156,8 +157,29 @@ const unverifiable = flat.filter(f => f.verdict === 'unverifiable')
 
 log(`${stale.length} confirmed stale · ${unverifiable.length} unverifiable · ${flat.length - stale.length - unverifiable.length} accurate`)
 
-return {
+const result = {
   stale: stale.map(f => ({ where: f.where, about: f.about, detail: f.detail, fix: f.fix })),
   unverifiable: unverifiable.map(f => ({ where: f.where, detail: f.detail })),
   checked: flat.length,
 }
+
+// Persist this run to the gitignored archive. traces/ (never git) is the right
+// home: a finding here can quote live ARNs / account ids from the cloud-state
+// evidence above, which CLAUDE.md forbids committing. The workflow runtime has
+// no fs and no clock, so a final agent stamps the time and writes the file.
+phase('Log')
+await agent(
+  'Persist this "architecture-sweep" workflow run to the gitignored run-log archive. ' +
+    'Do EXACTLY these steps, nothing else:\n' +
+    '1. Run bash: `mkdir -p traces/workflows && date -u +%Y-%m-%dT%H-%M-%SZ`\n' +
+    '2. Use the timestamp it prints as TS.\n' +
+    '3. Use the Write tool to create `traces/workflows/architecture-sweep-<TS>.json` with EXACTLY ' +
+    'the content between the markers, verbatim (no edits, no reformatting, and drop the marker lines):\n' +
+    '===BEGIN===\n' +
+    JSON.stringify(result, null, 2) +
+    '\n===END===\n' +
+    'Reply with only the path you wrote.',
+  { phase: 'Log', label: 'log-run', agentType: 'general-purpose', effort: 'low' },
+)
+
+return result

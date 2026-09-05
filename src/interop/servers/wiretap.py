@@ -49,6 +49,21 @@ def _extract_caller(body: bytes) -> str | None:
     return None
 
 
+def _caller_from_scope(scope) -> str | None:
+    """The authenticated caller from a verified lab JWT, if TokenAuthMiddleware
+    stashed one on this scope (scope['state']['lab_user'] on a valid
+    iss=a2a-lab token, auth.py:99). Its `sub` is the strongest source signal —
+    it is cryptographically verified — so it outranks the body-derived
+    delegation caller. Non-regressive: today's callers present the shared
+    A2ALAB_TOKEN or cloud-IAM bearers, so lab_user is unset for them."""
+    state = scope.get("state") if isinstance(scope, dict) else None
+    if isinstance(state, dict):
+        lab_user = state.get("lab_user")
+        if isinstance(lab_user, dict) and lab_user.get("sub"):
+            return str(lab_user["sub"])
+    return None
+
+
 def _extract_trace_id(body: bytes) -> str | None:
     try:
         envelope = json.loads(body)
@@ -154,7 +169,9 @@ class WireTapMiddleware:
                     TraceEvent(
                         trace_id=trace_id,
                         ts=arrived,
-                        source=_extract_caller(body) or "remote-caller",
+                        source=_caller_from_scope(scope)
+                        or _extract_caller(body)
+                        or "remote-caller",
                         target=self.service,
                         protocol=self.protocol,
                         transport_detail=f"{method} {path}",

@@ -163,7 +163,7 @@ class ObsAnalyst:
         with Hop(
             trace_id,
             source="obs-analyst",
-            target="anthropic-managed-agents",
+            target="claude-managed-agents",
             protocol="managed-agents-api",
             transport_detail="analysis session",
             request_payload={"kickoff": KICKOFF},

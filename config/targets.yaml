@@ -5,6 +5,7 @@
 #   native       the platform speaks this protocol itself
 #   via-bridge   Path A: Agentforce REST callout -> bridge -> this protocol
 #   via-shim     Path B: this protocol -> shim -> Agentforce Agent API
+#   via-fabric   WS10: routed THROUGH a MuleSoft Agent Fabric broker/Omni Gateway
 #   blocked-beta the native path exists but is gated (documented, not run)
 #
 # ${VAR} values expand from the environment (.env).
@@ -164,6 +165,59 @@ targets:
     options: {timeout: 110, warmup: true}
     auth: {runtime_arn: "${STRANDS_AGENTCORE_ARN}"}
 
+  # ---- LangGraph agent (WS4 — the open-source-framework column; backend =
+  # stub|langgraph via LANGGRAPH_BACKEND). Hosted on HEROKU (the operator's
+  # host choice, D77), not LangGraph Platform — so it is served through the
+  # lab's own serve() adapters like strands/openai, and the hosted twins below
+  # point at the Heroku app, not the Fargate faces task. The three local faces
+  # run the stub until the `langgraph` extra + LLM key are present.
+  langgraph-rest:
+    platform: langgraph
+    protocol: rest
+    endpoint: http://localhost:8051
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  langgraph-mcp:
+    platform: langgraph
+    protocol: mcp
+    endpoint: http://localhost:8052/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  langgraph-a2a:
+    platform: langgraph
+    protocol: a2a
+    endpoint: http://localhost:8053
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+    # WS4 async fire-then-poll (D77): the LangGraph A2A face is served by the
+    # lab's shared create_a2a_app (DefaultRequestHandler + InMemoryTaskStore),
+    # so submit(return_immediately)/poll(tasks/get) work for free. protocol_version
+    # pins the A2A-Version header at 1.0 (what the lab's own a2a-sdk server
+    # advertises) so the poll's tasks/get negotiates cleanly. This is what lets
+    # both directions dodge Heroku's HARD 30s router timeout (H12): no single
+    # HTTP request is held open for the full answer — submit and each poll are
+    # sub-second, and the dyno computes the answer in the background (a Heroku
+    # web dyno keeps running after the response, UNLIKE a frozen Lambda).
+    # bridge_dispatch: submit_poll makes the bridge's /invoke path drive this
+    # face fire-then-poll for REVERSE Path A (Agentforce → LangGraph): the Apex
+    # callout cannot poll, so the bridge runs submit+poll on its behalf, bounded
+    # under the Apex 110s callout. Read off the EXACT target name the bridge
+    # receives (registry.get is remap-free); the client is remapped to the
+    # hosted A2A face by client_for.
+    options: {protocol_version: "1.0", timeout: 65, bridge_dispatch: submit_poll}
+
+  # The LangGraph-paired Agentforce twin (ADR D25): same org/credentials,
+  # different agent — its external-research action targets a langgraph face.
+  agentforce-langgraph-rest:
+    platform: agentforce
+    protocol: agentforce-api
+    status: native
+    auth:
+      my_domain: "${SF_MY_DOMAIN}"
+      client_id: "${SF_CLIENT_ID}"
+      client_secret: "${SF_CLIENT_SECRET}"
+      agent_id: "${SF_LANGGRAPH_AGENT_ID}"
+
   # The Strands-paired Agentforce twin (ADR D25): same org/credentials,
   # different agent — its external-research action targets strands-agentcore
   # (the Bedrock AgentCore runtime, so the reverse cell exercises the IAM
@@ -284,9 +338,9 @@ targets:
       timeout: 65
       card_path: agentCard/v1.0
       # This is a fan-out leg (WS8) and the ONLY one with no warm path — so it
-      # was cold on every supplier-disruption run, stacking cold latency into
-      # the orchestrator's poll deadline (the ADK-sync 210s overrun). Listing it
-      # here puts it in the operator warm-up panel like the other legs.
+      # is cold on every supplier-disruption run, adding cold-start latency the
+      # other legs avoid. Listing it here puts it in the operator warm-up panel
+      # like the other legs.
       warmup: true
     auth:
       scheme: azure-ad
@@ -344,6 +398,32 @@ targets:
     # inside this; a COLD one can exceed it, so warm it first (warmup: true).
     options: {timeout: 110, transport: http_json, warmup: true, protocol_version: "1.0"}
     auth: {scheme: google-adc}
+
+  # ---- MuleSoft Agent Fabric broker (WS10 SP1). The broker's gateway A2A
+  # ingress, driven by the console's existing Run button as an ordinary A2A
+  # target — the payoff of the protocol-generic client. The broker's egress
+  # back to the faces authenticates as mulesoft-omni-gateway via the
+  # gateway-native oauth2-client-credentials token fetch (spec §4.7); this
+  # target is the INGRESS the console calls. endpoint is set post-deploy to the
+  # gateway ingress URL. Ingress auth is a confirm-at-deploy item (spec §8):
+  # fill `auth` once the broker's inbound policy is known.
+  mule-broker-a2a:
+    platform: mulesoft
+    protocol: a2a
+    endpoint: ${A2ALAB_MULE_BROKER_URL}
+    status: via-fabric
+    auth: {}
+    # The broker publishes a MINIMAL agent card (no url / preferredTransport /
+    # protocolVersion), so a2a-sdk card negotiation fails with "no compatible
+    # transports found". Pin the transport to skip discovery: the broker speaks
+    # the lf.a2a.v1 protobuf-JSON dialect (PascalCase SendMessage, ROLE_USER,
+    # A2A-Version: 1.0) = the HTTP+JSON REST binding, not JSON-RPC. card_path
+    # still points at the served card for the wiretap record.
+    options:
+      protocol_version: "1.0"
+      timeout: 65
+      transport: http_json
+      card_path: .well-known/agent-card.json
 
 # Deployment modes (D26): A2ALAB_MODE=hosted transparently remaps these
 # names wherever a client is resolved (bridge, custom tools, console runs) —
@@ -460,6 +540,35 @@ targets:
     status: native
     auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
 
+  # WS4 hosted twins on HEROKU (app URL in ${A2ALAB_LANGGRAPH_BASE}). UNLIKE
+  # every other hosted twin these do NOT ride the Fargate faces task — Heroku
+  # is a separate host (the operator's choice, D77). Live since the first
+  # Heroku deploy 2026-08-17 (deploy/heroku/deploy_langgraph.sh); the app runs
+  # LANGGRAPH_BACKEND=langgraph (real ReAct agent, claude-haiku-4-5).
+  langgraph-rest-hosted:
+    platform: langgraph
+    protocol: rest
+    endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-rest
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  langgraph-mcp-hosted:
+    platform: langgraph
+    protocol: mcp
+    endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-mcp/mcp
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+  langgraph-a2a-hosted:
+    platform: langgraph
+    protocol: a2a
+    endpoint: ${A2ALAB_LANGGRAPH_BASE}/langgraph-a2a
+    status: native
+    auth: {header_name: x-lab-token, header_value: "${A2ALAB_TOKEN}"}
+    # Async fire-then-poll over Heroku — see the langgraph-a2a note above. This
+    # hosted twin is the one that MATTERS for the 30s ceiling: it is the Heroku
+    # dyno, reached by the console (forward) and the bridge (reverse). bridge_dispatch
+    # mirrored here so a caller posting the hosted name directly also polls.
+    options: {protocol_version: "1.0", timeout: 65, bridge_dispatch: submit_poll}
+
 modes:
   # WS13/D55: claude-rest and openai-rest used to remap to the AGENTCORE
   # runtimes here. That was right while the protocol faces were laptop-only —
@@ -485,3 +594,7 @@ modes:
     strands-rest: strands-rest-hosted
     strands-mcp: strands-mcp-hosted
     strands-a2a: strands-a2a-hosted
+    # WS4 langgraph twins live on Heroku since 2026-08-17 (D77):
+    langgraph-rest: langgraph-rest-hosted
+    langgraph-mcp: langgraph-mcp-hosted
+    langgraph-a2a: langgraph-a2a-hosted

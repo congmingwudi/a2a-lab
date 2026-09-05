@@ -1,0 +1,9 @@
+# Generated build output (Maven/AgentGraph target). Authored descriptors are
+# committed; build artifacts are not — mirrors salesforce/.
+target/
+
+# Rendered from exchange.json.template by render_exchange.py — carries the
+# MuleSoft org id (an account identifier that must never be committed; the
+# committed source of truth is the .template). Same pattern as the gitignored
+# A2ALab_GCP.externalCredential-meta.xml.
+agent-network/exchange.json

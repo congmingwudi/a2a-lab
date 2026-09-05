@@ -23,7 +23,7 @@ artifacts. Read down until you have the detail you need, then stop.
 - **L3** — Path B end to end: the platforms reach into Salesforce
 - **L4** — identity: who authenticates as what, and which way federation runs
 - **L5** — observability: five interiors, one store
-- **L5.5** — DNS: the four hostnames, and what each one is for
+- **L5.5** — DNS: the five public hostnames, and what each one is for
 - **L5.7** — scheduled and long-running processes (the async inventory)
 - **L5.8** — the cross-region Zero Copy path: data residency and a real latency measurement
 - **L6** — code → deployment: which file becomes which running thing
@@ -105,7 +105,7 @@ flowchart TB
 **What you are looking at.** The console at the top is not a viewer — it is the
 **driver**: every experiment in this lab is fired from it, over the protocol the
 experiment names, and every hop's raw wire bytes come back to it. Below it are
-the six agent platforms, each showing the three things that actually matter for
+the seven agent platforms, each showing the three things that actually matter for
 interop: **what agents live there**, **which protocols it speaks in and out**,
 and **what its own execution logs expose**.
 
@@ -233,7 +233,7 @@ opposite direction from the traffic.
 flowchart LR
   subgraph GW["API Gateway HTTP API — 30s hard ceiling"]
     SHIM["a2alab-af-shim<br/>Lambda · work measures 10-19s"]
-    FAN["a2alab-fanout-mcp<br/>Lambda · legs capped 25s"]
+    FAN["a2alab-fanout-mcp<br/>Lambda · sync legs 25s (gateway-bound)<br/>async worker 135s fn timeout / 120s leg budget (D75)"]
     OMCP["a2alab-obs-mcp<br/>Lambda · SQL reads"]
   end
 
@@ -269,7 +269,7 @@ is chosen by **what the component's work costs in seconds**, not by preference.
 
 | Shape | Who | Why this one |
 |---|---|---|
-| Lambda + API Gateway HTTP API | shim, fan-out MCP, obs MCP | Cheapest thing with a public URL. Its integration timeout maxes at **30s and is not adjustable** — fine, because each of these finishes well inside it. |
+| Lambda + API Gateway HTTP API | shim, fan-out MCP, obs MCP | Cheapest thing with a public URL. Its integration timeout maxes at **30s and is not adjustable** — fine, because the *synchronous* work of each finishes well inside it. The fan-out MCP's async fire-then-poll worker is the exception: it self-invokes (`InvocationType='Event'`) **off** the gateway path and runs under a separate, larger **function timeout of 135s** sized for a **120s per-leg budget** (D75), because outlasting this 30s ceiling is the whole point of the async lane. |
 | ECS Fargate + ALB | **the bridge** | Path A's budget is **45s** (action ~85-90s → Apex 110s → bridge 45s). An HTTP API would have silently cut 15s off the lab's sync research depth. An ALB's `idle_timeout` is a settable attribute — set to **120s** on every deploy so a console edit cannot reintroduce the ceiling. |
 | Bedrock AgentCore Runtime | Claude + OpenAI + Strands self-hosted agents | The point of D26: an agent runtime with an **IAM data plane and no public HTTP endpoint**. Callers use `invoke_agent_runtime` with SigV4; there is no URL to leak. |
 | EventBridge → Lambda | obs harvest | Nothing calls it. It wakes up, pulls each platform's logs, writes Aurora, sleeps. |
@@ -419,11 +419,15 @@ flowchart TB
   end
   SM -.-> EXP
 
-  subgraph PUB["Console — two audiences, one page"]
+  subgraph PUB["Console — three audiences, one surface (WS10 SP1 adds the third)"]
     ANON["anonymous visitor<br/>titles, notes, screenshots<br/>NO console deep links"]
     OPER["signed-in operator<br/>+ deep links into each<br/>vendor console"]
+    MACH["machine caller<br/>POST /oauth/token<br/>client_credentials, short-lived JWT<br/>no new host, same console task"]
   end
   SM -.->|"env_sync.py<br/>.env lives here too"| OPER
+
+  MULE["MuleSoft Omni Gateway + AgentScript broker<br/>agent-network-shared-gw (edge 1.13.5)<br/>cloudhub-us-east-1, Production<br/>RUNNING; broker deployed, consult unproven"]
+  MULE -->|"client_credentials"| MACH
 ```
 
 **What you are looking at.** The rule from D39, scoped to the runtime/data
@@ -444,6 +448,26 @@ shorter scope list — Salesforce attributes client-credentials calls to the
 **app**, so one shared app made every lab caller look like one integration user
 in the org's own audit trail. The modelling error showed up as an observability
 failure.
+
+**The third console audience (WS10 SP1).** `POST /oauth/token` is a **new
+inbound seam on the existing console task** — it needs no new host, no new
+ECS service, and no new secret; it reads the same `A2ALAB_JWT_PRIVATE_KEY` the
+console already holds for `/api/login`, and is exempt from the console JWT
+gate for the identical reason `/api/login` is: it *is* the credential
+exchange (D36's public-surface rule extended to a machine caller). The caller
+is the MuleSoft **Omni Gateway** `agent-network-shared-gw` — a managed
+`large` gateway on `cloudhub-us-east-1`, provisioned and **RUNNING in
+Production** (upgraded in place to `edge 1.13.5`, the first runtime that
+ships the auto-applied Agent Fabric policies — see plan/15). As of
+2026-09-01 the agent-network **broker** is **deployed**: `build` + `publish`
++ `deploy` succeeded, creating all six agent-connection API instances and
+the 1-hop AgentScript broker (RUNNING at the gateway ingress `/broker1/`).
+So `mule-broker-a2a` in `config/targets.yaml` (status `via-fabric`,
+plan/02-matrix.md) now has a live endpoint the console can call. Honestly:
+the console→broker **ingress** hop works, but the broker's **egress**
+consult back to the faces still returns `TASK_STATE_FAILED` (leading
+suspect: the broker's `lf.a2a.v1` protobuf dialect vs the faces' JSON-RPC
+A2A) — so the skeleton is deployed but not yet proven end to end.
 
 **Why the federation box is lopsided.** AWS trusts `accounts.google.com`
 natively and needs **one** role. Google needs **five** objects before it will
@@ -756,7 +780,7 @@ record.
 
 ---
 
-## L5.5 — DNS: the four hostnames, and what each one is for
+## L5.5 — DNS: the five public hostnames, and what each one is for
 
 ```mermaid
 flowchart LR
@@ -769,6 +793,7 @@ flowchart LR
 
   ALB["ALB a2alab-bridge<br/>:443, *.agenticthings.com origin cert"]
   TUN["cloudflared tunnel<br/>local dev only"]
+  HK["a2a-lab-langgraph.herokuapp.com<br/>Heroku-assigned domain (WS4/D77)<br/>NOT a Cloudflare record"]
 
   H1 --> ALB
   H2 --> ALB
@@ -778,13 +803,21 @@ flowchart LR
   ALB -->|"default action, no rule"| BR["a2alab-bridge<br/>Path A"]
   ALB -->|"host-header rule, prio 20"| CON["a2alab-console"]
   ALB -->|"host-header rule, prio 30"| FAC["a2alab-faces<br/>14 faces by path"]
+
+  HK --> DYN["Heroku web dyno<br/>3 langgraph faces by path"]
 ```
 
-Every public entrance to the lab is a **CNAME in Cloudflare, proxied (orange),
-with SSL/TLS mode Full (strict)** — and, since the WS13 cutover, three of the
-four point at the *same* ALB. Recorded here because a hostname is the one piece
-of the estate no script creates: each is a hand-made record, and a lab that is
-otherwise fully deployed still has four manual steps hiding in it.
+Every **AWS-fronted** entrance to the lab is a **CNAME in Cloudflare, proxied
+(orange), with SSL/TLS mode Full (strict)** — and, since the WS13 cutover, three
+of the four Cloudflare records point at the *same* ALB. Recorded here because
+such a hostname is the one piece of the AWS estate no script creates: each is a
+hand-made record, and a lab that is otherwise fully deployed still has four
+manual DNS steps hiding in it. The **one exception is the LangGraph platform**
+(WS4/D77, live 2026-08-17): its public entrance
+`a2a-lab-langgraph.herokuapp.com` is a **Heroku-assigned domain created by
+`deploy/heroku/deploy_langgraph.sh`** — not a Cloudflare record, and not manual.
+So there are five public hostnames, four of them hand-made Cloudflare CNAMEs and
+one produced by a deploy script.
 
 | Hostname | Points at | Serves | Created |
 |---|---|---|---|
@@ -792,6 +825,7 @@ otherwise fully deployed still has four manual steps hiding in it.
 | `console-lab` | the same ALB | The lab console, routed by a host-header rule (priority 20) | 2026-07-28 (WS13 item 1) |
 | `faces-lab` | the same ALB | All fourteen protocol faces, rule priority 30, addressed by **path**: `/<target-name>/...` | 2026-07-28 (WS13 item 2) |
 | `claude-rest-lab`, `claude-mcp-lab`, `claude-a2a-lab` | the `cloudflared` tunnel | Local development only. Superseded for hosted use by `faces-lab`; kept because the tunnel is now a dev convenience rather than the front door | M6 |
+| `a2a-lab-langgraph.herokuapp.com` | Heroku web dyno | The three LangGraph faces (REST/MCP/A2A) by path; the AWS bridge reaches its A2A face for reverse Path A | 2026-08-17 by `deploy/heroku/deploy_langgraph.sh` (WS4/D77) — the only entrance a script creates |
 
 **Why three hostnames and one load balancer.** The ALB terminates TLS on :443
 with the imported Cloudflare Origin certificate for `*.agenticthings.com`, so
@@ -849,7 +883,7 @@ flowchart LR
 
 | # | Process | Where it runs | Cadence | State (2026-07-30) | What it writes |
 |---|---|---|---|---|---|
-| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — six agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands — the last WS5/D67) + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16), eight harvest sources in all. The three **infra metrics** sources (`infra-aws/gcp/azure` → `lab.infra_metrics`, Track B, 2026-08-11) ride the same Lambda but are **opt-in** — the `infra` group, not the 6h sweep — so they are collected on demand, not on this schedule |
+| 1 | **Observability harvest** | Lambda `a2alab-obs-harvest`, fired by **EventBridge Scheduler** `a2alab-obs-harvest-6h` | `rate(6 hours)`, UTC | **ENABLED** | `lab.obs_sessions`, `obs_events`, `obs_harvest` — seven agent platforms (Salesforce, Anthropic, OpenAI, ADK, Foundry, Strands — WS5/D67 — and LangGraph via LangSmith — WS4/D77) + the two coding sources (`coding` metrics, `coding-logs` behaviour, WS16), nine harvest sources in all. The three **infra metrics** sources (`infra-aws/gcp/azure` → `lab.infra_metrics`, Track B, 2026-08-11) ride the same Lambda but are **opt-in** — the `infra` group, not the 6h sweep — so they are collected on demand, not on this schedule |
 | 2 | **Account brief agent** (D16) | Scheduled Claude Managed Agent | `0 6 * * *`, America/Denver | **active** | an `A2ALab_Account_Brief__c` in Salesforce, via a host-side tool |
 | 3 | **Brief watcher** (D52) | ECS service `a2alab-briefs` | poll loop, `A2ALAB_BRIEF_POLL_S` = 60s | **running 1/1** | services #2's stalled tool call; `lab.lab_state` serviced-set |
 | 4 | **Observability analyst** (D23) | Scheduled Claude Managed Agent | `0 6 * * *`, America/New_York (**paused**, so on-demand only) | **paused** | `lab.obs_briefs` with `kind='observability'` |
@@ -979,6 +1013,7 @@ flowchart LR
     R8["src/platforms/foundry/core.py"]
     R9["src/console/ + src/platforms/guide/"]
     R11["src/faces/"]
+    R13["src/platforms/langgraph/<br/>(WS4/D77 — LIVE on Heroku 2026-08-17)"]
     R10["salesforce/"]
   end
   R1 -->|"deploy/bridge/deploy_bridge.sh"| D1["ECS service a2alab-bridge"]
@@ -992,6 +1027,7 @@ flowchart LR
   R8 -->|"deploy/foundry/provision_foundry.py"| D8["Foundry agents"]
   R9 -->|"deploy/console/deploy_console.sh"| D9["ECS service a2alab-console<br/>(rule on the bridge ALB)"]
   R11 -->|"deploy/faces/deploy_faces.sh"| D11["ECS service a2alab-faces<br/>(rule on the bridge ALB)"]
+  R13 -.->|"deploy/heroku/deploy_langgraph.sh"| D13["Heroku app · team sfdc-ta<br/>(one Basic web dyno, 3 faces · LIVE)"]
   R10 -->|"Salesforce DX MCP deploy"| D10["Production org"]
 ```
 
@@ -1019,6 +1055,8 @@ flowchart LR
 | — (external, not this repo) | operator's existing `aws-logging-service` (custom Lambda + API Gateway, us-west-2) | The Slack log sink the Claude/Codex hooks already post to; `/api/track` forwards to it fire-and-forget for the operator's cross-project notifications. An outbound **edge**, not a component this repo deploys (D62) | AWS |
 | `src/faces/` (the protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces`. **One process serves all fourteen, addressed by path** (the three strands faces still run the stub — the live Strands turn runs on the AgentCore runtime, not the faces task; the faces image would need the `strands` extra + `STRANDS_BACKEND` to serve the real backend, WS5/D66) | AWS |
 | `src/briefs/` (the watcher) | `deploy/briefs/deploy_briefs.sh` | ECS service `a2alab-briefs` on the shared cluster, roles `a2alab-briefs-task` / `-exec`, secret `a2alab/runtime/briefs`. **Reuses the faces image**, no ALB, no target group — it serves nothing | AWS |
+| `src/platforms/langgraph/` | `deploy/heroku/deploy_langgraph.sh` | Heroku container app in team `sfdc-ta` (`HEROKU_APP`/`HEROKU_TEAM`/`HEROKU_API_KEY` from `.env`): one **web dyno** running `python -m platforms.langgraph --protocol all`, which reuses the faces multiplexer to serve all three langgraph faces (`/langgraph-rest`, `/langgraph-mcp/mcp`, `/langgraph-a2a`) behind one `$PORT`. Image carries the `langgraph` + `aws` extras and pushes as a Docker **schema2** manifest (buildx `oci-mediatypes=false,push=true` — Heroku's registry rejects the OCI manifest Docker 29's containerd store emits). The lab's **first non-AWS-hosted platform** (D77). **LIVE 2026-08-17** (app `a2a-lab-langgraph`, `LANGGRAPH_BACKEND=langgraph`, one Basic dyno); the `langgraph-*-hosted` twins + hosted-mode remap are uncommented in `config/targets.yaml`. **Cross-cloud trace sink LIVE 2026-08-19 (WS4 item 9):** the dyno now runs `A2ALAB_TRACE_SINK=postgres` and writes its hops to the shared Aurora store **off-VPC via the rds-data Data API** (an HTTPS AWS call, no VPC peering) — authenticated by a static scoped AWS access-key config var held under dedicated `A2ALAB_HEROKU_AWS_*` names (so `source .env` never shadows the operator's SSO locally), acting as the `lab_writer` role via the writer-secret swap. Proven end to end by the forward delegation trace `verify-fwd-1787158072` (5 hops incl. the agentforce-api leg) landing in `lab.trace_events`. Flipping the sink was a config-only `--skip-build` re-release | Heroku |
+| `mulesoft/agent-network/` | `ANYPOINT_ENV=Production anypoint-cli-v4 agent-network project build\|publish\|deploy --gateway agent-network-shared-gw` | Registers the six agent descriptors + a 1-hop AgentScript broker on the Omni Gateway (WS10 SP1). **Deployed to Production 2026-09-01** on `edge 1.13.5` — all six agent-connection API instances (`claudeConn`, `openaiConn`, `strandsConn`, `guideConn`, `agentforceConn`, `langgraphConn`) + the broker RUNNING at ingress `/broker1/`. The `edge 1.9.16` runtime the gateway shipped with lacked builds for the auto-applied Agent Fabric policies (`tracing` 1.1.1 + siblings), so the deploy 400'd until the gateway was edited in place to `edge 1.13.5` (plan/15). **Open:** the broker→face consult returns `TASK_STATE_FAILED` — deployed, not yet proven end to end | MuleSoft CloudHub 2.0 (us-east-1) |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator` | `sf agent validate\|publish\|activate` | Agent Script orchestrator bundle in the prod org (WS8 variant 3, D61). Fans out by **delegating** to the bridge's `fanout:` route; reuses `A2ALabInvokeRemoteAgent` — no new Apex, no new Named Credential | Salesforce |
 | `src/bridge/app.py` `_fanout()` | (part of `deploy/bridge/deploy_bridge.sh`) | The bridge's `fanout:<scenario>` verb route — one Apex callout runs the three legs off-platform via `orchestration.dispatch()`. Ships with the bridge image; not a separate deploy (D61) | AWS |
@@ -1120,12 +1158,14 @@ The choices above that look inconsistent until you know what drove them:
 | …automate the TLS/DNS cutover? | It is a Salesforce-visible hostname. Verified on the ALB's own hostname first, then one DNS change against a known-good target. |
 | …give the console a CDN front door so it works behind the corporate proxy? | Tried and reverted 2026-07-27. It worked — but it solved the wrong problem. The proxy blocks the lab's whole domain at DNS (a hostname that never existed still hangs 30s), so no front door fixes the *domain*, and the operator is content to drop the proxy to view the console. What actually hurt was the laptop being on the runtime path, which is WS13. |
 | …keep sqlite as the console's observability store? | D49. It was, and that was the bug: the hosted harvest wrote Aurora, the local harvest wrote `traces/lab.db`, and the console read only the file — so the dashboard showed the laptop's copy while the authoritative one drifted. Postgres is the source of truth now, chosen in one place, with sqlite kept only for offline work on a snapshot. |
+| …size the MuleSoft Omni Gateway down once it was unblocked? | It can't be: the shared-space managed gateway `agent-network-shared-gw` only comes in `small`/`large` (no `medium`), and the entitlement that unblocked provisioning admits `large` only — a fixed buy-side sizing cost for a single-lab-sized workload, and exactly the number the WS10 build-vs-buy comparison is scoped to quantify rather than absorb quietly. |
 | …make the brief watcher an EventBridge Lambda? | That is what WS13 item 3 assumed, and it was the wrong shape. Its work is a poll LOOP, and a Lambda would need a third zip carrying the Anthropic SDK, httpx and the Salesforce client — another bundle to build and keep in step (D46's whole subject). The faces image already contains the code and every dependency, so the watcher is that image with a different command, at ~$4/month. |
 | …run each protocol face as its own service? | D51. Fourteen Fargate tasks (~$125/month) to run fourteen `uvicorn`s, when every face is an ASGI app that `build_app()` already returns without a server. One process serves all fourteen, addressed by PATH rather than by fourteen hostnames — fourteen DNS records somebody creates by hand, against one, for no behavioural difference. It also sidesteps ECS's limit of five target groups per service. |
 | …give the console its own load balancer? | A second ALB is ~$16/month for nothing. The bridge's already terminates TLS on :443 with the `*.agenticthings.com` origin cert, so an extra face costs a target group, a **host-header rule** and a task. The bridge stays the listener's default action and carries no rule, so a wrong host pattern can only make the console unreachable — it cannot break Path A. |
 | …trust that a deploy which passes its own runbook is verified? | D48. The console's first hosted run passed every check — image, secret, rule, stable service, `/healthz` 200 — while serving every `/api` surface unauthenticated, because its runtime secret was created, shipped and never loaded, and the auth middleware treats a missing token as *auth is off*. A valid-token check proves nothing when all tokens are accepted; the negative test is the one that finds it. |
 | …make the credential analyst a Managed Agent like the other two? | It was one, and it was demoted (D44). Its work is one round trip over a report a person just collected — no tools, no schedule, no state. The agent object, setup step and state file were surface with nothing behind them. |
 | …keep the Aurora 5432 ingress closed, since everything uses the Data API? | It was, for the store's whole life, and that closed posture is the design (WS19/D69). The Salesforce Data 360 Zero Copy connector is the one reader that *cannot* use the Data API — it logs in with username/password over 5432 — so M10 opens exactly one scoped path: TLS-only, the Data Cloud tenant's eu-central-1 CIDRs only, as `lab_reader` with a 15s timeout and a 15-connection cap. No lab code opens a 5432 socket; the exception exists solely for the connector, and `pg.py`'s posture note was rewritten in the same change so the code no longer claims a closed door it no longer has. |
+| …host the LangGraph agent on AWS with the others, or on LangGraph Platform as WS4 first scoped? | D77. The operator chose Heroku, so it is the lab's first non-AWS host — the point of WS4 is the open-source *framework*, not another AWS container. Heroku gives a web dyno exactly one HTTP port, so rather than three apps we serve all three protocols behind one port with the faces multiplexer (`--protocol all`). Its traces land in the shared Aurora store because the rds-data **Data API is an HTTPS AWS call reachable off-VPC** — a scoped access-key config var, no VPC peering (provisioned 2026-08-19, so the dyno now traces to `postgres`; see WS4 item 9). And LangGraph Platform's native A2A/MCP is the one thing we give up by self-serving, but LangSmith observability is host-agnostic, so WS4's queryable-SaaS column survives the move. |
 
 ## Presenter notes
 

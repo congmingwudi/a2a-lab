@@ -188,3 +188,105 @@ def test_fanout_defaults_to_sync_when_no_block_is_present(bridge, monkeypatch):
     assert r.status_code == 200
     assert captured["dispatch_mode"] == "sync"
     assert r.json()["bridge"]["dispatch_mode"] == "sync"
+
+
+def test_invoke_submit_poll_for_async_target(monkeypatch):
+    """WS4/D77 reverse Path A: a target flagged bridge_dispatch: submit_poll is
+    driven fire-then-poll instead of a blocking ask() — the fix for a remote
+    behind a hard router timeout (Heroku H12). Verifies submit+poll ran, ask()
+    did NOT, and the wire payload reports the async dispatch + poll count."""
+    from types import SimpleNamespace
+
+    monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
+    monkeypatch.setenv("A2ALAB_ASYNC_POLL_INTERVAL_S", "0")  # no real sleeps
+
+    class FakeAsyncClient(RemoteAgentClient):
+        protocol = "a2a"
+
+        def __init__(self):
+            self.submits = 0
+            self.polls = 0
+
+        async def submit(self, req):
+            self.submits += 1
+            return SimpleNamespace(answered_immediately=False, task_id="t-1")
+
+        async def poll(self, task_id, *, trace_id=None, expect_transient=False):
+            self.polls += 1
+            done = self.polls >= 2
+            return SimpleNamespace(
+                done=done,
+                state="TASK_STATE_COMPLETED" if done else "TASK_STATE_WORKING",
+                text="the async answer" if done else "",
+                interrupted=False,
+                detail=None,
+            )
+
+        async def ask(self, req):
+            raise AssertionError("ask() must not be called on the submit_poll path")
+
+        async def aclose(self):
+            pass
+
+    fake = FakeAsyncClient()
+
+    class AsyncRegistry(Registry):
+        def __init__(self):
+            super().__init__(
+                {
+                    "langgraph-a2a": Target(
+                        name="langgraph-a2a",
+                        platform="langgraph",
+                        protocol="a2a",
+                        status="native",
+                        options={"bridge_dispatch": "submit_poll"},
+                    )
+                }
+            )
+
+        def client_for(self, name):
+            return fake
+
+    client = TestClient(create_bridge_app(AsyncRegistry()))
+    r = client.post("/invoke/langgraph-a2a", json={"message": "research Acme", "session_id": "s9"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["text"] == "the async answer"
+    assert data["bridge"]["dispatch_mode"] == "async"
+    assert data["bridge"]["polls"] == 2
+    assert fake.submits == 1
+    assert fake.polls == 2
+
+
+def test_invoke_submit_poll_flag_on_sync_client_degrades(monkeypatch):
+    """The flag on a target whose client has no async half falls back to a
+    blocking ask(), recorded honestly as sync — never an error."""
+    monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
+
+    sync_client = FakeClient()
+
+    class SyncFlaggedRegistry(Registry):
+        def __init__(self):
+            super().__init__(
+                {
+                    "rest-flagged": Target(
+                        name="rest-flagged",
+                        platform="x",
+                        protocol="rest",
+                        status="native",
+                        options={"bridge_dispatch": "submit_poll"},
+                    )
+                }
+            )
+
+        def client_for(self, name):
+            return sync_client
+
+    client = TestClient(create_bridge_app(SyncFlaggedRegistry()))
+    r = client.post("/invoke/rest-flagged", json={"message": "hi", "session_id": "s"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["text"].startswith("echo: hi")  # blocking ask() answered it
+    assert data["bridge"]["dispatch_mode"] == "sync"
+    assert data["bridge"]["polls"] == 0
+    assert len(sync_client.requests) == 1

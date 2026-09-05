@@ -214,7 +214,7 @@ class ManagedBackend:
         with Hop(
             trace_id,
             source="claude-researcher",
-            target="anthropic-managed-agents",
+            target="claude-managed-agents",
             protocol="managed-agents-api",
             transport_detail="sessions.events send/stream",
             request_payload={"message": req.message, "session_id": req.session_id},
