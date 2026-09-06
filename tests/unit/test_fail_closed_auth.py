@@ -120,3 +120,84 @@ def test_deploy_script_requires_every_token_it_ships(script: Path):
         pytest.skip("ships no token")
     unguarded = sorted(k for k in shipped if f"${{{k}:?" not in text)
     assert not unguarded, f"{script}: ships {unguarded} without a ${{KEY:?}} guard"
+
+
+# Cross-review round (Codex, ws25-b1): every hosted entrypoint, every signal.
+
+
+@pytest.mark.parametrize(
+    "var",
+    ["A2ALAB_RUNTIME_SECRET_ARN", "AWS_LAMBDA_FUNCTION_NAME", "ECS_CONTAINER_METADATA_URI_V4"],
+)
+def test_runtime_signals_count_as_hosted(clean_env, var):
+    from interop.secret_env import is_hosted
+
+    for v in ("AWS_LAMBDA_FUNCTION_NAME", "ECS_CONTAINER_METADATA_URI_V4"):
+        clean_env.delenv(v, raising=False)
+    assert not is_hosted()
+    clean_env.setenv(var, "x")
+    assert is_hosted()
+
+
+class _Served(Exception):
+    pass
+
+
+def _serve_sentinel(*_a, **_k):
+    raise _Served
+
+
+def test_faces_main_refuses_hosted_tokenless_and_honours_opt_in(clean_env):
+    import uvicorn
+
+    from faces import __main__ as faces_main
+
+    clean_env.setenv("A2ALAB_MODE", "hosted")
+    clean_env.delenv("A2ALAB_TOKEN", raising=False)
+    clean_env.setattr("sys.argv", ["faces"])
+    clean_env.setattr(uvicorn, "run", _serve_sentinel)
+    clean_env.setattr(faces_main, "load_secret_env_and_log", lambda _s: None)
+    clean_env.setattr(faces_main, "build_faces_app", lambda *_a, **_k: object())
+    with pytest.raises(SystemExit):
+        faces_main.main()
+    clean_env.setenv("A2ALAB_ALLOW_UNAUTH", "1")
+    with pytest.raises(_Served):
+        faces_main.main()
+
+
+def test_console_main_refuses_hosted_tokenless_and_honours_opt_in(clean_env):
+    import uvicorn
+
+    from console import app as console_app
+
+    clean_env.setenv("A2ALAB_MODE", "hosted")
+    clean_env.delenv("A2ALAB_TOKEN", raising=False)
+    clean_env.setattr("sys.argv", ["console"])
+    clean_env.setattr(uvicorn, "run", _serve_sentinel)
+    clean_env.setattr("interop.secret_env.load_secret_env_and_log", lambda _s: None)
+    clean_env.setattr(console_app, "create_console_app", lambda *_a, **_k: object())
+    with pytest.raises(SystemExit):
+        console_app.main()
+    clean_env.setenv("A2ALAB_ALLOW_UNAUTH", "1")
+    with pytest.raises(_Served):
+        console_app.main()
+
+
+def test_obs_mcp_bundle_copies_every_interop_module_it_imports():
+    """deploy/obs/build_zips.sh hand-picks interop modules into the MCP zip.
+    A module that mcp_http/obs_mcp (or the observability modules they ship)
+    import at any level but the script does not copy fails the function at
+    COLD START — the shape that shipped `interop.secret_env` missing."""
+    script = (ROOT / "deploy/obs/build_zips.sh").read_text()
+    mcp_section = script.split("# ---- harvest zip")[0]
+    copied = set(re.findall(r"src/interop/(\w+)\.py", mcp_section))
+    needed = set()
+    for path in [
+        *(ROOT / "src/mcp_http").rglob("*.py"),
+        *(ROOT / "src/obs_mcp").rglob("*.py"),
+        ROOT / "src/observability/pg.py",
+        ROOT / "src/observability/store.py",
+    ]:
+        needed.update(re.findall(r"^\s*from interop\.(\w+) import", path.read_text(), re.M))
+    missing = sorted(needed - copied)
+    assert not missing, f"build_zips.sh MCP zip omits interop modules: {missing}"

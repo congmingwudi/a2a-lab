@@ -12,8 +12,15 @@ from __future__ import annotations
 
 import os
 
+from interop.secret_env import load_secret_env_and_log
 from mcp_http.http import make_lambda_handler
 from obs_mcp import SERVER_INFO
 from obs_mcp.tools import build_registry
+
+# A no-op unless A2ALAB_RUNTIME_SECRET_ARN is set (the token rides this
+# function's own env today); done first so a future move of the token into the
+# runtime secret needs no code change. make_lambda_handler then refuses to
+# build with an empty token on a hosted runtime (WS25 A3, D80/F06).
+load_secret_env_and_log("obs-mcp")
 
 handler = make_lambda_handler(build_registry(), os.environ.get("A2ALAB_OBS_MCP_TOKEN"), SERVER_INFO)

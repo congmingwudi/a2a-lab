@@ -316,3 +316,57 @@ def test_serialized_non_secret_keys_survive_verbatim():
 
     body = '{"message": "token talk", "tokens": 12, "author": "secretary"}'
     assert redact(body) == body
+
+
+# Cross-review round (Codex, ws25-b1): shapes the first regex missed.
+
+
+def test_unicode_escaped_secret_key_is_scrubbed():
+    from interop.trace import redact
+
+    out = redact('{"client\\u005fsecret":"probe-secret"}')
+    assert "probe-secret" not in out
+
+
+def test_array_valued_secret_is_scrubbed_and_json_stays_valid():
+    import json
+
+    from interop.trace import redact
+
+    out = redact('{"password":["first","probe-secret"],"message":"hi"}')
+    assert "probe-secret" not in out and "first" not in out
+    assert json.loads(out)["message"] == "hi"
+
+
+def test_object_valued_secret_is_scrubbed_and_json_stays_valid():
+    import json
+
+    from interop.trace import redact
+
+    out = redact('{"password":{"nested":"probe-secret"},"message":"hi"}')
+    assert "probe-secret" not in out
+    assert json.loads(out)["message"] == "hi"
+
+
+def test_nested_escaped_json_with_inner_escaped_quote_is_scrubbed():
+    import json
+
+    from interop.trace import redact
+
+    inner = json.dumps({"client_secret": 'prefix"probe-secret'})
+    out = redact(json.dumps({"body": inner}))
+    assert "probe-secret" not in out
+
+
+def test_valid_json_without_secrets_is_byte_identical():
+    from interop.trace import redact
+
+    body = '{"message":  "spaced",   "n": [1, 2,3], "author": "secretary"}'
+    assert redact(body) == body
+
+
+def test_clipped_body_with_secret_split_at_boundary_is_scrubbed():
+    from interop.trace import redact
+
+    out = redact('{"message": "hi", "refresh_token": "abcdef-probe-sec')
+    assert "abcdef-probe-sec" not in out

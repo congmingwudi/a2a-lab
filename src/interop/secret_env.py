@@ -78,7 +78,15 @@ ALLOW_UNAUTH_VAR = "A2ALAB_ALLOW_UNAUTH"
 def is_hosted() -> bool:
     """The shape the deploy scripts create: credentials via the runtime secret,
     or an explicit hosted mode. Local runs have neither."""
-    return bool(os.environ.get(ARN_VAR)) or os.environ.get("A2ALAB_MODE") == "hosted"
+    return bool(
+        os.environ.get(ARN_VAR)
+        or os.environ.get("A2ALAB_MODE") == "hosted"
+        # the runtimes themselves: every Lambda sets the first, every Fargate
+        # task the second — so a function whose token rides its own env (the
+        # obs MCP server) is still "hosted" with no ARN in sight
+        or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+        or os.environ.get("ECS_CONTAINER_METADATA_URI_V4")
+    )
 
 
 def check_token(service: str, token: str | None, env_var: str) -> str | None:

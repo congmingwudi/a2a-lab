@@ -34,7 +34,10 @@ from a2a.types import (
 )
 from a2a.utils import TransportProtocol
 
+from functools import partial
+
 from interop.adapter import AgentAdapter
+from interop.authz import invoke_denial
 from interop.models import AgentRequest, new_trace_id
 from interop.servers.wiretap import WireTapMiddleware
 
@@ -156,4 +159,6 @@ def create_a2a_app(
     if not wiretap:
         return app
     service = getattr(adapter, "hop_label", None) or adapter.name
-    return WireTapMiddleware(app, protocol="a2a", service=service)
+    return WireTapMiddleware(
+        app, protocol="a2a", service=service, invoke_check=partial(invoke_denial, "a2a")
+    )

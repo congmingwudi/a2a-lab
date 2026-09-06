@@ -59,3 +59,20 @@ protocol, 200 on discovery/health/`tasks/get`; operator JWT and shared token
 unchanged; `machine` allowed; stale `role` claim in the token does not
 override the directory. Loopback e2e (`tests/e2e/test_loopback.py`) gains one
 viewer-denied case per protocol against the real servers.
+
+## Decisions (after Codex's critique, 2026-09-06) — BUILT
+
+1. **Enforcement point:** one policy function `interop.authz.invoke_denial`.
+   REST calls it in the handler; MCP and A2A call it from the WireTap, which
+   already buffers the body exactly once, so the JSON-RPC method is read with
+   no second `receive()` anywhere. Refusals go out through the tap and are
+   recorded as 403 error hops.
+2. **`machine`:** allowed at every face, denied at the console. The gateway
+   fronts every face (plan/07 WS10), so a per-face allow-list would equal the
+   full list.
+3. **Streaming:** left out of the deny set, documented as deliberate in
+   `authz.py`; add when a streaming route exists and is tested.
+
+Tests: `tests/unit/test_authz.py` (12 cases across the three protocols, the
+0.3 spelling, discovery/poll reads, stale-claim non-escalation, the recorded
+error hop).

@@ -6,10 +6,11 @@ from __future__ import annotations
 import time
 import traceback
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from interop.adapter import AgentAdapter
+from interop.authz import invoke_denial
 from interop.models import AgentRequest, new_trace_id
 from interop.trace import TraceEvent, get_recorder
 
@@ -32,6 +33,11 @@ def create_rest_app(adapter: AgentAdapter) -> FastAPI:
     @app.post("/invoke")
     @app.post("/invocations")
     async def invoke(request: Request):
+        # WS25 A2 (D80/F01): REST has no WireTap, so the invoke policy runs
+        # here, on the same scope TokenAuthMiddleware stamped.
+        denial = invoke_denial("rest", request.scope, None)
+        if denial:
+            raise HTTPException(status_code=403, detail=denial)
         body = await request.json()
         req = AgentRequest.from_dict(body)
         req.trace_id = req.trace_id or request.headers.get(TRACE_HEADER) or new_trace_id()

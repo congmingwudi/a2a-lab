@@ -15,7 +15,10 @@ from typing import Any, TypedDict
 
 from mcp.server.fastmcp import FastMCP
 
+from functools import partial
+
 from interop.adapter import AgentAdapter
+from interop.authz import invoke_denial
 from interop.models import AgentRequest, new_trace_id
 from interop.servers.wiretap import WireTapMiddleware
 
@@ -97,4 +100,6 @@ def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 
 def create_mcp_app(adapter: AgentAdapter):
     mcp = create_mcp_server(adapter)
     app = mcp.streamable_http_app()
-    return WireTapMiddleware(app, protocol="mcp", service=adapter.name)
+    return WireTapMiddleware(
+        app, protocol="mcp", service=adapter.name, invoke_check=partial(invoke_denial, "mcp")
+    )

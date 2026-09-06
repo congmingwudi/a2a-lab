@@ -91,13 +91,32 @@ def _decode(raw: bytes) -> Any:
     return text
 
 
+def _deny_app(detail: str):
+    async def app(_scope, _receive, send):
+        body = json.dumps({"detail": detail}).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 403,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    return app
+
+
 class WireTapMiddleware:
     """Pure ASGI middleware (works under Starlette and FastAPI)."""
 
-    def __init__(self, app, *, protocol: str, service: str):
+    def __init__(self, app, *, protocol: str, service: str, invoke_check=None):
         self.app = app
         self.protocol = protocol
         self.service = service
+        self.invoke_check = invoke_check
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -155,8 +174,14 @@ class WireTapMiddleware:
                     resp_chunks.append(message.get("body", b""))
             await send(message)
 
+        # WS25 A2 (D80/F01): the body is buffered exactly once, here — so this
+        # is where an invoke policy can read the JSON-RPC method without a
+        # second read anywhere. A denial is answered through tee_send so the
+        # refused invoke is RECORDED as an error hop (evidence, not silence).
+        denial = self.invoke_check(scope, buffered) if self.invoke_check else None
+        target = self.app if denial is None else _deny_app(denial)
         try:
-            await self.app(scope, replay_receive, tee_send)
+            await target(scope, replay_receive, tee_send)
         finally:
             body = b"".join(req_chunks)
             # Only record exchanges that carry a payload (skips GETs for

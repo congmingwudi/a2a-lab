@@ -11,14 +11,12 @@ one-process-per-face is what makes a hung face obvious there.
 from __future__ import annotations
 
 import argparse
-import os
-import sys
 
 import uvicorn
 from dotenv import load_dotenv
 
 from faces import PUBLIC_BASE_ENV, build_faces_app
-from interop.secret_env import load_secret_env_and_log
+from interop.secret_env import load_secret_env_and_log, require_token
 
 
 def main() -> None:
@@ -26,14 +24,12 @@ def main() -> None:
     # Hosted: credentials come from Secrets Manager before any adapter reads
     # os.environ. A no-op locally, where .env holds everything (D48).
     load_secret_env_and_log("faces")
-    # Fail CLOSED, same rule as the console: these faces are public internet
-    # behind an ALB, and TokenAuthMiddleware treats a missing A2ALAB_TOKEN as
-    # "auth is off". A hosted container without its token must not serve.
-    if os.environ.get("A2ALAB_RUNTIME_SECRET_ARN") and not os.environ.get("A2ALAB_TOKEN"):
-        sys.exit(
-            "faces: A2ALAB_RUNTIME_SECRET_ARN is set but A2ALAB_TOKEN is not — "
-            "refusing to start with authentication disabled."
-        )
+    # Fail CLOSED, same rule as every hosted entrypoint (WS25 A3, D80/F06):
+    # these faces are public internet behind an ALB, and TokenAuthMiddleware
+    # treats a missing A2ALAB_TOKEN as "auth is off". A hosted container
+    # without its token must not serve; A2ALAB_ALLOW_UNAUTH=1 is the only way
+    # to run one open on purpose.
+    require_token("faces", "A2ALAB_TOKEN")
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8300)
     parser.add_argument("--host", default="0.0.0.0")

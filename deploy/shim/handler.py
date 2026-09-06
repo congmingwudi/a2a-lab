@@ -17,12 +17,15 @@ import os
 
 os.environ.setdefault("A2ALAB_TRACE_DIR", "/tmp/traces")
 
-from interop.secret_env import load_secret_env_and_log  # noqa: E402
+from interop.secret_env import load_secret_env_and_log, require_token  # noqa: E402
 
 # F1: the Salesforce connected-app credentials and the lab bearer token come
 # from Secrets Manager (A2ALAB_RUNTIME_SECRET_ARN), loaded at cold start —
 # before AgentforceProxyAdapter reads SF_* out of the environment below.
 load_secret_env_and_log("af-shim")
+# WS25 A3 (D80/F06): a shim whose secret lost A2ALAB_TOKEN must fail its cold
+# start, not answer every A2A call unauthenticated.
+require_token("af-shim", "A2ALAB_TOKEN")
 
 from mangum import Mangum  # noqa: E402
 

@@ -40,6 +40,7 @@ from interop import af_channel, delegation
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, new_trace_id
 from interop.registry import Registry
+from interop import secret_env
 from interop.trace import DEFAULT_TRACE_DIR, TRACE_DIR_ENV
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -4766,8 +4767,6 @@ def main() -> None:
     import uvicorn
     from dotenv import load_dotenv
 
-    from interop.secret_env import load_secret_env_and_log
-
     load_dotenv()
     # Hosted (WS13 item 1): credentials live in Secrets Manager, not on the task
     # definition, and are loaded before create_console_app() reads os.environ —
@@ -4775,19 +4774,16 @@ def main() -> None:
     # empty endpoints. A no-op locally, where the ARN is unset and .env holds
     # everything. The bridge has done this since WS7 item 7; the console was
     # containerized without it, which is what the guard below caught.
-    load_secret_env_and_log("console")
+    secret_env.load_secret_env_and_log("console")
     # Fail CLOSED. TokenAuthMiddleware treats "no A2ALAB_TOKEN" as "auth is off"
     # — correct on a laptop, catastrophic behind a public ALB. The first hosted
     # deploy (2026-07-28) wrote the runtime secret, passed its ARN, and never
     # loaded it: every /api surface answered 200 to an unauthenticated caller,
     # and a deliberately wrong bearer token was accepted too. A missing token in
-    # a hosted container is a startup failure, not an open door.
-    if os.environ.get("A2ALAB_RUNTIME_SECRET_ARN") and not os.environ.get("A2ALAB_TOKEN"):
-        sys.exit(
-            "console: A2ALAB_RUNTIME_SECRET_ARN is set but A2ALAB_TOKEN is not — "
-            "refusing to start with authentication disabled. Check that the "
-            "runtime secret carries A2ALAB_TOKEN."
-        )
+    # a hosted container is a startup failure, not an open door. Since WS25 A3
+    # (D80/F06) the guard is the shared one, keyed on every hosted signal, with
+    # A2ALAB_ALLOW_UNAUTH=1 as the only deliberate opt-out.
+    secret_env.require_token("console", "A2ALAB_TOKEN")
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8200)
     parser.add_argument("--host", default="0.0.0.0")

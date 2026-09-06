@@ -24,7 +24,12 @@ cp -R src/obs_mcp "$DIST/mcp/obs_mcp"
 cp -R src/mcp_http "$DIST/mcp/mcp_http"
 mkdir -p "$DIST/mcp/observability" "$DIST/mcp/interop"
 cp src/observability/pg.py src/observability/store.py "$DIST/mcp/observability/"
-cp src/interop/trace.py "$DIST/mcp/interop/"
+# secret_env alongside trace: mcp_http.http imports it for the hosted
+# fail-closed guard (WS25 A3, D80/F06), and obs_mcp.lambda_entry loads the
+# runtime secret through it. Omitting it fails the function at cold start —
+# tests/unit/test_fail_closed_auth.py checks this copy list against the
+# bundle's imports so the next module cannot go missing the same way.
+cp src/interop/trace.py src/interop/secret_env.py "$DIST/mcp/interop/"
 echo '"""packaging shim (deploy/obs/build_zips.sh)"""' > "$DIST/mcp/observability/__init__.py"
 echo '"""packaging shim (deploy/obs/build_zips.sh)"""' > "$DIST/mcp/interop/__init__.py"
 (cd "$DIST/mcp" && zip -qr ../a2alab-obs-mcp.zip . -x '*__pycache__*')

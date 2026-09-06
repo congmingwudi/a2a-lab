@@ -96,19 +96,29 @@ _SECRET_KEYS = {
 }
 
 # WS25 A1 (D80): the same keys inside a SERIALIZED payload. The wiretap records
-# raw wire bodies as strings, so the dict scrub above never sees them. This is
-# regex, not a JSON parse, on purpose: a body clipped mid-value, a body that is
-# JSON-inside-a-JSON-string (the key's quotes arrive as \"), and a malformed
-# body must all still scrub. `q` captures the quote form (with any escaping
-# backslashes) so the value ends at the SAME quote form — an escaped quote inside
-# the value does not end it, and an inner escaped quote does not leak through
-# an outer plain-quote match. A missing closing quote (clipped body) ends at \Z.
+# raw wire bodies as strings, so the dict scrub never sees them. Two layers:
+#
+# 1. A string that PARSES as a JSON object/array is redacted structurally
+#    (the dict scrub above, recursively — which also re-enters this path for
+#    JSON serialized inside a JSON string) and re-serialized ONLY if something
+#    was redacted, so a secret-free body stays byte-identical (raw-evidence
+#    ethos, D37). This is what handles unicode-escaped keys, array/object
+#    values and inner escaped quotes correctly — a regex cannot.
+# 2. A string that does NOT parse (a body clipped mid-value, a malformed
+#    envelope, prose with a JSON fragment in it) gets a bounded lexical
+#    fallback: a quoted secret key followed by a quoted or bare scalar value.
+#    `q` captures the quote form (with any escaping backslashes) so an escaped
+#    quote inside the value does not end it; a missing closing quote (clipped
+#    body) ends at \Z. Bracketed values are deliberately NOT matched here —
+#    they only occur in parseable JSON, which layer 1 handles — because a
+#    partial bracket match would corrupt the body without scrubbing it.
 _JSON_SECRET_RE = re.compile(
     r'(?P<q>\\*")(?P<key>' + "|".join(re.escape(k) for k in sorted(_SECRET_KEYS)) + r")(?P=q)"
     r"\s*:\s*"
-    r"(?:(?P=q)(?:(?!(?P=q))(?:\\.|.))*?(?:(?P=q)|\Z)|[^,}\]\s]+)",
+    r'(?:(?P=q)(?:(?!(?P=q))(?:\\.|.))*?(?:(?P=q)|\Z)|[^,}\]\[{\s"]+)',
     re.IGNORECASE | re.DOTALL,
 )
+
 
 _SECRET_PATTERNS = [
     (re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [REDACTED]"),
@@ -133,8 +143,31 @@ _SECRET_PATTERNS = [
 ]
 
 
-def _redact_str(text: str) -> str:
-    text = _JSON_SECRET_RE.sub(r"\g<q>\g<key>\g<q>: \g<q>[REDACTED]\g<q>", text)
+def _redact_serialized(text: str, _depth: int) -> str | None:
+    """Layer 1: structural redaction of a JSON-encoded string. Returns the
+    re-serialized text if a secret was scrubbed, the original if the payload
+    parsed but carried none, or None if it is not a JSON object/array."""
+    stripped = text.lstrip()
+    if not stripped or stripped[0] not in "{[":
+        return None
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(parsed, (dict, list)):
+        return None
+    scrubbed = redact(parsed, _depth + 1)
+    if scrubbed == parsed:
+        return text
+    return json.dumps(scrubbed, ensure_ascii=False)
+
+
+def _redact_str(text: str, _depth: int = 0) -> str:
+    structural = _redact_serialized(text, _depth)
+    if structural is not None:
+        text = structural
+    else:
+        text = _JSON_SECRET_RE.sub(r"\g<q>\g<key>\g<q>: \g<q>[REDACTED]\g<q>", text)
     for pattern, repl in _SECRET_PATTERNS:
         text = pattern.sub(repl, text)
     return text
@@ -148,7 +181,7 @@ def redact(payload: Any, _depth: int = 0) -> Any:
         if _depth > 8:
             return "[REDACTED: nesting too deep]"
         if isinstance(payload, str):
-            return _redact_str(payload)
+            return _redact_str(payload, _depth)
         if isinstance(payload, dict):
             return {
                 k: (
