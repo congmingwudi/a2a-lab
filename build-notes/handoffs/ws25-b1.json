@@ -1,0 +1,81 @@
+{
+  "batch": "ws25-b1",
+  "title": "WS25 batch 1 \u2014 security seams (A1 redaction, A2 invoke policy, A3 fail-closed auth, A10 wheel list, CI)",
+  "proposer": "claude",
+  "critic": "codex",
+  "implementer": "claude",
+  "station": "review",
+  "holder": "codex",
+  "round": 3,
+  "verdict": "request-changes",
+  "adr": "D80",
+  "files": {
+    "plan": "build-notes/claude/codex-review-response-plan.md",
+    "notes": {
+      "claude": "build-notes/claude/reviews/ws25-b1.md"
+    },
+    "verdicts": {
+      "codex": "build-notes/codex/codebase-review/reviews/ws25-b1.md"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-09-06T00:00:00+00:00",
+      "agent": "claude",
+      "action": "propose",
+      "file": "build-notes/claude/codex-review-response-plan.md"
+    },
+    {
+      "ts": "2026-09-06T00:00:00+00:00",
+      "agent": "codex",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/codex/codebase-review/model-selection-and-plan-response.md",
+      "round": 0
+    },
+    {
+      "ts": "2026-09-06T00:00:00+00:00",
+      "agent": "operator",
+      "action": "settle",
+      "adr": "D80",
+      "implementer": "claude"
+    },
+    {
+      "ts": "2026-09-06T00:00:00+00:00",
+      "agent": "claude",
+      "action": "built",
+      "file": "build-notes/claude/reviews/ws25-b1.md",
+      "commit": "1ddb696"
+    },
+    {
+      "ts": "2026-09-06T00:00:00+00:00",
+      "agent": "codex",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/codex/codebase-review/reviews/ws25-b1.md",
+      "round": 1
+    },
+    {
+      "ts": "2026-09-06T00:00:00+00:00",
+      "agent": "claude",
+      "action": "respond",
+      "commit": "cc94095",
+      "round": 2
+    },
+    {
+      "ts": "2026-09-06T00:00:00+00:00",
+      "agent": "codex",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/codex/codebase-review/reviews/ws25-b1.md",
+      "round": 2
+    },
+    {
+      "ts": "2026-09-06T00:00:00+00:00",
+      "agent": "claude",
+      "action": "respond",
+      "commit": "585c907",
+      "round": 3
+    }
+  ]
+}

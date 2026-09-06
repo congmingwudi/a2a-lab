@@ -18,6 +18,12 @@ Every batch of work goes through five stations. A batch does not skip one.
 | 4. Implement | one agent, one branch per batch, tests first | branch `ws<n>-b<k>-<slug>`; `uv run pytest` + `ruff` green; the CLAUDE.md done-definition met |
 | 5. Cross-review | the other agent reviews the diff, reruns its own probes, writes a verdict | `build-notes/<agent>/reviews/ws<n>-b<k>.md`; item line flips `⏳ → ✅` only after the verdict and the deploy |
 
+The baton is code, not memory: `python3 scripts/handoff.py status <batch>
+--agent <you>` tells any agent whether it is its move and which files to read,
+and the verbs (`propose`, `review`, `built`, `respond`; operator-only `settle`,
+`deployed`) refuse a move the caller does not hold. Every agent loads the same
+`handoff` skill (see "Where things live").
+
 Two rules make the loop honest:
 
 - **No code before station 3.** The scope split (fix vs accept) is the
@@ -100,6 +106,8 @@ short on an item — not a fixed split by content type.
 | The delivery record | `plan/07-workstreams.md` `## WS25` | item lines feed `jira_sync.py` and the Project page (D58/D60); prose alone imports as a childless epic |
 | Claude's plan and reviews | `build-notes/claude/codex-review-response-plan.md`, `build-notes/claude/reviews/` | build-notes are per agent, by convention |
 | Codex's reviews, probes, harness, assessment | `build-notes/codex/codebase-review/` | same; the harness stays stdlib-only and outside `tests/` (see D80) |
+| The baton | `build-notes/handoffs/<batch>.json`, written only by `scripts/handoff.py` | whose move, which station, which round, which files — a fact in git, not a prompt pasted between terminals |
+| The skill every agent loads | `skills/handoff/SKILL.md`, symlinked from `.claude/skills/handoff` and `.agents/skills/handoff` | one source; each harness finds it where it expects to. Register a new agent with one symlink and one `AGENTS` row in the script |
 
 There is deliberately no `build-notes/joint/` directory. Each agent's artifacts
 stay under its own name so provenance is visible, and the joint state is the

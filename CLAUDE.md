@@ -82,6 +82,12 @@ uv run python deploy/fanout/provision_gcp_federation.py # once: AWS->GCP workloa
 deploy/fanout/build_zip.sh && deploy/fanout/deploy_fanout.sh  # the remote MCP fan-out server (D41)
 uv run python scripts/run_fanout.py --orchestrator cma-mcp    # model-scheduled fan-out (D41)
 uv run python scripts/export_insights.py           # config/insights.yaml + diagrams.yaml → plan/08-insights.md
+python3 scripts/handoff.py status <batch> --agent claude  # the baton between coding agents (D79):
+                                     # whose move, which station, which files. Verbs propose /
+                                     # review / built / respond; settle + deployed are the
+                                     # operator's. State: build-notes/handoffs/<batch>.json.
+                                     # Same skill for every agent: skills/handoff (symlinked
+                                     # into .claude/skills and .agents/skills).
 uv run python scripts/jira_sync.py [--apply]       # plan/07-workstreams.md → the Jira board
                                      # (WS15/D58). DRY RUN without --apply. One way, repo →
                                      # Jira: nothing reads the board back, so a status edited
