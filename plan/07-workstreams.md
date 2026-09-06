@@ -3500,3 +3500,49 @@ schema-learning step. The workstream is **met** when a `supplier-disruption-soma
 run routes natively to three single-org subagents, its unified session trace is
 harvested and surfaced, and `plan/03-results.md` records the native-vs-bridge
 comparison against WS8 variant-3 on the identical scenario.
+
+## WS25 — Codex codebase-review response: the first joint Claude Code + Codex batch (raised 2026-09-06, D79/D80)
+
+The first workstream run through the joint loop in `plan/16-joint-agent-workflow.md`:
+Claude proposed (`build-notes/claude/codex-review-response-plan.md`), Codex
+critiqued (`build-notes/codex/codebase-review/model-selection-and-plan-response.md`),
+the operator settled scope in D80, Claude Code implements on one branch per
+batch, Codex cross-reviews each batch and reruns its probes and harness before
+the deploy. The findings themselves are Codex's readiness review
+(`build-notes/codex/codebase-review/production-readiness.md`, F01–F13) and its
+test-estate review. The item lines below are the delivery record; each flips to
+✅ only after the cross-review verdict is checked in under
+`build-notes/codex/codebase-review/reviews/` AND the affected images are
+redeployed (full rebuild — every item touches `src/`).
+
+**Batch 1 — security seams (Opus 5, xhigh; Astra design review before the auth edit).**
+
+1. ⏳ A1 — format-aware credential redaction in `src/interop/trace.py`: serialized JSON keys (escaped quotes, JSON-in-a-string, truncated bodies), `user_token`/`session_token` added to the key set; the two harness `regression.*` cases ported to `tests/unit/test_models_and_trace.py` against JSONL and SQLite; one-off scan of existing traces. Rebuild faces, bridge, console, shim, fan-out (F04, D37).
+2. ⏳ A2 — viewer role enforced in `src/interop/servers/auth.py` on the real invoke surface (`/invoke`, `/invocations`, MCP `tools/call`, A2A v1 `SendMessage` and the 0.3 spelling), discovery routes stay open, `machine` stays allowed; `DELETE /api/traces` added to the console operator gate; role Details copy updated (F01, D36).
+3. ⏳ A3 — fail-closed auth: bridge `check_auth` and `mcp_http` `_auth_ok` exit non-zero at hosted startup on an empty token, local open mode behind `A2ALAB_ALLOW_UNAUTH=1`; `deploy/fanout/deploy_fanout.sh` uses `:?` for the token key; a test greps every deploy script for the same (F06).
+4. ⏳ A10 — wheel package list in `pyproject.toml` covers all `src/` packages, with a test that walks `src/*/__init__.py` (README risk 4).
+5. ⏳ CI — a GitHub Actions workflow running `uv sync --all-extras && uv run pytest && ruff check` on push (D80).
+
+**Batch 2 — CRM writes and session ownership (Opus 5, xhigh; Fable 5.1 by escalation).**
+
+6. ⏳ A4 — brief watcher records per-session outcome with bounded retries and a terminal-failed state surfaced in the console; delivery idempotent on `A2ALab_Account_Brief__c` via a uniqueness boundary on `Research_Session_Id__c` (Salesforce-side, Metadata API deploy), with repair of a partial brief/Task pair (F07, README risk 1).
+7. ⏳ A5 — brief delivery resolves the Account by exact or unique match, rejects empty and ambiguous names with the candidates listed, and prefers a preauthorized Account Id from the scheduled session's inputs (F03 write half).
+8. ⏳ A11 — hosted shim keys the reused Agentforce session by `(platform, caller subject)` from the verified JWT, shared key only for the legacy service token; per-key lock around session creation in `AgentforceClient`; shim Lambda redeployed (F02).
+
+**Batch 3 — orchestration correctness (Opus 5, xhigh).**
+
+9. ⏳ A6 — atomic claim (`UPDATE … WHERE state = SUBMITTED`, rowcount 1) plus `claimed_at` lease and a reaper for lost workers in `src/fanout_mcp/tasks.py`; DDL via `scripts/pg_migrate.py` (D46); overlap test with a fake that honours the predicate AND a verification against the real store (F07).
+10. ⏳ A7 — one absolute deadline across submit, every poll, the sleep and the fallback in `src/orchestration/runner.py`; an explicit accepted-work replay policy (cancel, idempotent, or refuse) tested with the 20 ms slow-poll shape (F08).
+11. ⏳ A8 — `scripts/matrix.py` requires a non-empty answer and takes a per-scenario expected fact; the appended `plan/03` row records runs, backend and mode; then run the `matrix-honesty-sweep` skill over prior PASS rows (F09).
+
+**Batch 4 — observability completeness (Opus 5, high).**
+
+12. ⏳ A9 — LangSmith harvest paginates and reports `partial`; the console Guide path emits a Hop with usage; wiretap marks JSON-RPC errors on HTTP 200 as `error` (F11).
+13. ⏳ C1 — port the harness repository cases that add assertions the suite lacks: duplicate-hop replay, sink-outage warning, obs upsert idempotency, platform-qualified native-id joins in `src/observability/store.py` (test-review #4).
+14. ⏳ C3 — export real measurement JSONL for each `measured` insight, grade with the harness `insight` area, run the `insights-audit` skill; unsupported measured claims demote (WS20, test-review #5).
+
+**Batch 5 — record-keeping (Fable 5.1 or Opus 5, high).**
+
+15. ⏳ D — `plan/02-matrix.md` ledger entries for the F03/F05 accepted risks; retention story in `plan/05-observability.md`; body-size limit on `AgentRequest.from_dict`; dropped-event counter on `/api/obs/summary`; Details panes for role gating, fan-out task lifecycle and Guide instrumentation cite D80; `plan/09` L6 rows for the A6 column and the A4 field; console redeployed (full rebuild).
+16. ⏳ Loop measurement — per-batch cost and edit-acceptance from the Coding Agents Telemetry tabs recorded in `plan/03-results.md` (D79).
+

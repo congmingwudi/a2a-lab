@@ -1,0 +1,4 @@
+{"trace_id": "synthetic-0", "metric": "elapsed", "value": 100, "unit": "ms", "cohort": "warm-rest"}
+{"trace_id": "synthetic-1", "metric": "elapsed", "value": 200, "unit": "ms", "cohort": "warm-rest"}
+{"trace_id": "synthetic-2", "metric": "elapsed", "value": 900, "unit": "ms", "cohort": "warm-rest"}
+{"trace_id": "synthetic-cold", "metric": "elapsed", "value": 5000, "unit": "ms", "cohort": "cold-rest"}

@@ -1,0 +1,36 @@
+Command: python3 -B -S -m unittest discover -s build-notes/codex/codebase-review/eval-harness -p 'test_harness.py' -v
+Exit code: 0
+
+test_all_synthetic_controls_have_exact_outcomes (test_harness.HarnessTests.test_all_synthetic_controls_have_exact_outcomes) ... ok
+test_assertions_cannot_pass_on_missing_pointer (test_harness.HarnessTests.test_assertions_cannot_pass_on_missing_pointer) ... ok
+test_async_working_cannot_regress_to_submitted (test_harness.HarnessTests.test_async_working_cannot_regress_to_submitted) ... ok
+test_case_policy_typos_and_wrong_types_rejected (test_harness.HarnessTests.test_case_policy_typos_and_wrong_types_rejected) ... ok
+test_denominator_does_not_shrink_with_missing_platform (test_harness.HarnessTests.test_denominator_does_not_shrink_with_missing_platform) ... ok
+test_duplicate_ids_rejected (test_harness.HarnessTests.test_duplicate_ids_rejected) ... ok
+test_exception_is_an_error_even_for_negative_control (test_harness.HarnessTests.test_exception_is_an_error_even_for_negative_control) ... ok
+test_export_cannot_downgrade_measured_claim_to_hypothesis (test_harness.HarnessTests.test_export_cannot_downgrade_measured_claim_to_hypothesis) ... ok
+test_export_cannot_switch_measurement_cohort (test_harness.HarnessTests.test_export_cannot_switch_measurement_cohort) ... ok
+test_external_evidence_does_not_fall_back_to_fixture (test_harness.HarnessTests.test_external_evidence_does_not_fall_back_to_fixture) ... ok
+test_external_export_pass_then_failure_and_reports (test_harness.HarnessTests.test_external_export_pass_then_failure_and_reports) ... ok
+test_failure_marker_must_name_the_missing_leg (test_harness.HarnessTests.test_failure_marker_must_name_the_missing_leg) ... ok
+test_good_case_mutation_is_detected (test_harness.HarnessTests.test_good_case_mutation_is_detected) ... ok
+test_http_error_cannot_be_saved_by_good_content (test_harness.HarnessTests.test_http_error_cannot_be_saved_by_good_content) ... ok
+test_malformed_json_duplicate_keys_and_nan_rejected (test_harness.HarnessTests.test_malformed_json_duplicate_keys_and_nan_rejected) ... ok
+test_negative_control_cannot_accept_external_failure (test_harness.HarnessTests.test_negative_control_cannot_accept_external_failure) ... ok
+test_null_payload_is_not_evidence (test_harness.HarnessTests.test_null_payload_is_not_evidence) ... ok
+test_pending_trace_requires_explicit_policy (test_harness.HarnessTests.test_pending_trace_requires_explicit_policy) ... ok
+test_percentile_keeps_tail_and_excludes_other_cohort (test_harness.HarnessTests.test_percentile_keeps_tail_and_excludes_other_cohort) ... ok
+test_prepare_partitions_without_deduplicating_or_fabricating (test_harness.HarnessTests.test_prepare_partitions_without_deduplicating_or_fabricating) ... ok
+test_reference_fragment_must_exist (test_harness.HarnessTests.test_reference_fragment_must_exist) ... ok
+test_reference_path_traversal_is_invalid_input (test_harness.HarnessTests.test_reference_path_traversal_is_invalid_input) ... ok
+test_report_cannot_overwrite_case_file (test_harness.HarnessTests.test_report_cannot_overwrite_case_file) ... ok
+test_reports_do_not_include_raw_secret_values (test_harness.HarnessTests.test_reports_do_not_include_raw_secret_values) ... ok
+test_repository_cases_ignore_hosted_sink_environment (test_harness.HarnessTests.test_repository_cases_ignore_hosted_sink_environment) ... ok
+test_secret_detector_handles_serialized_payloads (test_harness.HarnessTests.test_secret_detector_handles_serialized_payloads) ... ok
+test_unknown_usage_remains_unknown (test_harness.HarnessTests.test_unknown_usage_remains_unknown) ... ok
+test_zero_selection_is_not_success (test_harness.HarnessTests.test_zero_selection_is_not_success) ... ok
+
+----------------------------------------------------------------------
+Ran 28 tests in 0.888s
+
+OK

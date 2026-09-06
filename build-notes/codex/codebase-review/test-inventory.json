@@ -1,0 +1,2552 @@
+{
+  "commit": "a806b6d",
+  "method": "AST function inventory, not pytest collection or coverage",
+  "files": 54,
+  "functions": 555,
+  "inventory": [
+    {
+      "path": "tests/e2e/test_a2a_async.py",
+      "test_functions": [
+        {
+          "name": "test_submit_returns_before_the_work_finishes",
+          "line": 56
+        },
+        {
+          "name": "test_poll_walks_the_task_to_completion",
+          "line": 77
+        },
+        {
+          "name": "test_polling_is_traced_per_call",
+          "line": 104
+        },
+        {
+          "name": "test_blocking_ask_still_waits",
+          "line": 126
+        },
+        {
+          "name": "test_protocol_version_sets_the_a2a_version_header_only_when_pinned",
+          "line": 141
+        },
+        {
+          "name": "test_protocol_version_coerces_a_yaml_float_to_string",
+          "line": 157
+        }
+      ],
+      "count": 6
+    },
+    {
+      "path": "tests/e2e/test_live_roundtrip.py",
+      "test_functions": [
+        {
+          "name": "test_path_b_claude_consults_agentforce",
+          "line": 113
+        },
+        {
+          "name": "test_path_a_bridge_to_claude",
+          "line": 133
+        },
+        {
+          "name": "test_full_bidirectional_loop",
+          "line": 169
+        }
+      ],
+      "count": 3
+    },
+    {
+      "path": "tests/e2e/test_loopback.py",
+      "test_functions": [
+        {
+          "name": "test_rest_loopback",
+          "line": 99
+        },
+        {
+          "name": "test_rest_healthz_and_agentcore_aliases",
+          "line": 113
+        },
+        {
+          "name": "test_mcp_loopback",
+          "line": 122
+        },
+        {
+          "name": "test_a2a_loopback",
+          "line": 136
+        },
+        {
+          "name": "test_a2a_delegation_metadata_round_trip",
+          "line": 149
+        },
+        {
+          "name": "test_a2a_03_dialect_round_trip",
+          "line": 162
+        },
+        {
+          "name": "test_a2a_agent_card_published",
+          "line": 195
+        },
+        {
+          "name": "test_concurrent_protocols",
+          "line": 207
+        },
+        {
+          "name": "test_user_context_propagates_over_all_three_protocols",
+          "line": 223
+        }
+      ],
+      "count": 9
+    },
+    {
+      "path": "tests/live/test_mule_broker.py",
+      "test_functions": [
+        {
+          "name": "test_broker_consults_claude_face_and_attributes_the_hop",
+          "line": 23
+        }
+      ],
+      "count": 1
+    },
+    {
+      "path": "tests/unit/test_a2a_compat.py",
+      "test_functions": [
+        {
+          "name": "test_request_translation_03_to_1x",
+          "line": 12
+        },
+        {
+          "name": "test_1x_requests_pass_through",
+          "line": 39
+        },
+        {
+          "name": "test_response_translation_1x_to_03",
+          "line": 44
+        },
+        {
+          "name": "test_failed_state_and_error_pass_through",
+          "line": 68
+        }
+      ],
+      "count": 4
+    },
+    {
+      "path": "tests/unit/test_adk_core.py",
+      "test_functions": [
+        {
+          "name": "test_synthetic_default",
+          "line": 10
+        },
+        {
+          "name": "test_real_search_flag",
+          "line": 16
+        },
+        {
+          "name": "test_synthetic_news_is_deterministic_and_labeled",
+          "line": 24
+        },
+        {
+          "name": "test_agent_tools_follow_flag",
+          "line": 30
+        },
+        {
+          "name": "test_leg_tool_async_threads_dispatch_mode_and_budget_into_run_one",
+          "line": 57
+        },
+        {
+          "name": "test_leg_tool_sync_passes_no_timeout_override",
+          "line": 87
+        },
+        {
+          "name": "test_leg_tool_mints_a_trace_id_when_none_is_passed",
+          "line": 107
+        },
+        {
+          "name": "test_fanout_seeds_every_unit_state_key",
+          "line": 150
+        },
+        {
+          "name": "test_fanout_seed_never_overwrites_a_real_answer",
+          "line": 164
+        }
+      ],
+      "count": 9
+    },
+    {
+      "path": "tests/unit/test_af_channel.py",
+      "test_functions": [
+        {
+          "name": "test_dispatch_block_carries_the_mode_and_the_marker",
+          "line": 10
+        },
+        {
+          "name": "test_dispatch_block_clamps_an_unknown_mode_to_sync",
+          "line": 17
+        },
+        {
+          "name": "test_read_dispatch_mode_defaults_to_sync_when_absent",
+          "line": 23
+        },
+        {
+          "name": "test_read_dispatch_mode_reads_what_the_block_asked_for",
+          "line": 30
+        },
+        {
+          "name": "test_read_dispatch_mode_is_case_insensitive",
+          "line": 35
+        },
+        {
+          "name": "test_strip_routing_blocks_removes_the_block_and_leaves_the_situation",
+          "line": 39
+        },
+        {
+          "name": "test_strip_routing_blocks_removes_every_block_in_one_pass",
+          "line": 48
+        },
+        {
+          "name": "test_strip_routing_blocks_is_a_noop_on_a_clean_message",
+          "line": 56
+        }
+      ],
+      "count": 8
+    },
+    {
+      "path": "tests/unit/test_af_proxy.py",
+      "test_functions": [
+        {
+          "name": "test_metadata_routes_to_platform_twin",
+          "line": 41
+        },
+        {
+          "name": "test_rider_text_routes_to_platform_twin",
+          "line": 51
+        },
+        {
+          "name": "test_origin_request_uses_default_agent",
+          "line": 60
+        },
+        {
+          "name": "test_session_reuse_keys_by_platform",
+          "line": 65
+        }
+      ],
+      "count": 4
+    },
+    {
+      "path": "tests/unit/test_agentforce_client.py",
+      "test_functions": [
+        {
+          "name": "test_round_trip",
+          "line": 58
+        },
+        {
+          "name": "test_session_reuse_and_sequence",
+          "line": 66
+        },
+        {
+          "name": "test_oneshot_sessions_not_reused_and_deleted",
+          "line": 74
+        },
+        {
+          "name": "test_token_cached",
+          "line": 82
+        },
+        {
+          "name": "test_end_session",
+          "line": 88
+        },
+        {
+          "name": "test_aclose_ends_cached_sessions",
+          "line": 94
+        },
+        {
+          "name": "test_traces_recorded",
+          "line": 101
+        },
+        {
+          "name": "test_from_env_missing",
+          "line": 115
+        }
+      ],
+      "count": 8
+    },
+    {
+      "path": "tests/unit/test_architecture.py",
+      "test_functions": [
+        {
+          "name": "test_parse_splits_levels_diagrams_and_appendices",
+          "line": 45
+        },
+        {
+          "name": "test_missing_file_degrades_to_an_error_not_an_exception",
+          "line": 67
+        },
+        {
+          "name": "test_the_real_deployment_map_parses",
+          "line": 75
+        },
+        {
+          "name": "test_links_point_only_at_files_that_exist_on_the_published_branch",
+          "line": 101
+        },
+        {
+          "name": "test_link_urls_match_their_kind",
+          "line": 131
+        },
+        {
+          "name": "test_a_decimal_level_is_a_level_not_an_appendix",
+          "line": 138
+        },
+        {
+          "name": "test_the_real_map_carries_the_dns_level",
+          "line": 163
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_auth.py",
+      "test_functions": [
+        {
+          "name": "test_passthrough_when_token_unset",
+          "line": 27
+        },
+        {
+          "name": "test_rejects_without_token",
+          "line": 32
+        },
+        {
+          "name": "test_accepts_header_and_bearer",
+          "line": 37
+        },
+        {
+          "name": "test_query_param_only_when_enabled",
+          "line": 44
+        },
+        {
+          "name": "test_exempt_paths_stay_open",
+          "line": 51
+        }
+      ],
+      "count": 5
+    },
+    {
+      "path": "tests/unit/test_bridge.py",
+      "test_functions": [
+        {
+          "name": "test_healthz",
+          "line": 46
+        },
+        {
+          "name": "test_invoke_forwards_and_annotates",
+          "line": 51
+        },
+        {
+          "name": "test_delegation_guard_refuses_over_depth",
+          "line": 72
+        },
+        {
+          "name": "test_unknown_target_404",
+          "line": 92
+        },
+        {
+          "name": "test_client_cached_across_requests",
+          "line": 98
+        },
+        {
+          "name": "test_auth_enforced_when_token_set",
+          "line": 109
+        },
+        {
+          "name": "test_fanout_reads_dispatch_mode_from_the_situation_and_strips_the_block",
+          "line": 133
+        },
+        {
+          "name": "test_fanout_defaults_to_sync_when_no_block_is_present",
+          "line": 170
+        },
+        {
+          "name": "test_invoke_submit_poll_for_async_target",
+          "line": 193
+        },
+        {
+          "name": "test_invoke_submit_poll_flag_on_sync_client_degrades",
+          "line": 261
+        }
+      ],
+      "count": 10
+    },
+    {
+      "path": "tests/unit/test_briefs_watch_state.py",
+      "test_functions": [
+        {
+          "name": "test_deployment_id_comes_from_the_environment_when_set",
+          "line": 17
+        },
+        {
+          "name": "test_the_env_merges_over_the_file_rather_than_replacing_it",
+          "line": 31
+        },
+        {
+          "name": "test_missing_ids_name_the_hosted_route_too",
+          "line": 47
+        },
+        {
+          "name": "test_serviced_sessions_round_trip_through_the_hosted_store",
+          "line": 56
+        },
+        {
+          "name": "test_serviced_sessions_still_use_the_file_with_no_store",
+          "line": 82
+        },
+        {
+          "name": "test_a_failing_state_write_is_not_swallowed",
+          "line": 92
+        },
+        {
+          "name": "test_the_serviced_set_stays_bounded",
+          "line": 112
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_coding_logs_source.py",
+      "test_functions": [
+        {
+          "name": "test_edit_acceptance_counts_accept_and_reject_by_source",
+          "line": 28
+        },
+        {
+          "name": "test_tool_result_rolls_up_mix_success_and_latency",
+          "line": 44
+        },
+        {
+          "name": "test_api_request_keeps_model_latency_and_four_token_buckets",
+          "line": 77
+        },
+        {
+          "name": "test_errors_refusals_and_retries",
+          "line": 102
+        },
+        {
+          "name": "test_prompt_cadence_counts_and_length_no_text",
+          "line": 116
+        },
+        {
+          "name": "test_days_are_bucketed_separately",
+          "line": 129
+        },
+        {
+          "name": "test_unknown_decision_value_ignored",
+          "line": 139
+        },
+        {
+          "name": "test_percentile_from_empty_hist_is_none",
+          "line": 150
+        },
+        {
+          "name": "test_percentile_returns_bucket_upper_edge",
+          "line": 154
+        },
+        {
+          "name": "test_percentile_tail_bucket_returns_top_edge",
+          "line": 162
+        },
+        {
+          "name": "test_prompt_len_hist_percentile",
+          "line": 168
+        },
+        {
+          "name": "test_parse_skips_non_json_and_unknown_events",
+          "line": 203
+        },
+        {
+          "name": "test_harvest_stores_aggregates_and_reports_rate",
+          "line": 212
+        },
+        {
+          "name": "test_harvest_blocks_when_no_events",
+          "line": 237
+        }
+      ],
+      "count": 14
+    },
+    {
+      "path": "tests/unit/test_coding_source.py",
+      "test_functions": [
+        {
+          "name": "test_summarize_buckets_by_tool_and_day",
+          "line": 43
+        },
+        {
+          "name": "test_tool_detection_by_prefix",
+          "line": 121
+        },
+        {
+          "name": "test_codex_exec_folds_into_codex",
+          "line": 129
+        },
+        {
+          "name": "test_cursor_sessions_summarize_with_no_cost",
+          "line": 158
+        },
+        {
+          "name": "test_metric_names_are_extendable_and_deduped",
+          "line": 181
+        },
+        {
+          "name": "test_harvest_reads_promql_and_writes_sessions",
+          "line": 193
+        },
+        {
+          "name": "test_cursor_cumulative_counters_are_queried_with_increase",
+          "line": 243
+        },
+        {
+          "name": "test_cursor_attribution_from_service_labels",
+          "line": 277
+        },
+        {
+          "name": "test_cursor_hook_events_do_not_inflate_sessions",
+          "line": 309
+        },
+        {
+          "name": "test_resource_tool_label_wins_over_the_name_prefix",
+          "line": 330
+        },
+        {
+          "name": "test_harvest_blocked_when_no_metrics_exist",
+          "line": 352
+        },
+        {
+          "name": "test_one_missing_metric_does_not_sink_the_harvest",
+          "line": 362
+        },
+        {
+          "name": "test_harvest_reports_error_without_raising",
+          "line": 381
+        },
+        {
+          "name": "test_query_step_is_fine_grained_enough_to_see_today",
+          "line": 398
+        },
+        {
+          "name": "test_summarize_splits_cost_per_repo_and_sums_to_the_total",
+          "line": 426
+        },
+        {
+          "name": "test_datapoints_without_a_repo_label_are_kept_as_unattributed",
+          "line": 473
+        },
+        {
+          "name": "test_model_is_recorded_for_a_tool_with_no_cost_metric",
+          "line": 503
+        },
+        {
+          "name": "test_placeholder_repo_owner_folds_into_the_real_repo",
+          "line": 526
+        },
+        {
+          "name": "test_placeholder_with_no_real_counterpart_is_left_alone",
+          "line": 538
+        },
+        {
+          "name": "test_explicit_repo_alias_from_env",
+          "line": 545
+        },
+        {
+          "name": "test_harvest_keeps_the_resource_repo_label_off_the_wire",
+          "line": 551
+        }
+      ],
+      "count": 21
+    },
+    {
+      "path": "tests/unit/test_console.py",
+      "test_functions": [
+        {
+          "name": "test_traces_grouped_and_sorted",
+          "line": 52
+        },
+        {
+          "name": "test_index_served",
+          "line": 71
+        },
+        {
+          "name": "test_shell_asks_browsers_to_revalidate",
+          "line": 79
+        },
+        {
+          "name": "test_targets_listed",
+          "line": 92
+        },
+        {
+          "name": "test_run_experiment",
+          "line": 110
+        },
+        {
+          "name": "test_run_defaults_and_errors",
+          "line": 132
+        },
+        {
+          "name": "test_scenarios_listed",
+          "line": 150
+        },
+        {
+          "name": "test_scenarios_include_nav_groups",
+          "line": 167
+        },
+        {
+          "name": "test_scenarios_include_adk_pair",
+          "line": 200
+        },
+        {
+          "name": "test_every_component_has_a_console_url",
+          "line": 214
+        },
+        {
+          "name": "test_foundry_scenario_has_a_platform_component",
+          "line": 236
+        },
+        {
+          "name": "test_run_scenario_resolves_target_and_suffix",
+          "line": 247
+        },
+        {
+          "name": "test_config_reports_delegation",
+          "line": 270
+        },
+        {
+          "name": "test_run_af_channel_routing_block",
+          "line": 299
+        },
+        {
+          "name": "test_run_scenario_requires_mode_gate",
+          "line": 333
+        },
+        {
+          "name": "test_run_cell_via_bridge",
+          "line": 354
+        },
+        {
+          "name": "test_run_via_bridge",
+          "line": 375
+        },
+        {
+          "name": "test_warmup_lists_only_flagged_targets",
+          "line": 435
+        },
+        {
+          "name": "test_warmup_post_records_and_returns",
+          "line": 443
+        },
+        {
+          "name": "test_warmup_failure_recorded_not_500",
+          "line": 461
+        },
+        {
+          "name": "test_warmup_non_warmable_404",
+          "line": 472
+        },
+        {
+          "name": "test_warmup_clear_hides_display_but_keeps_the_file",
+          "line": 479
+        },
+        {
+          "name": "test_run_async_scenario_returns_immediately",
+          "line": 509
+        },
+        {
+          "name": "test_decisions_parsed_and_served",
+          "line": 531
+        },
+        {
+          "name": "test_decisions_missing_file_empty",
+          "line": 547
+        },
+        {
+          "name": "test_run_af_route_direct_block",
+          "line": 553
+        },
+        {
+          "name": "test_targets_carry_cell_details",
+          "line": 579
+        },
+        {
+          "name": "test_viewer_403_on_operator_surfaces",
+          "line": 625
+        },
+        {
+          "name": "test_viewer_allowed_surfaces",
+          "line": 643
+        },
+        {
+          "name": "test_machine_role_403_on_operator_surfaces",
+          "line": 672
+        },
+        {
+          "name": "test_operator_role_reaches_operator_surfaces",
+          "line": 686
+        },
+        {
+          "name": "test_shared_service_token_still_reaches_operator_surfaces",
+          "line": 701
+        },
+        {
+          "name": "test_owner_role_keeps_the_full_operator_privilege_set",
+          "line": 717
+        },
+        {
+          "name": "test_tableau_next_app_link_is_owner_only",
+          "line": 750
+        },
+        {
+          "name": "test_tableau_embed_config_and_frontdoor_are_owner_only",
+          "line": 791
+        },
+        {
+          "name": "test_tableau_embed_absent_when_eca_unwired",
+          "line": 842
+        },
+        {
+          "name": "test_service_token_unaffected_by_role_gate",
+          "line": 865
+        },
+        {
+          "name": "test_public_landing_surface_vs_gated",
+          "line": 875
+        },
+        {
+          "name": "test_users_picker_omits_machine_principals",
+          "line": 889
+        },
+        {
+          "name": "test_insight_signoff_records_person_and_pins_content",
+          "line": 936
+        },
+        {
+          "name": "test_insight_signoff_reserved_to_the_reviewer",
+          "line": 973
+        },
+        {
+          "name": "test_insight_signoff_rejects_bad_input",
+          "line": 1001
+        },
+        {
+          "name": "test_build_telemetry_rolls_up_cost_by_tool",
+          "line": 1092
+        },
+        {
+          "name": "test_build_telemetry_exposes_per_tool_activity_for_segmented_tiles",
+          "line": 1109
+        },
+        {
+          "name": "test_build_telemetry_reports_all_four_billed_token_buckets",
+          "line": 1140
+        },
+        {
+          "name": "test_build_telemetry_never_appears_as_a_platform_column",
+          "line": 1170
+        },
+        {
+          "name": "test_coding_harvest_is_reachable_by_name_but_not_in_the_sweep",
+          "line": 1189
+        },
+        {
+          "name": "test_build_telemetry_explains_setup_when_nothing_collected",
+          "line": 1238
+        },
+        {
+          "name": "test_cost_brief_reports_unprovisioned_as_a_state_not_an_error",
+          "line": 1259
+        },
+        {
+          "name": "test_cost_brief_run_is_operator_only",
+          "line": 1275
+        },
+        {
+          "name": "test_cost_brief_schedule_is_operator_only",
+          "line": 1284
+        },
+        {
+          "name": "test_architecture_endpoint_serves_the_deployment_map",
+          "line": 1294
+        },
+        {
+          "name": "test_docs_endpoint_serves_every_doc_tree_the_ui_chips",
+          "line": 1314
+        },
+        {
+          "name": "test_tmp_docs_is_never_surfaced",
+          "line": 1339
+        },
+        {
+          "name": "test_presenter_notes_reach_only_a_reviewer",
+          "line": 1360
+        },
+        {
+          "name": "test_architecture_links_only_repo_files_that_exist",
+          "line": 1385
+        },
+        {
+          "name": "test_public_endpoints_do_not_publish_console_deep_links",
+          "line": 1402
+        },
+        {
+          "name": "test_expiry_is_operator_only",
+          "line": 1437
+        },
+        {
+          "name": "test_expiry_says_so_when_no_report_has_been_collected",
+          "line": 1460
+        },
+        {
+          "name": "test_sse_keepalive_fits_inside_common_idle_timeouts",
+          "line": 1473
+        },
+        {
+          "name": "test_healthz_is_open_and_says_nothing_useful",
+          "line": 1494
+        },
+        {
+          "name": "test_hosted_console_refuses_to_start_without_a_token",
+          "line": 1505
+        },
+        {
+          "name": "test_local_console_still_starts_without_a_token",
+          "line": 1538
+        },
+        {
+          "name": "test_empty_console_url_env_falls_back_to_the_default",
+          "line": 1557
+        },
+        {
+          "name": "test_sign_offs_persist_to_the_hosted_store_when_configured",
+          "line": 1585
+        },
+        {
+          "name": "test_sign_offs_still_use_the_file_with_no_hosted_store",
+          "line": 1619
+        },
+        {
+          "name": "test_an_explicit_path_is_never_answered_from_the_store",
+          "line": 1635
+        },
+        {
+          "name": "test_a_failing_store_does_not_report_a_silent_success",
+          "line": 1654
+        },
+        {
+          "name": "test_hosted_harvest_fires_the_lambda_and_returns_at_once",
+          "line": 1674
+        },
+        {
+          "name": "test_local_harvest_still_runs_in_process",
+          "line": 1704
+        },
+        {
+          "name": "test_an_unstartable_harvest_reports_rather_than_pretending",
+          "line": 1731
+        },
+        {
+          "name": "test_hosted_mode_keeps_the_managed_and_self_hosted_cells_distinct",
+          "line": 1747
+        },
+        {
+          "name": "test_every_hosted_remap_points_at_a_real_target",
+          "line": 1771
+        },
+        {
+          "name": "test_the_briefs_endpoint_returns_every_kind_within_the_window",
+          "line": 1783
+        },
+        {
+          "name": "test_track_accepts_anonymous_beacon_without_pg",
+          "line": 1817
+        },
+        {
+          "name": "test_track_drops_unknown_event",
+          "line": 1830
+        },
+        {
+          "name": "test_track_records_row_and_stamps_headers",
+          "line": 1839
+        },
+        {
+          "name": "test_monitoring_requires_sign_in",
+          "line": 1891
+        },
+        {
+          "name": "test_logger_headers_apikey_default",
+          "line": 1907
+        },
+        {
+          "name": "test_logger_headers_iam_signs_and_parses_region",
+          "line": 1923
+        },
+        {
+          "name": "test_logger_headers_iam_no_creds_returns_none",
+          "line": 1949
+        },
+        {
+          "name": "test_otel_session_picker_prefers_recorded_labels",
+          "line": 1972
+        },
+        {
+          "name": "test_agentforce_run_records_labeled_otel_session",
+          "line": 2007
+        },
+        {
+          "name": "test_submit_poll_scenarios_target_async_capable_face",
+          "line": 2055
+        }
+      ],
+      "count": 84
+    },
+    {
+      "path": "tests/unit/test_delegation.py",
+      "test_functions": [
+        {
+          "name": "test_origin_request_depth_zero",
+          "line": 5
+        },
+        {
+          "name": "test_metadata_depth_wins",
+          "line": 11
+        },
+        {
+          "name": "test_rider_scan_fallback",
+          "line": 20
+        },
+        {
+          "name": "test_mangled_rider_still_counts_as_delegated",
+          "line": 35
+        },
+        {
+          "name": "test_platform_of_metadata_wins",
+          "line": 40
+        },
+        {
+          "name": "test_platform_of_rider_scan_fallback",
+          "line": 48
+        },
+        {
+          "name": "test_platform_of_origin_request_is_none",
+          "line": 62
+        },
+        {
+          "name": "test_max_depth_env",
+          "line": 68
+        },
+        {
+          "name": "test_refusal_names_seam_and_is_instructive",
+          "line": 76
+        },
+        {
+          "name": "test_lab_trace_line_in_rider",
+          "line": 81
+        },
+        {
+          "name": "test_no_trace_id_no_lab_trace_line",
+          "line": 98
+        },
+        {
+          "name": "test_rider_carries_version_and_parsers_tolerate_it",
+          "line": 105
+        },
+        {
+          "name": "test_user_context_rides_both_channels",
+          "line": 115
+        },
+        {
+          "name": "test_no_user_no_lines",
+          "line": 139
+        }
+      ],
+      "count": 14
+    },
+    {
+      "path": "tests/unit/test_diagrams.py",
+      "test_functions": [
+        {
+          "name": "test_diagrams_config_is_present",
+          "line": 30
+        },
+        {
+          "name": "test_every_diagram_has_the_required_fields",
+          "line": 34
+        },
+        {
+          "name": "test_diagram_ids_are_unique",
+          "line": 40
+        },
+        {
+          "name": "test_mermaid_declares_a_supported_graph_type",
+          "line": 45
+        },
+        {
+          "name": "test_every_referenced_insight_exists",
+          "line": 51
+        },
+        {
+          "name": "test_readme_diagrams_match_the_config_verbatim",
+          "line": 61
+        },
+        {
+          "name": "test_attach_diagrams_maps_and_does_not_mutate",
+          "line": 78
+        },
+        {
+          "name": "test_insight_without_diagrams_gets_no_key",
+          "line": 95
+        },
+        {
+          "name": "test_markdown_export_embeds_mermaid_fences",
+          "line": 100
+        },
+        {
+          "name": "test_live_export_carries_the_diagrams",
+          "line": 119
+        }
+      ],
+      "count": 10
+    },
+    {
+      "path": "tests/unit/test_env_contract.py",
+      "test_functions": [
+        {
+          "name": "test_every_variable_the_code_reads_is_documented",
+          "line": 28
+        },
+        {
+          "name": "test_env_and_example_carry_the_same_keys",
+          "line": 41
+        },
+        {
+          "name": "test_no_variable_is_set_but_unreferenced",
+          "line": 56
+        },
+        {
+          "name": "test_audit_ignores_things_that_are_not_lab_configuration",
+          "line": 73
+        }
+      ],
+      "count": 4
+    },
+    {
+      "path": "tests/unit/test_env_sync.py",
+      "test_functions": [
+        {
+          "name": "test_keys_of_ignores_comments_and_blanks",
+          "line": 44
+        },
+        {
+          "name": "test_pull_refuses_to_clobber_a_diverged_env",
+          "line": 48
+        },
+        {
+          "name": "test_pull_force_keeps_a_backup_first",
+          "line": 57
+        },
+        {
+          "name": "test_pull_is_a_no_op_when_identical",
+          "line": 66
+        },
+        {
+          "name": "test_push_refuses_to_drop_keys_that_only_exist_remotely",
+          "line": 73
+        },
+        {
+          "name": "test_push_allows_adding_keys",
+          "line": 80
+        },
+        {
+          "name": "test_diff_never_prints_values",
+          "line": 86
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_faces.py",
+      "test_functions": [
+        {
+          "name": "test_every_face_mounts_under_its_target_name",
+          "line": 16
+        },
+        {
+          "name": "test_healthz_is_open_and_says_nothing_useful",
+          "line": 28
+        },
+        {
+          "name": "test_a2a_cards_advertise_their_own_mounted_url",
+          "line": 39
+        },
+        {
+          "name": "test_a2a_cards_are_discoverable_without_a_token",
+          "line": 54
+        },
+        {
+          "name": "test_mcp_faces_have_a_started_transport",
+          "line": 91
+        },
+        {
+          "name": "test_faces_are_behind_the_shared_token",
+          "line": 114
+        },
+        {
+          "name": "test_one_broken_face_does_not_take_down_the_others",
+          "line": 122
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_fanout_mcp.py",
+      "test_functions": [
+        {
+          "name": "test_one_tool_per_business_unit",
+          "line": 59
+        },
+        {
+          "name": "test_tool_names_follow_the_org_chart_not_the_deployment",
+          "line": 68
+        },
+        {
+          "name": "test_descriptions_tell_the_model_the_tools_are_independent",
+          "line": 75
+        },
+        {
+          "name": "test_roster_is_generated_from_the_same_source_as_the_tools",
+          "line": 86
+        },
+        {
+          "name": "test_each_tool_runs_only_its_own_leg",
+          "line": 96
+        },
+        {
+          "name": "test_tools_bind_their_own_agent_not_the_last_one_in_the_loop",
+          "line": 104
+        },
+        {
+          "name": "test_the_same_run_id_threads_every_call_into_one_run",
+          "line": 114
+        },
+        {
+          "name": "test_a_missing_run_id_is_refused_rather_than_invented",
+          "line": 122
+        },
+        {
+          "name": "test_a_missing_situation_is_refused",
+          "line": 132
+        },
+        {
+          "name": "test_delegation_is_stamped_as_the_orchestrator_not_the_mcp_server",
+          "line": 140
+        },
+        {
+          "name": "test_a_tool_returns_the_same_rendered_section_as_the_host_side_variant",
+          "line": 153
+        },
+        {
+          "name": "test_a_failed_leg_is_reported_not_omitted",
+          "line": 167
+        },
+        {
+          "name": "test_mcp_variant_swaps_the_tool_inventory_not_the_agent",
+          "line": 182
+        },
+        {
+          "name": "test_unknown_variant_is_rejected_at_construction",
+          "line": 212
+        },
+        {
+          "name": "test_missing_state_raises_a_catchable_error_not_systemexit",
+          "line": 221
+        },
+        {
+          "name": "test_env_override_carries_state_where_no_file_exists",
+          "line": 242
+        },
+        {
+          "name": "test_call_path_distinguishes_parallel_from_serial",
+          "line": 269
+        },
+        {
+          "name": "test_registry_exposes_submit_tools_and_one_shared_check_tool",
+          "line": 350
+        },
+        {
+          "name": "test_submit_returns_a_task_id_without_running_the_leg",
+          "line": 361
+        },
+        {
+          "name": "test_submit_refuses_a_missing_run_id_and_does_not_dispatch",
+          "line": 385
+        },
+        {
+          "name": "test_fire_then_poll_loop_completes_every_unit_and_check_carries_results",
+          "line": 393
+        },
+        {
+          "name": "test_check_with_no_ids_asks_for_one",
+          "line": 422
+        },
+        {
+          "name": "test_worker_runner_maps_the_slug_to_its_leg_and_threads_the_run_id",
+          "line": 428
+        },
+        {
+          "name": "test_worker_runner_uses_the_async_leg_budget_not_the_sync_one",
+          "line": 447
+        },
+        {
+          "name": "test_mcp_async_selects_the_fire_then_poll_system_prompt",
+          "line": 470
+        },
+        {
+          "name": "test_mcp_async_without_a_provisioned_prompt_is_a_catchable_error",
+          "line": 489
+        }
+      ],
+      "count": 26
+    },
+    {
+      "path": "tests/unit/test_fanout_tasks.py",
+      "test_functions": [
+        {
+          "name": "test_submit_records_the_task_without_doing_the_work",
+          "line": 67
+        },
+        {
+          "name": "test_state_lives_in_the_store_not_the_process",
+          "line": 81
+        },
+        {
+          "name": "test_worker_completes_the_task_and_check_sees_it",
+          "line": 95
+        },
+        {
+          "name": "test_worker_failure_is_terminal_not_stuck_working",
+          "line": 107
+        },
+        {
+          "name": "test_run_id_joins_the_units",
+          "line": 124
+        },
+        {
+          "name": "test_rerunning_a_finished_task_is_a_no_op",
+          "line": 139
+        }
+      ],
+      "count": 6
+    },
+    {
+      "path": "tests/unit/test_foundry_client.py",
+      "test_functions": [
+        {
+          "name": "test_agent_reference_and_platform_ref",
+          "line": 28
+        },
+        {
+          "name": "test_session_chains_previous_response_id",
+          "line": 38
+        }
+      ],
+      "count": 2
+    },
+    {
+      "path": "tests/unit/test_guide.py",
+      "test_functions": [
+        {
+          "name": "test_system_prompt_stuffs_core_docs_and_adr_index",
+          "line": 17
+        },
+        {
+          "name": "test_get_decision_returns_markdown_and_rejects_unknown",
+          "line": 25
+        },
+        {
+          "name": "test_read_doc_whitelist",
+          "line": 32
+        },
+        {
+          "name": "test_list_recent_runs_and_get_trace_roundtrip",
+          "line": 54
+        },
+        {
+          "name": "test_briefs_soft_fail_without_pg",
+          "line": 68
+        },
+        {
+          "name": "test_handle_runs_tool_round_then_answers",
+          "line": 120
+        },
+        {
+          "name": "test_answer_stream_yields_deltas_tools_done",
+          "line": 146
+        },
+        {
+          "name": "test_mcp_extra_tools_are_registered",
+          "line": 164
+        }
+      ],
+      "count": 8
+    },
+    {
+      "path": "tests/unit/test_identity.py",
+      "test_functions": [
+        {
+          "name": "test_keypair_generated_once_and_private_is_0600",
+          "line": 27
+        },
+        {
+          "name": "test_issue_and_verify_roundtrip",
+          "line": 36
+        },
+        {
+          "name": "test_unknown_user_refused",
+          "line": 48
+        },
+        {
+          "name": "test_tampered_and_expired_tokens_verify_to_none",
+          "line": 53
+        },
+        {
+          "name": "test_foreign_issuer_rejected",
+          "line": 62
+        },
+        {
+          "name": "test_middleware_accepts_lab_jwt_and_exposes_claims",
+          "line": 93
+        },
+        {
+          "name": "test_middleware_still_accepts_shared_token_without_user",
+          "line": 102
+        },
+        {
+          "name": "test_middleware_rejects_garbage_jwt",
+          "line": 109
+        },
+        {
+          "name": "test_authenticate_role_passwords",
+          "line": 115
+        },
+        {
+          "name": "test_the_signing_key_can_come_from_the_environment",
+          "line": 132
+        },
+        {
+          "name": "test_escaped_newlines_in_the_env_key_are_restored",
+          "line": 164
+        },
+        {
+          "name": "test_machine_caller_is_in_directory_but_has_no_password_login",
+          "line": 176
+        },
+        {
+          "name": "test_issue_service_token_mints_short_lived_machine_jwt",
+          "line": 191
+        },
+        {
+          "name": "test_issue_service_token_rejects_unknown_subject",
+          "line": 204
+        },
+        {
+          "name": "test_issue_service_token_role_ceiling",
+          "line": 211
+        },
+        {
+          "name": "test_authenticate_client_accepts_matching_creds_and_returns_subject",
+          "line": 228
+        },
+        {
+          "name": "test_authenticate_client_rejects_bad_creds",
+          "line": 236
+        },
+        {
+          "name": "test_authenticate_client_fails_closed_when_unconfigured",
+          "line": 247
+        }
+      ],
+      "count": 18
+    },
+    {
+      "path": "tests/unit/test_infra_source.py",
+      "test_functions": [
+        {
+          "name": "test_upsert_metrics_round_trip_and_idempotent",
+          "line": 36
+        },
+        {
+          "name": "test_upsert_metrics_null_labels",
+          "line": 70
+        },
+        {
+          "name": "test_normalize_cloudwatch_zips_parallel_arrays",
+          "line": 92
+        },
+        {
+          "name": "test_normalize_gcp_prefers_int64_then_double",
+          "line": 123
+        },
+        {
+          "name": "test_normalize_azure_picks_the_configured_aggregation",
+          "line": 142
+        },
+        {
+          "name": "test_normalize_azure_accepts_rest_timestamp_spelling",
+          "line": 171
+        },
+        {
+          "name": "test_aws_blocked_when_ids_unset",
+          "line": 206
+        },
+        {
+          "name": "test_gcp_blocked_without_project",
+          "line": 220
+        },
+        {
+          "name": "test_azure_blocked_without_resource_uri",
+          "line": 227
+        },
+        {
+          "name": "test_aws_ok_path_writes_points",
+          "line": 257
+        },
+        {
+          "name": "test_config_loads_all_three_clouds",
+          "line": 276
+        }
+      ],
+      "count": 11
+    },
+    {
+      "path": "tests/unit/test_jira_sync.py",
+      "test_functions": [
+        {
+          "name": "test_table_rows_become_items_with_their_real_state",
+          "line": 53
+        },
+        {
+          "name": "test_statused_numbered_lines_become_items",
+          "line": 61
+        },
+        {
+          "name": "test_narrative_numbered_lines_are_not_items",
+          "line": 69
+        },
+        {
+          "name": "test_epic_never_closes_on_the_word_done_in_prose",
+          "line": 76
+        },
+        {
+          "name": "test_status_paragraph_does_not_swallow_the_items_under_it",
+          "line": 88
+        },
+        {
+          "name": "test_every_workstream_in_the_real_plan_parses",
+          "line": 93
+        },
+        {
+          "name": "test_repo_links_only_point_at_paths_that_exist",
+          "line": 109
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_langgraph_platform.py",
+      "test_functions": [
+        {
+          "name": "test_stub_backend_answers_deterministically",
+          "line": 17
+        },
+        {
+          "name": "test_stub_is_default_backend",
+          "line": 27
+        },
+        {
+          "name": "test_langgraph_backend_can_be_selected",
+          "line": 32
+        },
+        {
+          "name": "test_unknown_backend_rejected",
+          "line": 43
+        },
+        {
+          "name": "test_prompt_mentions_delegation_tool",
+          "line": 48
+        },
+        {
+          "name": "test_prompt_names_langgraph_as_framework",
+          "line": 55
+        }
+      ],
+      "count": 6
+    },
+    {
+      "path": "tests/unit/test_langgraph_source.py",
+      "test_functions": [
+        {
+          "name": "test_group_by_trace_splits_root_and_children",
+          "line": 94
+        },
+        {
+          "name": "test_summarize_session_rolls_up_and_finds_join",
+          "line": 102
+        },
+        {
+          "name": "test_event_rows_keeps_only_llm_and_tool_spans",
+          "line": 113
+        },
+        {
+          "name": "test_harvest_blocked_without_key",
+          "line": 126
+        },
+        {
+          "name": "test_harvest_ok_maps_session_events_and_join",
+          "line": 133
+        },
+        {
+          "name": "test_harvest_ok_but_project_missing",
+          "line": 159
+        },
+        {
+          "name": "test_harvest_error_on_api_failure",
+          "line": 174
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_managed_backend.py",
+      "test_functions": [
+        {
+          "name": "test_answer_assembles_text",
+          "line": 83
+        },
+        {
+          "name": "test_requires_action_idle_does_not_break",
+          "line": 103
+        },
+        {
+          "name": "test_session_reuse_by_lab_session_id",
+          "line": 121
+        },
+        {
+          "name": "test_custom_tool_round_trip",
+          "line": 134
+        },
+        {
+          "name": "test_unprovisioned_raises",
+          "line": 180
+        }
+      ],
+      "count": 5
+    },
+    {
+      "path": "tests/unit/test_mcp_contract.py",
+      "test_functions": [
+        {
+          "name": "test_ask_declares_output_schema",
+          "line": 19
+        },
+        {
+          "name": "test_ask_returns_versioned_structured_content_and_json_text",
+          "line": 32
+        }
+      ],
+      "count": 2
+    },
+    {
+      "path": "tests/unit/test_mcp_http.py",
+      "test_functions": [
+        {
+          "name": "test_initialize_echoes_known_protocol_versions",
+          "line": 47
+        },
+        {
+          "name": "test_server_info_is_per_server_not_baked_into_the_transport",
+          "line": 55
+        },
+        {
+          "name": "test_initialize_falls_back_to_latest_on_unknown_version",
+          "line": 65
+        },
+        {
+          "name": "test_notifications_return_none",
+          "line": 71
+        },
+        {
+          "name": "test_ping",
+          "line": 75
+        },
+        {
+          "name": "test_tools_list_shape",
+          "line": 80
+        },
+        {
+          "name": "test_tools_call_success",
+          "line": 89
+        },
+        {
+          "name": "test_tools_call_tool_exception_is_error_result_not_rpc_error",
+          "line": 99
+        },
+        {
+          "name": "test_tools_call_unknown_tool_is_invalid_params",
+          "line": 106
+        },
+        {
+          "name": "test_unknown_method_is_method_not_found",
+          "line": 111
+        },
+        {
+          "name": "test_request_without_id_gets_null_id_response",
+          "line": 116
+        },
+        {
+          "name": "test_local_app_dispatches_on_both_paths",
+          "line": 129
+        },
+        {
+          "name": "test_local_app_auth_missing_and_wrong_and_correct",
+          "line": 136
+        },
+        {
+          "name": "test_local_app_auth_disabled_when_token_falsy",
+          "line": 152
+        },
+        {
+          "name": "test_local_app_notification_is_202_empty",
+          "line": 157
+        },
+        {
+          "name": "test_local_app_parse_error",
+          "line": 168
+        },
+        {
+          "name": "test_local_app_get_is_405_and_healthz_is_open",
+          "line": 176
+        },
+        {
+          "name": "test_lambda_dispatch_and_case_insensitive_headers",
+          "line": 210
+        },
+        {
+          "name": "test_lambda_base64_body",
+          "line": 224
+        },
+        {
+          "name": "test_lambda_auth_missing_wrong_correct_disabled",
+          "line": 232
+        },
+        {
+          "name": "test_lambda_notification_is_202_empty",
+          "line": 251
+        },
+        {
+          "name": "test_lambda_parse_error",
+          "line": 263
+        },
+        {
+          "name": "test_lambda_healthz_and_bad_method",
+          "line": 271
+        }
+      ],
+      "count": 23
+    },
+    {
+      "path": "tests/unit/test_models_and_trace.py",
+      "test_functions": [
+        {
+          "name": "test_request_round_trip",
+          "line": 9
+        },
+        {
+          "name": "test_request_defaults",
+          "line": 14
+        },
+        {
+          "name": "test_from_dict_rejects_non_string_message",
+          "line": 22
+        },
+        {
+          "name": "test_from_dict_rejects_non_dict_metadata",
+          "line": 29
+        },
+        {
+          "name": "test_from_dict_rejects_non_object_payload",
+          "line": 36
+        },
+        {
+          "name": "test_from_dict_rejects_non_string_ids",
+          "line": 41
+        },
+        {
+          "name": "test_response_round_trip",
+          "line": 48
+        },
+        {
+          "name": "test_hop_records_jsonl",
+          "line": 53
+        },
+        {
+          "name": "test_hop_records_error",
+          "line": 75
+        },
+        {
+          "name": "test_hop_expected_exception_records_pending_not_error",
+          "line": 94
+        },
+        {
+          "name": "test_hop_seq_increments_per_trace",
+          "line": 136
+        },
+        {
+          "name": "test_payload_clipping",
+          "line": 143
+        },
+        {
+          "name": "test_redact_scrubs_credentials_everywhere",
+          "line": 162
+        },
+        {
+          "name": "test_redact_leaves_prose_slugs_alone",
+          "line": 191
+        },
+        {
+          "name": "test_trace_event_writes_are_redacted",
+          "line": 200
+        },
+        {
+          "name": "test_obs_store_writes_are_redacted",
+          "line": 223
+        }
+      ],
+      "count": 16
+    },
+    {
+      "path": "tests/unit/test_mulesoft_descriptors.py",
+      "test_functions": [
+        {
+          "name": "test_registry_has_the_six_faces",
+          "line": 20
+        },
+        {
+          "name": "test_every_connection_is_a2a_oauth2_client_credentials_to_the_console",
+          "line": 25
+        },
+        {
+          "name": "test_broker_references_the_agentscript_source",
+          "line": 40
+        },
+        {
+          "name": "test_exchange_template_declares_gw_secret_as_secured_variable_and_no_literals",
+          "line": 53
+        },
+        {
+          "name": "test_exchange_template_has_gav_with_org_id_as_placeholder",
+          "line": 63
+        },
+        {
+          "name": "test_no_account_identifiers_in_descriptors",
+          "line": 76
+        },
+        {
+          "name": "test_broker_target_registered_as_via_fabric",
+          "line": 95
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_no_account_identifiers.py",
+      "test_functions": [
+        {
+          "name": "test_no_sso_profile_name_in_tracked_files",
+          "line": 48
+        },
+        {
+          "name": "test_no_aws_account_ids_in_tracked_files",
+          "line": 59
+        },
+        {
+          "name": "test_every_aws_deploy_script_sources_the_preflight",
+          "line": 71
+        }
+      ],
+      "count": 3
+    },
+    {
+      "path": "tests/unit/test_oauth_token_endpoint.py",
+      "test_functions": [
+        {
+          "name": "test_oauth_token_happy_path",
+          "line": 17
+        },
+        {
+          "name": "test_oauth_token_bad_creds_returns_401",
+          "line": 37
+        },
+        {
+          "name": "test_oauth_token_wrong_grant_type_returns_400",
+          "line": 50
+        }
+      ],
+      "count": 3
+    },
+    {
+      "path": "tests/unit/test_obs_tools.py",
+      "test_functions": [
+        {
+          "name": "test_registry_exposes_both_tools",
+          "line": 27
+        },
+        {
+          "name": "test_query_rejects_non_select",
+          "line": 33
+        },
+        {
+          "name": "test_query_rejects_multiple_statements",
+          "line": 40
+        },
+        {
+          "name": "test_query_allows_select_and_with_and_trailing_semicolon",
+          "line": 46
+        },
+        {
+          "name": "test_query_caps_rows",
+          "line": 55
+        },
+        {
+          "name": "test_query_error_returned_for_self_correction",
+          "line": 62
+        },
+        {
+          "name": "test_save_brief_requires_content",
+          "line": 69
+        },
+        {
+          "name": "test_save_brief_inserts_and_reports",
+          "line": 75
+        },
+        {
+          "name": "test_save_brief_defaults_to_the_observability_feed",
+          "line": 85
+        },
+        {
+          "name": "test_save_brief_tags_the_cost_feed",
+          "line": 96
+        },
+        {
+          "name": "test_save_brief_kind_is_advertised_in_the_schema",
+          "line": 109
+        },
+        {
+          "name": "test_trace_hop_failure_does_not_break_tool",
+          "line": 118
+        }
+      ],
+      "count": 12
+    },
+    {
+      "path": "tests/unit/test_observability.py",
+      "test_functions": [
+        {
+          "name": "test_sqlite_sink_roundtrip_with_platform_ref",
+          "line": 30
+        },
+        {
+          "name": "test_sqlite_sink_error_hop",
+          "line": 52
+        },
+        {
+          "name": "test_obs_store_upserts_and_summary",
+          "line": 76
+        },
+        {
+          "name": "test_infra_metrics_series_groups_by_series_and_downsamples",
+          "line": 114
+        },
+        {
+          "name": "test_obs_store_joins_lab_traces_via_platform_ref",
+          "line": 154
+        },
+        {
+          "name": "test_anthropic_source_harvests_sessions_and_events",
+          "line": 223
+        },
+        {
+          "name": "test_anthropic_source_skips_events_for_unchanged_sessions",
+          "line": 243
+        },
+        {
+          "name": "test_anthropic_source_reports_error_not_raise",
+          "line": 257
+        },
+        {
+          "name": "test_salesforce_source_blocked_without_env",
+          "line": 274
+        },
+        {
+          "name": "test_salesforce_events_resolve_to_sessions_including_steps",
+          "line": 284
+        },
+        {
+          "name": "test_azure_credential_never_falls_back_to_a_developer_login",
+          "line": 348
+        },
+        {
+          "name": "test_foundry_source_blocked_without_service_principal",
+          "line": 373
+        },
+        {
+          "name": "test_harvest_secret_overrides_dotenv_values",
+          "line": 386
+        },
+        {
+          "name": "test_openai_source_blocked_without_key",
+          "line": 416
+        },
+        {
+          "name": "test_analyst_sql_guard_and_readonly",
+          "line": 430
+        },
+        {
+          "name": "test_salesforce_summary_heuristics",
+          "line": 452
+        },
+        {
+          "name": "test_adk_metrics_rollup_math",
+          "line": 467
+        },
+        {
+          "name": "test_summary_rolls_up_est_cost",
+          "line": 509
+        },
+        {
+          "name": "test_obs_store_extracts_caller_and_lab_trace_from_rider",
+          "line": 528
+        }
+      ],
+      "count": 19
+    },
+    {
+      "path": "tests/unit/test_openai_agents_backend.py",
+      "test_functions": [
+        {
+          "name": "test_answer_runs_sdk_agent_and_records_response_id",
+          "line": 69
+        },
+        {
+          "name": "test_answer_uses_raw_response_id_fallback",
+          "line": 122
+        },
+        {
+          "name": "test_agentforce_tool_returns_failure_text",
+          "line": 135
+        },
+        {
+          "name": "test_agentforce_tool_timeout_returns_failure_text",
+          "line": 149
+        },
+        {
+          "name": "test_agentforce_tool_uses_module_level_client",
+          "line": 165
+        },
+        {
+          "name": "test_agentforce_a2a_tool_forwards_trace_id",
+          "line": 185
+        },
+        {
+          "name": "test_answer_threads_generated_trace_id_to_tool_builders",
+          "line": 206
+        },
+        {
+          "name": "test_live_openai_agents_sdk_answer",
+          "line": 235
+        }
+      ],
+      "count": 8
+    },
+    {
+      "path": "tests/unit/test_openai_platform.py",
+      "test_functions": [
+        {
+          "name": "test_stub_backend_answers_deterministically",
+          "line": 11
+        },
+        {
+          "name": "test_stub_is_default_backend",
+          "line": 21
+        },
+        {
+          "name": "test_agents_sdk_backend_can_be_selected",
+          "line": 26
+        },
+        {
+          "name": "test_unknown_backend_rejected",
+          "line": 31
+        },
+        {
+          "name": "test_prompt_mentions_delegation_tool",
+          "line": 36
+        }
+      ],
+      "count": 5
+    },
+    {
+      "path": "tests/unit/test_openai_source.py",
+      "test_functions": [
+        {
+          "name": "test_harvest_blocked_without_key",
+          "line": 35
+        },
+        {
+          "name": "test_harvest_fetches_ids_from_join_file",
+          "line": 41
+        },
+        {
+          "name": "test_harvest_skips_cached_and_survives_expired",
+          "line": 61
+        }
+      ],
+      "count": 3
+    },
+    {
+      "path": "tests/unit/test_orchestration.py",
+      "test_functions": [
+        {
+          "name": "test_all_legs_answer_and_every_leg_is_rendered",
+          "line": 57
+        },
+        {
+          "name": "test_partial_failure_is_reported_never_omitted",
+          "line": 73
+        },
+        {
+          "name": "test_empty_answer_counts_as_a_failed_leg",
+          "line": 99
+        },
+        {
+          "name": "test_legs_run_concurrently_not_serially",
+          "line": 118
+        },
+        {
+          "name": "test_every_leg_carries_the_delegation_rider_at_depth_one",
+          "line": 134
+        },
+        {
+          "name": "test_legs_refuse_to_go_deeper_than_the_guard_allows",
+          "line": 158
+        },
+        {
+          "name": "test_slow_leg_times_out_instead_of_hanging_the_turn",
+          "line": 178
+        },
+        {
+          "name": "test_run_one_timeout_override_beats_the_env_budget",
+          "line": 193
+        },
+        {
+          "name": "test_async_leg_budget_is_read_at_call_time_and_defaults_generously",
+          "line": 231
+        },
+        {
+          "name": "test_clients_are_closed_even_when_a_leg_fails",
+          "line": 243
+        },
+        {
+          "name": "test_unknown_scenario_is_a_programming_error",
+          "line": 251
+        },
+        {
+          "name": "test_leg_prompt_pins_the_answer_shape",
+          "line": 258
+        },
+        {
+          "name": "test_leg_targets_resolve_lazily_not_at_import",
+          "line": 267
+        },
+        {
+          "name": "test_dispatch_can_subset_roles_without_changing_behaviour",
+          "line": 289
+        },
+        {
+          "name": "test_leg_timeout_is_read_at_call_time_not_import_time",
+          "line": 304
+        },
+        {
+          "name": "test_async_dispatch_submits_and_polls_a2a_legs",
+          "line": 373
+        },
+        {
+          "name": "test_async_falls_back_to_sync_when_a_leg_has_no_task_lifecycle",
+          "line": 405
+        },
+        {
+          "name": "test_async_falls_back_to_sync_when_the_remote_will_not_serve_the_poll",
+          "line": 477
+        },
+        {
+          "name": "test_async_rides_through_a_transient_not_found_after_submit",
+          "line": 555
+        },
+        {
+          "name": "test_async_rides_through_a_not_found_that_flaps_after_a_good_read",
+          "line": 632
+        },
+        {
+          "name": "test_async_does_NOT_swallow_a_genuine_task_failure",
+          "line": 675
+        },
+        {
+          "name": "test_sync_mode_is_unchanged_and_records_sync",
+          "line": 717
+        },
+        {
+          "name": "test_run_target_async_degrades_to_sync_when_remote_is_submit_only",
+          "line": 733
+        },
+        {
+          "name": "test_run_target_async_uses_blocking_for_non_async_client",
+          "line": 763
+        }
+      ],
+      "count": 24
+    },
+    {
+      "path": "tests/unit/test_pg_obs_reads.py",
+      "test_functions": [
+        {
+          "name": "test_summary_rolls_up_sessions_events_harvest_and_tokens",
+          "line": 38
+        },
+        {
+          "name": "test_summary_survives_one_unparsable_usage_row",
+          "line": 73
+        },
+        {
+          "name": "test_list_sessions_orders_by_coalesced_created_at",
+          "line": 89
+        },
+        {
+          "name": "test_list_sessions_filters_by_platform_when_given",
+          "line": 101
+        },
+        {
+          "name": "test_list_sessions_omits_raw_json_by_default",
+          "line": 109
+        },
+        {
+          "name": "test_list_sessions_includes_raw_json_when_opted_in",
+          "line": 119
+        },
+        {
+          "name": "test_list_events_pages_to_fit_the_data_api_size_cap",
+          "line": 129
+        },
+        {
+          "name": "test_list_events_handles_an_empty_session_without_dividing_by_zero",
+          "line": 154
+        },
+        {
+          "name": "test_riders_extract_in_sql_not_in_python",
+          "line": 161
+        },
+        {
+          "name": "test_lab_trace_riders_use_their_own_pattern",
+          "line": 184
+        },
+        {
+          "name": "test_riders_drop_sessions_whose_capture_came_back_null",
+          "line": 192
+        },
+        {
+          "name": "test_the_two_rider_patterns_agree_with_their_python_twins",
+          "line": 206
+        },
+        {
+          "name": "test_store_selection_defaults_to_postgres",
+          "line": 216
+        },
+        {
+          "name": "test_store_selection_honours_an_explicit_sqlite_request",
+          "line": 231
+        },
+        {
+          "name": "test_store_selection_falls_back_when_postgres_is_not_configured",
+          "line": 242
+        },
+        {
+          "name": "test_list_briefs_windows_by_days_without_backfilling",
+          "line": 255
+        },
+        {
+          "name": "test_list_briefs_without_a_window_is_unbounded_by_date",
+          "line": 269
+        },
+        {
+          "name": "test_record_usage_inserts_pii_free_row",
+          "line": 283
+        },
+        {
+          "name": "test_record_usage_nulls_empty_optional_fields",
+          "line": 306
+        },
+        {
+          "name": "test_usage_stats_windowed_query_bounds_by_interval",
+          "line": 316
+        },
+        {
+          "name": "test_usage_stats_all_time_has_no_date_bound",
+          "line": 327
+        },
+        {
+          "name": "test_usage_stats_shapes_totals_from_rows",
+          "line": 335
+        },
+        {
+          "name": "test_usage_stats_breaks_logins_down_by_role_and_country",
+          "line": 363
+        },
+        {
+          "name": "test_upsert_metrics_batches_one_call_with_shaped_param_sets",
+          "line": 394
+        },
+        {
+          "name": "test_upsert_metrics_empty_is_a_noop",
+          "line": 429
+        },
+        {
+          "name": "test_execute_batch_chunks_under_the_data_api_ceiling",
+          "line": 446
+        },
+        {
+          "name": "test_infra_metrics_series_groups_and_shapes_from_rows",
+          "line": 466
+        },
+        {
+          "name": "test_infra_metrics_series_downsamples_in_sql_not_twice",
+          "line": 524
+        },
+        {
+          "name": "test_infra_metrics_series_windows_when_given_a_since",
+          "line": 539
+        }
+      ],
+      "count": 29
+    },
+    {
+      "path": "tests/unit/test_registry.py",
+      "test_functions": [
+        {
+          "name": "test_load_and_defaults",
+          "line": 52
+        },
+        {
+          "name": "test_env_expansion",
+          "line": 58
+        },
+        {
+          "name": "test_unknown_target",
+          "line": 65
+        },
+        {
+          "name": "test_client_for_types",
+          "line": 70
+        },
+        {
+          "name": "test_a2a_options_reach_the_client",
+          "line": 80
+        },
+        {
+          "name": "test_mode_remap",
+          "line": 91
+        },
+        {
+          "name": "test_mode_remap_client_and_exact",
+          "line": 105
+        },
+        {
+          "name": "test_alias_resolves_to_canonical_target",
+          "line": 113
+        }
+      ],
+      "count": 8
+    },
+    {
+      "path": "tests/unit/test_salesforce_otel_source.py",
+      "test_functions": [
+        {
+          "name": "test_blocked_without_env",
+          "line": 83
+        },
+        {
+          "name": "test_maps_otlp_spans_to_session_and_events",
+          "line": 90
+        },
+        {
+          "name": "test_404_session_is_reported_not_raised",
+          "line": 113
+        },
+        {
+          "name": "test_list_session_ids_from_explicit_env",
+          "line": 126
+        },
+        {
+          "name": "test_fetch_trace_returns_doc",
+          "line": 131
+        },
+        {
+          "name": "test_fetch_trace_404_is_none",
+          "line": 136
+        }
+      ],
+      "count": 6
+    },
+    {
+      "path": "tests/unit/test_secret_env.py",
+      "test_functions": [
+        {
+          "name": "test_no_arn_is_a_noop",
+          "line": 35
+        },
+        {
+          "name": "test_loads_keys_into_environ",
+          "line": 42
+        },
+        {
+          "name": "test_explicit_env_wins_over_secret",
+          "line": 63
+        },
+        {
+          "name": "test_fetch_happens_once",
+          "line": 77
+        },
+        {
+          "name": "test_non_object_secret_is_rejected",
+          "line": 88
+        },
+        {
+          "name": "test_fetch_failure_raises",
+          "line": 96
+        },
+        {
+          "name": "test_explicit_arn_argument_overrides_env",
+          "line": 112
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_setup_cost_sentinel.py",
+      "test_functions": [
+        {
+          "name": "test_agents_named_filters_by_name_and_skips_archived",
+          "line": 120
+        },
+        {
+          "name": "test_refuses_duplicate_when_state_file_missing",
+          "line": 130
+        },
+        {
+          "name": "test_recreate_archives_prior_agent_and_deployment",
+          "line": 142
+        },
+        {
+          "name": "test_creates_when_nothing_exists",
+          "line": 157
+        }
+      ],
+      "count": 4
+    },
+    {
+      "path": "tests/unit/test_setup_obs_analyst.py",
+      "test_functions": [
+        {
+          "name": "test_agents_named_filters_by_name_and_skips_archived",
+          "line": 91
+        },
+        {
+          "name": "test_refuses_duplicate_when_state_file_missing",
+          "line": 101
+        },
+        {
+          "name": "test_recreate_archives_prior_agent_and_deployment",
+          "line": 115
+        },
+        {
+          "name": "test_creates_when_nothing_exists",
+          "line": 134
+        }
+      ],
+      "count": 4
+    },
+    {
+      "path": "tests/unit/test_strands_backend.py",
+      "test_functions": [
+        {
+          "name": "test_answer_runs_agent_and_returns_response",
+          "line": 85
+        },
+        {
+          "name": "test_answer_records_hop_with_platform_ref",
+          "line": 124
+        },
+        {
+          "name": "test_answer_generates_trace_id_when_absent",
+          "line": 149
+        },
+        {
+          "name": "test_answer_handles_no_request_id",
+          "line": 165
+        },
+        {
+          "name": "test_agentforce_tool_delegates_with_correct_trace_id",
+          "line": 176
+        },
+        {
+          "name": "test_agentforce_a2a_tool_forwards_trace_id",
+          "line": 199
+        },
+        {
+          "name": "test_agentforce_tool_respects_delegation_guard",
+          "line": 223
+        },
+        {
+          "name": "test_agentforce_a2a_tool_respects_delegation_guard",
+          "line": 233
+        },
+        {
+          "name": "test_agentforce_tool_returns_failure_on_error",
+          "line": 243
+        },
+        {
+          "name": "test_agentforce_a2a_tool_returns_failure_on_error",
+          "line": 257
+        },
+        {
+          "name": "test_answer_threads_trace_id_to_tool_builders",
+          "line": 272
+        },
+        {
+          "name": "test_backend_name",
+          "line": 298
+        },
+        {
+          "name": "test_strands_paired_agent_id_override",
+          "line": 302
+        },
+        {
+          "name": "test_live_strands_answer",
+          "line": 326
+        }
+      ],
+      "count": 14
+    },
+    {
+      "path": "tests/unit/test_strands_platform.py",
+      "test_functions": [
+        {
+          "name": "test_stub_backend_answers_deterministically",
+          "line": 18
+        },
+        {
+          "name": "test_stub_is_default_backend",
+          "line": 28
+        },
+        {
+          "name": "test_strands_sdk_backend_can_be_selected",
+          "line": 33
+        },
+        {
+          "name": "test_unknown_backend_rejected",
+          "line": 44
+        },
+        {
+          "name": "test_prompt_mentions_delegation_tool",
+          "line": 49
+        },
+        {
+          "name": "test_prompt_names_bedrock_as_model_host",
+          "line": 56
+        }
+      ],
+      "count": 6
+    },
+    {
+      "path": "tests/unit/test_strands_source.py",
+      "test_functions": [
+        {
+          "name": "test_pure_helpers",
+          "line": 29
+        },
+        {
+          "name": "test_harvest_blocked_without_arn",
+          "line": 53
+        },
+        {
+          "name": "test_harvest_ok_with_metrics_and_logs",
+          "line": 89
+        },
+        {
+          "name": "test_harvest_soft_fails_metrics_but_keeps_requests",
+          "line": 108
+        },
+        {
+          "name": "test_harvest_errors_when_log_group_unreadable",
+          "line": 123
+        }
+      ],
+      "count": 5
+    },
+    {
+      "path": "tests/unit/test_trace_sinks.py",
+      "test_functions": [
+        {
+          "name": "test_recorder_fans_out_to_all_sinks",
+          "line": 46
+        },
+        {
+          "name": "test_sink_failure_never_breaks_the_hop",
+          "line": 54
+        },
+        {
+          "name": "test_trace_dir_arg_forces_single_jsonl_sink",
+          "line": 62
+        },
+        {
+          "name": "test_sinks_from_env_default_and_list",
+          "line": 72
+        },
+        {
+          "name": "test_sinks_from_env_rejects_typos",
+          "line": 88
+        },
+        {
+          "name": "test_dynamodb_item_shape",
+          "line": 102
+        },
+        {
+          "name": "test_dynamodb_sort_keys_order_hops",
+          "line": 121
+        }
+      ],
+      "count": 7
+    },
+    {
+      "path": "tests/unit/test_wiretap_attribution.py",
+      "test_functions": [
+        {
+          "name": "test_verified_lab_user_becomes_trace_source",
+          "line": 52
+        },
+        {
+          "name": "test_no_lab_user_falls_back_to_remote_caller",
+          "line": 64
+        }
+      ],
+      "count": 2
+    }
+  ]
+}

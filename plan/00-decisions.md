@@ -3250,3 +3250,125 @@ live`, console redeployed (full rebuild — scenarios + plan baked in). Proven e
 to end — see plan/03 (a real twin turn returned CRM + LangGraph research in 45.1s
 with zero H12; a direct bridge probe reported `dispatch_mode=async` over 10
 polls).
+
+## 2026-09-06 — D79: two coding agents on one repo — the propose / critique / settle / implement / cross-review loop, and which model does which work
+
+**Context.** On 2026-09-05/06 Codex (GPT-6 Astra) reviewed the codebase
+statically (`build-notes/codex/codebase-review/`: thirteen readiness findings,
+seven offline probes, a stdlib eval harness) and Claude Code (Fable 5.1) turned
+it into a response plan (`build-notes/claude/codex-review-response-plan.md`),
+which Codex then critiqued with six verified corrections
+(`build-notes/codex/codebase-review/model-selection-and-plan-response.md`).
+Every claim in both directions checked out against source. That is the shape
+worth keeping: each agent verified the other's work, and each was better at a
+different station. The open question was how to run this deliberately rather
+than by accident, and where the joint state lives so neither agent inherits
+"whichever plan it read last".
+
+**Decision.** Adopt the five-station loop in `plan/16-joint-agent-workflow.md`:
+**propose → critique → settle → implement → cross-review**, with these fixed
+rules.
+
+- **The implementer is the agent with harness reach**, not the "better" model.
+  Today that is Claude Code (DX MCP server, AWS SSO session, CLAUDE.md loaded);
+  Codex could not run `uv run pytest` here. When a Codex environment has the
+  same reach the roles invert and the loop is unchanged.
+- **No code before the ADR.** Scope (fix vs accept) is the operator's call at
+  the settle station and is recorded as a D<n> before an implementer opens a
+  file.
+- **The reviewer reruns its own evidence** (Codex: probes + harness; Claude:
+  pytest + the honesty skills). Findings are answered *fixed / disputed with
+  evidence / deferred to D<n>*; tests are never weakened to stay green.
+- **Model allocation by station, effort by judgment.** Opus 5 at `high` is the
+  implementer default; `xhigh` on security seams, CRM writes, and async state
+  transitions; Fable 5.1 by escalation when Opus at `xhigh` still misses, not by
+  content type. Codex mirrors this with GPT-5.6 Sol for routine work and GPT-6
+  Astra for the hard items and for design review. Sonnet 5 / Sol for mechanical
+  items only when no context handoff is needed.
+- **Artifacts stay per agent** (`build-notes/claude/`, `build-notes/codex/`); the
+  joint state is model-neutral — the ADRs and the `## WS<n>` item lines in
+  `plan/07`. No `build-notes/joint/`.
+- **The proposer rotates per workstream.** WS25 was Claude's proposal and
+  Codex's critique; the next joint workstream is the reverse.
+
+**Consequences.**
+- `AGENTS.md` (Codex's orientation guide, 2026-09-06) now points at `CLAUDE.md`
+  for the done-definition; both files are required reading at station 4.
+- Each batch ends with a checked-in review under `build-notes/<agent>/reviews/`
+  and the WS item line flips `⏳ → ✅` only after the verdict AND the deploy.
+- The loop is measured with the lab's own coding-agent telemetry (WS9/WS16):
+  per-batch cost and edit-acceptance go to `plan/03-results.md`, which is the
+  evidence the model table in `plan/16` is revised from — not vendor pages.
+
+**Status.** ADOPTED 2026-09-06. First applied to WS25 (D80).
+
+## 2026-09-06 — D80: WS25 scope — which of the Codex review's findings the lab FIXES, which it ACCEPTS as an evaluation lab, and the corrected premises for both
+
+**Context.** The readiness review grades against production use and says so
+(its opening cites NFR-201). The lab's operating model — NFR-201 / X8 exclude
+production; the org serves demo data — answers some findings outright and
+leaves others as genuine defects under the lab's own rules. Executing every
+"Required" line literally would be three to five times the work of the defect
+list and would change the operating model. The scope split is the operator's
+decision, so it is recorded here before any implementation (D79 rule).
+
+**Decision — FIX (eleven items, WS25 A1–A11).** Trace redaction of serialized
+JSON secrets and `user_token` (F04); viewer role enforcement at the protocol
+faces and the ungated `DELETE /api/traces` (F01); fail-closed auth when a
+hosted token is missing (F06); the brief watcher marking failed sessions
+serviced, and non-idempotent brief delivery (F07); model-chosen partial
+Account-name match on a real write (F03, write half); the hosted shim's shared
+Agentforce conversation across callers (F02 — it corrupts the lab's own
+comparisons); atomic claim + lease for durable fan-out tasks (F07); one absolute
+deadline for async legs (F08); `matrix.py` passing empty answers (F09);
+LangSmith pagination, the un-instrumented Guide path, and wiretap status for
+JSON-RPC errors on HTTP 200 (F11); the wheel package list (README risk 4).
+
+**Decision — ACCEPT, with the premise stated honestly.**
+- **F03 read half** (`without sharing`, `bypassUser`): deliberate — the Apex
+  class header says so; identity propagation is an attribution experiment
+  (D36/D37), not an authorization one. Premise: the org holds demo data. That is
+  an operating assumption the operator asserts, not a fact source inspection
+  establishes; it is written that way wherever cited.
+- **F05** full managed toolset + open network: the research brief IS the
+  web-research experiment (WS7). Prompt-injection exposure is recorded as an
+  untested hypothesis in `config/insights.yaml`, not dismissed.
+- **F10** no admission-time spend controls: the cost sentinel (WS12/D44) is
+  retrospective by design. A request body-size limit is cheap and goes in with
+  A-items; quotas do not.
+- **F12** synchronous trace sinks: **corrected premise** — the Postgres sink
+  (`PostgresSink.emit`) and `TraceRecorder.record` are synchronous; there is no
+  `to_thread` mitigation, and D80 does not claim one. Accepted because the
+  evidence-first ethos says a request that cannot record must still answer; a
+  dropped-event counter on `/api/obs/summary` is the only addition.
+- **F13** analyst SELECT breadth, no purge: **corrected premise** —
+  `DEFAULT_TRACE_TTL_DAYS=14` is the DynamoDB sink's TTL, not a JSONL purge.
+  JSONL and Aurora have no purge; that is recorded in `plan/05-observability.md`
+  as the retention story, and Aurora retention stays a WS19 concern.
+- **F07 A2A `InMemoryTaskStore`**: single replica per face; restart-loses-task is
+  a recorded platform finding (WS11), not a defect to engineer around.
+- **README risk 5**, delegation depth is metadata-borne: D27 is a cooperating
+  guard against accidental loops and is documented as such.
+- **No CI workflow**: a GitHub Actions `uv run pytest` is ~20 lines and is added
+  as a WS25 item rather than argued about.
+
+**Plan corrections adopted from Codex's critique** (all verified against
+source): the REST invoke surface is `/invoke` and `/invocations`, and A2A has
+both the v1 `SendMessage` and the 0.3 spelling — auth tests exercise the
+mounted aliases; the brief object is `A2ALab_Account_Brief__c`; A1's naive regex
+misses escaped quotes and JSON-in-a-string, so A1 needs escape-aware, nested and
+truncated cases before an implementation is chosen; A4's query-before-insert is
+not concurrent-safe and needs a uniqueness boundary on the Salesforce side; A7
+needs an accepted-work replay policy, not only one deadline; Codex's
+`readiness_probes.py` asserts the DEFECTIVE behaviour and is expected to go red
+when fixed — it is kept as the historical reproduction, and the passing
+assertions live in pytest.
+
+**The test estate.** The two failing harness regressions are ported into pytest
+and must pass; the harness itself stays stdlib-only under
+`build-notes/codex/codebase-review/eval-harness/` and is NOT wired into
+`uv run pytest` — 71 of its 89 cases grade invented evidence and would read as
+coverage the lab does not have. Its `insight` area is the evidence-grading
+rubric WS20 uses. No browser automation now.
+
+**Status.** DECIDED 2026-09-06; work tracked as WS25. Nothing implemented yet.

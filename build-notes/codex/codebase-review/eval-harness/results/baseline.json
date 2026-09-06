@@ -1,0 +1,1374 @@
+{
+  "by_area": {
+    "experiment": {
+      "pass": 11
+    },
+    "insight": {
+      "pass": 10
+    },
+    "observability": {
+      "pass": 10
+    },
+    "protocol": {
+      "pass": 16
+    },
+    "repository": {
+      "fail": 2,
+      "pass": 16
+    },
+    "task": {
+      "pass": 8
+    },
+    "trace": {
+      "pass": 16
+    }
+  },
+  "commit": "a806b6d30e71ab9ab974a6e03a93d5a77ce93dbf",
+  "corpus_sha256": "7d9ceed81369fa47ec772b126bf04fc07c4c62d870795eb2704d0e95d4e7349c",
+  "counts": {
+    "fail": 2,
+    "pass": 87
+  },
+  "harness_sha256": "a6ae7c7264f45f2bf932e3732603c779167c7c8628905e96c8bfaab7a01579ec",
+  "negative_controls": 44,
+  "observations_sha256": null,
+  "python": "3.14.7",
+  "results": [
+    {
+      "area": "experiment",
+      "expected_violations": [],
+      "id": "experiment.delegation",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [
+        "experiment.content",
+        "experiment.forbidden"
+      ],
+      "id": "experiment.semantic-timeout",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "experiment.content",
+        "experiment.forbidden"
+      ]
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [
+        "experiment.target"
+      ],
+      "id": "experiment.wrong-runtime",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "experiment.target"
+      ]
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [
+        "experiment.budget"
+      ],
+      "id": "experiment.wall-budget",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "experiment.budget"
+      ]
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [
+        "experiment.cost_unknown"
+      ],
+      "id": "experiment.unknown-cost",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "experiment.cost_unknown"
+      ]
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [
+        "experiment.cost_budget"
+      ],
+      "id": "experiment.cost-overrun",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "experiment.cost_budget"
+      ]
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [],
+      "id": "experiment.fanout",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [
+        "experiment.coverage"
+      ],
+      "id": "experiment.fanout-omission",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "experiment.coverage"
+      ]
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [],
+      "id": "experiment.honest-partial",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [
+        "experiment.hidden_failure"
+      ],
+      "id": "experiment.hidden-partial",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "experiment.hidden_failure"
+      ]
+    },
+    {
+      "area": "experiment",
+      "expected_violations": [
+        "experiment.empty_leg"
+      ],
+      "id": "experiment.empty-leg",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "experiment.empty_leg"
+      ]
+    },
+    {
+      "area": "insight",
+      "expected_violations": [],
+      "id": "insight.recompute-p95",
+      "metrics": {
+        "artifact_sha256": "4ef11efec9a384c391eb941c50a579ed3b9a639c496b579b3eef2b9c52e3093f",
+        "computed": 900,
+        "samples": 3
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "insight",
+      "expected_violations": [],
+      "id": "insight.recompute-p50",
+      "metrics": {
+        "artifact_sha256": "4ef11efec9a384c391eb941c50a579ed3b9a639c496b579b3eef2b9c52e3093f",
+        "computed": 200,
+        "samples": 3
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "insight",
+      "expected_violations": [
+        "insight.number"
+      ],
+      "id": "insight.false-number",
+      "metrics": {
+        "artifact_sha256": "4ef11efec9a384c391eb941c50a579ed3b9a639c496b579b3eef2b9c52e3093f",
+        "computed": 900,
+        "samples": 3
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "insight.number"
+      ]
+    },
+    {
+      "area": "insight",
+      "expected_violations": [
+        "insight.reference"
+      ],
+      "id": "insight.broken-reference",
+      "metrics": {
+        "artifact_sha256": "4ef11efec9a384c391eb941c50a579ed3b9a639c496b579b3eef2b9c52e3093f",
+        "computed": 900,
+        "samples": 3
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "insight.reference"
+      ]
+    },
+    {
+      "area": "insight",
+      "expected_violations": [
+        "insight.artifact"
+      ],
+      "id": "insight.missing-artifact",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "insight.artifact"
+      ]
+    },
+    {
+      "area": "insight",
+      "expected_violations": [
+        "insight.samples"
+      ],
+      "id": "insight.insufficient-samples",
+      "metrics": {
+        "artifact_sha256": "4ef11efec9a384c391eb941c50a579ed3b9a639c496b579b3eef2b9c52e3093f",
+        "computed": 5000,
+        "samples": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "insight.samples"
+      ]
+    },
+    {
+      "area": "insight",
+      "expected_violations": [
+        "insight.unit"
+      ],
+      "id": "insight.unit-mismatch",
+      "metrics": {
+        "artifact_sha256": "4ef11efec9a384c391eb941c50a579ed3b9a639c496b579b3eef2b9c52e3093f",
+        "computed": 900,
+        "samples": 3
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "insight.unit"
+      ]
+    },
+    {
+      "area": "insight",
+      "expected_violations": [],
+      "id": "insight.hypothesis",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "insight",
+      "expected_violations": [
+        "insight.test_plan"
+      ],
+      "id": "insight.hypothesis-no-plan",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "insight.test_plan"
+      ]
+    },
+    {
+      "area": "insight",
+      "expected_violations": [],
+      "id": "insight.observed",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "observability",
+      "expected_violations": [],
+      "id": "obs.native-and-rider",
+      "metrics": {
+        "join_rate": 1.0,
+        "joined_platforms": 2,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.join"
+      ],
+      "id": "obs.missing-platform",
+      "metrics": {
+        "join_rate": 0.5,
+        "joined_platforms": 1,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.join"
+      ]
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.join"
+      ],
+      "id": "obs.native-id-collision",
+      "metrics": {
+        "join_rate": 0.5,
+        "joined_platforms": 1,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.join"
+      ]
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.join"
+      ],
+      "id": "obs.rider-prefix",
+      "metrics": {
+        "join_rate": 0.5,
+        "joined_platforms": 1,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.join"
+      ]
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.join",
+        "obs.orphan"
+      ],
+      "id": "obs.orphan-event",
+      "metrics": {
+        "join_rate": 0.5,
+        "joined_platforms": 1,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.join",
+        "obs.orphan"
+      ]
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.duplicate_event"
+      ],
+      "id": "obs.duplicate-ingestion",
+      "metrics": {
+        "join_rate": 1.0,
+        "joined_platforms": 2,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.duplicate_event"
+      ]
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.stale"
+      ],
+      "id": "obs.stale",
+      "metrics": {
+        "join_rate": 1.0,
+        "joined_platforms": 2,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.stale"
+      ]
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.harvest"
+      ],
+      "id": "obs.blocked",
+      "metrics": {
+        "join_rate": 1.0,
+        "joined_platforms": 2,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.harvest"
+      ]
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.usage"
+      ],
+      "id": "obs.negative-usage",
+      "metrics": {
+        "join_rate": 1.0,
+        "joined_platforms": 2,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.usage"
+      ]
+    },
+    {
+      "area": "observability",
+      "expected_violations": [
+        "obs.secret"
+      ],
+      "id": "obs.serialized-secret",
+      "metrics": {
+        "join_rate": 1.0,
+        "joined_platforms": 2,
+        "required_platforms": 2,
+        "sessions_with_unknown_usage": 1
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "obs.secret"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [],
+      "id": "protocol.rest",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [],
+      "id": "protocol.rest-header",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.session_id"
+      ],
+      "id": "protocol.rest-session-loss",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.session_id"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.answer",
+        "protocol.content"
+      ],
+      "id": "protocol.rest-empty",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.answer",
+        "protocol.content"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [],
+      "id": "protocol.mcp-text",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [],
+      "id": "protocol.mcp-structured",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [],
+      "id": "protocol.mcp-sse",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.rpc_id"
+      ],
+      "id": "protocol.mcp-id-type",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.rpc_id"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.error"
+      ],
+      "id": "protocol.mcp-tool-error",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.error"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.envelope",
+        "protocol.error"
+      ],
+      "id": "protocol.rpc-result-and-error",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.envelope",
+        "protocol.error"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.method"
+      ],
+      "id": "protocol.mcp-unexpected-tool",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.method"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.trace_id"
+      ],
+      "id": "protocol.mcp-correlation-loss",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.trace_id"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [],
+      "id": "protocol.a2a-v1",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [],
+      "id": "protocol.a2a-v03",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.answer",
+        "protocol.content"
+      ],
+      "id": "protocol.a2a-empty-artifact",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.answer",
+        "protocol.content"
+      ]
+    },
+    {
+      "area": "protocol",
+      "expected_violations": [
+        "protocol.state"
+      ],
+      "id": "protocol.a2a-interrupted",
+      "metrics": {},
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "protocol.state"
+      ]
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.minimal",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.nested",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.null-metadata",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.reject-missing-message",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.reject-list",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.reject-number",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.reject-metadata-list",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.reject-session-number",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "request.reject-trace-object",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "response.roundtrip",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "record.redacted-parity",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "record.duplicate-replay",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "record.sink-outage",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "regression.serialized-secret",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "fail",
+      "violations": [
+        "assert.archive-secret",
+        "assert.sqlite-secret"
+      ]
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "regression.user-token",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "fail",
+      "violations": [
+        "assert.archive-secret",
+        "assert.sqlite-secret"
+      ]
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "store.idempotent-usage-join",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "store.no-trace-table",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "repository",
+      "expected_violations": [],
+      "id": "store.unknown-usage",
+      "metrics": {},
+      "mode": "repository",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "task",
+      "expected_violations": [],
+      "id": "task.fire-poll",
+      "metrics": {
+        "snapshots": 4
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "task",
+      "expected_violations": [
+        "task.blocking",
+        "task.submit_budget"
+      ],
+      "id": "task.blocking-submit",
+      "metrics": {
+        "snapshots": 4
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "task.blocking",
+        "task.submit_budget"
+      ]
+    },
+    {
+      "area": "task",
+      "expected_violations": [
+        "task.identity"
+      ],
+      "id": "task.identity-switch",
+      "metrics": {
+        "snapshots": 4
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "task.identity"
+      ]
+    },
+    {
+      "area": "task",
+      "expected_violations": [
+        "task.final",
+        "task.regression"
+      ],
+      "id": "task.terminal-regression",
+      "metrics": {
+        "snapshots": 5
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "task.final",
+        "task.regression"
+      ]
+    },
+    {
+      "area": "task",
+      "expected_violations": [
+        "task.final"
+      ],
+      "id": "task.failed",
+      "metrics": {
+        "snapshots": 4
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "task.final"
+      ]
+    },
+    {
+      "area": "task",
+      "expected_violations": [],
+      "id": "task.interrupted",
+      "metrics": {
+        "snapshots": 4
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "task",
+      "expected_violations": [
+        "task.deadline"
+      ],
+      "id": "task.deadline",
+      "metrics": {
+        "snapshots": 4
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "task.deadline"
+      ]
+    },
+    {
+      "area": "task",
+      "expected_violations": [
+        "task.final",
+        "task.visibility"
+      ],
+      "id": "task.visibility-expired",
+      "metrics": {
+        "snapshots": 4
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "task.final",
+        "task.visibility"
+      ]
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.cross-platform",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [
+        "trace.correlation"
+      ],
+      "id": "trace.fragmented",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "trace.correlation"
+      ]
+    },
+    {
+      "area": "trace",
+      "expected_violations": [
+        "trace.missing",
+        "trace.route"
+      ],
+      "id": "trace.missing-hop",
+      "metrics": {
+        "hops": 1,
+        "protocols": [
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "trace.missing",
+        "trace.route"
+      ]
+    },
+    {
+      "area": "trace",
+      "expected_violations": [
+        "trace.duplicate"
+      ],
+      "id": "trace.duplicate",
+      "metrics": {
+        "hops": 3,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "trace.duplicate"
+      ]
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.distributed-sequences",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.pending",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [
+        "trace.status"
+      ],
+      "id": "trace.failed-hop",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "trace.status"
+      ]
+    },
+    {
+      "area": "trace",
+      "expected_violations": [
+        "trace.latency"
+      ],
+      "id": "trace.negative-latency",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "trace.latency"
+      ]
+    },
+    {
+      "area": "trace",
+      "expected_violations": [
+        "trace.payload"
+      ],
+      "id": "trace.no-wire-evidence",
+      "metrics": {
+        "hops": 2,
+        "protocols": [
+          "agentforce-api",
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": true,
+      "status": "pass",
+      "violations": [
+        "trace.payload"
+      ]
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.native-claude-managed-agents",
+      "metrics": {
+        "hops": 1,
+        "protocols": [
+          "managed-agents-api"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.native-openai",
+      "metrics": {
+        "hops": 1,
+        "protocols": [
+          "internal"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.native-strands-agentcore",
+      "metrics": {
+        "hops": 1,
+        "protocols": [
+          "agentcore-http"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.native-adk-logistics-a2a",
+      "metrics": {
+        "hops": 1,
+        "protocols": [
+          "a2a"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.native-foundry-a2a",
+      "metrics": {
+        "hops": 1,
+        "protocols": [
+          "a2a"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.native-langgraph-rest",
+      "metrics": {
+        "hops": 1,
+        "protocols": [
+          "rest"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    },
+    {
+      "area": "trace",
+      "expected_violations": [],
+      "id": "trace.native-mule-broker",
+      "metrics": {
+        "hops": 1,
+        "protocols": [
+          "a2a"
+        ]
+      },
+      "mode": "synthetic-replay",
+      "negative_control": false,
+      "status": "pass",
+      "violations": []
+    }
+  ],
+  "schema_version": 1,
+  "source_sha256": "fd3607f0cb324ac466dc48c3898d4c7237d45a84a5ed2da31a603cf9e36f5626"
+}
