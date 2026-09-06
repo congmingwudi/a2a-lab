@@ -149,3 +149,37 @@ def test_denied_invoke_is_recorded_as_an_error_hop(directory, isolated_traces):
     client.post("/", json=_a2a_send("SendMessage"), headers=_bearer(directory, "vic"))
     written = "".join(p.read_text() for p in Path(os.environ[TRACE_DIR_ENV]).glob("*.jsonl"))
     assert '"status": "error"' in written and "operator-only" in written
+
+
+# ---- JSON-RPC batches (Codex round 2): ANY invoking member counts -----------
+
+
+@pytest.mark.parametrize("position", ["first", "later"])
+def test_viewer_cannot_hide_mcp_tool_call_in_a_batch(directory, position):
+    batch = [MCP_CALL, _rpc("tools/list", id_=2)]
+    if position == "later":
+        batch.reverse()
+    with TestClient(build_app(EchoAdapter(), "mcp")) as client:
+        headers = {**_bearer(directory, "vic"), **MCP_HEADERS}
+        assert client.post("/mcp", json=batch, headers=headers).status_code == 403
+
+
+@pytest.mark.parametrize("position", ["first", "later"])
+def test_viewer_cannot_hide_a2a_send_in_a_batch(directory, position):
+    batch = [_a2a_send("message/send"), _rpc("GetTask", {"id": "nope"}, id_=2)]
+    if position == "later":
+        batch.reverse()
+    client = TestClient(build_app(EchoAdapter(), "a2a", public_url="http://t/"))
+    r = client.post("/", json=batch, headers=_bearer(directory, "vic"))
+    assert r.status_code == 403, r.text
+
+
+def test_read_only_and_malformed_batches_are_not_denied(directory):
+    from interop.authz import is_invoke
+
+    scope = {"method": "POST", "path": "/"}
+    assert not is_invoke("a2a", scope, b'[{"jsonrpc":"2.0","id":1,"method":"GetTask"}]')
+    assert not is_invoke("mcp", scope, b"[]")
+    assert not is_invoke("mcp", scope, b"[1, 2]")
+    assert not is_invoke("mcp", scope, b"not json at all")
+    assert is_invoke("mcp", scope, b'[{"method":"tools/list"},{"method":"tools/call"}]')

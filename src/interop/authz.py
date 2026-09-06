@@ -35,18 +35,22 @@ INVOKE_METHODS: dict[str, frozenset[str]] = {
 DENIED_ROLE = "viewer"
 
 
-def _rpc_method(body: bytes | None) -> str | None:
+def _rpc_methods(body: bytes | None) -> set[str]:
+    """Every JSON-RPC method named in the body — one for a single request, all
+    of them for a batch (Codex ws25-b1 round 2: inspecting only the first
+    member let `[tools/list, tools/call]` through). Malformed or empty bodies
+    name no method and are therefore not invoking; the server's own parse
+    error answers them."""
     if not body:
-        return None
+        return set()
     try:
         payload = json.loads(body)
     except ValueError:
-        return None
-    if isinstance(payload, list):  # a JSON-RPC batch: any invoking member counts
-        return next(
-            (m.get("method") for m in payload if isinstance(m, dict) and m.get("method")), None
-        )
-    return payload.get("method") if isinstance(payload, dict) else None
+        return set()
+    members = payload if isinstance(payload, list) else [payload]
+    return {
+        m["method"] for m in members if isinstance(m, dict) and isinstance(m.get("method"), str)
+    }
 
 
 def is_invoke(protocol: str, scope: dict[str, Any], body: bytes | None) -> bool:
@@ -59,8 +63,7 @@ def is_invoke(protocol: str, scope: dict[str, Any], body: bytes | None) -> bool:
     methods = INVOKE_METHODS.get(protocol)
     if not methods:
         return False
-    method = _rpc_method(body)
-    return method in methods if method else False
+    return not methods.isdisjoint(_rpc_methods(body))
 
 
 def role_of(scope: dict[str, Any]) -> tuple[str | None, str | None]:
