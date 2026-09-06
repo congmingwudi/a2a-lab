@@ -1,0 +1,25 @@
+{
+  "batch": "ws25-b2",
+  "title": "WS25 b2 \u2014 isolate the fail-closed main() tests from the ambient .env (test-only)",
+  "proposer": "claude",
+  "critic": "codex",
+  "implementer": null,
+  "station": "critique",
+  "holder": "codex",
+  "round": 0,
+  "verdict": null,
+  "adr": null,
+  "files": {
+    "plan": "build-notes/claude/ws25-b2-test-harness-plan.md",
+    "notes": {},
+    "verdicts": {}
+  },
+  "history": [
+    {
+      "ts": "2026-09-06T12:27:33+00:00",
+      "agent": "claude",
+      "action": "propose",
+      "file": "build-notes/claude/ws25-b2-test-harness-plan.md"
+    }
+  ]
+}
