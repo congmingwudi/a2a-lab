@@ -74,6 +74,9 @@ def test_bridge_main_exits_before_serving_when_hosted_and_tokenless(clean_env):
     clean_env.setattr(uvicorn, "run", _never)
     # load_secret_env would call AWS for the ARN; the guard must not depend on it succeeding
     clean_env.setattr(bridge_app, "load_secret_env_and_log", lambda _s: None, raising=False)
+    # main() calls load_dotenv, which would repopulate BRIDGE_TOKEN from a dev .env
+    # and mask the guard. bridge imports load_dotenv INSIDE main(), so patch the source.
+    clean_env.setattr("dotenv.load_dotenv", lambda *_a, **_k: None)
     with pytest.raises(SystemExit):
         bridge_app.main()
 
@@ -158,6 +161,9 @@ def test_faces_main_refuses_hosted_tokenless_and_honours_opt_in(clean_env):
     clean_env.setattr(uvicorn, "run", _serve_sentinel)
     clean_env.setattr(faces_main, "load_secret_env_and_log", lambda _s: None)
     clean_env.setattr(faces_main, "build_faces_app", lambda *_a, **_k: object())
+    # faces binds load_dotenv at module import, so patch its own reference, not the
+    # package symbol — otherwise a dev .env repopulates A2ALAB_TOKEN and masks the guard.
+    clean_env.setattr(faces_main, "load_dotenv", lambda *_a, **_k: None)
     with pytest.raises(SystemExit):
         faces_main.main()
     clean_env.setenv("A2ALAB_ALLOW_UNAUTH", "1")
@@ -176,6 +182,9 @@ def test_console_main_refuses_hosted_tokenless_and_honours_opt_in(clean_env):
     clean_env.setattr(uvicorn, "run", _serve_sentinel)
     clean_env.setattr("interop.secret_env.load_secret_env_and_log", lambda _s: None)
     clean_env.setattr(console_app, "create_console_app", lambda *_a, **_k: object())
+    # console imports load_dotenv INSIDE main(), so patch the source to stop a dev
+    # .env repopulating A2ALAB_TOKEN and masking the guard.
+    clean_env.setattr("dotenv.load_dotenv", lambda *_a, **_k: None)
     with pytest.raises(SystemExit):
         console_app.main()
     clean_env.setenv("A2ALAB_ALLOW_UNAUTH", "1")
