@@ -238,3 +238,81 @@ def test_obs_store_writes_are_redacted(tmp_path):
     assert "sk-proj" not in row["raw_json"]
     assert "[REDACTED]" in row["raw_json"]
     store.close()
+
+
+# ---- WS25 A1: format-aware redaction of SERIALIZED payloads (F04, D80) ------
+# The wiretap records raw wire bodies as strings, so a key-based scrub that only
+# sees dicts leaves `{"client_secret": "…"}` intact. Ported from Codex's harness
+# `regression.serialized-secret` / `regression.user-token`, plus the escaped,
+# nested, truncated and case-variant shapes its critique asked for.
+
+
+def _persisted_after_hop(trace_id: str, request_payload_raw) -> str:
+    import os
+    from pathlib import Path
+
+    from interop.trace import TRACE_DIR_ENV, Hop
+
+    with Hop(
+        trace_id,
+        source="client",
+        target="claude-rest",
+        protocol="rest",
+        transport_detail="POST /invoke",
+        request_payload=request_payload_raw,
+    ) as hop:
+        hop.response_payload = {"text": "Alternate supplier available"}
+    trace_dir = Path(os.environ[TRACE_DIR_ENV])
+    return "".join(p.read_text() for p in trace_dir.glob("*.jsonl"))
+
+
+def test_serialized_json_secret_is_scrubbed_before_persistence():
+    written = _persisted_after_hop("ws25a1-ser", '{"client_secret": "synthetic-secret-only"}')
+    assert "synthetic-secret-only" not in written
+    assert "client_secret" in written  # the KEY survives — evidence of what was sent
+
+
+def test_structured_user_token_is_scrubbed_before_persistence():
+    written = _persisted_after_hop("ws25a1-ut", {"user_token": "synthetic-opaque-token"})
+    assert "synthetic-opaque-token" not in written
+
+
+def test_serialized_secret_with_escaped_quote_is_fully_scrubbed():
+    from interop.trace import redact
+
+    out = redact('{"password": "abc\\"def-tail", "message": "hi"}')
+    assert "abc" not in out and "def-tail" not in out
+    assert '"message": "hi"' in out
+
+
+def test_json_serialized_inside_a_json_string_is_scrubbed():
+    import json
+
+    from interop.trace import redact
+
+    inner = json.dumps({"client_secret": "inner-secret-value"})
+    outer = json.dumps({"body": inner, "message": "hello"})
+    out = redact(outer)
+    assert "inner-secret-value" not in out
+    assert "hello" in out
+
+
+def test_truncated_serialized_secret_is_scrubbed():
+    from interop.trace import redact
+
+    out = redact('{"access_token": "trunc-secret-value-that-never-clo')
+    assert "trunc-secret-value" not in out
+
+
+def test_serialized_secret_key_case_variant_is_scrubbed():
+    from interop.trace import redact
+
+    out = redact('{"Client_Secret": "CaseSecret123"}')
+    assert "CaseSecret123" not in out
+
+
+def test_serialized_non_secret_keys_survive_verbatim():
+    from interop.trace import redact
+
+    body = '{"message": "token talk", "tokens": 12, "author": "secretary"}'
+    assert redact(body) == body

@@ -89,7 +89,26 @@ _SECRET_KEYS = {
     "x-lab-token",
     "bearer_token",
     "password",
+    # WS25 A1 (D80): opaque per-user credentials that need not LOOK like a token
+    "user_token",
+    "session_token",
+    "x-bridge-token",
 }
+
+# WS25 A1 (D80): the same keys inside a SERIALIZED payload. The wiretap records
+# raw wire bodies as strings, so the dict scrub above never sees them. This is
+# regex, not a JSON parse, on purpose: a body clipped mid-value, a body that is
+# JSON-inside-a-JSON-string (the key's quotes arrive as \"), and a malformed
+# body must all still scrub. `q` captures the quote form (with any escaping
+# backslashes) so the value ends at the SAME quote form — an escaped quote inside
+# the value does not end it, and an inner escaped quote does not leak through
+# an outer plain-quote match. A missing closing quote (clipped body) ends at \Z.
+_JSON_SECRET_RE = re.compile(
+    r'(?P<q>\\*")(?P<key>' + "|".join(re.escape(k) for k in sorted(_SECRET_KEYS)) + r")(?P=q)"
+    r"\s*:\s*"
+    r"(?:(?P=q)(?:(?!(?P=q))(?:\\.|.))*?(?:(?P=q)|\Z)|[^,}\]\s]+)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 _SECRET_PATTERNS = [
     (re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]{8,}"), "Bearer [REDACTED]"),
@@ -115,6 +134,7 @@ _SECRET_PATTERNS = [
 
 
 def _redact_str(text: str) -> str:
+    text = _JSON_SECRET_RE.sub(r"\g<q>\g<key>\g<q>: \g<q>[REDACTED]\g<q>", text)
     for pattern, repl in _SECRET_PATTERNS:
         text = pattern.sub(repl, text)
     return text

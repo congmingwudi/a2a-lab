@@ -62,3 +62,41 @@ def load_secret_env_and_log(source: str) -> None:
     keys = load_secret_env()
     if keys:
         print(f"[secret-env] {source}: loaded {len(keys)} keys from secret: {', '.join(keys)}")
+
+
+# ---- WS25 A3 (D80/F06): fail closed when hosted and tokenless ---------------
+# Every hosted entry point loads its credentials through this module, so this is
+# where "the secret fetch succeeded but carried no auth token" is caught. Before
+# this guard the bridge's check_auth and mcp_http's _auth_ok both treated an
+# EMPTY expected token as "auth off" — a deploy whose secret dropped the key
+# (deploy_fanout.sh built its JSON by silently omitting unset values) came up
+# open, with every agent behind it reachable unauthenticated.
+
+ALLOW_UNAUTH_VAR = "A2ALAB_ALLOW_UNAUTH"
+
+
+def is_hosted() -> bool:
+    """The shape the deploy scripts create: credentials via the runtime secret,
+    or an explicit hosted mode. Local runs have neither."""
+    return bool(os.environ.get(ARN_VAR)) or os.environ.get("A2ALAB_MODE") == "hosted"
+
+
+def check_token(service: str, token: str | None, env_var: str) -> str | None:
+    """Return the token, or exit the process if it is empty in a hosted run.
+
+    Local runs (not hosted) keep the open mode. Hosted runs may opt into it only
+    with A2ALAB_ALLOW_UNAUTH=1 — a deliberate flag, never a missing one."""
+    if token:
+        return token
+    if is_hosted() and os.environ.get(ALLOW_UNAUTH_VAR) != "1":
+        raise SystemExit(
+            f"[{service}] refusing to start: {env_var} is empty in a hosted run "
+            f"(D80/F06). Put the token in the runtime secret, or set "
+            f"{ALLOW_UNAUTH_VAR}=1 to run deliberately unauthenticated."
+        )
+    return None
+
+
+def require_token(service: str, env_var: str) -> str | None:
+    """check_token() for a token read from the environment."""
+    return check_token(service, os.environ.get(env_var), env_var)

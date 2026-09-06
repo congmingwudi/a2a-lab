@@ -1144,12 +1144,22 @@ def _trace_by_id(trace_id: str) -> dict | None:
 
 # Traces stay viewer-visible on purpose: the org serves dummy demo data
 # only, and the wire record IS the exhibit.
+# An entry is a path prefix, or "METHOD /path" to gate one method only — reading
+# /api/traces stays viewer-visible, DELETING it is not viewing (WS25 A2, D80/F01).
 _OPERATOR_ONLY = {
     "run experiments": ("/api/run",),
     "warm up runtimes": ("/api/warmup",),
     "harvest platform logs": ("/api/obs/harvest",),
     "fire the analyst": ("/api/obs/analysis",),
+    "delete the trace archive": ("DELETE /api/traces",),
 }
+
+
+def _gated(request: Request, entry: str) -> bool:
+    if " " in entry:
+        method, prefix = entry.split(" ", 1)
+        return request.method == method and request.url.path.startswith(prefix)
+    return request.url.path.startswith(entry)
 
 
 def _viewer_forbidden(request: Request) -> None:
@@ -1166,9 +1176,8 @@ def _viewer_forbidden(request: Request) -> None:
     """
     from interop import identity
 
-    path = request.url.path
     action = next(
-        (a for a, prefixes in _OPERATOR_ONLY.items() if any(path.startswith(p) for p in prefixes)),
+        (a for a, entries in _OPERATOR_ONLY.items() if any(_gated(request, e) for e in entries)),
         None,
     )
     if action is None:
@@ -2290,9 +2299,7 @@ def create_console_app(registry: Registry | None = None):
         trace_dir = _trace_dir()
         trace_dir.mkdir(parents=True, exist_ok=True)
         ts = round(time.time(), 3)
-        (trace_dir / WARMUP_CLEARED).write_text(
-            json.dumps({"ts": ts}), encoding="utf-8"
-        )
+        (trace_dir / WARMUP_CLEARED).write_text(json.dumps({"ts": ts}), encoding="utf-8")
         return {"cleared": ts}
 
     @app.post("/api/warmup/{name}")

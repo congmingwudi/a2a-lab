@@ -1,0 +1,19 @@
+# WS25 batch 1 item 5 (D80): the offline suite on every push. Live tests stay
+# deselected (pyproject `-m "not live"`), conftest isolates traces and clears
+# the hosted-mode variables, so this needs no credentials and touches no cloud.
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-extras
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run pytest -q

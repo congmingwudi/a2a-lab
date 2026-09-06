@@ -50,11 +50,15 @@ packages = [
     "src/interop",
     "src/platforms",
     "src/bridge",
+    "src/briefs",
     "src/console",
+    "src/faces",
+    "src/fanout_mcp",
+    "src/mcp_http",
     "src/observability",
     "src/obs_mcp",
     "src/orchestration",
-]
+]  # tests/unit/test_packaging.py keeps this in step with src/ (WS25 A10, D80)
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

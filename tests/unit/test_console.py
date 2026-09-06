@@ -499,8 +499,9 @@ def test_warmup_clear_hides_display_but_keeps_the_file(tmp_path, monkeypatch):
     # A fresh warm lands above the watermark and shows again.
     time.sleep(0.005)  # round(ts, 3) is ms; guarantee a strictly-later stamp
     rec2 = client.post("/api/warmup/claude-agentcore").json()
-    shown = next(t for t in client.get("/api/warmup").json()["targets"]
-                 if t["name"] == "claude-agentcore")
+    shown = next(
+        t for t in client.get("/api/warmup").json()["targets"] if t["name"] == "claude-agentcore"
+    )
     assert shown["last"] == rec2 and rec2 != rec
     # and BOTH attempts remain on disk — clear never truncated anything.
     assert len((trace_dir / "warmups.jsonl").read_text().splitlines()) == 2
@@ -2083,3 +2084,25 @@ def test_submit_poll_scenarios_target_async_capable_face():
             f"'{target_name}' speaks '{target.protocol}', not a2a — the console "
             f"would call submit() on a client that has no such method"
         )
+
+
+# ---- WS25 A2 (D80): deletion is not viewing --------------------------------
+
+
+def test_viewer_403_on_delete_traces_but_can_still_read_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    headers = _viewer_headers(monkeypatch, tmp_path)
+    assert client.get("/api/traces", headers=headers).status_code == 200
+    r = client.delete("/api/traces", headers=headers)
+    assert r.status_code == 403, f"a viewer deleted the evidence archive: {r.status_code}"
+    assert "operator-only" in r.json()["detail"]
+
+
+def test_operator_can_delete_traces(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+    headers = _operator_headers(monkeypatch, tmp_path)
+    assert client.delete("/api/traces", headers=headers).status_code == 200

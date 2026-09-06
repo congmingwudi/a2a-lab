@@ -66,6 +66,12 @@ def make_lambda_handler(
     registry: ToolRegistry, token: str | None, server_info: dict | None = None
 ) -> Callable[[dict, Any], dict]:
     """AWS Lambda Function URL handler (payload format 2.0), stdlib only."""
+    # WS25 A3 (D80/F06): _auth_ok treats a falsy token as auth OFF, which is
+    # right locally and wrong in a hosted function — refuse to build the
+    # handler (the cold start fails loudly) rather than serve open.
+    from interop.secret_env import check_token
+
+    check_token("mcp-lambda", token, "the server's bearer token (A2ALAB_*_MCP_TOKEN)")
 
     def _response(status: int, payload: dict | None = None) -> dict:
         if payload is None:

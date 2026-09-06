@@ -83,9 +83,7 @@ def test_no_account_identifiers_in_descriptors():
     files = [
         p
         for p in ROOT.rglob("*")
-        if p.is_file()
-        and p.name != "exchange.json"
-        and "target" not in p.relative_to(ROOT).parts
+        if p.is_file() and p.name != "exchange.json" and "target" not in p.relative_to(ROOT).parts
     ]
     blob = " ".join(p.read_text() for p in files)
     assert "00b44e97" not in blob  # the MuleSoft root BG id (auto-memory)

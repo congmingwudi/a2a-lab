@@ -22,6 +22,7 @@ from interop import delegation
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, new_trace_id
 from interop.registry import Registry
+from interop.secret_env import load_secret_env_and_log, require_token
 from interop.trace import Hop
 
 TRACE_HEADER = "x-trace-id"
@@ -268,8 +269,6 @@ def main() -> None:
     import uvicorn
     from dotenv import load_dotenv
 
-    from interop.secret_env import load_secret_env_and_log
-
     load_dotenv()
     # Hosted (WS7 item 7): credentials live in Secrets Manager, not in the task
     # definition, and are loaded before anything reads os.environ — the
@@ -277,6 +276,9 @@ def main() -> None:
     # empty endpoints that fail as network errors. A no-op locally, where
     # A2ALAB_RUNTIME_SECRET_ARN is unset and .env already holds everything.
     load_secret_env_and_log("bridge")
+    # WS25 A3 (D80/F06): a hosted bridge with no BRIDGE_TOKEN does not start
+    # open — check_auth() treats an empty expected token as auth OFF.
+    require_token("bridge", "BRIDGE_TOKEN")
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8100)
     parser.add_argument("--host", default="0.0.0.0")

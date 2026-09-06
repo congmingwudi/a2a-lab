@@ -27,6 +27,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 set -a; source .env; set +a
+: "${A2ALAB_TOKEN:?set A2ALAB_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 source deploy/aws_preflight.sh
 
 REGION="${AWS_REGION:-us-east-1}"

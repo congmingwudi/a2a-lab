@@ -9892,7 +9892,7 @@ function renderMain(force) {
           <div class="composer">
             <textarea id="chatInput" rows="3" ${blocked ? "disabled" : ""}
               placeholder="${soon ? "This experiment isn't runnable yet — see the Details tab."
-                : viewerRole ? "Viewer role — running experiments is operator-only. The Details tab and the Lab Guide are all yours."
+                : viewerRole ? "Viewer role — running experiments and clearing the trace archive are operator-only (D36, D80). Reading traces, the Details tab and the Lab Guide are all yours."
                 : modeBlocked ? "Runs are refused in the wrong deployment mode — see the notice above."
                 : view.kind === "cell" && exp && exp.question
                   ? `Enter to send the default: ${esc(exp.question)}`
