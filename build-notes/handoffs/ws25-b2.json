@@ -4,7 +4,7 @@
   "proposer": "claude",
   "critic": "codex",
   "implementer": "claude",
-  "station": "deploy",
+  "station": "done",
   "holder": "operator",
   "round": 1,
   "verdict": "pass",
@@ -54,6 +54,12 @@
       "verdict": "pass",
       "file": "build-notes/codex/codebase-review/reviews/ws25-b2.md",
       "round": 1
+    },
+    {
+      "ts": "2026-09-09T08:35:52+00:00",
+      "agent": "operator",
+      "action": "deployed",
+      "note": "test-only batch (fail-closed main() .env isolation); no runtime artifact, no image rebuild"
     }
   ]
 }

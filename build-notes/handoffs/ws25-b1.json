@@ -4,7 +4,7 @@
   "proposer": "claude",
   "critic": "codex",
   "implementer": "claude",
-  "station": "deploy",
+  "station": "done",
   "holder": "operator",
   "round": 3,
   "verdict": "pass",
@@ -84,6 +84,12 @@
       "verdict": "pass",
       "file": "build-notes/codex/codebase-review/reviews/ws25-b1.md",
       "round": 3
+    },
+    {
+      "ts": "2026-09-09T08:35:52+00:00",
+      "agent": "operator",
+      "action": "deployed",
+      "note": "6/6 components on AWS (exit 0, /healthz 200); hosted smoke 10/10; A1 redaction proven on wire; JSONL scrubbed; Aurora one-row scrub done 2026-09-09, whole-table re-scan 0"
     }
   ]
 }
