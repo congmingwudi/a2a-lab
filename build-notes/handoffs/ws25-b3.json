@@ -4,14 +4,16 @@
   "proposer": "claude",
   "critic": "codex",
   "implementer": "claude",
-  "station": "implement",
-  "holder": "claude",
-  "round": 0,
+  "station": "review",
+  "holder": "codex",
+  "round": 1,
   "verdict": "request-changes",
   "adr": "D81",
   "files": {
     "plan": "build-notes/claude/ws25-b3-plan.md",
-    "notes": {},
+    "notes": {
+      "claude": "build-notes/claude/reviews/ws25-b3.md"
+    },
     "verdicts": {
       "codex": "build-notes/codex/reviews/ws25-b3.md"
     }
@@ -37,6 +39,13 @@
       "action": "settle",
       "adr": "D81",
       "implementer": "claude"
+    },
+    {
+      "ts": "2026-09-09T09:57:22+00:00",
+      "agent": "claude",
+      "action": "built",
+      "file": "build-notes/claude/reviews/ws25-b3.md",
+      "commit": "2e98f93"
     }
   ]
 }
