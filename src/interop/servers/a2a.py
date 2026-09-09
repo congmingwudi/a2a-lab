@@ -79,6 +79,19 @@ class AdapterExecutor(AgentExecutor):
         metadata = MessageToDict(context.message.metadata) if context.message is not None else {}
         trace_id = str(metadata.get("trace_id") or new_trace_id())
 
+        # Stamp the VERIFIED caller subject onto the request so downstream seams
+        # (the shim's per-caller session isolation, A11/F02) key state by WHO the
+        # verified JWT says this is — never by a caller-asserted body field. A
+        # caller-supplied metadata["verified_subject"] is untrusted, so it is
+        # OVERWRITTEN when a subject is verified and DROPPED when none is.
+        from interop.servers.auth import verified_subject
+
+        subject = verified_subject()
+        if subject:
+            metadata["verified_subject"] = subject
+        else:
+            metadata.pop("verified_subject", None)
+
         # The framework requires the initial Task object on the queue before
         # any status/artifact update events.
         initial = Task(

@@ -14,8 +14,27 @@ the agent card anonymously, and AgentCore/uptime checks hit /ping and
 
 from __future__ import annotations
 
+import contextvars
 import os
 from urllib.parse import parse_qs
+
+# The VERIFIED caller subject for the current request, published ONLY from a
+# successfully-verified lab JWT (never from a caller-asserted body field). It is
+# request-bound by construction: contextvars are snapshotted per asyncio Task, so
+# concurrent requests never see each other's subject, and the middleware resets
+# it in a finally on every request. Seams that key state by caller (the shim's
+# per-subject session reuse, A11/F02) read it via `verified_subject()`. A shared
+# service token sets NOTHING here, so it takes the platform-only fallback key.
+VERIFIED_SUBJECT: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "a2alab_verified_subject", default=None
+)
+
+
+def verified_subject() -> str | None:
+    """The verified JWT subject for the in-flight request, or None (shared token
+    / unauthenticated / local dev). Trusted — set only from verified claims."""
+    return VERIFIED_SUBJECT.get()
+
 
 TOKEN_ENV = "A2ALAB_TOKEN"
 TOKEN_HEADER = "x-lab-token"
@@ -111,7 +130,16 @@ class TokenAuthMiddleware:
             claims = _verify_lab_jwt(supplied)
             if claims is not None:
                 scope.setdefault("state", {})["lab_user"] = claims
-                await self.app(scope, receive, send)
+                # Publish the VERIFIED subject for the duration of this request
+                # only, resetting in finally so it never bleeds into the next
+                # request served on this task (A11/F02). The a2a-sdk may run the
+                # executor in a background task; that task snapshots the context
+                # at creation, so the reset here cannot race its read.
+                token = VERIFIED_SUBJECT.set(claims.get("sub"))
+                try:
+                    await self.app(scope, receive, send)
+                finally:
+                    VERIFIED_SUBJECT.reset(token)
                 return
 
         if supplied != expected:

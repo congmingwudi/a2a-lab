@@ -85,6 +85,30 @@ async def test_token_cached(client, fake_api):
     assert fake_api.token_calls == 1
 
 
+async def test_concurrent_ensure_session_creates_exactly_one(client):
+    """A11/F02: two coroutines racing ensure_session on ONE lab session_id must
+    create exactly one Agentforce session, not one per racer. The pre-fix
+    check-then-create had an await between the check and the store, so both saw
+    'absent' and each started a session. `start_session` is stubbed to sleep so
+    the interleave is deterministic, not transport-timing-dependent."""
+    import asyncio
+
+    calls = 0
+
+    async def slow_start(trace_id):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)  # force both coroutines past the check together
+        return f"sf-{calls}"
+
+    client.start_session = slow_start
+    await asyncio.gather(
+        client.ensure_session("lab-race", "t"),
+        client.ensure_session("lab-race", "t"),
+    )
+    assert calls == 1
+
+
 async def test_end_session(client, fake_api):
     await client.ask(AgentRequest(message="q1", session_id="lab-9"))
     await client.end_session("lab-9")

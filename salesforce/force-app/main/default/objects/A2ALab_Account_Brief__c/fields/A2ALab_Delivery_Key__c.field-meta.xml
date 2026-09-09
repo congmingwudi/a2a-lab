@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The org-enforced idempotency boundary for daily-brief delivery (WS25 b3 /
+     A4·F07, D81). Value is `<research_session_id>#<account_id>` — per session ×
+     account, because one scheduled session writes a brief for several accounts.
+     External Id + Unique so the host-side writer can PATCH-upsert on it: a
+     re-run, or a concurrent losing writer, MATCHES the existing row instead of
+     inserting a duplicate brief. Research_Session_Id__c stays as the plain
+     queryable field for the console/traceability. -->
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>A2ALab_Delivery_Key__c</fullName>
+    <label>A2ALab Delivery Key</label>
+    <type>Text</type>
+    <length>255</length>
+    <required>false</required>
+    <externalId>true</externalId>
+    <unique>true</unique>
+    <caseSensitive>false</caseSensitive>
+    <trackTrending>false</trackTrending>
+</CustomField>

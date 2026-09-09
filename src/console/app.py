@@ -1603,6 +1603,79 @@ def create_console_app(registry: Registry | None = None):
             return {"credentials": [], "error": f"unreadable report: {exc}"}
         return report
 
+    @app.get("/api/briefs/outcomes")
+    async def brief_outcomes(request: Request):
+        """The daily-brief watcher's per-session delivery ledger (A4/F07, D81).
+
+        The watcher records each scheduled session's outcome — `delivered`,
+        `pending` (retrying), or `failed` (terminal, gave up at the attempt cap)
+        — with its per-call results and `last_error`. This surfaces the ones a
+        reader must act on: a `failed` session is a brief that never reached the
+        org and will not retry itself.
+
+        Operator-only and hosted-store-first for the same reasons as /api/expiry:
+        `last_error` can carry org detail, and the ledger lives in Aurora once the
+        watcher is hosted (WS13), with the local file as the laptop fallback.
+        """
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="operator-only")
+
+        from briefs.__main__ import STATE_KEY, WATCH_STATE, _ledger_from_payload
+
+        payload: dict | None = None
+        try:
+            from observability.pg import PgClient, PgObsStore
+
+            if PgClient.configured():
+                store = PgObsStore()
+                try:
+                    payload = store.get_state(STATE_KEY)
+                finally:
+                    store.close()
+        except Exception:  # noqa: BLE001 - fall through to the file
+            payload = None
+        if payload is None and WATCH_STATE.exists():
+            try:
+                payload = json.loads(WATCH_STATE.read_text())
+            except ValueError:
+                payload = None
+
+        if payload is None:
+            return {
+                "sessions": [],
+                "summary": {"delivered": 0, "pending": 0, "failed": 0},
+                "note": (
+                    "No brief ledger yet. The watcher (`python -m briefs --watch`) "
+                    "writes one as it services scheduled sessions; until it has run "
+                    "against a hosted store there is nothing to show."
+                ),
+            }
+
+        ledger = _ledger_from_payload(payload)
+        sessions = []
+        summary = {"delivered": 0, "pending": 0, "failed": 0}
+        for sid, entry in ledger.items():
+            status = entry.get("status", "pending")
+            summary[status] = summary.get(status, 0) + 1
+            calls = entry.get("calls") or {}
+            sessions.append(
+                {
+                    "session_id": sid,
+                    "status": status,
+                    "attempts": entry.get("attempts", 0),
+                    "at": entry.get("at"),
+                    "last_error": entry.get("last_error"),
+                    "delivered": sum(1 for c in calls.values() if c.get("status") == "ok"),
+                    "failed_calls": sum(1 for c in calls.values() if c.get("status") == "failed"),
+                }
+            )
+        # Failed first (action needed), then pending, then delivered; newest `at`
+        # first within each status. Two stable sorts: at-desc, then status.
+        order = {"failed": 0, "pending": 1, "delivered": 2}
+        sessions.sort(key=lambda s: s["at"] or "", reverse=True)
+        sessions.sort(key=lambda s: order.get(s["status"], 3))
+        return {"sessions": sessions, "summary": summary}
+
     @app.post("/api/credentials/analyze")
     async def credentials_analyze(request: Request):
         """Fire the credential analyst (a Claude Managed Agent) and return its

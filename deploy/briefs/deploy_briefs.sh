@@ -132,7 +132,12 @@ for src, dst in (("A2ALAB_BRIEF_DEPLOYMENT_ID", "A2ALAB_BRIEF_DEPLOYMENT_ID"),
                  ("A2ALAB_BRIEF_ENV_ID", "A2ALAB_BRIEF_ENV_ID")):
     if os.environ.get(src):
         env[dst] = os.environ[src]
-for var in ("A2ALAB_PG_CLUSTER_ARN", "A2ALAB_BRIEF_POLL_S", "SF_MY_DOMAIN", "SF_AGENT_ID"):
+for var in ("A2ALAB_PG_CLUSTER_ARN", "A2ALAB_BRIEF_POLL_S", "SF_MY_DOMAIN", "SF_AGENT_ID",
+            # WS25 b3: the trusted account name->Id map (A5/F03) and the retry
+            # cap (A4/F07). Without these the resolver falls back to name lookup
+            # and the retry cap defaults to 3 — the feature works locally and
+            # silently reverts on Fargate (the D48 blind spot again).
+            "A2ALAB_BRIEF_ACCOUNT_MAP", "A2ALAB_BRIEF_MAX_ATTEMPTS"):
     if os.environ.get(var):
         env[var] = os.environ[var]
 if os.environ.get("A2ALAB_PG_WRITER_SECRET_ARN"):

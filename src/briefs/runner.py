@@ -182,9 +182,13 @@ class BriefRunner:
         kickoff = KICKOFF_TEMPLATE.format(accounts=accounts, extra=extra)
         return await self._drive(session.id, trace_id, kickoff=kickoff)
 
-    async def service_scheduled_session(self, session_id: str, trace_id: str) -> dict:
+    async def service_scheduled_session(
+        self, session_id: str, trace_id: str, prior_calls: dict[str, dict] | None = None
+    ) -> dict:
         """Attach to a session fired by the scheduled deployment (its kickoff
-        came from the deployment's initial_events) and drive it home."""
+        came from the deployment's initial_events) and drive it home. `prior_calls`
+        is the watcher's per-call delivery ledger for this session (A4/F07): a
+        call already `ok` is not re-written, a `failed` one is retried."""
         _record_hop(
             trace_id,
             source="claude-scheduler",
@@ -196,12 +200,19 @@ class BriefRunner:
             status="ok",
             latency_ms=0,
         )
-        return await self._drive(session_id, trace_id, kickoff=None)
+        return await self._drive(session_id, trace_id, kickoff=None, prior_calls=prior_calls)
 
-    async def _drive(self, session_id: str, trace_id: str, *, kickoff: str | None) -> dict:
+    async def _drive(
+        self,
+        session_id: str,
+        trace_id: str,
+        *,
+        kickoff: str | None,
+        prior_calls: dict[str, dict] | None = None,
+    ) -> dict:
         start = time.perf_counter()
         texts: list[str] = []
-        deliveries: list[dict] = []
+        calls: list[dict] = []
         searches = 0
         deadline = start + BRIEF_TIMEOUT_S
 
@@ -236,15 +247,16 @@ class BriefRunner:
                         session_id,
                         trace_id,
                         texts,
-                        deliveries,
+                        calls,
                         handled,
                         skip_tool_ids=answered,
+                        prior_calls=prior_calls,
                     )
                     searches += done
                 # If the session already idles awaiting nothing, we're done.
                 session = await self._client.beta.sessions.retrieve(session_id)
                 if getattr(session, "status", "") in ("terminated",):
-                    return self._result(session_id, texts, deliveries, searches, start)
+                    return self._result(session_id, texts, calls, searches, start)
 
             async for event in stream:
                 etype = getattr(event, "type", "")
@@ -258,7 +270,13 @@ class BriefRunner:
                     raise RuntimeError(f"managed session error: {event}")
                 else:
                     searches += await self._handle_event(
-                        event, session_id, trace_id, texts, deliveries, handled
+                        event,
+                        session_id,
+                        trace_id,
+                        texts,
+                        calls,
+                        handled,
+                        prior_calls=prior_calls,
                     )
                 if time.perf_counter() > deadline:
                     raise TimeoutError(
@@ -268,13 +286,23 @@ class BriefRunner:
         finally:
             await stream.close()
 
-        return self._result(session_id, texts, deliveries, searches, start)
+        return self._result(session_id, texts, calls, searches, start)
 
-    def _result(self, session_id, texts, deliveries, searches, start) -> dict:
+    def _result(self, session_id, texts, calls, searches, start) -> dict:
+        """`calls` is the per-call delivery ledger for this drive (A4/F07): each
+        entry has a `status` of `ok` or `failed`. The watcher persists these and
+        decides retry vs terminal; `deliveries` is the `ok` subset for the
+        summary line."""
+        deliveries = [c for c in calls if c.get("status") == "ok"]
+        failed = [c for c in calls if c.get("status") == "failed"]
         return {
             "session_id": session_id,
             "text": "\n".join(texts).strip(),
+            "calls": calls,
             "deliveries": deliveries,
+            "delivered": len(deliveries),
+            "failed": len(failed),
+            "error": failed[0].get("error") if failed else None,
             "web_lookups": searches,
             "elapsed_s": round(time.perf_counter() - start, 1),
         }
@@ -285,10 +313,11 @@ class BriefRunner:
         session_id: str,
         trace_id: str,
         texts: list[str],
-        deliveries: list[dict],
+        calls: list[dict],
         handled: set[str],
         *,
         skip_tool_ids: set | None = None,
+        prior_calls: dict[str, dict] | None = None,
     ) -> int:
         """Process one event. Returns 1 if it was a web research call."""
         etype = getattr(event, "type", "")
@@ -326,9 +355,10 @@ class BriefRunner:
             return 0
 
         if etype == "agent.custom_tool_use":
-            if skip_tool_ids and event_id in skip_tool_ids:
-                return 0
             if getattr(event, "name", "") != SAVE_TOOL_NAME:
+                # Non-save tools keep the managed-history "answered" skip.
+                if skip_tool_ids and event_id in skip_tool_ids:
+                    return 0
                 await self._client.beta.sessions.events.send(
                     session_id=session_id,
                     events=[
@@ -340,16 +370,27 @@ class BriefRunner:
                     ],
                 )
                 return 0
+
+            # The save tool is gated by the delivery LEDGER, not by whether the
+            # managed session already has a tool-result for it (A4/F07): a
+            # previously-failed call must be retried even though it was
+            # "answered", and a delivered one must never be re-written.
+            prior = (prior_calls or {}).get(event_id)
+            if prior and prior.get("status") == "ok":
+                calls.append(prior)  # already delivered — surface it, don't re-write
+                return 0
+
             tool_input = dict(getattr(event, "input", None) or {})
+            account = str(tool_input.get("account_name", ""))
             try:
                 delivery = await self._get_writer().save_brief(
-                    account_name=str(tool_input.get("account_name", "")),
+                    account_name=account,
                     headline=str(tool_input.get("headline", ""))[:255],
                     brief_markdown=str(tool_input.get("brief_markdown", "")),
                     research_session_id=session_id,
                     trace_id=trace_id,
                 )
-                deliveries.append(delivery)
+                record = {"tool_use_id": event_id, "status": "ok", "account": account, **delivery}
                 result_text = (
                     f"Saved. Brief record {delivery['brief_id']} on account "
                     f"{delivery['account_name']} ({delivery['account_id']}); "
@@ -357,7 +398,16 @@ class BriefRunner:
                     f"{'sent' if delivery['notified'] else 'skipped'}."
                 )
             except Exception as exc:
+                record = {
+                    "tool_use_id": event_id,
+                    "status": "failed",
+                    "account": account,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
                 result_text = f"Salesforce delivery failed: {type(exc).__name__}: {exc}"
+            calls.append(record)
+            # Still answer the managed session so its turn completes; the ledger,
+            # not this tool-result, is what drives retry.
             await self._client.beta.sessions.events.send(
                 session_id=session_id,
                 events=[

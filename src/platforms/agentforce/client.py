@@ -14,6 +14,7 @@ wasted on session churn — this is a real prod org).
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 import uuid
@@ -59,6 +60,11 @@ class AgentforceClient(RemoteAgentClient):
         self._token_expiry: float = 0.0
         # lab session_id -> (agentforce session id, sequence counter)
         self._sessions: dict[str, dict[str, Any]] = {}
+        # One lock per lab session_id so concurrent asks on the same key create
+        # exactly one Agentforce session, not one per racing coroutine (A11/F02).
+        # dict.setdefault is atomic between awaits, so the lock itself is safe to
+        # create lock-free.
+        self._session_locks: dict[str, asyncio.Lock] = {}
 
     @classmethod
     def from_env(cls) -> "AgentforceClient":
@@ -139,11 +145,20 @@ class AgentforceClient(RemoteAgentClient):
             return sf_session_id
 
     async def ensure_session(self, lab_session_id: str, trace_id: str) -> dict[str, Any]:
-        """Get-or-create the cached Agentforce session for a lab session_id."""
-        if lab_session_id not in self._sessions:
-            sf_session_id = await self.start_session(trace_id)
-            self._sessions[lab_session_id] = {"id": sf_session_id, "seq": 0}
-        return self._sessions[lab_session_id]
+        """Get-or-create the cached Agentforce session for a lab session_id.
+
+        Serialized per key (double-checked inside the lock): two concurrent asks
+        sharing one session_id — the norm now that the shim reuses a session per
+        (platform, verified subject) — must create ONE Agentforce session, not
+        one each. The previous check-then-create had an await between the check
+        and the create, so both racers saw "absent" and each started a session
+        (A11/F02)."""
+        lock = self._session_locks.setdefault(lab_session_id, asyncio.Lock())
+        async with lock:
+            if lab_session_id not in self._sessions:
+                sf_session_id = await self.start_session(trace_id)
+                self._sessions[lab_session_id] = {"id": sf_session_id, "seq": 0}
+            return self._sessions[lab_session_id]
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         trace_id = req.trace_id or new_trace_id()

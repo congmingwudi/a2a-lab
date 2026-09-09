@@ -61,8 +61,18 @@ class AgentforceProxyAdapter:
     async def handle(self, req: AgentRequest) -> AgentResponse:
         platform = delegation.platform_of(req)
         twin_id = os.environ.get(TWIN_ENV_BY_PLATFORM.get(platform, ""), "") or None
-        if req.session_id is None and self.session_reuse:
-            req.session_id = f"shim-shared-{platform or 'direct'}"
+        if self.session_reuse:
+            # OVERRIDE, not "only when None": with the pinned a2a-sdk the inbound
+            # context id is always populated (the SDK generates one when the
+            # message omits it), so the old `session_id is None` guard was dead
+            # and every caller on a platform collapsed onto one shared session
+            # (A11/F02). Key by the VERIFIED subject the executor stamped so each
+            # authenticated caller gets its own Agentforce session; fall back to
+            # the platform-only key ONLY for the legacy shared service token
+            # (no verified subject).
+            subject = (req.metadata or {}).get("verified_subject")
+            base = f"shim-shared-{platform or 'direct'}"
+            req.session_id = f"{base}-{subject}" if subject else base
         if twin_id and twin_id != self.client.agent_id:
             # Per-request twin override: the client caches sessions per
             # session_id, so distinct twins ride distinct session keys above.

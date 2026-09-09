@@ -633,6 +633,7 @@ def test_viewer_403_on_operator_surfaces(tmp_path, monkeypatch):
         ("/api/warmup/claude-agentcore", "post"),
         ("/api/obs/harvest", "post"),
         ("/api/obs/analysis/run", "post"),
+        ("/api/briefs/outcomes", "get"),
     ]:
         r = getattr(client, method)(
             path, headers=headers, **({"json": {}} if method == "post" else {})
@@ -697,6 +698,74 @@ def test_operator_role_reaches_operator_surfaces(tmp_path, monkeypatch):
     r = client.post("/api/run", headers=headers, json={"target": "claude-rest", "message": "hi"})
     assert r.status_code != 403, f"operator role blocked: {r.status_code}"
     assert r.json()["ok"] is True
+
+
+def test_brief_outcomes_lists_failed_first_and_hides_nothing(tmp_path, monkeypatch):
+    """A4/F07: the console's delivery-outcome reader surfaces terminal-`failed`
+    sessions first (action needed), carries `last_error`, and still counts the
+    delivered/pending ones in the summary."""
+    import briefs.__main__ as watcher
+    from observability.pg import PgClient
+
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setattr(PgClient, "configured", classmethod(lambda cls: False))
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+
+    ledger_file = tmp_path / "brief_state.json"
+    ledger_file.write_text(
+        json.dumps(
+            {
+                "sessions": {
+                    "s_ok": {
+                        "status": "delivered",
+                        "attempts": 1,
+                        "at": "2026-09-09T01:00:00",
+                        "calls": {"t1": {"status": "ok"}},
+                    },
+                    "s_bad": {
+                        "status": "failed",
+                        "attempts": 3,
+                        "at": "2026-09-09T02:00:00",
+                        "last_error": "Salesforce 503",
+                        "calls": {"t1": {"status": "failed"}},
+                    },
+                    "s_wait": {
+                        "status": "pending",
+                        "attempts": 1,
+                        "at": "2026-09-09T03:00:00",
+                        "calls": {},
+                    },
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(watcher, "WATCH_STATE", ledger_file)
+
+    headers = _operator_headers(monkeypatch, tmp_path)
+    r = client.get("/api/briefs/outcomes", headers=headers)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["summary"] == {"delivered": 1, "pending": 1, "failed": 1}
+    assert [s["session_id"] for s in data["sessions"]] == ["s_bad", "s_wait", "s_ok"]
+    assert data["sessions"][0]["last_error"] == "Salesforce 503"
+
+
+def test_brief_outcomes_empty_state_explains_itself(tmp_path, monkeypatch):
+    import briefs.__main__ as watcher
+    from observability.pg import PgClient
+
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setattr(PgClient, "configured", classmethod(lambda cls: False))
+    monkeypatch.setattr(watcher, "WATCH_STATE", tmp_path / "nope.json")
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+    headers = _operator_headers(monkeypatch, tmp_path)
+    r = client.get("/api/briefs/outcomes", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["sessions"] == []
+    assert "watcher" in body["note"].lower()
 
 
 def test_shared_service_token_still_reaches_operator_surfaces(tmp_path, monkeypatch):

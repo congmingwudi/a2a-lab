@@ -45,6 +45,16 @@
         <field>A2ALab_Account_Brief__c.Research_Session_Id__c</field>
         <readable>true</readable>
     </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>A2ALab_Account_Brief__c.A2ALab_Delivery_Key__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Task.A2ALab_Delivery_Key__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>A2ALab Agent Actions</label>
     <objectPermissions>
