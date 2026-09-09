@@ -3372,3 +3372,58 @@ coverage the lab does not have. Its `insight` area is the evidence-grading
 rubric WS20 uses. No browser automation now.
 
 **Status.** DECIDED 2026-09-06; work tracked as WS25. Nothing implemented yet.
+
+## 2026-09-09 — D81: WS25 batch 3 settlement — the CRM-write idempotency boundary and the trusted account map (A4/A5/A11)
+
+**Context.** WS25 b3 (F07 brief delivery, F03 write-half, F02 shim isolation)
+went propose → critique under the D79 loop. Codex's critique
+(`build-notes/codex/reviews/ws25-b3.md`) returned REQUEST CHANGES with four
+blockers, all verified against source; the plan was revised
+(`build-notes/claude/ws25-b3-plan.md` rev 2) to resolve them. Two of the
+resolutions change the production Salesforce org or add a trust surface and are
+the operator's to settle before implementation (D79 rule). This ADR records
+them; the plan carries the rest of the detail.
+
+**Decision — the delivery idempotency boundary is org-enforced and per
+(session × account).** `Research_Session_Id__c` alone is not unique per brief
+because one scheduled session writes several accounts (one save call each). A new
+external-id + **unique** text field `A2ALab_Delivery_Key__c` (value
+`<research_session_id>#<account_id>`) is added to **both**
+`A2ALab_Account_Brief__c` **and** the standard `Task` object, with FLS on the
+integration user's permission set; both records are written by external-id
+**upsert** so a concurrent losing writer matches the winning row instead of
+duplicating. The Task carries the same field (not a Subject echo) because
+activities are disabled on the brief object, so pair idempotency needs the Task's
+own org-enforced key. This is a real production-org schema change and is
+authorized here; the unique fields deploy only after a composite-key duplicate
+scan is clean. This supersedes the "app-level query-before-insert alone" option
+floated in the b3 plan rev 1 and satisfies the D80 requirement of a Salesforce
+uniqueness boundary.
+
+**Decision — account resolution prefers an operator-authored trust map, and a
+binding mismatch fails closed.** The scheduled watcher receives only a session
+id and the account name is model-provided, so a single preauthorized id cannot be
+threaded per call. Resolution uses `A2ALAB_BRIEF_ACCOUNT_MAP` — a **JSON** env
+value mapping account name → Account Id (JSON, not a delimiter, because names
+contain commas). On a map hit the Id is validated and the Account retrieved; if
+the retrieved Account's name conflicts with the model's asserted name the write
+is **rejected**, never logged-and-continued (logging it would attach one
+account's brief to another). On a miss, the deterministic name resolver runs:
+reject empty names, exact match fetching ≥2 rows to detect duplicates, an
+optional single `LIKE` fallback that escapes `' \ % _`; ambiguity writes nothing.
+`A2ALAB_BRIEF_ACCOUNT_MAP` and `A2ALAB_BRIEF_MAX_ATTEMPTS` are added to
+`.env.example` and the `deploy/briefs/deploy_briefs.sh` allow-list so the feature
+survives on Fargate.
+
+**Also settled** (no org change, recorded for the implementer): A4 retries by a
+per-call delivery ledger replayed with a **direct** `save_brief` call rather than
+via managed-session replay (the managed `answered`-set at `runner.py:225-242`
+would otherwise skip a failed call), delivered only when every save call
+succeeds; A11 removes the dead `if req.session_id is None` guard (the a2a-sdk
+generates a context id) and overrides the session key in the shim's reuse mode,
+threading the **verified** JWT subject with a `finally`-reset and overwriting any
+caller-asserted value, tested through the real executor and overlapping/background
+paths; the a2a change ships to faces + shim only (not bridge/console).
+
+**Status.** DECIDED 2026-09-09. Implementer: Claude Code, branch
+`ws25-b3-crm-writes-sessions`. Cross-review: Codex.
