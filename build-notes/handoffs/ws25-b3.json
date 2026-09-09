@@ -1,0 +1,25 @@
+{
+  "batch": "ws25-b3",
+  "title": "WS25 batch 3 \u2014 CRM writes and session ownership (A4 idempotent brief delivery, A5 deterministic account resolution, A11 shim session isolation by verified caller)",
+  "proposer": "claude",
+  "critic": "codex",
+  "implementer": null,
+  "station": "critique",
+  "holder": "codex",
+  "round": 0,
+  "verdict": null,
+  "adr": null,
+  "files": {
+    "plan": "build-notes/claude/ws25-b3-plan.md",
+    "notes": {},
+    "verdicts": {}
+  },
+  "history": [
+    {
+      "ts": "2026-09-09T08:47:38+00:00",
+      "agent": "claude",
+      "action": "propose",
+      "file": "build-notes/claude/ws25-b3-plan.md"
+    }
+  ]
+}
