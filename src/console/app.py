@@ -1622,28 +1622,51 @@ def create_console_app(registry: Registry | None = None):
 
         from briefs.__main__ import STATE_KEY, WATCH_STATE, _ledger_from_payload
 
+        # Store-first, exactly like the watcher's own _load_ledger: when a
+        # PostgreSQL store IS configured it is the source of truth, and a read
+        # that FAILS is an outage, not an empty ledger — surfacing it as `0/0/0`
+        # would hide a broken hosted watcher. The local file is the fallback only
+        # when no store is configured (the laptop path).
         payload: dict | None = None
+        store_error: str | None = None
+        configured = False
+        PgObsStore = None
         try:
-            from observability.pg import PgClient, PgObsStore
+            from observability.pg import PgClient, PgObsStore  # noqa: F811
 
-            if PgClient.configured():
-                store = PgObsStore()
-                try:
-                    payload = store.get_state(STATE_KEY)
-                finally:
-                    store.close()
-        except Exception:  # noqa: BLE001 - fall through to the file
-            payload = None
-        if payload is None and WATCH_STATE.exists():
+            configured = PgClient.configured()
+        except Exception:  # observability deps absent → the local-file path
+            configured = False
+        if configured and PgObsStore is not None:
+            store = PgObsStore()
+            try:
+                payload = store.get_state(STATE_KEY)
+            except Exception as exc:  # noqa: BLE001 - a configured store that won't read
+                store_error = f"{type(exc).__name__}: {exc}"
+            finally:
+                store.close()
+        elif WATCH_STATE.exists():
             try:
                 payload = json.loads(WATCH_STATE.read_text())
             except ValueError:
                 payload = None
 
+        empty_summary = {"delivered": 0, "pending": 0, "failed": 0}
+        if store_error is not None:
+            # Distinct from the empty state: the store is configured but unread.
+            return {
+                "sessions": [],
+                "summary": empty_summary,
+                "error": (
+                    "The brief ledger store (Aurora) is configured but did not "
+                    f"respond: {store_error}. This is an outage, not an empty "
+                    "ledger — the hosted watcher's delivery record is unavailable."
+                ),
+            }
         if payload is None:
             return {
                 "sessions": [],
-                "summary": {"delivered": 0, "pending": 0, "failed": 0},
+                "summary": empty_summary,
                 "note": (
                     "No brief ledger yet. The watcher (`python -m briefs --watch`) "
                     "writes one as it services scheduled sessions; until it has run "

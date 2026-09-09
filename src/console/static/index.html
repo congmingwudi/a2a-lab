@@ -771,6 +771,11 @@
   .pill.ok { color: var(--rest); border-color: color-mix(in srgb, var(--rest) 45%, var(--border)); }
   .pill.warn { color: #d9973a; border-color: color-mix(in srgb, #d9973a 45%, var(--border)); }
   .pill.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, var(--border)); }
+  /* Scheduled Brief Delivery status pills (WS25 b3): failed = red (needs a human),
+     retrying = amber, delivered = green — the STATUS palette reused. */
+  .pill-failed { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, var(--border)); }
+  .pill-pending { color: #d9973a; border-color: color-mix(in srgb, #d9973a 45%, var(--border)); }
+  .pill-delivered { color: var(--rest); border-color: color-mix(in srgb, var(--rest) 45%, var(--border)); }
   svg.spark { display: block; }
   /* Open story rows read one notch quieter than done ones, so a scan of the
      Stories tab lands on what is still outstanding. */
@@ -1590,6 +1595,21 @@
             <div id="credsSide"></div>
           </div>
         </details>
+        <!-- Scheduled Brief Delivery (WS25 b3, A4/F07, D81) — the daily-brief
+             watcher's per-session delivery ledger: which scheduled account
+             briefs reached Salesforce, which are still retrying, and which
+             gave up (terminal failed). Operator-only stack-monitoring, the same
+             family as Credentials Expiry — "what is broken right now" — not an
+             agent platform. Hides itself when /api/briefs/outcomes 403s. -->
+        <details class="acc sub" id="accBriefs">
+          <summary onclick="briefsNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.4h10v11.2H3z"/><path d="M5.2 5.2h5.6M5.2 8h5.6M5.2 10.8h3.2"/></svg>Scheduled Brief Delivery <span class="count" id="briefsCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools">
+              <span class="hint">Which scheduled account briefs reached Salesforce — and which failed.</span>
+            </div>
+            <div id="briefsSide"></div>
+          </div>
+        </details>
         <!-- A2A Lab Monitoring (WS18, D62) — usage of the RELEASED console
              itself: who visits, from where, what they open. Sits under
              Infrastructure because it is stack-monitoring, the same family as
@@ -1915,6 +1935,7 @@ const SIGNED_IN_LOADERS = [
   loadBuildTelemetry,  // coding agents telemetry + the cost brief
   loadProject,         // WS17: This A2A Lab Project — board counts from the plan
   loadMonitoring,      // WS18: A2A Lab Monitoring — usage aggregates from lab.usage_events
+  loadBriefOutcomes,   // WS25 b3: Scheduled Brief Delivery — the watcher's delivery ledger
   loadInfra,           // Track B: Infrastructure Metrics — cross-cloud runtime grid
   loadArchitecture,    // the deployment map the Architecture section renders
   loadWarmup,
@@ -6309,6 +6330,7 @@ const MON_SECTION_LABELS = {
   insights: "Insights", arch: "Architecture", registry: "Agent Registry",
   creds: "Credentials", build: "Coding Agents Telemetry", project: "This A2A Lab Project",
   monitoring: "A2A Lab Monitoring", infra: "Infrastructure Metrics", guide: "Lab Guide",
+  briefs: "Scheduled Brief Delivery",
 };
 const monSectionLabel = s => MON_SECTION_LABELS[s] || s || "unknown";
 
@@ -7484,6 +7506,170 @@ window.credsNav = ev => {
   view = { type: "creds" };
   renderSidebar(); renderMain(true);
 };
+
+// ---------------------------------------------------------------------------
+// Scheduled Brief Delivery (Infrastructure → Scheduled Brief Delivery). The
+// operator-visible surface for the brief watcher's delivery ledger (A4/F07,
+// D81): what /api/briefs/outcomes records per scheduled session — delivered,
+// pending (retrying), or failed (terminal). Operator-only and hosted-store-
+// first, exactly like Credentials Expiry: it distinguishes an empty ledger
+// (nothing serviced yet) from a store OUTAGE (Aurora configured but unread),
+// because collapsing the two to 0/0/0 would hide a broken hosted watcher.
+let briefsData = null;
+let briefsTab = "delivery";
+
+async function loadBriefOutcomes() {
+  try {
+    const r = await fetch(apiUrl("/api/briefs/outcomes"));
+    if (r.status === 404) return;                 // console predates this API
+    if (r.status === 401 || r.status === 403) {   // signed out / not operator
+      briefsData = null; renderBriefsSide(); return;
+    }
+    briefsData = await r.json();
+    renderBriefsSide();
+    if (view && view.type === "briefs") renderMain(true);
+  } catch (_e) { /* section stays empty */ }
+}
+
+function renderBriefsSide() {
+  const acc = document.getElementById("accBriefs");
+  const count = document.getElementById("briefsCount");
+  const el = document.getElementById("briefsSide");
+  if (!acc) return;
+  // Operator-only: a 403 leaves briefsData null, so hide THIS child only (never
+  // the Infrastructure category — the re-entrancy trap the console has been bitten
+  // by). Restores itself when data later arrives, so an in-place sign-in reveals it.
+  if (!briefsData) { acc.style.display = "none"; if (el) el.innerHTML = ""; return; }
+  acc.style.display = "";
+  const sum = briefsData.summary || { delivered: 0, pending: 0, failed: 0 };
+  const total = (sum.delivered || 0) + (sum.pending || 0) + (sum.failed || 0);
+  if (count) {
+    // The badge counts sessions tracked; it turns alert-red when any FAILED,
+    // so the count carries the danger signal like Credentials Expiry does.
+    count.textContent = total ? String(total) : "";
+    count.className = "count" + (sum.failed ? " count-alert" : "");
+  }
+  if (el) el.innerHTML = "";   // standalone destination — no duplicate list here
+}
+
+window.briefsNav = ev => {
+  const here = !!(view && view.type === "briefs");
+  if (!sectionHeaderClick(ev, "accBriefs", here)) return;
+  if (here) return;
+  pushNav();
+  view = { type: "briefs" };
+  renderSidebar(); renderMain(true);
+};
+
+window.setBriefsTab = id => { briefsTab = id; renderMain(true); };
+
+const BRIEF_STATUS_LABEL = { delivered: "delivered", pending: "retrying", failed: "failed" };
+
+function briefsReportHtml() {
+  if (!briefsData) {
+    return `<div class="empty">Sign in as an operator to see scheduled brief delivery.</div>`;
+  }
+  // A configured store that would not answer is an OUTAGE, distinct from an
+  // empty ledger — the route hands us `error` for the former, `note` for the
+  // latter, and each says what it means rather than showing a blank 0/0/0.
+  if (briefsData.error) {
+    return `<div class="hint" style="margin:0 0 14px">The watcher's delivery ledger (A4/F07, D81)
+      is the record of which scheduled account briefs reached Salesforce.</div>
+      <div class="tbl-card" style="border-color:var(--warn,#c96)"><div style="padding:14px">
+        <b style="color:var(--warn,#c96)">Ledger store unavailable.</b>
+        <p class="hint" style="margin:6px 0 0">${esc(briefsData.error)}</p>
+      </div></div>`;
+  }
+  const sessions = briefsData.sessions || [];
+  const sum = briefsData.summary || { delivered: 0, pending: 0, failed: 0 };
+  if (!sessions.length) {
+    return `<div class="hint" style="margin:0 0 14px">The watcher's delivery ledger (A4/F07, D81)
+      is the record of which scheduled account briefs reached Salesforce.</div>
+      <div class="empty">${esc(briefsData.note
+        || "No brief ledger yet — the watcher has not serviced a scheduled session.")}</div>`;
+  }
+  const chip = (k, n) => `<span class="pill pill-${k}">${n} ${esc(BRIEF_STATUS_LABEL[k])}</span>`;
+  const rows = sessions.map(s => {
+    const when = s.at ? fmtWhen(s.at) : "—";
+    const err = s.last_error
+      ? `<div class="hint" style="color:var(--warn,#c96)">${esc(s.last_error)}</div>` : "";
+    const calls = (s.delivered || s.failed_calls)
+      ? `<div class="hint">${s.delivered} ok · ${s.failed_calls} failed</div>` : "";
+    return `
+    <tr class="brief-${esc(s.status)}">
+      <td><span class="mono">${esc(s.session_id)}</span>${err}${calls}</td>
+      <td><span class="pill pill-${esc(s.status)}">${esc(BRIEF_STATUS_LABEL[s.status] || s.status)}</span></td>
+      <td class="num">${esc(String(s.attempts))}</td>
+      <td class="hint">${esc(when)}</td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="hint" style="margin:0 0 14px">Each scheduled research session's delivery outcome,
+    <b>failed first</b> — a <b>failed</b> row is a brief that never reached the org and will not
+    retry itself (it hit the attempt cap, A2ALAB_BRIEF_MAX_ATTEMPTS). The ledger is what makes
+    delivery idempotent and retryable (A4/F07, D81); see the Details tab for what writes it, and
+    plan/09-deployment-map.md for where the watcher runs.</div>
+    <div style="margin:0 0 12px">${chip("failed", sum.failed || 0)} ${chip("pending", sum.pending || 0)} ${chip("delivered", sum.delivered || 0)}</div>
+    <div class="tbl-card"><div class="tbl-scroll">
+      <table class="obs-table"><thead><tr>
+        <th>scheduled session</th><th>status</th><th class="num">attempts</th><th>last serviced</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+    </div></div>`;
+}
+
+function briefsDetailsHtml() {
+  return `
+    <div class="detail">
+    <div class="hint" style="margin:10px 0 16px">What produces this ledger, and what bounds it —
+    the D57 Details contract. The delivery guarantees below are A4/F07, settled in D81.</div>
+
+    <div class="arch-prose">
+      <h4>What writes it</h4>
+      <p>The <b>brief watcher</b> (<code>python -m briefs --watch</code>), a Fargate loop since
+      WS13. Anthropic's scheduled deployment fires a research session per account autonomously; the
+      watcher finds each run, attaches, and executes the <code>save_account_brief</code> tool
+      host-side (<code>briefs.salesforce.BriefWriter</code>) so Salesforce credentials never enter
+      the managed sandbox. Every serviced session folds into a per-call ledger entry —
+      <code>delivered</code>, <code>pending</code>, or terminal <code>failed</code>.</p>
+
+      <h4>How it reads its inputs, and as what identity</h4>
+      <p>This pane reads <code>GET /api/briefs/outcomes</code>, which is <b>operator-only</b>
+      (<code>last_error</code> can carry org detail) and <b>hosted-store-first</b>: when Aurora is
+      configured it is the source of truth, and a read that <i>fails</i> is surfaced as an outage,
+      not an empty ledger — the same rule the watcher's own <code>_load_ledger</code> follows. The
+      local <code>.a2alab/brief_state.json</code> is the laptop fallback only when no store is
+      configured.</p>
+
+      <h4>Where the output is stored</h4>
+      <p>The ledger row lives in Aurora <code>lab.lab_state</code> under the key
+      <code>brief_serviced_sessions</code> (a JSON payload of <code>{sessions: {id: entry}}</code>),
+      bounded to the most-recent 500 sessions. The delivery itself lands in the org as an
+      <code>A2ALab_Account_Brief__c</code> record and a completed <code>Task</code>, both upserted
+      on a composite <code>A2ALab_Delivery_Key__c</code> (<code>&lt;session&gt;#&lt;account&gt;</code>)
+      so a re-run or a concurrent losing writer matches the existing row instead of duplicating.</p>
+
+      <h4>What bounds it, and the caveat that travels with it</h4>
+      <p>A failed delivery is retried up to <code>A2ALAB_BRIEF_MAX_ATTEMPTS</code> (default 3) across
+      watcher ticks, then recorded terminal <code>failed</code> and left alone — a persistently
+      broken write must not re-attempt on every poll. So a <b>failed</b> row here needs a human: the
+      brief never reached the org. The ledger write is committed <i>before</i> the in-memory entry
+      is advanced, so a lost store write leaves the session eligible next tick rather than stranding
+      it (A4/F07, D81).</p>
+    </div>
+    </div>`;
+}
+
+function briefsHtml() {
+  return `
+    <div class="tabbar">
+      <h2>Scheduled Brief Delivery</h2>
+      <div class="tabs">
+        <button class="tab ${briefsTab === "delivery" ? "on" : ""}" onclick="setBriefsTab('delivery')">Delivery</button>
+        <button class="tab ${briefsTab === "details" ? "on" : ""}" onclick="setBriefsTab('details')">Details</button>
+      </div>
+    </div>
+    ${briefsTab === "details" ? briefsDetailsHtml() : briefsReportHtml()}`;
+}
 
 // ---------------------------------------------------------------------------
 // Agent Registry (Infrastructure → Agent Registry) — one tile per distinct
@@ -9749,6 +9935,13 @@ function renderMain(force) {
     linkifyRepoFiles(el);   // repo paths -> GitHub. D-refs and plan/*.md chips
                             // arrive via the MutationObserver, like every other view.
     if (credsTab === "details") renderCredDiagram();
+    return;
+  }
+
+  if (view.type === "briefs") {
+    mainKey = `briefs:${briefsTab}`;
+    el.innerHTML = briefsHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
     return;
   }
 

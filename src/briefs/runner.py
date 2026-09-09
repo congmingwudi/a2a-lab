@@ -406,18 +406,26 @@ class BriefRunner:
                 }
                 result_text = f"Salesforce delivery failed: {type(exc).__name__}: {exc}"
             calls.append(record)
-            # Still answer the managed session so its turn completes; the ledger,
-            # not this tool-result, is what drives retry.
-            await self._client.beta.sessions.events.send(
-                session_id=session_id,
-                events=[
-                    {
-                        "type": "user.custom_tool_result",
-                        "custom_tool_use_id": event.id,
-                        "content": [{"type": "text", "text": result_text}],
-                    }
-                ],
-            )
+            # Answer the managed session ONLY the first time we see this tool use.
+            # On a scheduled REPLAY the failed call already has a
+            # user.custom_tool_result in history (it is in `skip_tool_ids`), so
+            # the session's turn is already complete; sending a second result for
+            # the same id is the duplicate the API can reject — and that rejection
+            # would throw away the now-successful writer outcome and strand the
+            # ledger on `failed`, re-writing on every tick. The host-side ledger,
+            # not this tool-result, is what drives retry (D81 direct replay).
+            already_answered = bool(skip_tool_ids and event_id in skip_tool_ids)
+            if not already_answered:
+                await self._client.beta.sessions.events.send(
+                    session_id=session_id,
+                    events=[
+                        {
+                            "type": "user.custom_tool_result",
+                            "custom_tool_use_id": event.id,
+                            "content": [{"type": "text", "text": result_text}],
+                        }
+                    ],
+                )
             return 0
 
         return 0

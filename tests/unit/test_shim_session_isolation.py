@@ -242,3 +242,73 @@ async def test_the_subject_is_reset_after_each_request(tmp_path, monkeypatch):
     assert auth_mod.verified_subject() is None
     await _through_middleware(executor, token)
     assert auth_mod.verified_subject() is None
+
+
+def _http_scope(bearer: str) -> dict:
+    return {
+        "type": "http",
+        "path": "/",
+        "headers": [(b"authorization", f"Bearer {bearer}".encode())],
+        "query_string": b"",
+    }
+
+
+async def _noop_receive():
+    return {"type": "http.request", "body": b"", "more_body": False}
+
+
+async def _noop_send(message):
+    pass
+
+
+async def test_background_task_reads_subject_from_its_snapshot(tmp_path, monkeypatch):
+    """The a2a-sdk may dispatch the executor on a BACKGROUND task rather than
+    awaiting it inline. `asyncio.create_task` snapshots the request's context —
+    including the verified subject — so the child keys by the right caller even
+    though the middleware has since reset the subject in the parent scope. The
+    test creates the task inside the request scope but does NOT await it, lets the
+    middleware unwind (asserting the parent is reset AND the child has not run
+    yet), then runs the child: a process-global would read None here and mis-key
+    to the platform-only fallback."""
+    executor, client = _executor()
+    token = _jwt(monkeypatch, tmp_path, "alice")
+    holder: dict = {}
+
+    async def downstream(scope, receive, send):
+        holder["task"] = asyncio.create_task(executor.execute(_ctx({}), _FakeQueue()))
+
+    mw = auth_mod.TokenAuthMiddleware(downstream, token="shared-secret")
+    await mw(_http_scope(token), _noop_receive, _noop_send)
+
+    assert auth_mod.verified_subject() is None  # the middleware reset the parent
+    assert not holder["task"].done()  # the child has not read the subject yet
+    await holder["task"]  # now it runs, against its own context snapshot
+    assert client.session_keys == ["shim-shared-direct-alice"]
+
+
+async def test_jwt_and_shared_token_do_not_cross_concurrently(tmp_path, monkeypatch):
+    """Concurrency across the two auth kinds: a verified JWT (subject alice) and
+    the legacy shared service token (no subject) in flight simultaneously. A
+    process-global subject would let the JWT's subject bleed into the shared
+    caller's session key; the per-request contextvar keeps them apart."""
+    exec_jwt, client_jwt = _executor()
+    exec_shared, client_shared = _executor()
+    tok = _jwt(monkeypatch, tmp_path, "alice")
+
+    barrier = asyncio.Barrier(2)
+    orig_jwt = exec_jwt.adapter.handle
+    orig_shared = exec_shared.adapter.handle
+
+    async def gated(orig, req):
+        await barrier.wait()  # both requests parked here, mid-flight, at once
+        return await orig(req)
+
+    exec_jwt.adapter.handle = lambda req: gated(orig_jwt, req)
+    exec_shared.adapter.handle = lambda req: gated(orig_shared, req)
+
+    await asyncio.gather(
+        _through_middleware(exec_jwt, tok),
+        _through_middleware(exec_shared, "shared-secret"),
+    )
+    assert client_jwt.session_keys == ["shim-shared-direct-alice"]
+    assert client_shared.session_keys == ["shim-shared-direct"]

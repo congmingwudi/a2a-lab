@@ -41,7 +41,16 @@ DELIVERY_KEY_FIELD = "A2ALab_Delivery_Key__c"
 # a key here is resolved to the mapped Id directly, with a binding check.
 ACCOUNT_MAP_ENV = "A2ALAB_BRIEF_ACCOUNT_MAP"
 
-_ACCOUNT_ID_RE = _re.compile(r"^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$")
+# The trusted-map value must be an ACCOUNT id, not merely a well-formed 15/18-char
+# Salesforce id: the `001` key prefix is Account's, so a map entry pointing at a
+# Contact/Opportunity/etc is rejected before it can mis-file a brief (A5/F03).
+_ACCOUNT_ID_RE = _re.compile(r"^001[A-Za-z0-9]{12}([A-Za-z0-9]{3})?$")
+
+
+def _fmt_candidates(rows: list[dict]) -> str:
+    """Name (Id) list for an ambiguity error, so the operator can pick the one
+    to add to the trusted map rather than guessing which the resolver saw."""
+    return "; ".join(f"{r.get('Name')} ({r.get('Id')})" for r in rows)
 
 
 def _soql_str(value: str) -> str:
@@ -160,6 +169,15 @@ class BriefWriter:
                 f"SELECT Id FROM {sobject} WHERE {ext_field} = '{_soql_str(key)}' LIMIT 1"
             )
             rec_id = rows[0]["Id"] if rows else None
+        if not rec_id:
+            # Fail closed: a null id means we cannot honestly report the record,
+            # and continuing would build a `/None/view` URL and claim success on
+            # a delivery that may not exist. Raise so the call is recorded failed
+            # and retried, not silently "delivered".
+            raise RuntimeError(
+                f"upsert {sobject} on {ext_field}='{key}' returned no id "
+                f"(status {'204' if not data else 'ok'}) and the re-query found no row"
+            )
         return {"id": rec_id, "created": bool((data or {}).get("created", False))}
 
     async def _resolve_account(self, account_name: str, trace_id: str) -> dict:
@@ -207,26 +225,28 @@ class BriefWriter:
             transport_detail=f"GET /query Account Name = '{name}'",
             request_payload={"account_name": name},
         ) as hop:
+            # LIMIT 6, not 2: enough to LIST the colliding candidates in the
+            # error (A5/F03 requires naming them), while still bounding the read.
             exact = await self._query(
-                f"SELECT Id, Name FROM Account WHERE Name = '{_soql_str(name)}' LIMIT 2"
+                f"SELECT Id, Name FROM Account WHERE Name = '{_soql_str(name)}' LIMIT 6"
             )
             if len(exact) > 1:
                 raise RuntimeError(
-                    f"'{name}' is ambiguous — {len(exact)} Accounts share that exact name; "
-                    "refusing to guess"
+                    f"'{name}' is ambiguous — {len(exact)} Accounts share that exact name "
+                    f"({_fmt_candidates(exact)}); refusing to guess (add it to {ACCOUNT_MAP_ENV})"
                 )
             if len(exact) == 1:
                 hop.response_payload = exact[0]
                 return exact[0]
             like = await self._query(
-                f"SELECT Id, Name FROM Account WHERE Name LIKE '%{_soql_like(name)}%' LIMIT 2"
+                f"SELECT Id, Name FROM Account WHERE Name LIKE '%{_soql_like(name)}%' LIMIT 6"
             )
             if not like:
                 raise RuntimeError(f"no Account matched '{name}'")
             if len(like) > 1:
                 raise RuntimeError(
-                    f"'{name}' is ambiguous — matched {len(like)}+ Accounts by LIKE; refusing "
-                    "to guess (add it to " + ACCOUNT_MAP_ENV + ")"
+                    f"'{name}' is ambiguous — matched {len(like)} Accounts by LIKE "
+                    f"({_fmt_candidates(like)}); refusing to guess (add it to {ACCOUNT_MAP_ENV})"
                 )
             hop.response_payload = like[0]
             return like[0]
@@ -273,6 +293,17 @@ class BriefWriter:
             brief_id = upserted["id"]
             hop.response_payload = upserted
 
+        # In-app (bell) notification — idempotent AND best-effort. Gate it on the
+        # BRIEF create, the pair's single atomic create point, and fire it here
+        # (not after the Task): exactly one call/writer ever creates the brief, so
+        # the alert fires exactly once — no duplicate on a re-delivery, a
+        # concurrent losing writer, or a Task-only repair, and never missed if the
+        # Task upsert later fails and retries. Best-effort: a missing notification
+        # type or permission must not fail the delivery.
+        notified = False
+        if upserted.get("created"):
+            notified = await self._notify(account, headline, brief_id, trace_id)
+
         brief_url = (
             self.my_domain.replace(".my.salesforce.com", ".lightning.force.com")
             + f"/lightning/r/A2ALab_Account_Brief__c/{brief_id}/view"
@@ -305,9 +336,18 @@ class BriefWriter:
             )
             hop.response_payload = task
 
-        # In-app (bell) notification — best-effort: a missing notification
-        # type or permission must not fail the brief delivery itself.
-        notified = False
+        return {
+            "account_id": account["Id"],
+            "account_name": account["Name"],
+            "brief_id": brief_id,
+            "task_id": task.get("id"),
+            "delivery_key": delivery_key,
+            "notified": notified,
+        }
+
+    async def _notify(self, account: dict, headline: str, brief_id: str, trace_id: str) -> bool:
+        """Fire the A2ALab_Brief_Alert in-app notification. Best-effort: returns
+        False (never raises) if the type/permission/recipients are missing."""
         try:
             with Hop(
                 trace_id,
@@ -345,18 +385,10 @@ class BriefWriter:
                     },
                 )
                 hop.response_payload = result
-                notified = True
+                return True
         except Exception as exc:  # error hop already recorded by Hop.__exit__
             print(f"[briefs] in-app notification failed (continuing): {exc}", flush=True)
-
-        return {
-            "account_id": account["Id"],
-            "account_name": account["Name"],
-            "brief_id": brief_id,
-            "task_id": task.get("id"),
-            "delivery_key": delivery_key,
-            "notified": notified,
-        }
+            return False
 
     async def _alert_recipients(self) -> list[str]:
         """Users to notify: SF_ALERT_USERNAME if set, else active sysadmins."""

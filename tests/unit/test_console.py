@@ -768,6 +768,40 @@ def test_brief_outcomes_empty_state_explains_itself(tmp_path, monkeypatch):
     assert "watcher" in body["note"].lower()
 
 
+def test_brief_outcomes_distinguishes_a_store_outage_from_empty(tmp_path, monkeypatch):
+    """A configured Aurora store that will not answer is an OUTAGE, not an empty
+    ledger. The route must return `error` (never `note`) and an empty summary, so
+    the console shows a broken hosted watcher rather than a reassuring 0/0/0
+    (Codex WS25-b3 rd1, A4/F07)."""
+    import observability.pg as pg
+
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setattr(pg.PgClient, "configured", classmethod(lambda cls: True))
+
+    class BrokenStore:
+        def __init__(self, *a, **k):
+            pass
+
+        def get_state(self, key):
+            raise RuntimeError("connection refused")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(pg, "PgObsStore", BrokenStore)
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+    headers = _operator_headers(monkeypatch, tmp_path)
+    r = client.get("/api/briefs/outcomes", headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["sessions"] == []
+    assert body["summary"] == {"delivered": 0, "pending": 0, "failed": 0}
+    assert "note" not in body  # not the empty-ledger message
+    assert "outage" in body.get("error", "").lower()
+    assert "connection refused" in body["error"]
+
+
 def test_shared_service_token_still_reaches_operator_surfaces(tmp_path, monkeypatch):
     """The header-borne shared token (no persona) is the operator's own
     legacy credential and must stay allowed on the operator-only paths."""

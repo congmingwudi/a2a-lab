@@ -185,8 +185,15 @@ async def watch() -> None:
                 prior = ledger.get(session_id)
                 if prior and _is_terminal(prior):
                     continue  # delivered, or failed at the attempt cap
-                ledger[session_id] = await _service_once(client, session_id, prior)
-                _save_ledger(ledger)
+                candidate = await _service_once(client, session_id, prior)
+                # Persist BEFORE mutating the live ledger. If the state write is
+                # lost, `_save_ledger`'s invariant is that the next poll
+                # re-delivers — but only if the in-memory ledger still shows the
+                # session as non-terminal. Committing the (possibly terminal)
+                # entry first and saving second would strand a failed write:
+                # the poll would skip a session that never persisted (F07 rd1).
+                _save_ledger({**ledger, session_id: candidate})
+                ledger[session_id] = candidate
         except Exception as exc:
             print(f"[briefs] poll error (retrying): {exc}", flush=True)
         await asyncio.sleep(POLL_S)
