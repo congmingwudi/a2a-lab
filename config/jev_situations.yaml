@@ -1,0 +1,131 @@
+# Experiment B's labelled set (WS26, D82, plan/17-jev-system-one.md): situations
+# the supplier-disruption orchestrator might be handed, each with the business
+# units a competent operations lead would consult. scripts/jev_gate_eval.py runs
+# the Jev gate (and optionally a Haiku-tier baseline) over these and scores the
+# decisions per unit.
+#
+# AUTHOR-LABELLED. These were written for this experiment, not drawn from an
+# incident log, so recall against them measures agreement with the author, not
+# with ground truth. The eval prints that caveat beside its numbers. Labels can
+# be argued with — `why` is there so a disagreement is with a stated reason.
+#
+# Units are the leg roles in src/orchestration/legs.py:
+#   exposure        Logistics — which shipments/orders/routes are exposed
+#   commercial      Commercial / Legal — penalties, force majeure, commitments
+#   customer_comms  Customer operations — what to tell affected customers
+#
+# The set is deliberately NOT all-three: a gate is only interesting when it has
+# something to skip. `kind` groups situations for the report.
+
+situations:
+  - id: rotterdam-strike
+    kind: all-three
+    text: >-
+      A port strike has halted all container traffic through Rotterdam as of
+      06:00 today. Assess the impact for our EU manufacturing customers.
+    expected: [exposure, commercial, customer_comms]
+    why: The console's default situation — physical disruption, contract exposure and customer notice all follow.
+
+  - id: suez-blockage
+    kind: all-three
+    text: >-
+      A grounded vessel has blocked the Suez Canal; carriers are rerouting
+      around the Cape, adding 10-14 days to Asia-Europe sailings.
+    expected: [exposure, commercial, customer_comms]
+    why: Rerouting delays shipments (exposure), may trigger late-delivery terms (commercial) and customers need dates (comms).
+
+  - id: supplier-insolvency
+    kind: all-three
+    text: >-
+      Our sole supplier of a machined housing part filed for insolvency this
+      morning and has stopped shipping. Three customer programmes depend on it.
+    expected: [exposure, commercial, customer_comms]
+    why: Supply stops (exposure), supply contracts and customer commitments are at risk (commercial), customers must be told (comms).
+
+  - id: invoice-penalty-dispute
+    kind: one-unit
+    text: >-
+      A customer's CFO disputes the late-delivery penalty we applied on invoice
+      4471 and says the delay clause does not cover partial shipments.
+    expected: [commercial]
+    why: A contract-interpretation question; nothing is moving or stopped, and the customer is already in a commercial conversation.
+
+  - id: force-majeure-clause-review
+    kind: one-unit
+    text: >-
+      Legal wants to know whether our standard supply agreement's force majeure
+      clause covers cyberattacks on a carrier, before the next contract renewal.
+    expected: [commercial]
+    why: A forward-looking contract review with no live disruption.
+
+  - id: warehouse-capacity
+    kind: one-unit
+    text: >-
+      Our Antwerp warehouse will be at 97% capacity next week because of the
+      seasonal inbound peak. Which outbound shipments should we prioritise?
+    expected: [exposure]
+    why: An internal logistics prioritisation; no contract is breached and no customer is yet affected.
+
+  - id: carrier-tracking-outage
+    kind: one-unit
+    text: >-
+      Our ocean carrier's tracking API has been down for six hours, so we cannot
+      confirm vessel positions for in-transit containers.
+    expected: [exposure]
+    why: Visibility loss on shipments, not a delay; nothing to tell customers or claim yet.
+
+  - id: customer-asks-eta
+    kind: one-unit
+    text: >-
+      A customer emailed asking for an updated delivery date on their order
+      after reading about congestion in the news. Our records show it is on
+      schedule.
+    expected: [customer_comms]
+    why: The order is on schedule, so the job is a reassuring reply — no exposure, no contract question.
+
+  - id: customer-notice-template
+    kind: one-unit
+    text: >-
+      Marketing asks for a standard template we can send customers whenever a
+      shipping delay of more than two days occurs.
+    expected: [customer_comms]
+    why: A communications artefact with no live incident.
+
+  - id: rail-strike-germany
+    kind: two-unit
+    text: >-
+      A 48-hour rail freight strike in Germany starts tomorrow. Our inbound
+      components move by rail from Hamburg to the Stuttgart plant.
+    expected: [exposure, commercial]
+    why: Inbound supply is exposed and supplier/customer terms may bite; no customer-facing delay is confirmed yet.
+
+  - id: customs-hold
+    kind: two-unit
+    text: >-
+      Customs in Felixstowe is holding four of our containers for a paperwork
+      discrepancy; two are due at a customer's line on Thursday.
+    expected: [exposure, customer_comms]
+    why: Shipments are exposed and the customer whose line is waiting needs warning; the hold is ours to fix, not a contract dispute.
+
+  - id: price-increase-letter
+    kind: two-unit
+    text: >-
+      A key resin supplier has announced a 12% price increase from next month,
+      and we need to decide whether to pass it on to customers.
+    expected: [commercial, customer_comms]
+    why: Contract pricing (commercial) and a customer message (comms); nothing is delayed.
+
+  - id: office-move
+    kind: none
+    text: >-
+      The finance team is moving to the third floor next Monday; desks need to
+      be packed by Friday.
+    expected: []
+    why: Not a supply-chain matter at all — the correct gate decision is to consult no unit.
+
+  - id: quarterly-okrs
+    kind: none
+    text: >-
+      Please draft the engineering team's OKRs for next quarter.
+    expected: []
+    why: Out of scope for every unit; checks the gate does not dispatch reflexively.

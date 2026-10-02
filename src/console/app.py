@@ -2512,9 +2512,18 @@ def create_console_app(registry: Registry | None = None):
                 # selects the fire-then-poll system prompt so the model drives
                 # the submit_<unit>/check_task tools on the Lambda.
                 dispatch_mode = "async" if body.get("dispatch_mode") == "async" else "sync"
+                # WS26/D82 (Experiment B, plan/17-jev-system-one.md): a System-One
+                # gate in front of the host-side fan-out. Honoured only where the
+                # scenario offers it and only under "tool" — under "mcp" the model
+                # is the router, and the orchestrator refuses a second one.
+                gate = (
+                    "jev"
+                    if spec.get("gate_toggle") and variant == "tool" and body.get("gate") == "jev"
+                    else "none"
+                )
                 trace_id = body.get("trace_id") or new_trace_id()
                 try:
-                    orch = CmaOrchestrator(variant=variant, dispatch_mode=dispatch_mode)
+                    orch = CmaOrchestrator(variant=variant, dispatch_mode=dispatch_mode, gate=gate)
                 except OrchestratorNotProvisioned as exc:
                     # Same class as the jira_sync gap: a console feature reaching
                     # for .a2alab/ state the hosted container doesn't carry. The
@@ -2553,6 +2562,8 @@ def create_console_app(registry: Registry | None = None):
                     # read identically to a blocking one (WS11).
                     if fan.dispatch_summary:
                         coverage += f" · {fan.dispatch_summary}"
+                    if fan.gate is not None:
+                        coverage += f" · {fan.gate.summary()}"
                 return {
                     "ok": True,
                     "trace_id": result.get("trace_id", trace_id),
@@ -2560,6 +2571,7 @@ def create_console_app(registry: Registry | None = None):
                     "latency_ms": result.get("wall_ms"),
                     "variant": variant,
                     "dispatch_mode": result.get("dispatch_mode", dispatch_mode),
+                    "gate": gate,
                 }
             if spec.get("mode") == "async":
                 # Fire-and-return: the research session runs for minutes in

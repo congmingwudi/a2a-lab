@@ -1725,6 +1725,7 @@ let afTopologies = {};    // key -> "delegated" | "serial" (D61 fan-out topology
 let viaBridges = {};      // key -> bool (protocol cells: route via the lab bridge)
 let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
+let fanoutGates = {};     // key -> "none" | "jev" (WS26/D82 System-One gate radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
 // turn's call path.
@@ -4277,6 +4278,39 @@ window.setDispatchMode = m => {
   renderMain(true);
 };
 
+// WS26/D82, Experiment B in plan/17-jev-system-one.md: a System-One gate in
+// front of the host-side fan-out. Only meaningful under the "tool" topology —
+// under remote MCP tools the model itself picks the units, so the radio is
+// disabled there rather than hidden (hiding it would make the two topologies
+// look like they offer different experiments).
+const GATE_HELP = {
+  none: "no gate: the host-side tool consults every business unit on every situation (the control, and every run before WS26).",
+  jev: "Jev gate: before dispatching, one call to TypeSafe's Jev asks — per business unit — the probability that this situation needs that unit. p ≥ 0.9 dispatches, p ≤ 0.1 skips, anything between dispatches and is marked uncertain. Skipped units are NAMED in the hand-off with their p, and if Jev is unreachable the gate fails open and consults everyone (D82).",
+};
+window.setFanoutGate = g => {
+  if (!view || view.type !== "experiment") return;
+  fanoutGates[expKey(view.kind, view.name)] = g;
+  renderMain(true);
+};
+
+function fanoutGateRowHtml(key) {
+  const g = fanoutGates[key] || "none";
+  const off = (fanoutVariants[key] || "tool") !== "tool";
+  const dis = off ? "disabled" : "";
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Unit gate</span>
+    <label><input type="radio" name="fanoutGate" value="none" ${g === "none" ? "checked" : ""} ${dis}
+      onchange="setFanoutGate('none')"> none (consult all)</label>${qhelp(GATE_HELP.none)}
+    <label><input type="radio" name="fanoutGate" value="jev" ${g === "jev" ? "checked" : ""} ${dis}
+      onchange="setFanoutGate('jev')"> Jev (System One)</label>${qhelp(GATE_HELP.jev)}
+    <span class="chan-more">${off
+      ? "Host-side tool only — under remote MCP tools the model is the router."
+      : `Which units to consult, decided before dispatch —
+      <a onclick="setTab('details')">full explanation in Details</a>.`}</span>
+  </div>`;
+}
+
 function dispatchModeRowHtml(key) {
   const m = dispatchModes[key] || "sync";
   return `
@@ -4330,7 +4364,7 @@ const AF_ASYNC_DIAGRAM = `flowchart TB
 // Rendered only for scenarios that actually expose these radios, so a plain
 // pairwise scenario's Details is unchanged.
 function fanoutControlsDetailHtml(s) {
-  if (!s || !(s.fanout_variant_toggle || s.dispatch_mode_toggle)) return "";
+  if (!s || !(s.fanout_variant_toggle || s.dispatch_mode_toggle || s.gate_toggle)) return "";
   const topology = s.fanout_variant_toggle ? `
       <h6>Fan-out topology — where the business-unit tools execute (D41)</h6>
       <p class="desc-note">Same agent, same prompt, two tool inventories (swapped per run via
@@ -4475,12 +4509,38 @@ function fanoutControlsDetailHtml(s) {
         issues is one model turn, so the turn count IS the poll count — the WS11 measurement of who schedules
         the asynchronous half, made visible rather than hidden in our code.</p>` : "";
   const dispatch = s.dispatch_mode_toggle ? dispatchIntro + perPlatform + extraTurns : "";
+  // WS26/D82 — Experiment B in plan/17-jev-system-one.md.
+  const gate = s.gate_toggle ? `
+      <h6>Unit gate — which business units to consult (WS26, D82)</h6>
+      <p class="desc-note">Without a gate the host-side tool consults all three units on every situation.
+        With the <b>Jev</b> gate, the host first makes <b>one</b> call to TypeSafe's Jev — a "System One"
+        model that answers typed questions with probabilities instead of writing text — asking, per unit,
+        the probability that this situation needs that unit to act (<code>src/orchestration/gate.py</code>).
+        The call runs in the same host as the fan-out, with the operator's <code>TYPESAFE_API_KEY</code>,
+        and appears as its own <code>typesafe-jev</code> hop in the trace.</p>
+      <ul class="steps">
+        <li><b>p ≥ 0.9</b> dispatches; <b>p ≤ 0.1</b> skips; anything between <b>dispatches and is marked
+          uncertain</b> — because a missing leg is reported, never omitted, and an uncertain skip would be a
+          silently missing leg. Thresholds are <code>A2ALAB_JEV_GATE_DISPATCH</code> /
+          <code>A2ALAB_JEV_GATE_SKIP</code>, after the vendor's own bands.</li>
+        <li>A <b>skipped</b> unit still appears in the hand-off as <code>[leg skipped by gate: …]</code> with
+          its p, so the brief can say who was not consulted and why.</li>
+        <li>If Jev is unreachable or unconfigured the gate <b>fails open</b>: every unit is consulted and the
+          hand-off says so. An outage may cost efficiency, never coverage.</li>
+        <li>Host-side tool only. Under remote MCP tools the model chooses the units itself — it already is the
+          router — so the radio is disabled there.</li>
+      </ul>
+      <p class="desc-note">The default Rotterdam situation needs all three units, so a gated run of it should
+        skip nothing; type a narrower situation (a single invoice dispute, a customer asking for a delivery
+        date) to see a skip. The measured comparison across a labelled set of situations is
+        <code>scripts/jev_gate_eval.py</code>; method and caveats in plan/17-jev-system-one.md.</p>` : "";
   return `
     <div class="flow">
       <h3>Run controls — the fan-out choices</h3>
       <p class="desc-note">These are the radios in the Run tab. Set them there; what each does is here.</p>
       ${topology}
       ${dispatch}
+      ${gate}
     </div>`;
 }
 
@@ -9056,6 +9116,7 @@ window.loadPastChat = id => {
     if (tg.af_topology) afTopologies[key] = tg.af_topology;
     if (tg.variant) fanoutVariants[key] = tg.variant;
     if (tg.dispatch_mode) dispatchModes[key] = tg.dispatch_mode;
+    if (tg.gate) fanoutGates[key] = tg.gate;
   }
   chatHistoryOpen[key] = false;
   renderMain(true);
@@ -9218,6 +9279,12 @@ async function sendTurn(kind, name, message, overrides) {
     if (spec && spec.dispatch_mode_toggle) {
       body.dispatch_mode = (overrides && overrides.dispatch_mode) || dispatchModes[key] || "sync";
       toggles.dispatch_mode = body.dispatch_mode;
+    }
+    // The gate rides only under the host-side tool topology (D82) — the
+    // backend refuses it under "mcp", where the model is the router.
+    if (spec && spec.gate_toggle && (body.variant || "tool") === "tool") {
+      body.gate = (overrides && overrides.gate) || fanoutGates[key] || "none";
+      toggles.gate = body.gate;
     }
   } else {
     body.target = name;
@@ -9884,6 +9951,8 @@ function renderMain(force) {
             ? fanoutVariantRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.dispatch_mode_toggle
             ? dispatchModeRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.gate_toggle
+            ? fanoutGateRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set

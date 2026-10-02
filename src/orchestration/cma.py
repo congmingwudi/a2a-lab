@@ -140,13 +140,25 @@ class CmaOrchestrator:
         state: dict[str, Any] | None = None,
         variant: str = "tool",
         dispatch_mode: str = "sync",
+        gate: str = "none",
     ):
         if variant not in ("tool", "mcp"):
             raise ValueError(f"unknown variant '{variant}' — known: tool, mcp")
         if dispatch_mode not in ("sync", "async"):
             raise ValueError(f"unknown dispatch_mode '{dispatch_mode}' — known: sync, async")
+        if gate not in ("none", "jev"):
+            raise ValueError(f"unknown gate '{gate}' — known: none, jev")
+        if gate != "none" and variant != "tool":
+            # Under "mcp" the MODEL picks which units to call — it IS the router
+            # the gate would replace. Gating it too would put two routers in one
+            # run and make the comparison meaningless (WS26/D82).
+            raise ValueError("the Jev gate applies to the host-side 'tool' variant only")
         self._client = client
         self._variant = variant
+        # Experiment B (plan/17-jev-system-one.md): a System-One gate in front
+        # of the host-side fan-out. Same agent, same prompt, same tool; only
+        # which legs the host runs changes.
+        self._gate = gate
         # How each leg is called (WS11). Under "tool" the host runs `dispatch()`,
         # so sync/async is the host's poll behaviour. Under "mcp" the legs run
         # inside the Lambda's MCP tools: sync uses the blocking consult_<unit>
@@ -191,6 +203,7 @@ class CmaOrchestrator:
                 caller_platform="claude",
                 trace_id=trace_id,
                 dispatch_mode=self._dispatch_mode,
+                gate=self._gate,
             )
             result_text = self.fanout.render()
 
@@ -337,6 +350,7 @@ class CmaOrchestrator:
             "session_id": session.id,
             "variant": self._variant,
             "dispatch_mode": self._dispatch_mode,
+            "gate": self._gate,
             "wall_ms": int((time.perf_counter() - start) * 1000),
             "fanout": self.fanout,
             "call_path": self.call_path,

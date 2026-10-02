@@ -1496,10 +1496,17 @@ scenarios:
     # not dispatch them. The two A2A legs (ADK, Foundry) run the real lifecycle;
     # the AgentCore comms leg has no task lifecycle and is recorded async→sync.
     dispatch_mode_toggle: true
+    # Per-run choice of WHICH legs the host-side tool runs (WS26/D82, Experiment
+    # B in plan/17-jev-system-one.md): "none" consults every unit (the control);
+    # "jev" asks TypeSafe's Jev first, one noul per unit, and skips units it is
+    # confident the situation does not need. Host-side "tool" variant only —
+    # under "mcp" the model is the router. Skips are named in the hand-off; a
+    # Jev failure fails open to every unit.
+    gate_toggle: true
     via_bridge: false
     status: live
     requires_mode: hosted
-    tags: [fan-out, orchestration, claude, managed-agents, adk, foundry, openai, async]
+    tags: [fan-out, orchestration, claude, managed-agents, adk, foundry, openai, async, jev]
     # The kick-off prompt IS the disruption. Every other scenario asks a
     # question; this one reports a situation, because that is what an
     # orchestrator is for — nobody types "please fan out to three business
