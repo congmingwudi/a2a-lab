@@ -3395,8 +3395,12 @@ integration user's permission set; both records are written by external-id
 duplicating. The Task carries the same field (not a Subject echo) because
 activities are disabled on the brief object, so pair idempotency needs the Task's
 own org-enforced key. This is a real production-org schema change and is
-authorized here; the unique fields deploy only after a composite-key duplicate
-scan is clean. This supersedes the "app-level query-before-insert alone" option
+authorized here; the unique fields are **deployed first** (safe on the populated
+objects because a unique external-id field ignores NULLs and every existing row
+is null on the brand-new column), and the composite-key duplicate scan is a
+**post-deploy assertion**, not a pre-deploy gate — the field is not queryable
+until it exists, so a scan-first ordering can never run (see Amendment below).
+This supersedes the "app-level query-before-insert alone" option
 floated in the b3 plan rev 1 and satisfies the D80 requirement of a Salesforce
 uniqueness boundary.
 
@@ -3425,5 +3429,14 @@ threading the **verified** JWT subject with a `finally`-reset and overwriting an
 caller-asserted value, tested through the real executor and overlapping/background
 paths; the a2a change ships to faces + shim only (not bridge/console).
 
+**Amendment 2026-09-09 (deploy gate).** The original decision text above read
+"the unique fields deploy only after a composite-key duplicate scan is clean" —
+a scan-**then**-deploy ordering that cannot execute: a SOQL `SELECT` on
+`A2ALab_Delivery_Key__c` before the field exists fails with `No such column`, so
+the gate could never run. Corrected to deploy-first / scan-as-post-deploy-
+assertion, which is safe because a unique external-id field ignores NULLs and
+every existing row is null on the new column. Folded in at deploy time per the
+b3 response (Round 1 finding 6, `build-notes/claude/reviews/ws25-b3.md`).
+
 **Status.** DECIDED 2026-09-09. Implementer: Claude Code, branch
-`ws25-b3-crm-writes-sessions`. Cross-review: Codex.
+`ws25-b3-crm-writes-sessions`. Cross-review: Codex (PASS, round 2).
