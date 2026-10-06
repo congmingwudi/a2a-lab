@@ -115,6 +115,12 @@ keys = [
     # /oauth/token returns "invalid client": SP1 ships broken. Anypoint side is
     # the matching secured deployment variable (spec §4).
     "A2ALAB_MULE_GW_CLIENT_ID", "A2ALAB_MULE_GW_CLIENT_SECRET",
+    # WS26/D82: the Jev unit gate's bearer. Same blind spot twice over — the
+    # client reads it through API_KEY_ENV (invisible to the ENV_JSON scan) and
+    # it is *_KEY-shaped (dropped by is_secret) — so without this line the
+    # hosted gate always fails open. TYPESAFE_BASE_URL/_MODEL and the
+    # A2ALAB_JEV_GATE_* bands are literal os.environ reads and ride plain env.
+    "TYPESAFE_API_KEY",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
 

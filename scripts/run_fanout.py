@@ -3,6 +3,7 @@
     uv run python scripts/run_fanout.py
     uv run python scripts/run_fanout.py --task "A typhoon has closed Kaohsiung."
     uv run python scripts/run_fanout.py --legs exposure,commercial
+    uv run python scripts/run_fanout.py --gate jev --task "A customer's CFO disputes a penalty."
 
 The orchestrator's own model is not involved here — this drives the dispatch
 layer directly so the FAN-OUT can be measured without waiting on a managed
@@ -61,9 +62,9 @@ async def _run_cma(args, variant: str = "tool") -> int:
     print(f"trace         {trace_id}")
     print(f"task          {args.task}\n")
 
-    result = await CmaOrchestrator(variant=variant, dispatch_mode=dispatch_mode).run(
-        args.task, trace_id=trace_id
-    )
+    result = await CmaOrchestrator(
+        variant=variant, dispatch_mode=dispatch_mode, gate=args.gate
+    ).run(args.task, trace_id=trace_id)
     fan = result["fanout"]
     path = result["call_path"]
 
@@ -80,6 +81,8 @@ async def _run_cma(args, variant: str = "tool") -> int:
             status = "ok  " if leg_result.ok else "FAIL"
             print(f"[{status}] {leg_result.leg.role:<15} {leg_result.latency_ms:>6} ms")
         print(f"\ncoverage  {fan.ok_count}/{len(fan.results)} legs answered")
+        if fan.gate is not None:
+            print(f"gate      {fan.gate.summary()}")
 
     print(f"wall      {result['wall_ms']} ms")
     print(f"session   {result['session_id']}")
@@ -136,7 +139,21 @@ async def main() -> int:
             "tools, where the MODEL schedules the units."
         ),
     )
+    ap.add_argument(
+        "--gate",
+        default="none",
+        choices=("none", "jev"),
+        help=(
+            "none = run every leg (the default, and the control). jev = ask "
+            "TypeSafe's Jev first which business units this situation needs and "
+            "dispatch only those (WS26/D82, plan/17-jev-system-one.md). Applies "
+            "to the direct path and to --orchestrator cma, not cma-mcp."
+        ),
+    )
     args = ap.parse_args()
+    if args.gate != "none" and args.orchestrator == "cma-mcp":
+        print("--gate applies to the host-side fan-out; under cma-mcp the model is the router")
+        return 2
 
     if args.orchestrator == "cma":
         return await _run_cma(args, variant="tool")
@@ -165,6 +182,7 @@ async def main() -> int:
         caller_platform=args.caller_platform,
         trace_id=trace_id,
         roles=wanted or None,
+        gate=args.gate,
     )
 
     for leg_result in result.results:
@@ -179,6 +197,11 @@ async def main() -> int:
         print()
 
     print("-" * 72)
+    if result.gate is not None:
+        for d in result.gate.decisions:
+            p = "  -  " if d.p is None else f"{d.p:.2f}"
+            print(f"gate      {d.leg.role:<15} p={p}  {d.decision}")
+        print(f"gate      {result.gate.summary()}")
     print(f"coverage  {result.ok_count}/{len(result.results)} legs answered")
     print(f"wall      {result.total_ms} ms")
     print(f"trace     {trace_id}")

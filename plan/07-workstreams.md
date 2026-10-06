@@ -3550,3 +3550,30 @@ redeployed (full rebuild — every item touches `src/`).
 15. ⏳ D — `plan/02-matrix.md` ledger entries for the F03/F05 accepted risks; retention story in `plan/05-observability.md`; body-size limit on `AgentRequest.from_dict`; dropped-event counter on `/api/obs/summary`; Details panes for role gating, fan-out task lifecycle and Guide instrumentation cite D80; `plan/09` L6 rows for the A6 column and the A4 field; console redeployed (full rebuild).
 16. ⏳ Loop measurement — per-batch cost and edit-acceptance from the Coding Agents Telemetry tabs recorded in `plan/03-results.md` (D79).
 
+
+## WS26 — Jev System One: a calibrated decision service in the lab (raised 2026-10-02, D82)
+
+TypeSafe AI's Jev answers typed questions about a piece of state with a
+probability and a confidence instead of generated text. It is not an agent
+platform (no MCP, no A2A, no agent loop), so it joins the lab as a **decision
+service** inside existing experiments, with its vendor claims tested on the lab's
+own data rather than repeated. Method, bands and caveats: `plan/17-jev-system-one.md`.
+
+**Experiment B — a confidence gate in front of the supplier-disruption fan-out.**
+
+1. ✅ Jev client (`src/platforms/jev/client.py`) — `POST /v1/systemone`, typed answers, every call a `typesafe-jev` trace hop, every failure a `JevError`; key in `TYPESAFE_API_KEY`.
+2. ✅ The unit gate (`src/orchestration/gate.py`) — one `noul` per business unit, dispatch ≥0.9 / skip ≤0.1 / dispatch-marked-uncertain between, fails open, every skip named in the hand-off; `dispatch(gate="jev")` with a lazy import so the fan-out Lambda bundle is untouched.
+3. ✅ Experiment surface — `supplier-disruption-cma` *Unit gate* radio in the console (tool variant only, `gate_toggle`), its Details section, `run_fanout.py --gate jev`, and `CmaOrchestrator` refusing a gate under the mcp variant (D41).
+4. ✅ Gate eval — `config/jev_situations.yaml` (14 author-labelled situations: all-three / two-unit / one-unit / none) and `scripts/jev_gate_eval.py` scoring recall, precision, legs saved and named wrong skips, with a Haiku-tier baseline under the same bands.
+5. ✅ Live run — `jev_gate_eval.py --compare haiku --record` (14 situations, both models: recall 1.00, 12% legs saved, Jev Brier 0.102 vs Haiku 0.133) and one live gated fan-out via `run_fanout.py --gate jev`; results in `plan/03-results.md` 2026-10-02. The gated *console* run follows item 6.
+6. ⏳ Hosted — `TYPESAFE_API_KEY` in the console task secret and a full console rebuild (`plan/09-deployment-map.md`); until then the hosted radio fails open.
+
+**Experiment C — is Jev calibrated on the lab's own wire data?**
+
+7. ✅ Extraction and wire labels (`src/platforms/jev/calibration.py`) — every recorded payload shape (REST, Agent API, A2A task, MCP, double-encoded), labels from the bytes, exclusions counted; 652 judgeable hops from the current `lab.db`.
+8. ✅ Metrics and runner — Brier, ECE, reliability table, band coverage/accuracy, status-ok subset, disagreement review file; `scripts/jev_calibration.py extract|run` with a per-(hop, model) answer cache and `--compare haiku`.
+9. ✅ Live run and adjudication — 200 hops, `--compare haiku`, 21 disputed hops adjudicated (first pass, 16 for the model / 5 for the wire), adjudicated Brier Jev 0.019 vs Haiku 0.033; recorded in `plan/03-results.md` 2026-10-02. The review file's verdicts are the operator's to overturn.
+
+**Experiment A — protocol fidelity of a structured answer (recorded, deferred).**
+
+10. ⏳ Jev behind a lab adapter on REST / MCP / A2A, measuring what of `{noul, confidence, probabilities}` survives each protocol — prediction already readable in the code (A2A text-only parts vs MCP `structuredContent`). Deferred in D82.

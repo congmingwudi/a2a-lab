@@ -25,6 +25,7 @@ import asyncio
 import os
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from a2a.utils.errors import (
     MethodNotFoundError,
@@ -37,6 +38,9 @@ from interop.models import AgentRequest, new_trace_id
 from interop.registry import Registry
 from interop.trace import Hop
 from orchestration.legs import Leg, legs_for
+
+if TYPE_CHECKING:
+    from orchestration.gate import GateResult
 
 # Per-leg wall clock. A fan-out is only as fast as its slowest leg, so one
 # wedged platform must not hold the turn open indefinitely — it becomes an
@@ -197,6 +201,10 @@ class FanOutResult:
     trace_id: str
     results: list[LegResult] = field(default_factory=list)
     total_ms: int = 0
+    # The System-One gate's decision when one ran (WS26/D82) — None for the
+    # ungated default. Kept here rather than beside the result so render()
+    # cannot forget it: a gated run must never read like an ungated one.
+    gate: "GateResult | None" = None
 
     @property
     def ok_count(self) -> int:
@@ -251,6 +259,8 @@ class FanOutResult:
         coverage = f"[fan-out coverage: {self.ok_count}/{len(self.results)} legs answered]"
         if self.dispatch_summary:
             coverage += f"\n[dispatch: {self.dispatch_summary}]"
+        if self.gate is not None:
+            coverage += f"\n{self.gate.render()}"
         return f"{sections}\n\n{coverage}"
 
 
@@ -601,8 +611,13 @@ async def dispatch(
     inbound_depth: int = 0,
     roles: set[str] | None = None,
     dispatch_mode: str = "sync",
+    gate: str = "none",
 ) -> FanOutResult:
     """Run every leg of `scenario` concurrently and collect the results.
+
+    `gate="jev"` asks TypeSafe's Jev first which units the situation needs
+    (WS26/D82, orchestration/gate.py) and dispatches only those; skipped units
+    are named in the hand-off, and a Jev failure fails open to every leg.
 
     `dispatch_mode` selects how each leg's remote call is made: "sync" is the
     blocking `ask()` every run used before WS11; "async" fires the A2A
@@ -621,9 +636,23 @@ async def dispatch(
         # a behaviour change: the production path passes nothing and always runs
         # every leg, so the thing under test is the thing that ships.
         legs = tuple(leg for leg in legs if leg.role in roles)
+    if gate not in ("none", "jev"):
+        raise ValueError(f"unknown gate '{gate}' — known: none, jev")
     registry = registry or Registry.load()
     trace_id = trace_id or new_trace_id()
     start = time.perf_counter()
+
+    gate_result: GateResult | None = None
+    if gate == "jev":
+        # The one opt-in change to "always run every leg": the gate's own
+        # decision, recorded on the result and rendered into the hand-off.
+        # Imported HERE, not at module top: the remote fan-out Lambda bundles
+        # src/orchestration but not src/platforms (deploy/fanout/build_zip.sh)
+        # and never gates, so a top-level import would break its cold start.
+        from orchestration.gate import gate_legs
+
+        gate_result = await gate_legs(task, legs, trace_id=trace_id, source=caller)
+        legs = tuple(leg for leg in legs if leg.role in gate_result.dispatch_roles)
 
     # gather with return_exceptions so one leg blowing up in an unexpected way
     # still cannot take the fan-out with it; _run_leg already catches the
@@ -656,4 +685,5 @@ async def dispatch(
         trace_id=trace_id,
         results=results,
         total_ms=int((time.perf_counter() - start) * 1000),
+        gate=gate_result,
     )

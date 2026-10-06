@@ -3440,3 +3440,78 @@ b3 response (Round 1 finding 6, `build-notes/claude/reviews/ws25-b3.md`).
 
 **Status.** DECIDED 2026-09-09. Implementer: Claude Code, branch
 `ws25-b3-crm-writes-sessions`. Cross-review: Codex (PASS, round 2).
+
+## 2026-10-02 — D82: TypeSafe's Jev joins as a DECISION SERVICE, not an agent platform — a confidence gate in front of the fan-out (B) and a calibration study over the lab's own wire data (C)
+
+**Context.** Jev (TypeSafe AI's "System One" model, `POST /v1/systemone`) answers
+typed questions — `noul` (probability a statement is true), `choice`, `score` —
+about a piece of state, and returns a calibrated probability and confidence with
+each answer rather than generated text. It speaks neither MCP nor A2A and has no
+agent loop, so it is not a seventh platform column: there is nothing to delegate
+to and nothing for the protocol matrix to compare. What it *is* is a claim the
+lab is unusually well placed to test — "these probabilities are calibrated, so
+act above 0.9 and route elsewhere below" — because the lab already makes
+routing decisions (the fan-out) and already holds thousands of raw wire hops with
+their outcomes (`traces/lab.db`). Every performance figure TypeSafe publishes is
+its own; the plan is in `plan/17-jev-system-one.md`.
+
+**Decision.**
+
+1. **B — the unit gate.** An opt-in gate in front of the WS8 fan-out
+   (`src/orchestration/gate.py`): one Jev call asks one `noul` per business unit
+   ("this situation requires the <unit> unit to act", built from the leg's own
+   remit text). p ≥ 0.9 dispatches, p ≤ 0.1 skips, the band between dispatches
+   *marked uncertain* — because the runner's contract is that a missing leg is
+   reported, never omitted, and an uncertain skip would be a silent omission
+   wearing a probability. Every skip is named in the hand-off with its p. The gate
+   **fails open**: no key, a timeout or a malformed answer dispatches every leg and
+   says so. Thresholds are `A2ALAB_JEV_GATE_DISPATCH` / `A2ALAB_JEV_GATE_SKIP`,
+   read at call time.
+2. **The gate is restricted to the host-side `tool` variant** of
+   `supplier-disruption-cma`. Under `mcp` the model is already the router (it
+   chooses which leg tools to call, D41); a second router in the same run would
+   make neither measurable. `CmaOrchestrator` refuses the combination.
+3. **It is a real experiment surface, not a side script**: the console's
+   `supplier-disruption-cma` gains a *Unit gate* radio (`gate_toggle` in
+   `config/scenarios.yaml`), `run_fanout.py --gate jev` runs it headless, and
+   `scripts/jev_gate_eval.py` scores the gate alone against
+   `config/jev_situations.yaml` — 14 situations that need three, two, one or
+   **no** units, since the console's default (Rotterdam) needs all three and so
+   gives a gate nothing to skip. The set is **author-labelled** and every number
+   from it says so.
+4. **C — calibration on the lab's wire data.** `scripts/jev_calibration.py`
+   extracts judgeable hops from `trace_events`, labels each from the wire's own
+   verdict (hop error, failed task, JSON-RPC error, empty answer, unavailable leg
+   → no; completed with a non-trivial answer → yes), and asks Jev whether the
+   response is a substantive answer — **over the request/response text only,
+   never the status column the label came from**. Reported: Brier, ECE, a
+   reliability table, and coverage/accuracy at the vendor's bands, overall and for
+   status-ok hops. The `yes` label is the weak one (a refusal that arrived as a
+   200 is labelled yes — the "check content, not status" case in CLAUDE.md), so
+   disagreements are written out for adjudication rather than averaged away.
+   C measures whether an answer **arrived**, not whether it was **correct**.
+5. **Both experiments run a baseline**: the same statements put to a Haiku-tier
+   model as "reply with a probability" (`platforms/jev/baseline.py`,
+   `A2ALAB_JEV_BASELINE_MODEL`). "Is Jev calibrated" only means something next to
+   "is the obvious alternative calibrated".
+6. **Data handling.** The extracted set, the answer cache and the review file
+   live under `traces/jev/` (gitignored) because they quote CRM answers from the
+   production org. Only aggregates reach `plan/03-results.md`, and only on
+   `--record`.
+7. **A — protocol fidelity** (does a structured Jev answer survive each
+   protocol?) is recorded in `plan/17` and **deferred**: the prediction is already
+   readable in the code — A2A flattens to text parts
+   (`src/interop/servers/a2a.py` emits `Part(text=...)`, the client keeps only
+   text parts) while MCP carries `structuredContent` — and it needs Jev behind a
+   lab adapter first.
+
+**Consequences.** The remote fan-out Lambda bundles `src/orchestration` but not
+`src/platforms`, so `runner.py` imports the gate lazily inside `dispatch()`; a test
+pins that `import orchestration.runner` pulls in no `platforms` module. The
+hosted console makes a new outbound call to `api.typesafe.ai` and needs
+`TYPESAFE_API_KEY` in its task secret (`plan/09-deployment-map.md`); until then the
+radio fails open, visibly. Every Jev and baseline call is a trace hop
+(`typesafe-jev`, `claude-haiku-baseline`).
+
+**Status.** DECIDED 2026-10-02. B and C built and unit-tested; live runs need a
+TypeSafe key. WS26 in `plan/07-workstreams.md`.

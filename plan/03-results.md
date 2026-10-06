@@ -1155,3 +1155,66 @@ account-status topic ("tell me what you know about account X, its opportunities
 and cases"), reliably triggers `get_account_summary` + `ask_external_researcher`.
 This is Agentforce reasoning nondeterminism, independent of the transport fix —
 worth knowing before scoring a reverse run as "the bridge didn't work."
+
+## 2026-10-02 — WS26 Experiment B: Jev unit gate on labelled situations (D82)
+
+`scripts/jev_gate_eval.py` — gate only, 14 situations × 3 units, bands dispatch ≥0.9 / skip ≤0.1; trace `acb632a67e9c4fa5b1c7088c74a3714d`. Situations are AUTHOR-LABELLED (config/jev_situations.yaml) — these numbers measure agreement with the author, not with incident ground truth. Method: plan/17-jev-system-one.md.
+
+| Model | situations | recall | precision | legs saved | wrong skips | uncertain | Brier | median latency | usage |
+|---|---|---|---|---|---|---|---|---|---|
+| Jev jev-1.13.0 | 14 | 1.00 | 0.57 | 12% | 0 | 36 | 0.1021 | 148 ms | {'input_tokens': 6253, 'output_tokens': 784} |
+| claude-haiku-4-5 (baseline) | 14 | 1.00 | 0.57 | 12% | 0 | 25 | 0.1333 | 620 ms | {'input_tokens': 3578, 'output_tokens': 602} |
+
+Repeat run (same day, trace not kept): Jev Brier 0.1027 (Δ 0.0006), Haiku 0.1273
+(Δ 0.006 at temperature 0) — every decision identical in both runs for both models.
+
+**Reading.** Neither model made a wrong skip, and on this set the two save the same
+12% of legs — almost entirely on the two `none` situations. The difference is in the
+middle: Jev put 36 of 42 unit decisions in the uncertain band (every all-three unit
+scored 0.73–0.89, under the 0.9 dispatch line), Haiku 25. With dispatch-on-uncertain,
+that caution costs nothing in coverage and buys nothing in savings; Jev's lower Brier
+says its probabilities sit closer to the labels even where neither crosses a band.
+The one-unit situations are where a gate should pay and neither did: the non-needed
+units scored 0.2–0.5, above the 0.1 skip line. The bands, not the models, are the
+binding constraint — a skip line near 0.3 would have saved one-unit legs for Jev
+without a wrong skip on this set, which is a threshold to test on unseen situations,
+not to adopt from these 14.
+
+**Live gated fan-out** (`run_fanout.py --gate jev`, invoice-penalty-dispute text,
+trace `acc2bb751d75458a801c0d57b1d54bc7`): gate 286 ms; Logistics p=0.33, Commercial
+p=0.87, Customer operations p=0.25 — all in the uncertain band, so all three
+dispatched and nothing was skipped. Commercial (Foundry, 18.9 s) and Customer ops
+(OpenAI on AgentCore, 51.1 s) answered; **Logistics (ADK on Agent Engine) timed out
+at 67 s** — the slowest leg of the run was one the situation did not need and Jev
+scored low. Coverage 2/3, wall 67.7 s. The concrete cost of a 0.1 skip line: here a
+0.35 line would have saved the leg that bounded the turn.
+
+## 2026-10-02 — WS26 Experiment C: Jev calibration on lab wire data (D82)
+
+`scripts/jev_calibration.py run --limit 200 --seed ws26` over `trace_events`; trace `12b33256134942fca5b096a67a4090d1`. 200 hops (185 wire-yes / 15 wire-no). Label = the wire's own verdict (plan/17-jev-system-one.md); the model sees request/response text only. 21 hops where some model disagreed with the wire; 21 adjudicated — 16 for the model, 5 for the wire.
+
+| Model | n | Brier / ECE vs wire | status-ok Brier / ECE | Brier / ECE adjudicated | acc@0.5 adjudicated | acts on (p≥0.9 or ≤0.1) | accuracy when acting | usage |
+|---|---|---|---|---|---|---|---|---|
+| Jev jev-1.13.0 | 200 | 0.0823 / 0.1599 | 0.089 / 0.1737 | 0.0191 / 0.0938 | 0.99 | 70% | 1.000 | 117,194 in / 4,000 out |
+| claude-haiku-4-5 (baseline) | 200 | 0.0823 / 0.166 | 0.0888 / 0.1816 | 0.0333 / 0.0933 | 0.965 | 72% | 1.000 | 81,884 in / 7,891 out |
+
+Usage is from the uncached run (trace `4a42fca2048f4d878eb0b1e5fefa1ccc`); the
+recorded run above re-read every answer from the cache to apply the verdicts.
+Adjudication is a FIRST PASS by Claude Code against the statement asked, one note
+per hop in the local review file — the operator's to overturn.
+
+**Reading.** Against the wire label the two look identical (Brier 0.082 both) — and
+both look worse than they are, because 16 of the 21 disputed hops were refusals,
+permission requests, clarifying questions, "retrieving now" promises or
+assumption-based placeholders that arrived as a completed 200: the wire's `yes`
+was wrong, exactly the "check content, not status" case. Against the adjudicated
+label Jev's Brier is **0.019 vs Haiku's 0.033**, accuracy 0.99 vs 0.965, and every
+decision either model was confident enough to act on (p ≥ 0.9 or ≤ 0.1, ~70% of
+hops) was right. The difference is in the middle: Haiku put 5 real CRM answers at
+0.15–0.35 and 2 placeholder summaries at 0.75; Jev's only misses were two
+real answers at 0.30 and 0.47. Jev's ECE (0.094) is almost all **under**confidence —
+everything it scored 0.6–0.9 was in fact an answer — which is the safe direction
+for a gate, and means its 0.9 band is conservative on this task, not that it is
+miscalibrated toward over-trust. Scope: one statement, 200 hops, 15% negatives
+after adjudication (31), general-domain text; and it measures whether an answer
+arrived, not whether it was right (plan/17-jev-system-one.md).
