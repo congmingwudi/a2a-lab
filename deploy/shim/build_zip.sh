@@ -17,7 +17,12 @@ uv pip install --target "$STAGE" \
   --python-platform aarch64-manylinux2014 --python-version 3.12 \
   --only-binary :all: \
   "a2a-sdk[http-server]>=1.1,<2" "fastapi>=0.115" "mangum>=0.19" \
-  "httpx>=0.28,<1" "pyyaml>=6.0" "python-dotenv>=1.0" >/dev/null
+  "httpx>=0.28,<1" "pyyaml>=6.0" "python-dotenv>=1.0" \
+  "pyjwt[crypto]>=2.8,<3" >/dev/null
+# pyjwt: TokenAuthMiddleware imports interop.identity for any JWT-shaped
+# bearer. deploy_shim.sh has shipped A2ALAB_JWT_PUBLIC_KEY since WS6, but
+# without the library every user-JWT call 500'd with "No module named 'jwt'"
+# (found 2026-10-06 smoking A11, which only isolates when a JWT arrives).
 
 # Lab code: interop + the agentforce platform package + observability (the
 # postgres trace sink — shim hops go to the Aurora store, D23/D28; the Data
