@@ -160,6 +160,9 @@ class BriefWriter:
         Returns {"id", "created"}. Falls back to a re-query if the org answered
         204 (no body)."""
         seg = _url.quote(key, safe="")
+        # The key rides the URL only: the org answers 400 INVALID_FIELD ("should
+        # not be specified in the sobject data") when the body repeats it.
+        body = {k: v for k, v in body.items() if k != ext_field}
         data = await self._request(
             "PATCH", f"/sobjects/{sobject}/{ext_field}/{seg}", json_body=body
         )

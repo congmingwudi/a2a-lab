@@ -22,6 +22,16 @@ def _writer(account_map=None) -> BriefWriter:
     return w
 
 
+def _org_rejects_key_in_body(path: str, body) -> None:
+    """Mirror the real org: an upsert-by-external-id PATCH whose body ALSO
+    carries the external-id field answers 400 INVALID_FIELD ("should not be
+    specified in the sobject data"). Found on the live org 2026-10-06 — fakes
+    that accepted it let every hosted delivery fail while the suite passed."""
+    ext_field = path.split("/")[3] if path.startswith("/sobjects/") else None
+    if ext_field and ext_field in (body or {}):
+        raise RuntimeError(f"Salesforce PATCH {path} -> 400: INVALID_FIELD {ext_field}")
+
+
 class FakeSF:
     """Routes `_query` by SOQL shape and records every `_request` (upsert)."""
 
@@ -48,6 +58,7 @@ class FakeSF:
 
     async def request(self, method, path, *, json_body=None, params=None):
         if method == "PATCH":
+            _org_rejects_key_in_body(path, json_body)
             self.upserts.append({"path": path, "body": json_body})
             created = path not in self._store
             if created:
@@ -324,6 +335,7 @@ async def test_upsert_with_no_id_and_empty_requery_fails_closed():
     class NoIdSF(FakeSF):
         async def request(self, method, path, *, json_body=None, params=None):
             if method == "PATCH":
+                _org_rejects_key_in_body(path, json_body)
                 self.upserts.append({"path": path, "body": json_body})
                 return {}  # 204-shaped: no id in the body
 
@@ -374,6 +386,7 @@ class NotifySF(FakeSF):
 
         await asyncio.sleep(0)  # yield so gathered callers interleave up to here
         if method == "PATCH":
+            _org_rejects_key_in_body(path, json_body)
             self.upserts.append({"path": path, "body": json_body})
             created = path not in self._store  # atomic: no await between here...
             if created:
@@ -449,3 +462,20 @@ async def test_partial_pair_repair_task_exists_brief_missing():
     assert len(sf.posts) == 1
     task_rows = {v for p, v in sf._store.items() if "/Task/" in p}
     assert len(task_rows) == 1  # the pre-existing Task was matched, not duplicated
+
+
+async def test_upsert_body_omits_the_external_id_field():
+    """The key rides the URL only. Sending it in the body too is a 400 on the
+    real org (INVALID_FIELD) — the 2026-10-06 live-org regression."""
+    w = _writer()
+    sf = FakeSF(exact=[{"Id": "001A", "Name": "Apple Inc."}]).bind(w)
+    await w.save_brief(
+        account_name="Apple Inc.",
+        headline="h",
+        brief_markdown="b",
+        research_session_id="s1",
+        trace_id="t",
+    )
+    assert len(sf.upserts) == 2  # brief + Task
+    for up in sf.upserts:
+        assert "A2ALab_Delivery_Key__c" not in up["body"]
