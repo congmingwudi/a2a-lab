@@ -3565,8 +3565,8 @@ own data rather than repeated. Method, bands and caveats: `plan/17-jev-system-on
 2. ✅ The unit gate (`src/orchestration/gate.py`) — one `noul` per business unit, dispatch ≥0.9 / skip ≤0.1 / dispatch-marked-uncertain between, fails open, every skip named in the hand-off; `dispatch(gate="jev")` with a lazy import so the fan-out Lambda bundle is untouched.
 3. ✅ Experiment surface — `supplier-disruption-cma` *Unit gate* radio in the console (tool variant only, `gate_toggle`), its Details section, `run_fanout.py --gate jev`, and `CmaOrchestrator` refusing a gate under the mcp variant (D41).
 4. ✅ Gate eval — `config/jev_situations.yaml` (14 author-labelled situations: all-three / two-unit / one-unit / none) and `scripts/jev_gate_eval.py` scoring recall, precision, legs saved and named wrong skips, with a Haiku-tier baseline under the same bands.
-5. ✅ Live run — `jev_gate_eval.py --compare haiku --record` (14 situations, both models: recall 1.00, 12% legs saved, Jev Brier 0.102 vs Haiku 0.133) and one live gated fan-out via `run_fanout.py --gate jev`; results in `plan/03-results.md` 2026-10-02. The gated *console* run follows item 6.
-6. ⏳ Hosted — `TYPESAFE_API_KEY` in the console task secret and a full console rebuild (`plan/09-deployment-map.md`); until then the hosted radio fails open.
+5. ✅ Live run — `jev_gate_eval.py --compare haiku --record` (14 situations, both models: recall 1.00, 12% legs saved, Jev Brier 0.102 vs Haiku 0.133) and one live gated fan-out via `run_fanout.py --gate jev`; results in `plan/03-results.md` 2026-10-02. The gated *console* run is item 6.
+6. ✅ Hosted — `TYPESAFE_API_KEY` in the console task secret and a full console rebuild (`plan/09-deployment-map.md`), deployed 2026-10-06; first gated console run recorded in `plan/03-results.md` 2026-10-06.
 
 **Experiment C — is Jev calibrated on the lab's own wire data?**
 

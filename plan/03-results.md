@@ -1218,3 +1218,23 @@ for a gate, and means its 0.9 band is conservative on this task, not that it is
 miscalibrated toward over-trust. Scope: one statement, 200 hops, 15% negatives
 after adjudication (31), general-domain text; and it measures whether an answer
 arrived, not whether it was right (plan/17-jev-system-one.md).
+
+## 2026-10-06 — WS26 first hosted gated run (console, D82)
+
+Hosted console `/api/run`, `supplier-disruption-cma`, variant `tool`, dispatch
+`sync`, gate `jev`, the scenario's default Rotterdam port-strike situation; trace
+`06aa959575ae4195934918ab315fd9d2`, 84.0 s wall.
+
+| unit | Jev p (`noul`) | band | leg |
+|---|---|---|---|
+| exposure (Vertex ADK logistics, A2A) | 0.89 | uncertain → dispatched | **timed out** 66.4 s (`A2AClientTimeoutError`) |
+| commercial (Foundry, A2A) | 0.73 | uncertain → dispatched | ok, 20.0 s |
+| customer_comms (OpenAI AgentCore) | 0.84 | uncertain → dispatched | ok, 21.5 s |
+
+One Jev call, 199 ms, `jev-1.13.0`, 449 in / 56 out tokens. The gate saved no
+legs and cost nothing measurable: every unit landed between the 0.1 skip and
+0.9 dispatch lines — the same cautious middle Experiment B measured on
+2026-10-02 (36 of 42 unit decisions uncertain), now seen on the hosted path.
+Coverage 2/3: the logistics leg timed out, as the slowest leg did on 2026-10-02;
+that is the Vertex leg, not the gate. One run, one situation — an observation,
+not a measurement.
