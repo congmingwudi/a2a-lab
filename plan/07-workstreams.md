@@ -3577,3 +3577,46 @@ own data rather than repeated. Method, bands and caveats: `plan/17-jev-system-on
 **Experiment A — protocol fidelity of a structured answer (recorded, deferred).**
 
 10. ⏳ Jev behind a lab adapter on REST / MCP / A2A, measuring what of `{noul, confidence, probabilities}` survives each protocol — prediction already readable in the code (A2A text-only parts vs MCP `structuredContent`). Deferred in D82.
+
+## WS27 — Data 360 Agentic Memory and Context: one memory across every platform (raised 2026-10-12, D83, D84)
+
+One shared Data 360 Agentic Memory across the lab's platforms, Agentforce first.
+A turn on one platform should be recallable on another for the same owner, and
+the integration modes (native SDK adapter vs generic seam vs Apex action) are
+compared the way the protocol matrix compares protocols. Setup path, findings
+and the experiment design: `plan/18-agentic-memory-context.md`.
+
+**Phases 0–1 — identity, setup, registration.**
+
+1. ✅ Memory ECA `a2a_lab_memory` (JWT-bearer, no secret) rendered from `.env` and deployed by `scripts/setup_jwt_eca.py`; `verify memory` runs both legs (core token + a360 CDP exchange), and `identity_preflight.py` checks it.
+2. ✅ `default` agentic setup ACTIVE and `A2ALab_Memory_Concierge` registered ACTIVE via `scripts/setup_agentic_memory.py` (Connect API `/ssot/agentic/*`, v66).
+3. ✅ Automatic Memory Extraction made headless: `configuration.isMemoryGenerationEnabled` on the v67 agent item, written by `extraction concierge on --apply` (UI capture → PATCH, proven 2026-10-13).
+
+**Phase 2 — the Agentforce concierge (D83).**
+
+4. ✅ Shared memory client `src/interop/memory.py` (token chain cached per agent, SDK lifecycle, every call an `agentic-memory` trace hop) and the bridge's fail-open `POST /memory/turn`, with unit tests.
+5. ✅ `A2ALabMemoryTurn` invocable + test (check-only deploy compiled) and the `A2ALab_Agent_Actions` grant.
+6. ✅ Concierge bundle: one subagent, a `before_reasoning` hook running the memory turn, External `memory_owner`, native `context:` flags off; `sf agent validate` passes.
+7. ✅ Tenant go/no-go: one `POST /memory/turn` on the hosted bridge with the probe owner (or `setup_agentic_memory.py probe concierge --apply`). Passed 2026-10-13: both read back 200 once GetContext sent the `ctx-agent-id` header. The 403 was that missing header, not a write precondition. The first cold hosted read took 27 s because Aurora was resuming; that's fixed in the trace sink (D85).
+8. ✅ Deployed 2026-10-13: bridge full rebuild (task definition :13, memory identity in its secret), `A2ALabMemoryTurn` (6/6 tests, 100% coverage), concierge v1 published and active.
+9. ⏳ First recall across sessions, plus the reply side: do the `AgenticConnector_*` streams carry Agentforce replies into the memory conversation, or is a Session Trace replay (D73) needed? — Recall half done 2026-10-14 (`plan/03-results.md`): a new Agent API session for the same owner recalled all three facts from extracted profile memory, and a control owner got nothing. The reply side is still open.
+10. ⏳ Native-flag arm (D84): the same concierge with `context.memory` / `past_conversations` on and the explicit action removed, as its own published version.
+
+**Phases 3–4 — every other platform, then the experiment.**
+
+11. ⏳ SDK adapters (LangGraph, ADK, Claude sdk backend) and the generic `MemoryAdapter` seam for the rest (Claude managed, OpenAI via a Codex handoff per D24, Strands, Foundry via a proxy tool).
+12. ⏳ The recall matrix (within-platform, cross-platform ordered pairs, fan-out handover) with latency and lag measurements to `plan/03-results.md`.
+
+**Phase 2b — two routes to one memory (D84).**
+
+13. ✅ Native memory-action inventory: `manageUserMemory`, `get/updateAgentMemoryPreference`, `getAgentContext` (v67 `/actions/standard`), reproducible with `setup_agentic_memory.py native [--org]`.
+14. ⏳ Native-action arm: `manageUserMemory` from a concierge hook, then read the tenant for the same owner. Does a native write reach Data 360 Agentic Memory, under which owner id, and can a non-Salesforce platform read it?
+15. ⏳ Data Cloud One arm: provision a companion org on this org's Data 360, run `native --org` there, and test both routes from it (native action vs Apex → bridge).
+
+**Phase 0b: a dedicated integration user (D86).**
+
+16. ✅ Memory integration user built: the gate permission set `A2ALab_Memory_Integration`, pre-authorized by the ECA policy in place of the admin profile; `setup_agentic_memory.py user` / `ungrant`; `create` refuses an admin run-as; and the preflight check (plan/18 Phase 0b).
+17. ✅ Migration deployed: gate deployed, user created, ECA redeployed, bridge config redeployed, `identity_preflight.py` green on `a2a_lab_memory`.
+18. ⏳ Minimum bundle measured: re-probe without `ContextServiceAdmin`, then re-verify without the `Api` scope; record what is actually required in `plan/03-results.md`.
+19. ✅ Red-herring grant revoked: `PersonalizationUser` and its license removed from the admin (`ungrant --apply`).
+20. ⏳ The six client-credentials ECAs off the admin: one integration user and gate permission set per seam, each with its own measured bundle (the D1 promise, D86 follow-up).

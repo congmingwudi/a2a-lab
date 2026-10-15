@@ -1,0 +1,91 @@
+system:
+    instructions: "You are the A2A Interop Lab memory concierge. You hold a friendly, concise conversation, remember what the user tells you about themselves (preferences, plans, facts), and use what you remember from earlier sessions when it helps. Never invent memories."
+    messages:
+        welcome: "Hi, I'm the A2ALab memory concierge. Tell me about yourself, or ask what I remember."
+        error: "Sorry, it looks like something has gone wrong."
+
+config:
+    developer_name: "A2ALab_Memory_Concierge"
+    default_agent_user: "a2alab_research_assistant@00dkb000002u3fs2050886772.ext"
+    agent_label: "A2ALab Memory Concierge"
+    description: "A2A lab: first Data 360 Agentic Memory and Context experiment (plan/18 Phase 2). Registered for memory as A2ALab_Memory_Concierge in the default data space."
+
+# D83: the native context flags stay OFF in this version, so any recall it shows
+# is attributable to the explicit memory_turn path below. Flipping them on is the
+# comparison arm (plan/18 Phase 2), measured as its own published version.
+context:
+    memory:
+        enabled: False
+    past_conversations:
+        enabled: False
+
+variables:
+    memory_owner: mutable string = "a2alab-persona-default"
+        visibility: "External"
+        description: "Whose memory this conversation reads and writes (the Data 360 conversation owner id). Callers set it per persona; the default keeps an unset caller out of every real persona's memory."
+    memory_conversation: mutable string = ""
+        description: "The Data 360 memory conversation id. Empty until the first turn's memory_turn starts one."
+    memory_context: mutable string = ""
+        description: "What Data 360 Agentic Memory returned for this turn, rendered as text."
+
+language:
+    default_locale: "en_US"
+    additional_locales: ""
+    all_additional_locales: False
+
+start_agent concierge:
+    label: "Concierge"
+    description: "Converse with the user and recall what they have told the lab before."
+
+    actions:
+        memory_turn:
+            label: "A2ALab: Memory Turn"
+            description: "Reads Data 360 Agentic Memory context for this turn and ingests the user message, via the lab bridge."
+            target: "apex://A2ALabMemoryTurn"
+            inputs:
+                userMessage: string
+                    label: "User Message"
+                    description: "This turn's user text"
+                    is_required: False
+                ownerId: string
+                    label: "Owner Id"
+                    description: "The conversation owner id"
+                    is_required: True
+                conversationId: string
+                    label: "Conversation Id"
+                    description: "Memory conversation id from an earlier turn; empty on the first turn"
+                    is_required: False
+            outputs:
+                conversationId: string
+                    label: "Conversation Id"
+                    description: "The memory conversation id"
+                context: string
+                    label: "Context"
+                    description: "Memory context for this turn, as text"
+                ok: boolean
+                    label: "OK"
+                    description: "False when memory was unreachable this turn"
+                traceId: string
+                    label: "Trace Id"
+                    description: "Lab trace id for the bridge hop"
+
+    # Deterministic, every turn, before the planner (D83). Not in reasoning.actions,
+    # so the model can neither skip it nor call it twice. This is the only subagent,
+    # so no transition can skip a hook.
+    before_reasoning:
+        run @actions.memory_turn
+            with userMessage=@system_variables.user_input
+            with ownerId=@variables.memory_owner
+            with conversationId=@variables.memory_conversation
+            set @variables.memory_conversation = @outputs.conversationId
+            set @variables.memory_context = @outputs.context
+
+    reasoning:
+        instructions: ->
+            | Answer in 1-3 sentences. When the user shares a preference, plan or fact about
+              themselves, acknowledge it briefly. When they ask what you remember, answer only
+              from the memory below; if it is empty, say you have nothing remembered yet.
+              Never invent memories.
+
+              Memory from Data 360 (may be empty):
+              {!@variables.memory_context}

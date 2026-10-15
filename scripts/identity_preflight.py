@@ -76,6 +76,16 @@ IDENTITIES = [
         "used_by": "M11 harvest — Data Cloud DMO reads (needs the api scope)",
         "required": False,
     },
+    {
+        # JWT-bearer, not client-credentials: no secret exists. Its job is the
+        # Data 360 CDP token the Agentic Memory runtime APIs take (plan/18), so
+        # the check runs BOTH legs — a core token alone proves nothing.
+        "app": "a2a_lab_memory",
+        "id_env": "SF_CLIENT_ID_MEMORY",
+        "jwt_preset": "memory",
+        "used_by": "Agentic Memory & Context — JWT-bearer → a360 CDP token (plan/18)",
+        "required": False,
+    },
 ]
 
 # A 404 from the Agent API is ambiguous: it means "no agent I can serve at
@@ -141,7 +151,7 @@ def _active_agents(http: httpx.Client, dom: str) -> dict[str, bool]:
     if not configured:
         return {}
     for spec in IDENTITIES:
-        cid, secret = os.environ.get(spec["id_env"]), os.environ.get(spec["secret_env"])
+        cid, secret = os.environ.get(spec["id_env"]), os.environ.get(spec.get("secret_env", ""))
         if not cid or not secret:
             continue
         _, token = _token(http, dom, cid, secret)
@@ -167,7 +177,52 @@ def _active_agents(http: httpx.Client, dom: str) -> dict[str, bool]:
     return {}
 
 
+def _check_jwt(spec: dict) -> dict:
+    """A JWT-bearer identity: mint as the run-as user, then the CDP exchange."""
+    from setup_jwt_eca import PRESETS, CredentialError, exchange_cdp, mint_core_token
+
+    if not os.environ.get(spec["id_env"]):
+        return {"state": "unset", "detail": f"{spec['id_env']} not set"}
+    preset = PRESETS[spec["jwt_preset"]]
+    try:
+        core = mint_core_token(preset)
+        if preset.cdp_exchange:
+            exchange_cdp(core)
+    except CredentialError as e:
+        return {"state": "FAIL", "detail": str(e)}
+    if preset.preauth_permission_set:
+        # D86: a gated identity must not run as an admin. The JWT's own `sub` is
+        # asked, through the token it just minted, so this checks what the
+        # credential IS rather than what .env claims.
+        profile = _own_profile(core)
+        if profile == "System Administrator":
+            return {"state": "FAIL", "detail": "runs as a System Administrator, not the "
+                    "dedicated integration user (D86, plan/18 Phase 0b)"}  # fmt: skip
+        # An admin can always read its own profile; the API-only integration
+        # profile cannot (no object access), so None is itself the non-admin signal.
+        who = repr(profile) if profile else "not readable by the user (API-only, not admin)"
+        return {"state": "ok", "detail": f"JWT-bearer + a360 CDP token OK, run-as profile {who}"}
+    return {"state": "ok", "detail": "JWT-bearer + a360 CDP token OK"}
+
+
+def _own_profile(core: dict) -> str | None:
+    """The token user's profile name, or None if the user can't read it."""
+    base, auth = core["instance_url"], {"authorization": f"Bearer {core['access_token']}"}
+    try:
+        uid = httpx.get(f"{base}/services/oauth2/userinfo", headers=auth, timeout=20).json()[
+            "user_id"
+        ]
+        r = httpx.get(f"{base}/services/data/v64.0/query", headers=auth, timeout=20,
+                      params={"q": f"SELECT Profile.Name FROM User WHERE Id = '{uid}'"})  # fmt: skip
+        recs = r.json().get("records") or [] if r.status_code == 200 else []
+    except (httpx.HTTPError, KeyError, ValueError):
+        return None
+    return ((recs[0].get("Profile") or {}).get("Name")) if recs else None
+
+
 def _check(http: httpx.Client, dom: str, spec: dict, active: dict[str, bool]) -> dict:
+    if spec.get("jwt_preset"):
+        return _check_jwt(spec)
     cid, secret = os.environ.get(spec["id_env"]), os.environ.get(spec["secret_env"])
     if not cid or not secret:
         return {"state": "unset", "detail": f"{spec['id_env']} / {spec['secret_env']} not set"}

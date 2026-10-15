@@ -126,3 +126,44 @@ def test_dynamodb_sort_keys_order_hops():
     sink.emit(make_event(ts=1767912400.0, hop_seq=0).to_dict())
     keys = [i["sk"] for i in table.items]
     assert keys == sorted(keys)
+
+
+def test_postgres_sink_writes_off_the_request_path():
+    """A paused Aurora (~25 s resume) must not stall the request that records
+    the hop: emit() returns at once and the worker inserts in order."""
+    import threading
+
+    from observability.pg import PostgresSink
+
+    gate, rows = threading.Event(), []
+
+    class SlowClient:
+        def execute(self, sql, params):
+            gate.wait(5)
+            if params["trace_id"] == "bad":
+                raise RuntimeError("resuming")
+            rows.append(params["trace_id"])
+
+    sink = PostgresSink(client=SlowClient())
+    for tid in ("t1", "bad", "t2"):
+        sink.emit({"trace_id": tid, "ts": 1.0})  # would block 5 s each if inline
+    assert rows == [] and not sink.flush(timeout=0.1)
+    gate.set()
+    assert sink.flush(timeout=5)
+    assert rows == ["t1", "t2"]  # order kept; one failed insert doesn't kill the worker
+
+
+def test_postgres_sink_stays_inline_in_a_lambda(monkeypatch):
+    """A Lambda freezes when the handler returns; a queued hop could be lost."""
+    from observability.pg import PostgresSink
+
+    rows = []
+
+    class Client:
+        def execute(self, sql, params):
+            rows.append(params["trace_id"])
+
+    monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "a2alab-shim")
+    sink = PostgresSink(client=Client())
+    sink.emit({"trace_id": "t1", "ts": 1.0})
+    assert rows == ["t1"]  # written before emit returned

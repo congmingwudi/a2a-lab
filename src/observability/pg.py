@@ -1157,12 +1157,64 @@ class PostgresSink:
     successor to DynamoDbSink as the durable store and the table Data 360's
     Aurora Postgres zero-copy connector federates for M10. Satisfies the
     TraceSink contract (emit(dict), never raises into the request path —
-    TraceRecorder contains failures)."""
+    TraceRecorder contains failures).
 
-    def __init__(self, client: PgClient | None = None):
+    Writes are OFF the request path: emit() queues and one worker thread
+    inserts, in order. The cluster auto-pauses after 5 idle minutes (0 ACU),
+    and the first Data API call after that waits ~25 s for the resume — inline,
+    that stalled whichever request recorded the hop (a 0.4 s memory read
+    returned at 27 s against Apex's 20 s callout, 2026-10-13). atexit drains
+    the queue so a short-lived script or a SIGTERM'd task still lands its hops.
+
+    Except in a Lambda (the shim, the fan-out server), which stays inline: the
+    sandbox freezes when the handler returns, so a queued hop would wait for
+    the next invocation — or be lost with a recycled environment, atexit unrun.
+    """
+
+    DRAIN_S = 30.0  # outlasts one Aurora resume; within Fargate's stop timeout
+
+    def __init__(self, client: PgClient | None = None, *, background: bool | None = None):
+        import atexit
+        import queue
+
         self.client = client or PgClient.from_env()
+        if background is None:
+            background = not os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+        self._queue: queue.Queue[dict[str, Any]] | None = None
+        if background:
+            self._queue = queue.Queue()
+            threading.Thread(target=self._drain_forever, name="pg-trace-sink", daemon=True).start()
+            atexit.register(self.flush, self.DRAIN_S)
 
     def emit(self, event_dict: dict[str, Any]) -> None:
+        if self._queue is None:
+            self._insert(event_dict)
+        else:
+            self._queue.put(event_dict)
+
+    def flush(self, timeout: float = DRAIN_S) -> bool:
+        """Wait until every queued hop is written (or failed); False on timeout."""
+        deadline = time.monotonic() + timeout
+        while self._queue is not None and self._queue.unfinished_tasks:
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.05)
+        return True
+
+    def _drain_forever(self) -> None:
+        import sys
+
+        while True:
+            event_dict = self._queue.get()
+            try:
+                self._insert(event_dict)
+            except Exception as exc:  # noqa: BLE001 - the worker must outlive one bad hop
+                print(f"[trace] PostgresSink failed: {type(exc).__name__}: {exc}",
+                      file=sys.stderr)  # fmt: skip
+            finally:
+                self._queue.task_done()
+
+    def _insert(self, event_dict: dict[str, Any]) -> None:
         ts = float(event_dict.get("ts") or time.time())
         self.client.execute(
             f"""INSERT INTO {SCHEMA}.trace_events

@@ -3515,3 +3515,218 @@ radio fails open, visibly. Every Jev and baseline call is a trace hop
 
 **Status.** DECIDED 2026-10-02. B and C built and unit-tested; live runs need a
 TypeSafe key. WS26 in `plan/07-workstreams.md`.
+
+## 2026-10-13 — D83: Agentforce memory runs from a deterministic `before_reasoning` hook, through the BRIDGE — and the agent's reply is the half no hook can see
+
+**Context.** plan/18 Phase 2 gives the Agentforce concierge
+(`A2ALab_Memory_Concierge`) Data 360 Agentic Memory. The plan's first draft
+assumed Agent Script had no after-turn hook, so ingest would have been either
+an action the planner was *asked* to call (unreliable) or an out-of-band
+replay. That premise was wrong. `before_reasoning` / `after_reasoning` are
+deterministic procedures that run every turn outside the planner and can `run`
+actions and `set` variables from their outputs (Agent Script SPEC §5,
+"After Reasoning" reference). But `@system_variables` exposes `user_input` and
+no variable holding the reply text, so neither hook can ingest the agent side.
+Separately, the Data 360 runtime APIs are tenant-only: core
+`/services/data/v67.0/ssot/agentic/{context,conversations,memory}` return
+NOT_FOUND, so every call needs the JWT-bearer → `/services/a360/token` chain
+(plan/18 Phase 0).
+
+**Decision.**
+
+1. **One action, `A2ALabMemoryTurn`, run from `before_reasoning`**, never offered
+   in `reasoning.actions`. On the first turn it starts the conversation and
+   returns the id into `@variables.memory_conversation`. Every turn it returns
+   the context (into `@variables.memory_context`, interpolated into the
+   instructions) and ingests `@system_variables.user_input`. The concierge has
+   one subagent and no transitions, because a mid-turn transition skips the
+   original subagent's `after_reasoning`. The same discipline holds for any
+   hook placement.
+2. **Via the bridge (`POST /memory/turn` over the `A2ALab_Bridge` Named
+   Credential), not Apex-direct.** The bridge already authenticates Agentforce,
+   and the memory ECA identity (`plan/18`, D37 per-caller) is already verified.
+   `src/interop/memory.py` is the client Phase 3's generic `MemoryAdapter`
+   reuses, and the tenant leg becomes a traced hop (`agentic-memory`).
+   Apex-direct would need an org-held signing certificate, a second ECA trusting
+   it, and Remote Site Settings for My Domain and the tenant host (environment
+   identifiers, so rendered and gitignored). It would also be a leg the lab
+   cannot trace. It remains a comparison arm with the D30 shape.
+3. **Fail-open.** A refused memory call is `ok: false` plus an empty context, so
+   an outage costs memory, not the turn. Its timeout is 20 s, inside the
+   measured ~85–90 s action budget (`plan/03-results.md`).
+4. **Native `context:` flags OFF in the first published version.** The
+   Agentforce dialect's `context.memory` / `context.past_conversations` compile
+   in this org (`sf agent validate` → 0 errors), but their runtime link to Data
+   360 memory is unmeasured. Off keeps recall attributable. On is the second
+   arm, as its own version.
+5. **The reply is measured before it is engineered.** The agentic setup's
+   `AgenticConnector_*` streams (`AiAgentInteractionMessage` among them) may
+   already carry Agentforce replies into Data 360. If they don't land in the
+   agent's memory conversation, replay replies from the Session Trace feed
+   (WS23/D73) via `MemoryClient.ingest(agent_response=…)`.
+6. **Owner** is the External variable `memory_owner`, set per persona by the
+   caller, with default `a2alab-persona-default`. `owner_type` is `individual`
+   (plan/18 open question 3).
+
+**Consequences.** The hosted bridge's secret `a2alab/runtime/bridge` gains
+`SF_CLIENT_ID_MEMORY`, `SF_MEMORY_RUNAS_USER` and the signing key as
+`A2ALAB_MEMORY_JWT_KEY` (PEM). The key now exists in Secrets Manager as well as
+in the D45 chezmoi backup. GetContext on a conversation that doesn't exist
+returns 403 with an empty body (2026-10-13; the SDK e2e suite's TC-NEG-17
+treats a non-participant owner the same way), so
+`setup_agentic_memory.py probe` writes a synthetic turn before reading, and it
+is the go/no-go ahead of any deploy.
+
+**Status.** ACCEPTED 2026-10-13, deployed the same day: bridge task definition
+:13 (memory identity in its secret), `A2ALabMemoryTurn` + the
+`A2ALab_Agent_Actions` grant (6/6 tests, 100% coverage), concierge v1 active.
+The tenant smoke and first recall are next. Amended by D84: the native memory
+actions make this route one arm of an experiment, not the only path. WS27 in
+`plan/07-workstreams.md`.
+
+## 2026-10-13 — D84: Agentforce reaches memory two ways — the bridge route (D83) and its NATIVE memory actions — and which one reaches Data 360 is an experiment, including from a Data Cloud One companion org
+
+**Context.** D83 chose the bridge route on the premise that Agentforce had no
+native path to Agentic Memory (plan/18 cited an internal guide: Apex actions
+"pending a native integration"). That premise was unchecked. The org's
+standard invocable actions (`/services/data/v67.0/actions/standard`, read-only,
+2026-10-13) include `manageUserMemory` (`CURATE_AI_AGENT_USER_MEMORY`: an LLM
+curates memories from a conversation, returns them as JSON),
+`getAgentMemoryPreference` / `updateAgentMemoryPreference` (per user and
+agent, v67 only) and `getAgentContext`. They are keyed to a Salesforce
+principal: the running user, or `authParticipantId` for Service Agents. What is
+NOT known is whether they write to Data 360 Agentic Memory, the store every
+other lab platform reads, or to a separate Agentforce user-memory store.
+
+**Decision.**
+
+1. **The route is an experiment, not a settled choice.** The concierge runs
+   three arms, each its own published version (plan/18 Phase 2b): explicit
+   (D83 v1), native flag (`context.memory` / `past_conversations` on), native
+   action (`manageUserMemory` from a hook). After each native-arm turn the
+   tenant is read for the same owner. A write that is not visible in Data 360
+   under an owner id another platform can name does not count as shared
+   memory.
+2. **Keep the bridge route regardless of the native result.** It depends only
+   on a Named Credential and the home org's memory identity, not on the
+   calling org. Under Data Cloud One a companion org's Apex reaches the same
+   tenant through the same bridge, which the native actions may not.
+3. **A Data Cloud One companion-org arm.** Whether the native actions exist in
+   a companion org, and whether their writes reach the home org's Data 360,
+   is measured from a real companion org, not inferred.
+   `setup_agentic_memory.py native --org <alias>` is the first, read-only step
+   there.
+
+**Consequences.** plan/18 gains Phase 2b and open questions 7–8; the D83
+rationale stays (tracing, one client shared with Phase 3) but no longer claims
+there is no native path. The companion-org arm needs a companion org connected
+to this lab org's Data 360, which the lab does not have yet.
+
+**Status.** PROPOSED 2026-10-13. The native-action inventory is captured and
+reproducible (`setup_agentic_memory.py native`); the arms are not built. WS27
+items 13–15 in `plan/07-workstreams.md`.
+
+## 2026-10-13 — D85: trace hops are written to Aurora off the request path, except in a Lambda
+
+**Context.** The Aurora cluster that holds `lab.trace_events` scales to 0 ACU
+and auto-pauses after 300 idle seconds. `PostgresSink.emit` ran the INSERT
+inline inside `Hop.__exit__`, so the first hop after a pause waited ~25 s for
+the resume, on whatever request was recording it. The memory read made it
+visible: trace `ws27-smoke-read-2` shows a 430 ms GetContext inside a
+`/memory/turn` that returned at 27.1 s, against Apex's 20 s callout (plan/18,
+D83). Every Fargate face, the bridge and the console had the same stall; it
+just hadn't been measured against a tight timeout.
+
+**Decision.** `PostgresSink` queues and one daemon worker inserts, in order;
+`atexit` drains for up to 30 s (one resume, within Fargate's stop timeout).
+In a Lambda (`AWS_LAMBDA_FUNCTION_NAME` set: the shim and the fan-out server)
+it stays inline, because the sandbox freezes when the handler returns.
+Keeping a floor ACU (0.5, ~$43/month) was the alternative; it buys the
+same latency for money and still leaves the inline write on the request path.
+
+**Consequences.** A hop can now reach Aurora up to one resume *after* the
+response, so a console view opened in that window may briefly miss it. A
+hard-killed task loses at most its unflushed queue. Lambda paths still pay a
+resume on a cold database. This needs a full rebuild of each image
+that uses the sink (bridge, faces, console, Heroku twin, AgentCore); `--skip-build`
+ships the old code (CLAUDE.md).
+
+**Status.** BUILT 2026-10-13 (`src/observability/pg.py`,
+`tests/unit/test_trace_sinks.py`). Bridge DEPLOYED 2026-10-13 (task
+definition 16, full rebuild), then the same day: faces (16), console (123), the
+briefs watcher (faces image) and the three AgentCore runtimes (claude, openai,
+strands) and the Heroku LangGraph twin, all full rebuilds. Aurora stays at 0 ACU with auto-pause by operator
+choice: the one cold wake before a demo is acceptable.
+
+## 2026-10-14 — D86: the memory ECA runs as a dedicated API-only integration user, pre-authorized by a permission set, not as the org admin
+
+**Context.** D1 promised "a dedicated least-privilege integration run-as user", and
+`plan/04-runbooks.md` step 2 still describes one (`a2alab.integration`). It was never
+built. Checked 2026-10-14: no such user exists, all six client-credentials ECAs
+(`a2a_lab_app`, `_claude`, `_openai`, `_shim`, `_obs`, `_tab_embed`) run as the org
+admin, and all seven lab ECAs, `a2a_lab_memory` included, pre-authorize the **System
+Administrator profile**. For the memory app the gap is the widest:
+- **Admin `sub`.** The app's JWT `sub` is that admin. The private key that signs it
+  sits in the hosted bridge's secret (D83).
+- **The `api` scope.** It gives a core token full REST reach into the production org
+  as an administrator.
+
+So a leaked bridge secret was an org-admin credential, though the app only exists to
+read and write one agent's Data 360 memory. The scopes themselves were cleaned up the
+same day: the org had kept all ten from the 403 debugging (plan/18), and redeploying
+the preset brought it back to `Api, RefreshToken, CDPIngest, CDPProfile, CDPQuery`.
+Scopes, though, bound what a token can *call*. The user bounds what those calls can
+*reach*.
+
+**Decision.** `a2a_lab_memory` runs as `a2alab.memory@<the org's domain>`, created
+headlessly by `setup_agentic_memory.py user`:
+- the **Salesforce Integration** license (five free per org) and the **Minimum Access
+  - API Only Integrations** profile, which has no UI login and no object access;
+- the standard **Data Cloud User** (`GenieUserEnhancedSecurity`) and **Context Service
+  Runtime** permission sets, each with its license. Context Service Admin was planned
+  and dropped: the Integration license refuses it, and the probe writes and reads
+  without it (`plan/03-results.md`, 2026-10-14);
+- the repo-tracked `A2ALab_Memory_Integration` permission set, which grants nothing.
+  It's the gate.
+
+The ECA's OAuth policy pre-authorizes `A2ALab_Memory_Integration` instead of the
+profile (`Preset.preauth_permission_set`, `scripts/setup_jwt_eca.py`), so no admin can
+be the app's `sub`. The invariant is enforced twice:
+- `setup_jwt_eca.py create` refuses a gated preset whose run-as user has the System
+  Administrator profile, so a stale `.env` can't quietly put the admin back;
+- `identity_preflight.py` FAILs the memory identity if the token it mints belongs to
+  an admin.
+
+Starting from the full bundle and dropping what turns out unused (Context Service Admin
+first, since "writes need it" was assumed in plan/18, not measured) was chosen over
+building up from nothing, because each failed attempt costs a production assignment
+round-trip either way, and the full bundle proves the shape works first.
+
+**Alternatives.** A custom permission set holding only the needed user permissions was
+the narrower option. It isn't possible here: `ContextServiceRuntime` and
+`ContextServiceAdmin` are license-gated, and the standard permission sets are what
+those licenses provide. A Salesforce Platform license would work, but it allows UI
+login and costs a paid seat, for no gain.
+
+**Consequences.**
+- The bridge's secret carries `SF_MEMORY_RUNAS_USER`, so the switch needs a bridge
+  **config** redeploy (`--skip-build`, CLAUDE.md). Until then the bridge keeps minting
+  as the admin, and the old identity keeps working because nothing revokes it.
+- Memory written by the admin-run app must stay readable by the new user, since
+  conversations are keyed by owner, not by caller. That is measured by re-reading the
+  2026-10-14 recall persona as the new user.
+- The `PersonalizationUser` grant on the admin (a disproved 403 hypothesis) is removed
+  by `setup_agentic_memory.py ungrant`.
+- **Out of scope, recorded:** the six client-credentials ECAs are the same anti-pattern.
+  The same shape (an integration user plus a gate permission set) is the fix, one
+  identity per seam. Agent API callers would additionally need the agent-access
+  permissions, so each needs its own measured bundle and preflight run (D37/F6).
+
+**Status.** BUILT 2026-10-14: the gate permission set, the renderer and `create` guard
+(`tests/unit/test_setup_jwt_eca.py`), the `user` and `ungrant` verbs (dry runs
+verified), and the preflight check (now FAILing on the admin `sub`, as intended). The
+production steps are in `plan/04-runbooks.md` §11, "Memory integration user".
+**DEPLOYED 2026-10-14:** user created, ECA moved onto it, bridge `:17` minting
+as it, preflight green, admin's `PersonalizationUser` grant removed. Earlier memory
+is still recalled (`plan/03-results.md`). Open: dropping the `Api` scope (WS27
+item 18), and the six other ECAs (item 20).

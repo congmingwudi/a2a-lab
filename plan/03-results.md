@@ -1238,3 +1238,76 @@ legs and cost nothing measurable: every unit landed between the 0.1 skip and
 Coverage 2/3: the logistics leg timed out, as the slowest leg did on 2026-10-02;
 that is the Vertex leg, not the gate. One run, one situation — an observation,
 not a measurement.
+
+## 2026-10-14 — WS27 first recall across sessions (Agentforce concierge, D83)
+
+Concierge v1 over the GA Agent API (client credentials, `bypassUser`), the
+`memory_owner` session variable set per persona. Native `context:` flags off,
+so the explicit `before_reasoning` → `A2ALabMemoryTurn` → bridge `POST
+/memory/turn` path is the only memory route. Driver: a throwaway script with run
+`9c030a89`, owner `a2alab-recall-9c030a89` and a control owner
+`a2alab-recall-control-9c030a89`.
+
+| session | owner | turn | memory conversation | GetContext returned | concierge reply |
+|---|---|---|---|---|---|
+| 1 | persona | "favourite tea is lapsang souchong, training for the Porto half marathon in March" | new `a2alab-2f82ee8c3574` | nothing (`contextId` only) | acknowledged |
+| 1 | persona | "always answer me in short bullet points" | same | `sourceType: Conversation`, turn 1 verbatim | acknowledged |
+| 2 (+90 s, new Agent API session) | persona | "What do you remember about me from before?" | new `a2alab-7080376a6bb6` | `sourceType: Profile`: 1 preference + 2 facts | **all three recalled** |
+| 3 | control | same question | new `a2alab-d2f8b12f8904` | nothing | "nothing remembered yet" |
+
+Traces (Aurora `lab.trace_events`): `4a02d79943…` and `c10605919c…` (session 1),
+`9845ec4761…` (session 2), `a71af0d95a…` (control).
+
+**Reading.**
+- **Cross-session recall works, and it's profile memory.** Session 2 opened a
+  brand-new memory conversation, so the facts couldn't have come from that
+  conversation's history. GetContext returned the owner's extracted
+  `SYS_PROFILE_PREFERENCES` ("prefers responses in short bullet points") and
+  `SYS_PROFILE_FACT` ×2. So profile memory is scoped to the owner, not to one
+  conversation, at least within one agent. Cross-agent sharing (open question 4)
+  is still Phase 4.
+- **Within a session the context is raw history.** Turn 2 read back turn 1's
+  user message as an `INTERACTIONS` table (`sourceType: Conversation`) before
+  extraction had run.
+- **Owner isolation holds.** The control persona's fresh conversation returned
+  no `userContext`, and the concierge didn't invent any memories.
+- **Extraction lag was about 64 s this time, not about 1 s.** The facts are
+  stamped `CREATED 20:11:57Z`, against a last ingest at 20:10:53Z and a session
+  end about 20:11:00Z. The 2026-10-13 probe saw stamps within a second of the
+  write. Two samples aren't a distribution, but the ~90 s wait used here is
+  sufficient, and a recall test with a shorter gap could fail.
+- **Latency.** `/memory/turn` took 2.5 s on a persona's first turn (three
+  lifecycle POSTs, token mint, read, ingest) and 0.6 s on the next turn. A new
+  conversation for a warm owner took 1.1–1.4 s. Tenant calls were 150–560 ms
+  each. Whole Agent API turns took 4.7–6.4 s, well inside the action budget.
+- **Not measured: the reply side.** The bridge ingests only the user's text
+  (D83), and every recalled fact here was something the user said. Whether
+  Agentforce's replies reach memory through the `AgenticConnector_*` streams is
+  still open (WS27 item 9b).
+
+## 2026-10-14 — WS27 memory ECA moved off the admin (D86, plan/18 Phase 0b)
+
+Run-as `a2alab.memory@<org domain>`: Salesforce Integration license, profile
+**Minimum Access - API Only Integrations**. The ECA policy now pre-authorizes the
+`A2ALab_Memory_Integration` permission set instead of the System Administrator
+profile. The check-only deploy accepted `commaSeparatedPermissionSet`, and the
+real deploy succeeded.
+
+| Measured | Result |
+|---|---|
+| Data Cloud User (`GenieDataPlatformStarterPsl` + `GenieUserEnhancedSecurity`) on an Integration user | assigned |
+| Context Service Runtime (license + permission set) on an Integration user | assigned |
+| Context Service **Admin** license on an Integration user | **refused**: "user license doesn't support it" |
+| `verify memory --agent-id A2ALab_Memory_Concierge` as the new user | both legs ok: core token `api cdp_ingest_api cdp_profile_api cdp_query_api`, a360 tenant token `expires_in` 7199 |
+| `probe concierge --apply` as the new user, **without** Context Service Admin | create conversation 201, create session 201, add participant 202, add entries 202, GetContext 200 ×3, get conversation 200 |
+| `identity_preflight.py` | 5/5 green; the memory user cannot read its own `Profile` (API-only), which no admin can fail to do |
+| `ungrant --apply` (PersonalizationUser off the admin) | removed; removing the permission set released `PersonalizationPsl` with it |
+| Bridge config redeploy (task definition `:17`); the secret's `SF_MEMORY_RUNAS_USER` is now the integration user | service stable, PRIMARY |
+| Concierge recall of the **2026-10-14 persona** (`a2alab-recall-9c030a89`, memory written by the admin-run app), now read through the integration user | "short bullet points… Porto half marathon in March… lapsang souchong"; agent turn 7.0 s. Trace `f1f870e6c726f6777ee5532723d7cdfd`: `/memory/turn` 2717 ms, five tenant calls all 2xx, and GetContext returned the `SYS_PROFILE_PREFERENCES` entry created 2026-10-14T20:11Z |
+
+**Reading.** Context Service Admin is not needed for the runtime memory path:
+neither writes nor reads use it. plan/18 had assumed the writes did. The
+integration license couldn't hold it anyway, so the minimum bundle is Data
+Cloud User plus Context Service Runtime plus the empty gate. Memory is keyed by owner, not by the calling identity, so what the admin wrote
+is still recalled after the switch. Still open: whether the `Api` scope can go (the
+a360 exchange only carries the three `cdp_*` scopes).

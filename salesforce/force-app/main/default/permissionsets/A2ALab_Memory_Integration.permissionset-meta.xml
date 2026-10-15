@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The gate for the a2a_lab_memory ECA (D86, plan/18 Phase 0b). It grants
+     nothing itself: the ECA's OAuth policy pre-authorizes THIS permission set
+     instead of the System Administrator profile, so only users assigned it
+     can be the JWT-bearer `sub`. Assign it to the dedicated memory integration
+     user only (`scripts/setup_agentic_memory.py user`). The capabilities come
+     from the standard Data Cloud User and Context Service permission sets. -->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>A2A lab: pre-authorizes the a2a_lab_memory External Client App (JWT bearer) for the dedicated memory integration user. Grants no data access by itself (D86).</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>A2ALab Memory Integration</label>
+</PermissionSet>

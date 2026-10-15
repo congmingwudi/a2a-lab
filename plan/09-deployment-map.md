@@ -302,6 +302,9 @@ flowchart LR
   BRX --> T2["google-adk-a2a<br/>Agent Engine, federated"]
   BRX --> T3["foundry-*-a2a<br/>Entra service principal"]
   BRX --> T4["agentforce-rest<br/>Agent API"]
+  CON["Agentforce agent<br/>A2ALab Memory Concierge"] -->|"before_reasoning, every turn"| MAPEX["Apex A2ALabMemoryTurn<br/>callout timeout 20s, fail-open"]
+  MAPEX -->|"POST /memory/turn"| DNS
+  BRX -->|"JWT-bearer → a360 token<br/>memory ECA (D83)"| MEM["Data 360 tenant<br/>Agentic Memory /api/v1/agentic/*"]
 ```
 
 **What you are looking at.** The one path that starts *inside* Salesforce.
@@ -315,6 +318,15 @@ Agentforce action ~85–90s (measured 2026-07-25, not the ~60s long assumed) →
 Apex callout 110s → bridge client 45s → agent-side caps. Each layer must be
 comfortably inside the one above it, and the ALB's 120s idle timeout sits above
 all of it.
+
+**Memory rides the same door (D83).** The Memory Concierge's
+`before_reasoning` hook runs `A2ALabMemoryTurn` on every turn, through the
+same `A2ALab_Bridge` Named Credential; the bridge holds the memory ECA identity
+and calls the Data 360 tenant, each call a traced `agentic-memory` hop. It is
+a verb on the bridge, not a `targets.yaml` target. Agentforce also has native
+memory actions (`manageUserMemory`); whether they reach the same Data 360
+memory, including from a Data Cloud One companion org, is the D84 experiment
+(plan/18 Phase 2b).
 
 **What is still manual here, deliberately:** TLS and DNS. The cutover moved
 `bridge-lab.agenticthings.com` from the Cloudflare tunnel to the ALB. It is a
@@ -398,6 +410,7 @@ flowchart TB
     E2["a2a_lab_openai"]
     E3["a2a_lab_shim"]
     E4["a2a_lab_obs"]
+    E5["a2a_lab_memory<br/>JWT-bearer → a360 CDP token<br/>(plan/18)"]
   end
   TR --> E1
   LR --> E3
@@ -1035,7 +1048,7 @@ flowchart LR
 
 | Repo path | Deploy command | Becomes | Where |
 |---|---|---|---|
-| `src/bridge/` | `deploy/bridge/deploy_bridge.sh` | ECR image + ECS task def + service `a2alab-bridge` on cluster `a2alab`, ALB + target group + listener, roles `a2alab-bridge-task` / `-exec`, secret `a2alab/runtime/bridge`. The task role's `invoke-agentcore` policy grants `bedrock-agentcore:InvokeAgentRuntime` on the Claude, OpenAI **and Strands** runtimes (D68 added `STRANDS_AGENTCORE_ARN` — the reverse `agentforce-to-strands` cell is the first bridge → Strands-runtime path) | AWS |
+| `src/bridge/` | `deploy/bridge/deploy_bridge.sh` | ECR image + ECS task def + service `a2alab-bridge` on cluster `a2alab`, ALB + target group + listener, roles `a2alab-bridge-task` / `-exec`, secret `a2alab/runtime/bridge` (since D83 it also carries the memory ECA identity, `SF_CLIENT_ID_MEMORY` / `SF_MEMORY_RUNAS_USER` / `A2ALAB_MEMORY_JWT_KEY`, for `POST /memory/turn`: the Agentforce concierge's per-turn Data 360 memory call, plan/18 Phase 2). The task role's `invoke-agentcore` policy grants `bedrock-agentcore:InvokeAgentRuntime` on the Claude, OpenAI **and Strands** runtimes (D68 added `STRANDS_AGENTCORE_ARN` — the reverse `agentforce-to-strands` cell is the first bridge → Strands-runtime path) | AWS |
 | `src/platforms/claude/` (sdk backend) | `deploy/agentcore/deploy.sh claude` | AgentCore runtime `a2alab_claude` + secret `a2alab/runtime/claude` | AWS |
 | `src/platforms/openai/` | `deploy/agentcore/deploy.sh openai` | AgentCore runtime `a2alab_openai` + secret `a2alab/runtime/openai` | AWS |
 | `src/platforms/strands/` | `deploy/agentcore/deploy.sh strands` | AgentCore runtime `a2alab_strands` + secret `a2alab/runtime/strands` (Salesforce client id/secret + `BRIDGE_TOKEN` for the ADK bridge route + `AF_SHIM_TOKEN`; no model API key — the model runs on Bedrock via the runtime IAM role) + `bedrock:InvokeModel` on the runtime role. **LIVE 2026-08-04** (WS5/D66): Kiro delivered the `strands-sdk` backend (`plan/12`), the runtime is created, and `strands-to-agentforce` runs against it — model `claude-haiku-4-5` on Bedrock via the runtime IAM role (no API key), matched to the Claude AgentCore twin so only the SDK differs. The D25 Strands-paired Agentforce twin (`A2ALab_Research_Assistant_Strands`, `SF_STRANDS_AGENT_ID`) is provisioned and active, so `ask_agentforce` consults it directly. **WS5 cross-hyperscaler (2026-08-11):** the runtime now also carries `ADK_A2A_ENDPOINT`, `A2ALAB_BRIDGE_URL` and `BRIDGE_TOKEN` for the Strands → Google ADK cell, exposed as two tools — `ask_google_adk` (native-direct: the runtime role `a2alab-agentcore` federates into GCP, keyless, no lab server in the path) and `ask_google_adk_bridge` (via the already-federated bridge, both wire payloads captured). The direct route needs `deploy/agentcore/gcp_federation.sh strands` run once and `google-auth` in the image (added to `strands.Dockerfile` — it is not pulled by the `strands`/`aws` extras). Remaining caveat: `platform_ref` (Bedrock request-id) comes back null at this SDK version | AWS |
@@ -1065,6 +1078,9 @@ flowchart LR
 | `observability.pg.DDL` views `lab.trace_events_zc` + `lab.trace_rollup_zc` | `scripts/pg_migrate.py` (Aurora) then SSOT REST (`sf api request rest`) | Two **Zero-Copy DMOs** (`A2A_Lab_Trace_Event__dlm` hop grain, `A2A_Lab_Trace_Rollup__dlm` trace grain), Direct_Access — Data 360 federates Aurora live, nothing materialized (WS19/D71). The second grain exists because Tableau Semantics has no FIXED/LOD | Aurora → Salesforce Data 360 |
 | `src/console/app.py` `/api/tableau/frontdoor` + `tableau_next.embed` in `/api/config` | (part of `deploy/console/deploy_console.sh`) | WS19 owner-only **inline** Tableau Next embed: signs a **JWT-bearer** assertion *as* the ECA run-as user → `/services/oauth2/token` → `/singleaccess` → short-lived frontdoor URL → SDK `authCredential`. JWT-bearer because `/singleaccess` needs the `web` scope client-credentials never issues. Needs `SF_CLIENT_ID_TAB_EMBED` + `SF_TAB_EMBED_RUNAS_USER` in plain env + the RS256 key (`A2ALAB_TAB_EMBED_JWT_KEY`, from the local PEM) in the console secret. Ships in the console image; full rebuild (static baked by `COPY`) | AWS |
 | `salesforce/.../externalClientApps/a2a_lab_tab_embed.eca` + `extlClntAppGlobalOauthSets` (carries the JWT public cert) + `extlClntAppOauth{Settings,Policies}` | `sf project deploy` (all four files) | The `web`-scoped ECA whose JWT-bearer-as-user token drives the frontdoor exchange (WS19). Run-as = the Tableau-Next-licensed admin. **Fully headless** — the cert attaches via the `certificate` field on global-OAuth settings (Metadata API v60+); JWT-bearer needs no consumer secret | Salesforce |
+| `scripts/setup_jwt_eca.py` preset `memory` → ECA `a2a_lab_memory` (rendered from `.env` into a scratch SFDX project, **never committed**) | `uv run python scripts/setup_jwt_eca.py create memory` (`--validate` = check-only; `verify memory` = both legs) | plan/18 Phase 0: the JWT-bearer ECA whose run-as token (`api` + `cdp_ingest_api` + `cdp_profile_api` + `cdp_query_api`, plus `refresh_token`, which JWT bearer demands even though it never refreshes) is exchanged at `/services/a360/token` for the Data 360 tenant token the Agentic Memory `/api/v1/agentic/*` APIs take. Run-as = the operator admin until D86 (2026-10-14) moved it to a dedicated API-only integration user (`setup_agentic_memory.py user`, Salesforce Integration license). The policy now pre-authorizes the `A2ALab_Memory_Integration` permission set, deployed from `salesforce/…/permissionsets/`, not the admin profile. Key at `.a2alab/memory_jwt_private.pem`. Gated by `identity_preflight.py`. Deployed 2026-10-12 | Salesforce |
+| `scripts/setup_agentic_memory.py` → `default` agentic setup + agent `A2ALab_Memory_Concierge` | `uv run python scripts/setup_agentic_memory.py setup --apply` then `register concierge --apply` (dry run without `--apply`; `status` / `wait`; `extraction concierge on --apply` is the v67 Automatic Memory Extraction PATCH; `probe concierge --apply` writes one synthetic turn to the tenant and reads it back) | plan/18 Phase 1: Connect API `/ssot/agentic/*` (v66). The setup provisions the Agentic Memory ingestion streams + DMOs in the `default` data space (~7 min to ACTIVE); each registration is one `DataAgenticContextAgent` row whose API name becomes the runtime `agent_id`. **Deleting an agent irreversibly deletes its memories.** Registered 2026-10-12 | Salesforce (Data 360) |
+| `salesforce/…/classes/A2ALabMemoryTurn.cls` + `aiAuthoringBundles/A2ALab_Memory_Concierge/` | `sf project deploy start -d salesforce/force-app/main/default/classes -o a2alab-prod -l RunSpecifiedTests -t A2ALabMemoryTurnTest`, then `sf agent publish authoring-bundle -n A2ALab_Memory_Concierge` + `sf agent activate` (`plan/04-runbooks.md` step 3) | plan/18 Phase 2 (D83): the concierge's `before_reasoning` runs `A2ALabMemoryTurn` every turn → `callout:A2ALab_Bridge/memory/turn` → the bridge → Data 360 tenant. **Deployed 2026-10-13**: 6/6 tests, 100% coverage; concierge v1 active. Native-action arms are D84 (plan/18 Phase 2b) | Salesforce |
 | `salesforce/.../flexipages/A2A_Lab_Home.flexipage` | `sf project deploy` | The in-org **A2A Lab Home** App Builder page (default tab of the A2A Lab app): lab intro, the in-org supporting components (Agentforce agents; Zero-Copy observability → Tableau Next), and a link out to the console (WS19). Deploys headless | Salesforce |
 | `salesforce/.../corsWhitelistOrigins/https_console_lab_agenticthings_com.corsWhitelistOrigin` | `sf project deploy` | CORS allowlist entry for the console origin so the Embedding SDK's browser calls to the org are permitted (WS19). Deploys headless | Salesforce |
 | `salesforce/.../iframeWhiteListUrlSettings/IframeWhiteListUrlSettings.iframeWhiteListUrlSettings` | `sf project deploy` | Adds the console origin to the org's **Trusted Domains for Inline Frames** (Setup → Session Settings → Clickjack Protection; `context=LightningOut`), which drives Salesforce's **`frame-ancestors`** CSP so the Embedding SDK — rendering via Lightning Out in an **iframe** — is not browser-blocked (who may *frame the org*). NOT a field on `SecuritySettings`, but carried by the dedicated `IframeWhiteListUrlSettings` metadata type, so it ships **headless** (validated check-only 2026-08-13; D72 earlier wrongly called this UI-only). One of three allowlists for the embed; see D72 | Salesforce |

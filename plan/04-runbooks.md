@@ -55,8 +55,13 @@ available. Raw `sf` CLI equivalents are noted as fallback.
      `sfap_api`. (`refresh_token` was dropped in F3 — the client-credentials
      and JWT-bearer flows never issue one. This shared app is the
      local-development identity; per-caller apps are §11.)
-   - Run-as user: the dedicated `a2alab.integration` user (create it first:
-     minimal profile + Agentforce permission set; API-only if available).
+   - Run-as user: the plan was a dedicated `a2alab.integration` user
+     (minimal profile + Agentforce permission set; API-only if available).
+     **It was never created.** Checked 2026-10-14: every client-credentials
+     ECA runs as the org admin and pre-authorizes the System Administrator
+     profile (D86). The memory ECA was the first to move to a real
+     integration user (§11, "Memory integration user"). The rest are the
+     follow-up D86 records.
    - Record Consumer Key/Secret → `SF_CLIENT_ID` / `SF_CLIENT_SECRET` in
      `.env`; `SF_MY_DOMAIN` = the org's My Domain host.
 3. **Build the agent** (Agent Script — D14): edit the authoring bundle at
@@ -431,7 +436,12 @@ grant shrink — with one shared app the union of needs IS the grant.
    AdminApprovedPreAuthorized`, `ipRelaxationPolicyType Enforce`.
 
 Deploy all four directories together (no Apex, so no test run), then
-`rm -rf` them locally — do not commit. Retrieve the generated consumer key
+`rm -rf` them locally — do not commit.
+**For a JWT-bearer app, use `scripts/setup_jwt_eca.py` instead of writing the
+files by hand** (add a preset): it renders the four files from `.env`,
+generates the keypair + self-signed cert, deploys, retrieves the consumer key
+into `.env`, and `verify` proves the grant. Note JWT bearer needs the
+`RefreshToken` scope or the grant 400s "refresh_token scope is required" (plan/18). Retrieve the generated consumer key
 with `sf project retrieve start -m ExtlClntAppGlobalOauthSettings:<name>_glbloauth`.
 The consumer **secret** cannot be read through the Metadata API at all:
 Setup → App Manager → the app → View → Manage Consumer Details.
@@ -484,6 +494,34 @@ a2a_lab_shim      1
 Before the split every one of those rows read `a2a_lab_app`. That table is
 E3's raw data — and the cheapest demo of why per-caller identity matters:
 the org can finally answer "which agent asked?" without the lab telling it.
+
+### Memory integration user (D86)
+
+`a2a_lab_memory` (plan/18) is the first lab ECA whose run-as user is not the
+admin. Its policy pre-authorizes the empty `A2ALab_Memory_Integration`
+permission set, not a profile, so only the user holding that set can be the
+JWT `sub`. Run each step from the repo root after `set -a; source .env; set +a`.
+Every step except the first is a dry run without `--apply`:
+
+```sh
+(cd salesforce && sf project deploy start -o "$SF_TARGET_ORG" \
+  -m PermissionSet:A2ALab_Memory_Integration)   # the DX project root is salesforce/
+uv run python scripts/setup_agentic_memory.py user --apply    # creates the user, assigns
+                                     # the licenses + USER_BUNDLE, writes SF_MEMORY_RUNAS_USER
+uv run python scripts/setup_jwt_eca.py create memory --validate   # check-only first
+uv run python scripts/setup_jwt_eca.py create memory          # refuses an admin run-as
+uv run python scripts/setup_jwt_eca.py verify memory --agent-id A2ALab_Memory_Concierge
+uv run python scripts/setup_agentic_memory.py probe concierge --apply
+uv run python scripts/identity_preflight.py                   # a2a_lab_memory must be green
+deploy/bridge/deploy_bridge.sh --skip-build    # config only: the secret carries the new run-as
+uv run python scripts/setup_agentic_memory.py ungrant --apply # drop PersonalizationUser off the admin
+uv run python scripts/env_sync.py push
+```
+
+Until the bridge is redeployed it keeps minting as the admin. Nothing revokes
+the old identity, so the steps can run in any order without an outage.
+Minimizing the bundle further (remove `ContextServiceAdmin`, drop the `Api`
+scope) is measured, not assumed: plan/18 Phase 0b.
 
 ## 12. Keep the lab warm for a demo (`scripts/demo_watch.py` + `/loop`)
 

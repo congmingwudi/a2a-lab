@@ -74,8 +74,15 @@ keys = [
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "ANTHROPIC_API_KEY",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
+    # plan/18 Phase 2 (D83): /memory/turn signs as the memory ECA's run-as
+    # user. JWT-bearer, so no secret exists; the signing key rides as PEM text.
+    "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER",
 ]
-print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
+out = {k: os.environ[k] for k in keys if os.environ.get(k)}
+key = os.path.join(os.environ.get("A2ALAB_JWT_DIR", ".a2alab"), "memory_jwt_private.pem")
+if os.path.exists(key):
+    out["A2ALAB_MEMORY_JWT_KEY"] = open(key).read()
+print(json.dumps(out))
 PY
 )
 if SECRET_ARN=$(aws secretsmanager describe-secret --region "$REGION" \
@@ -237,6 +244,7 @@ for path in pathlib.Path("src").rglob("*.py"):
 # back into the config it took them out of.
 SECRETS = {"BRIDGE_TOKEN", "A2ALAB_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+           "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
 

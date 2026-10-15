@@ -12,6 +12,10 @@
         <apexClass>A2ALabInvokeRemoteAgent</apexClass>
         <enabled>true</enabled>
     </classAccesses>
+    <classAccesses>
+        <apexClass>A2ALabMemoryTurn</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
     <externalCredentialPrincipalAccesses>
         <enabled>true</enabled>
         <externalCredentialPrincipal>A2ALab_Bridge-A2ALabPrincipal</externalCredentialPrincipal>

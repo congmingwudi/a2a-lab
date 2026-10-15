@@ -42,6 +42,8 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
         for client in clients.values():
             await client.aclose()
         clients.clear()
+        if "client" in memory_state:
+            await memory_state.pop("client").aclose()
 
     app = FastAPI(title="A2A lab bridge", lifespan=lifespan)
     state = {"registry": registry}
@@ -172,6 +174,73 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
                 "status": target.status,
                 "total_ms": int((time.perf_counter() - start) * 1000),
             }
+            hop.response_payload = payload
+        return payload
+
+    # plan/18 Phase 2 (D83): an Agentforce agent's before_reasoning hook calls
+    # this once per turn through the A2ALab_Bridge Named Credential. Apex cannot
+    # hold the memory credential (JWT-bearer key + a360 exchange), the bridge
+    # already can, and this way the tenant leg is traced like every other hop.
+    # It is a verb, not a target: memory is not an agent to delegate to.
+    memory_state: dict = {}
+
+    @app.post("/memory/turn")
+    async def memory_turn(request: Request):
+        """Start the conversation on the first turn, return the context the
+        agent should read, and ingest the user's message.
+
+        Fail-OPEN: a refused memory call returns 200 with `ok: false` and an
+        empty context, so a memory outage degrades the agent to no-memory
+        instead of failing the user's turn inside the Agentforce action budget.
+        """
+        from interop.memory import MemoryCallError, MemoryClient, render_context
+
+        check_auth(request)
+        body = await request.json()
+        trace_id = request.headers.get(TRACE_HEADER) or new_trace_id()
+        agent_id, owner_id = body.get("agent_id"), body.get("owner_id")
+        if not (agent_id and owner_id):
+            raise HTTPException(status_code=400, detail="agent_id and owner_id are required")
+        if "client" not in memory_state:
+            memory_state["client"] = MemoryClient(source="bridge")
+        mem = memory_state["client"]
+        cid = body.get("conversation_id") or None
+        payload: dict = {"conversation_id": cid, "context": "", "ok": True}
+        start = time.perf_counter()
+        with Hop(
+            trace_id,
+            source="agentforce-apex" if TOKEN_HEADER in request.headers else "caller",
+            target="bridge",
+            protocol="rest",
+            transport_detail="POST /memory/turn",
+            request_payload=body,
+        ) as hop:
+            ids = {"agent_id": agent_id, "owner_id": owner_id}
+            errors: list[str] = []
+            try:
+                if not cid:
+                    cid = await mem.start_conversation(trace_id, **ids)
+                    payload["conversation_id"] = cid
+            except MemoryCallError as exc:
+                errors.append(str(exc))
+            if cid:
+                # Read and write are independent: a refused read (GetContext
+                # 403'd for every conversation while writes 2xx'd, 2026-10-13)
+                # must not cost the turn its ingest, or memory never fills in.
+                try:
+                    ctx = await mem.get_context(trace_id, conversation_id=cid, **ids)
+                    payload["context"] = render_context(ctx)
+                except MemoryCallError as exc:
+                    errors.append(str(exc))
+                try:
+                    await mem.ingest(trace_id, conversation_id=cid,
+                                     user_message=body.get("user_message"),
+                                     agent_response=body.get("agent_response"), **ids)  # fmt: skip
+                except MemoryCallError as exc:
+                    errors.append(str(exc))
+            if errors:
+                payload.update(ok=False, error="; ".join(errors))
+            payload["total_ms"] = int((time.perf_counter() - start) * 1000)
             hop.response_payload = payload
         return payload
 
