@@ -166,6 +166,10 @@ from the admin.
    assumed the writes need it; nothing measured that). Then drop the `Api`
    scope and re-verify, because the a360 exchange only ever carries the three
    `cdp_*` scopes.
+   **Both measured.** Context Service Admin is refused by the Integration license
+   and isn't needed (2026-10-14). `Api` is needed (2026-10-15): without it the
+   a360 exchange rejects the core token as an "invalid subject token", even
+   though the tenant token never carries `api` (`plan/03-results.md`).
 
 **Out of scope here:** the six client-credentials ECAs also run as the admin
 (D86 Consequences). Same shape, separate measured bundles.

@@ -74,6 +74,9 @@ PRESETS = {
         # Adding more scopes cannot widen tenant access: the a360 exchange
         # filters the tenant token to exactly these three cdp_* scopes (tried
         # every other Data 360 scope + sfap_api + einstein_gpt_api, 2026-10-13).
+        # Api is needed, though the tenant token never carries it: without it the
+        # core token mints but /services/a360/token refuses it, "invalid subject
+        # token" (measured 2026-10-15, plan/03-results.md).
         scopes="Api, RefreshToken, CDPIngest, CDPProfile, CDPQuery",
         client_id_env="SF_CLIENT_ID_MEMORY",
         run_as_env="SF_MEMORY_RUNAS_USER",

@@ -3617,6 +3617,6 @@ and the experiment design: `plan/18-agentic-memory-context.md`.
 
 16. ✅ Memory integration user built: the gate permission set `A2ALab_Memory_Integration`, pre-authorized by the ECA policy in place of the admin profile; `setup_agentic_memory.py user` / `ungrant`; `create` refuses an admin run-as; and the preflight check (plan/18 Phase 0b).
 17. ✅ Migration deployed: gate deployed, user created, ECA redeployed, bridge config redeployed, `identity_preflight.py` green on `a2a_lab_memory`.
-18. ⏳ Minimum bundle measured: re-probe without `ContextServiceAdmin`, then re-verify without the `Api` scope; record what is actually required in `plan/03-results.md`.
+18. ✅ Minimum bundle measured: re-probe without `ContextServiceAdmin`, then re-verify without the `Api` scope; record what is actually required in `plan/03-results.md`.
 19. ✅ Red-herring grant revoked: `PersonalizationUser` and its license removed from the admin (`ungrant --apply`).
 20. ⏳ The six client-credentials ECAs off the admin: one integration user and gate permission set per seam, each with its own measured bundle (the D1 promise, D86 follow-up).

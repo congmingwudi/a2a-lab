@@ -1309,5 +1309,24 @@ real deploy succeeded.
 neither writes nor reads use it. plan/18 had assumed the writes did. The
 integration license couldn't hold it anyway, so the minimum bundle is Data
 Cloud User plus Context Service Runtime plus the empty gate. Memory is keyed by owner, not by the calling identity, so what the admin wrote
-is still recalled after the switch. Still open: whether the `Api` scope can go (the
-a360 exchange only carries the three `cdp_*` scopes).
+is still recalled after the switch. The `Api` scope was tested 2026-10-15; see below.
+
+## 2026-10-15 — WS27 memory ECA: is the `Api` scope needed? (D86)
+
+The memory ECA was deployed with `RefreshToken, CDPIngest, CDPProfile, CDPQuery`
+(no `Api`) and tested as the integration user with a freshly minted token:
+
+| Step | Result |
+|---|---|
+| Leg 1: JWT bearer → core token | ok, scope `cdp_query_api cdp_ingest_api cdp_profile_api` |
+| Leg 2: `/services/a360/token` exchange | **refused**: HTTP 200, `{"error":"invalid_request","error_description":"invalid subject token"}` |
+| `probe concierge`, `identity_preflight.py` | fail at leg 2 |
+
+The scope was restored (`setup_jwt_eca.py create memory`) and re-checked green:
+both legs, probe 201/201/202/202/200×3/200, preflight ok. **Reading:** `api` is
+needed. It is never in the tenant token (the exchange filters to the three
+`cdp_*` scopes), but the exchange only accepts a core token that carries it, so
+`api` is what authorizes the subject token. The minimum is therefore
+`Api, RefreshToken, CDPIngest, CDPProfile, CDPQuery`, the preset as committed.
+The hosted bridge was without `Api` for about 2 minutes. No traffic was sent in
+that window, and its cached tenant tokens were unaffected.

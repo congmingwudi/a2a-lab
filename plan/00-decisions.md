@@ -3728,5 +3728,6 @@ verified), and the preflight check (now FAILing on the admin `sub`, as intended)
 production steps are in `plan/04-runbooks.md` §11, "Memory integration user".
 **DEPLOYED 2026-10-14:** user created, ECA moved onto it, bridge `:17` minting
 as it, preflight green, admin's `PersonalizationUser` grant removed. Earlier memory
-is still recalled (`plan/03-results.md`). Open: dropping the `Api` scope (WS27
-item 18), and the six other ECAs (item 20).
+is still recalled (`plan/03-results.md`). The `Api` scope was
+measured as required 2026-10-15: the a360 exchange refuses a core token without it.
+Open: the six other ECAs (item 20).
