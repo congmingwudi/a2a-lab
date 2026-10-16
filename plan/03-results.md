@@ -1330,3 +1330,83 @@ needed. It is never in the tenant token (the exchange filters to the three
 `Api, RefreshToken, CDPIngest, CDPProfile, CDPQuery`, the preset as committed.
 The hosted bridge was without `Api` for about 2 minutes. No traffic was sent in
 that window, and its cached tenant tokens were unaffected.
+
+## 2026-10-15 — WS27 item 9: does the Agentforce reply reach the memory conversation? (D83 → D87)
+
+Two Agent API runs against the concierge (v1, `before_reasoning` hook only),
+each with a fresh owner and a control owner. The prompts make the agent produce
+content only its REPLY holds: first a codename, then a tea recommendation. The
+recall was then asked in a new session. After 120 s, each memory conversation
+was read back (`GET …/conversations/{id}` + GetContext).
+
+| Measured | Result |
+|---|---|
+| `agent_response` entries in either memory conversation | **none**: every entry is a `user_message` |
+| Recall of reply-only content in a new session ("which tea did you recommend?") | "I have nothing remembered yet"; the control owner gave the same answer |
+| The Agentforce replies in Data 360 | only in STDM `ssot__AiAgentInteractionMessage__dlm` (`Output` rows) under the Agentforce **session** id: no link to the memory conversation, and batch-lagged by hours. The same DMO also holds the memory conversations' `user_message` rows, as their own unlinked sessions |
+| `before_reasoning` firing | once per reasoning **pass**, not per turn: 2 of 14 turns ingested the user message twice |
+| Effect of the double ingest on extraction | the conversation summary reads "the same request was repeated moments later". Memory learned a repeat that never happened |
+| Tenant dedupe: two posts of one entry `id` | both 202; one entry stored (`dupid.py`, probe owner) |
+| `after_reasoning:` in Agent Script, and `@system_variables.last_reply` | both compile (`sf agent validate authoring-bundle`, scratch bundle, then on the concierge itself) |
+
+**Reading.** The `AgenticConnector_*` streams do not carry replies into the
+agent's memory conversation, so profile and summary extraction only ever see
+the user's side. D83's premise that no hook can see the reply was wrong:
+`@system_variables.last_reply` exists. A Session Trace replay (D73) is therefore
+not needed. The fix is D87: pass `last_reply` from both hooks, with
+content-derived entry ids so that re-sends are no-ops. Which reply `last_reply`
+holds at each hook (the current one or the previous one) is not documented, and
+the v2 run measures it.
+
+## 2026-10-15 — WS27 item 21: which reply does `last_reply` hold? None: it is not the reply (D87 → D89)
+
+Concierge v2 (D87: `agentResponse = @system_variables.last_reply` from both hooks)
+published and activated in production, then driven over the Agent API with a
+fresh owner. Localised with an Apex trace flag on the agent user and a live
+preview of the same bundle (`sf agent preview start --use-live-actions`), whose
+plan trace records each step's bound inputs.
+
+| Measured | Result |
+|---|---|
+| Agent API turn on v2 | `Failure: "I apologize, but I encountered an unexpected error."` on **every** user message; 0 `/memory/turn` hops at the bridge |
+| Apex debug log | the `A2ALabMemoryTurn` request binds `userMessage`, `ownerId`, `conversationId`; no statement of the method body runs and no callout is made |
+| Live-preview plan trace, `FunctionStep memory_turn` | `INVALID_INPUT: Unable to convert value '{interrupted=false, interrupted_heard_text=null}' to Apex type String for Apex action A2ALabMemoryTurn Variable agentResponse` |
+| Where the reply text exists | only `LLMStep.prompt_response`, `PlannerResponseStep.message` and `GuardrailsStep.generatedResponse`; no state variable at either hook carries it |
+| Hook order in one turn (v1 `before_reasoning` + a bare `after_reasoning`) | before → LLM → after → output evaluation → before → LLM → after → response: both hooks fire per reasoning pass, and `after_reasoning` runs before the response step |
+| v1 reactivated, one turn | answered; two `/memory/turn` calls (one per pass), and both `/entries` posts carry the **same** content-derived id, which the tenant stores once (dedupe row above) |
+
+**Reading.** `@system_variables.last_reply` is voice barge-in state
+(`interrupted`, `interrupted_heard_text`), not reply text, so binding it to a
+String input fails the turn before Apex runs, and the fail-open Apex never gets
+the chance to protect it. "It compiles" was the only evidence behind D87's
+premise. No variable a hook can bind holds the reply, so the reply reaches memory
+out of band (D89); v1 is active again. D87's other half, content-derived entry
+ids, is live and proven on the wire.
+
+## 2026-10-15 — WS27 items 26–29: what does each seam need once it no longer runs as the admin? (D86 → D90)
+
+The six client-credentials ECAs moved to four integration users
+(`scripts/integration_users.py`), each app's policy pre-authorizing its own gate
+permission set. `identity_preflight.py` ran before and after the policy deploy,
+with one capability check per job (D90). Users are named by role. Usernames,
+the org domain and ids stay in `.env`.
+
+| Measured | Result |
+|---|---|
+| Baseline, all six policies on the System Administrator profile | `a2a_lab_app` and `a2a_lab_obs` pass their capability **and** FAIL "runs as a System Administrator". The three Agent API apps' Chatbot-scoped tokens cannot read their own profile, so the token alone cannot tell an admin apart (this is why the check now says "not observable" there). `a2a_lab_tab_embed` with the new `sub` gets `invalid_app_access` — "user is not admin approved", which is the gate working |
+| After the deploy, the three Agent API apps as `agentcaller` (empty bundle) | Agent API session OK ×3. Nothing beyond the gate is needed, because the Agent API runs the agent as its own agent user |
+| `a2a_lab_app` as `briefs`, with Account + Contact read, brief object CRUD, Task delivery-key field, Edit Tasks, Send Custom Notifications | Account and brief reads OK. Task: `sObject type 'Task' is not supported` |
+| + **Access Activities** | Task readable, and createable and updateable by describe. `CustomNotificationType` through REST `/query`: `sObject type ... is not supported` |
+| `CustomNotificationType` through `/tooling/query`, same user, no View Setup | 200, the type found. The notification action describe also answers 200, so the writer reads the type through Tooling (`src/briefs/salesforce.py`) and View Setup is not granted |
+| `a2a_lab_obs` as `obs` (Data Cloud User only) | DMO query OK. OTel Session Trace API on a session from that query OK |
+| `a2a_lab_tab_embed` as `tabembed` (Platform license, Tableau Next Consumer) | JWT bearer + `/singleaccess` OK, run-as profile `Standard Platform User`. Hosted console redeployed config-only: `/api/tableau/frontdoor` 200 as owner |
+| Frontdoor URL opened in headless Chrome, then the Tableau Next tab | lands on `/_ui/system/security/ChangePassword`: an API-created user has never set a password. The render is not yet measured |
+| LoginHistory, today, per app × user | every mint before the deploy was a non-integration user (the admin). Every mint after it is the app's integration user, and no lab app has minted as the admin since |
+
+**Reading.** Only one seam needed anything the plan did not list: the brief
+writer. Edit Tasks does not open Task; Access Activities does. And one Setup-object
+read is cheaper to move to the Tooling API than to buy with View Setup. Three apps
+need no object access at all, which is why they share one user. For the
+Chatbot-only apps the token cannot prove its own run-as, so the evidence there
+is LoginHistory, not the preflight. The embed is the one seam not yet proven
+end to end: it waits on a first password for a user nobody signs in as.

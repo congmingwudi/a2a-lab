@@ -33,6 +33,13 @@ salesforce/force-app/main/default/extlClntAppGlobalOauthSets/
 # Same rule as above: deployable metadata that names an account does not
 # live in a public repo. Backed up by ~/projects/local-project-files/sync.sh.
 salesforce/force-app/main/default/externalCredentials/A2ALab_GCP.externalCredential-meta.xml
+# ECA policies name a run-as username (clientCredentialsFlowUser); ECA app files
+# name a contact email; retrieved app and OAuth-settings files add the org id
+# (orgScopedExternalApp, oauthLink). Rendered from .env by
+# scripts/render_eca_metadata.py.
+salesforce/force-app/main/default/extlClntAppOauthPolicies/
+salesforce/force-app/main/default/externalClientApps/
+salesforce/force-app/main/default/extlClntAppOauthSettings/
 
 # Salesforce metadata is strictly A2A_Lab*-namespaced (see CLAUDE.md). This org
 # is a shared demo org, so a wildcard `sf project retrieve` of a metadata TYPE

@@ -479,8 +479,10 @@ inline SDK embed.
 
 - `uv run python scripts/jira_sync.py` (dry run, read the diff) then `--apply` —
   mirror the WS19 item states to Jira.
-- Retrieve/track the `a2a_lab_tab_embed` `.ecaOauth`/`.ecaOauthPlcy` like the five
-  siblings; record its key in the encrypted `f6-eca-wiring.md`; `chezmoi
+- ~~Retrieve/track the `a2a_lab_tab_embed` `.ecaOauth`/`.ecaOauthPlcy` like the five
+  siblings~~ — superseded 2026-10-15: all six apps' ECA files are rendered from
+  `.env` by `scripts/render_eca_metadata.py` and gitignored (they carried the org
+  id and run-as username; `plan/04-runbooks.md`); record its key in the encrypted `f6-eca-wiring.md`; `chezmoi
   add --encrypt` the JWT private key.
 - **Create a dedicated minimal-privilege INTEGRATION USER** as the JWT `sub` /
   ECA run-as, instead of the System Administrator. Today `clientCredentialsFlowUser`

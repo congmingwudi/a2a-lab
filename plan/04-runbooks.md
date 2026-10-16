@@ -57,16 +57,20 @@ available. Raw `sf` CLI equivalents are noted as fallback.
      local-development identity; per-caller apps are §11.)
    - Run-as user: the plan was a dedicated `a2alab.integration` user
      (minimal profile + Agentforce permission set; API-only if available).
-     **It was never created.** Checked 2026-10-14: every client-credentials
-     ECA runs as the org admin and pre-authorizes the System Administrator
-     profile (D86). The memory ECA was the first to move to a real
-     integration user (§11, "Memory integration user"). The rest are the
-     follow-up D86 records.
+     **It was never created.** Checked 2026-10-14, every client-credentials
+     ECA ran as the org admin and pre-authorized the System Administrator
+     profile (D86). The memory ECA moved first (§11, "Memory integration
+     user"). Since 2026-10-15 this app runs as the `briefs` integration user
+     and the others as theirs (§11, "Integration users", D90).
    - Record Consumer Key/Secret → `SF_CLIENT_ID` / `SF_CLIENT_SECRET` in
      `.env`; `SF_MY_DOMAIN` = the org's My Domain host.
 3. **Build the agent** (Agent Script — D14): edit the authoring bundle at
    `salesforce/force-app/main/default/aiAuthoringBundles/A2ALab_Research_Assistant_Script/`,
    then `sf agent validate authoring-bundle -n A2ALab_Research_Assistant_Script -o a2alab-prod`,
+   one live turn with `sf agent preview start --authoring-bundle ... --use-live-actions`
+   (then `send` / `end`; the plan trace lands under `salesforce/.sfdx/agents/`) —
+   validate checks names, not the types a hook binds, so a bad binding compiles and
+   fails every turn once published (D89) —
    `sf agent publish authoring-bundle -n ... -o a2alab-prod`, and
    `sf agent activate --api-name A2ALab_Research_Assistant_Script -o a2alab-prod`.
    Record the agent Id (`SELECT Id, DeveloperName FROM BotDefinition`) →
@@ -436,7 +440,15 @@ grant shrink — with one shared app the union of needs IS the grant.
    AdminApprovedPreAuthorized`, `ipRelaxationPolicyType Enforce`.
 
 Deploy all four directories together (no Apex, so no test run), then
-`rm -rf` them locally — do not commit.
+`rm -rf` them locally — do not commit. For the six existing client-credentials
+apps the policy file is rendered rather than hand-written:
+`uv run python scripts/render_eca_metadata.py write [app|claude|openai|shim|obs|tab_embed]`
+fills `clientCredentialsFlowUser` from each app's integration-user key in `.env`
+(`SF_BRIEFS_RUNAS_USER`, `SF_AGENT_CALLER_RUNAS_USER`, `SF_OBS_RUNAS_USER`,
+`SF_TAB_EMBED_RUNAS_USER`; D90) and pre-authorizes that user's gate permission set,
+never the System Administrator profile. For obs/tab_embed it also fills the app file's `contactEmail`
+(`SF_ECA_CONTACT_EMAIL`). Both directories are gitignored: a username names the
+org, and a retrieved app file adds `orgScopedExternalApp` — the org id.
 **For a JWT-bearer app, use `scripts/setup_jwt_eca.py` instead of writing the
 files by hand** (add a preset): it renders the four files from `.env`,
 generates the keypair + self-signed cert, deploys, retrieves the consumer key
@@ -507,7 +519,8 @@ Every step except the first is a dry run without `--apply`:
 (cd salesforce && sf project deploy start -o "$SF_TARGET_ORG" \
   -m PermissionSet:A2ALab_Memory_Integration)   # the DX project root is salesforce/
 uv run python scripts/setup_agentic_memory.py user --apply    # creates the user, assigns
-                                     # the licenses + USER_BUNDLE, writes SF_MEMORY_RUNAS_USER
+                                     # its bundle (USERS["memory"] in scripts/integration_users.py),
+                                     # writes SF_MEMORY_RUNAS_USER
 uv run python scripts/setup_jwt_eca.py create memory --validate   # check-only first
 uv run python scripts/setup_jwt_eca.py create memory          # refuses an admin run-as
 uv run python scripts/setup_jwt_eca.py verify memory --agent-id A2ALab_Memory_Concierge
@@ -522,6 +535,55 @@ Until the bridge is redeployed it keeps minting as the admin. Nothing revokes
 the old identity, so the steps can run in any order without an outage.
 Minimizing the bundle further (remove `ContextServiceAdmin`, drop the `Api`
 scope) is measured, not assumed: plan/18 Phase 0b.
+
+### Integration users (D90)
+
+The six client-credentials ECAs run as four integration users, one per job:
+- **`agent_caller`** for `a2a_lab_claude`, `_openai` and `_shim`, whose bundle is
+  empty;
+- **`briefs`** for `a2a_lab_app`, holding the brief writer's object access;
+- **`obs`** for `a2a_lab_obs`, holding Data Cloud User;
+- **`tab_embed`** for `a2a_lab_tab_embed`, on a Salesforce Platform license with
+  Tableau Next Consumer, because the frontdoor URL opens a UI session.
+
+Each is a `UserSpec` in `scripts/integration_users.py`, and each app's policy
+pre-authorizes that user's gate permission set (`render_eca_metadata.py`
+`POLICIES`). The bundles are measured, and `plan/03-results.md` records why each
+one holds what it holds.
+
+```sh
+(cd salesforce && sf project deploy start -o "$SF_TARGET_ORG" \
+  -m PermissionSet:A2ALab_Agent_Caller -m PermissionSet:A2ALab_Briefs_Integration \
+  -m PermissionSet:A2ALab_Brief_Writer -m PermissionSet:A2ALab_Obs_Integration \
+  -m PermissionSet:A2ALab_Tab_Embed \
+  --test-level RunSpecifiedTests --tests A2ALabMemoryTurnTest)  # prod requires a test run
+uv run python scripts/integration_users.py status
+uv run python scripts/integration_users.py agent_caller --apply   # likewise briefs, obs, tab_embed;
+                                     # each writes its SF_*_RUNAS_USER key to .env
+uv run python scripts/render_eca_metadata.py write               # policies now name the gates
+(cd salesforce && sf project deploy start -o "$SF_TARGET_ORG" \
+  $(for n in app claude openai shim obs tab_embed; do
+      printf -- '-m ExtlClntAppOauthConfigurablePolicies:a2a_lab_%s_oauthPlcy ' "$n"; done) \
+  --test-level RunSpecifiedTests --tests A2ALabMemoryTurnTest)
+PYTHONPATH=src:scripts uv run python scripts/identity_preflight.py  # all green, none an admin
+deploy/console/deploy_console.sh --skip-build    # config only: the embed's JWT `sub`
+uv run python scripts/env_sync.py push
+```
+
+- **Client-credentials needs no redeploy.** The server picks the run-as at mint
+  time, so the five client-credentials seams switch the moment the policy
+  deploys. Only the embed's JWT names its user client-side.
+- **Proving the three Chatbot-only apps.** Their tokens cannot read their own
+  profile, so for them the preflight says "not observable". The proof is
+  LoginHistory, grouped by `Application, UserId`, today.
+- **A new UI user needs a first password.** A UI user created through the API
+  has never set one, and its first frontdoor session lands on ChangePassword.
+  Set a random password nobody keeps
+  (`sf org generate password --on-behalf-of <user>`), because only JWT bearer
+  ever signs it in.
+- **Rollback.** Retrieve the policies before deploying (`sf project retrieve start
+  -m ExtlClntAppOauthConfigurablePolicies:<name> --target-metadata-dir <dir>`).
+  Re-deploying that retrieved copy restores the admin profile.
 
 ## 12. Keep the lab warm for a demo (`scripts/demo_watch.py` + `/loop`)
 

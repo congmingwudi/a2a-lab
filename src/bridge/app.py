@@ -187,7 +187,11 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
     @app.post("/memory/turn")
     async def memory_turn(request: Request):
         """Start the conversation on the first turn, return the context the
-        agent should read, and ingest the user's message.
+        agent should read, and ingest the turn's messages.
+
+        A call with no `user_message` is the after_reasoning hook handing over
+        the reply (D87): it only ingests, because nothing will read a context
+        fetched after the agent has already answered.
 
         Fail-OPEN: a refused memory call returns 200 with `ok: false` and an
         empty context, so a memory outage degrades the agent to no-memory
@@ -228,8 +232,9 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
                 # 403'd for every conversation while writes 2xx'd, 2026-10-13)
                 # must not cost the turn its ingest, or memory never fills in.
                 try:
-                    ctx = await mem.get_context(trace_id, conversation_id=cid, **ids)
-                    payload["context"] = render_context(ctx)
+                    if body.get("user_message"):
+                        ctx = await mem.get_context(trace_id, conversation_id=cid, **ids)
+                        payload["context"] = render_context(ctx)
                 except MemoryCallError as exc:
                     errors.append(str(exc))
                 try:

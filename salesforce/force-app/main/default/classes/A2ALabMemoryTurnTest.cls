@@ -62,6 +62,26 @@ private class A2ALabMemoryTurnTest {
     }
 
     @IsTest
+    static void replyOnlyCallSendsTheReply() {
+        BridgeMock mock = new BridgeMock(200,
+            '{"conversation_id": "a2alab-c1", "context": "", "ok": true}');
+        Test.setMock(HttpCalloutMock.class, mock);
+        A2ALabMemoryTurn.Request req = new A2ALabMemoryTurn.Request();
+        req.agentResponse = 'Noted: aisle seats.';
+        req.ownerId = 'persona-ana';
+        req.conversationId = 'a2alab-c1';
+        Test.startTest();
+        A2ALabMemoryTurn.Response r =
+            A2ALabMemoryTurn.turn(new List<A2ALabMemoryTurn.Request>{ req })[0];
+        Test.stopTest();
+        System.assert(r.ok);
+        Map<String, Object> sent =
+            (Map<String, Object>) JSON.deserializeUntyped(mock.lastRequest.getBody());
+        System.assertEquals('Noted: aisle seats.', sent.get('agent_response'));
+        System.assertEquals(null, sent.get('user_message'));
+    }
+
+    @IsTest
     static void laterTurnKeepsItsConversation() {
         Test.setMock(HttpCalloutMock.class, new BridgeMock(200,
             '{"conversation_id": "a2alab-c1", "context": null, "ok": true}'));

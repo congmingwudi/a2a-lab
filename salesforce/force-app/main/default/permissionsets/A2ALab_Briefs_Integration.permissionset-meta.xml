@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The gate for the a2a_lab_app External Client App (client credentials) (D86 pattern, D90). It grants
+     nothing itself: the ECA's OAuth policy pre-authorizes THIS permission set
+     instead of the System Administrator profile, so only users assigned it can
+     be the app's run-as user. Assign it to the briefs integration user only
+     (`scripts/integration_users.py briefs`); the object access the brief writer needs is A2ALab_Brief_Writer. -->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>A2A lab: pre-authorizes the a2a_lab_app External Client App (client credentials) for the briefs integration user. Grants no data access by itself (D90).</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>A2ALab Briefs Integration</label>
+</PermissionSet>

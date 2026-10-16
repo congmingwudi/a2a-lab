@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The gate for the a2a_lab_obs External Client App (client credentials) (D86 pattern, D90). It grants
+     nothing itself: the ECA's OAuth policy pre-authorizes THIS permission set
+     instead of the System Administrator profile, so only users assigned it can
+     be the app's run-as user. Assign it to the obs integration user only
+     (`scripts/integration_users.py obs`); the Data Cloud reads come from the standard Data Cloud User permission set. -->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>A2A lab: pre-authorizes the a2a_lab_obs External Client App (client credentials) for the obs integration user. Grants no data access by itself (D90).</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>A2ALab Obs Integration</label>
+</PermissionSet>

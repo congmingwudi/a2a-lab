@@ -1,6 +1,6 @@
 # 18 — Data 360 Agentic Memory and Context: one memory, every platform
 
-**Status: Phase 0 + Phase 1 DONE (2026-10-12): the memory ECA is deployed and verified; the `default` agentic setup is ACTIVE and `A2ALab_Memory_Concierge` is registered (ACTIVE). Phase 2 (D83) is DEPLOYED (2026-10-13): bridge task definition :13, `A2ALabMemoryTurn` (6/6 tests, 100% coverage) and concierge v1 active. The tenant smoke passed (2026-10-13), and **first recall across sessions passed (2026-10-14)**; the reply side is next. Phase 0b (D86, 2026-10-14) moves the memory ECA off the admin onto a dedicated API-only integration user: built, with the production steps pending. Agentforce also has NATIVE memory actions (`manageUserMemory` and friends), so Phase 2b (D84) runs both routes as an experiment, including a Data Cloud One companion-org arm.** This
+**Status: Phase 0 + Phase 1 DONE (2026-10-12): the memory ECA is deployed and verified; the `default` agentic setup is ACTIVE and `A2ALab_Memory_Concierge` is registered (ACTIVE). Phase 2 (D83) is DEPLOYED (2026-10-13): bridge task definition :13, `A2ALabMemoryTurn` (6/6 tests, 100% coverage) and concierge v1 active. The tenant smoke passed (2026-10-13), and **first recall across sessions passed (2026-10-14)**. The reply side was measured on 2026-10-15: replies never reach memory natively. D87's idempotent entry ids are live; its reply path is not: `last_reply` turned out to be voice barge-in state, so concierge v2 failed every turn and v1 is active again, and the reply moves out of band (D89). Phase 0b (D86, 2026-10-14) moves the memory ECA off the admin onto a dedicated API-only integration user: built, with the production steps pending. Agentforce also has NATIVE memory actions (`manageUserMemory` and friends), so Phase 2b (D84) runs both routes as an experiment, including a Data Cloud One companion-org arm.** This
 doc is the setup path and the experiment design. Decisions get ADRs in
 `plan/00-decisions.md` as they settle, and a `## WS27` delivery record in
 `plan/07-workstreams.md` once a build starts.
@@ -171,8 +171,9 @@ from the admin.
    a360 exchange rejects the core token as an "invalid subject token", even
    though the tenant token never carries `api` (`plan/03-results.md`).
 
-**Out of scope here:** the six client-credentials ECAs also run as the admin
-(D86 Consequences). Same shape, separate measured bundles.
+**Done separately (D90):** the six client-credentials ECAs, which also ran as the
+admin (D86 Consequences), now run as four integration users of the same shape, each
+with a separately measured bundle.
 
 
 
@@ -369,10 +370,13 @@ D83 in `plan/00-decisions.md`. In short:
   variables from its outputs, branch, and transition (the Agent Script
   "After Reasoning" reference; the `salesforce/agentscript` repo `SPEC.md`
   §5). So memory doesn't depend on the model choosing to call an action.
-- **But neither hook can see the agent's reply.** `@system_variables` carries
-  `user_input` (this turn's raw user text) and nothing holding the response
-  text. The hook can ingest the user side of every turn and read context. It
-  can't ingest the agent side.
+- **No hook can bind the reply (D89, correcting D87).** `user_input` carries
+  this turn's raw user text. `@system_variables.last_reply` compiles in both
+  hooks, but it is voice barge-in state (`interrupted`,
+  `interrupted_heard_text`), not text: bound to a String input it fails every
+  turn. The reply exists only in the planner trace, so it reaches memory out
+  of band (D89). Content-derived entry ids (D87) still make each hook's
+  per-pass re-send of the user message a no-op.
 - **One action, run from `before_reasoning`.** `A2ALab: Memory Turn`
   (`A2ALabMemoryTurn`) starts the memory conversation on the first turn,
   returns the context to read, and ingests `@system_variables.user_input`.
@@ -405,9 +409,10 @@ D83 in `plan/00-decisions.md`. In short:
   `AgenticConnector_*` data streams over `AiAgentSession`,
   `AiAgentInteraction`, `AiAgentInteractionMessage` and friends, so Agentforce
   turns may already reach Data 360 natively, replies included. Whether they
-  reach *this agent's memory conversation* is the first Phase 2 measurement.
-  If they don't, the fallback is replaying replies from the Session Trace
-  feed (WS23/D73).
+  reach *this agent's memory conversation* was measured 2026-10-15
+  (`plan/03-results.md`). They don't: replies land only in the STDM DMO under
+  the Agentforce session, unlinked and hours late. The Session Trace replay
+  (D73) is the reply path after all: `last_reply` does not hold the reply (D89).
 
 Owner identity: `@variables.memory_owner` is an External-visibility variable
 the caller sets per persona (Agent API session variables), with default
@@ -519,8 +524,15 @@ runs through the deployed route and exercises the same writes):
 5. ✅ First recall (2026-10-14, `plan/03-results.md`): a new session for the
    same owner recalled all three stated facts from extracted **profile**
    memory (`SYS_PROFILE_FACT` / `SYS_PROFILE_PREFERENCES`), and a control owner
-   got nothing. Extraction took about 64 s this time. Still open: the
-   AgenticConnector streams for the reply side.
+   got nothing. Extraction took about 64 s this time.
+6. ✅ Reply side measured (2026-10-15, `plan/03-results.md`): no reply reaches
+   the memory conversation natively, and `before_reasoning` fires per
+   reasoning pass, double-ingesting 2 of 14 turns. Fix (D87): content-derived
+   entry ids, live and proven on the wire. The `last_reply` half failed in
+   production (2026-10-15): it is voice barge-in state, not the reply, so v2
+   was rolled back to v1 (D89).
+7. ⏳ Reply ingest out of band (D89): Session Trace replay (D73) first, the
+   caller-side REST seam for lab traffic as the fallback.
 
 ### Phase 2b — two routes to one memory (D84)
 

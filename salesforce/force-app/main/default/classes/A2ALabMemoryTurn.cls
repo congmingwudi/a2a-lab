@@ -11,8 +11,11 @@
  *
  * One call does the whole turn: start the conversation on the first turn
  * (conversationId empty in, the new id out), return the context to read, and
- * ingest the user's message. The agent's REPLY is not ingested here — Agent
- * Script exposes no variable holding it to either hook (D83).
+ * ingest the user's message. agentResponse is an optional seam for the
+ * agent's REPLY, and nothing feeds it today: no Agent Script variable holds
+ * the reply text (@system_variables.last_reply is voice barge-in state, D89),
+ * so the concierge binds only the user side. A call with only agentResponse
+ * ingests and reads nothing.
  *
  * Fail-open: any failure returns an empty context and ok=false, so a memory
  * outage costs the agent its memory, not the user's turn.
@@ -28,6 +31,10 @@ public with sharing class A2ALabMemoryTurn {
         @InvocableVariable(label='User Message'
             description='This turn\'s user text (@system_variables.user_input)')
         public String userMessage;
+
+        @InvocableVariable(label='Agent Response'
+            description='The agent\'s reply, when a caller has it (D89)')
+        public String agentResponse;
 
         @InvocableVariable(required=true label='Owner Id'
             description='Whose memory this is: the conversation owner id')
@@ -58,7 +65,7 @@ public with sharing class A2ALabMemoryTurn {
 
     @InvocableMethod(
         label='A2ALab: Memory Turn'
-        description='Reads Data 360 Agentic Memory context for this turn and ingests the user message, via the lab bridge.'
+        description='Reads Data 360 Agentic Memory context for this turn and ingests the user message and the agent reply, via the lab bridge.'
         callout=true
     )
     public static List<Response> turn(List<Request> requests) {
@@ -86,7 +93,8 @@ public with sharing class A2ALabMemoryTurn {
             'agent_id' => String.isBlank(req.agentApiName) ? DEFAULT_AGENT : req.agentApiName,
             'owner_id' => req.ownerId,
             'conversation_id' => req.conversationId,
-            'user_message' => req.userMessage
+            'user_message' => req.userMessage,
+            'agent_response' => req.agentResponse
         }));
 
         try {

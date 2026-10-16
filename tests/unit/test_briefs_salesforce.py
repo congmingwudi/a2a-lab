@@ -44,8 +44,10 @@ class FakeSF:
         # (sobject, key) -> id, so a repeat upsert returns the same id / created=False
         self._store: dict[tuple, str] = {}
 
-    async def query(self, soql: str):
+    async def query(self, soql: str, *, tooling: bool = False):
         self.queries.append(soql)
+        if "CustomNotificationType" in soql:
+            assert tooling, "a Setup object: the Tooling API, not /query (D90)"
         if "CustomNotificationType" in soql or "FROM User" in soql:
             return []  # keep the best-effort in-app alert out of the way
         if "WHERE Id =" in soql:
@@ -367,8 +369,10 @@ class NotifySF(FakeSF):
         for p in prefill or []:  # pre-existing rows (partial-pair setup)
             self._store[p] = f"pre_{len(self._store)}"
 
-    async def query(self, soql: str):
+    async def query(self, soql: str, *, tooling: bool = False):
         self.queries.append(soql)
+        if "CustomNotificationType" in soql:
+            assert tooling, "a Setup object: the Tooling API, not /query (D90)"
         if "CustomNotificationType" in soql:
             return [{"Id": "0ML000000000001"}]
         if "FROM User" in soql:

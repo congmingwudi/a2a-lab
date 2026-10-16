@@ -148,8 +148,11 @@ class BriefWriter:
             raise RuntimeError(f"Salesforce {method} {path} -> {r.status_code}: {r.text[:400]}")
         return r.json() if r.text else {}
 
-    async def _query(self, soql: str) -> list[dict]:
-        data = await self._request("GET", "/query", params={"q": soql})
+    async def _query(self, soql: str, *, tooling: bool = False) -> list[dict]:
+        # Setup objects (CustomNotificationType) answer on the Tooling API to a
+        # user without View Setup; the REST /query refuses them (D90).
+        path = "/tooling/query" if tooling else "/query"
+        data = await self._request("GET", path, params={"q": soql})
         return data.get("records", [])
 
     async def _upsert_by_external_id(
@@ -362,7 +365,8 @@ class BriefWriter:
             ) as hop:
                 notif_types = await self._query(
                     "SELECT Id FROM CustomNotificationType "
-                    "WHERE DeveloperName = 'A2ALab_Brief_Alert' LIMIT 1"
+                    "WHERE DeveloperName = 'A2ALab_Brief_Alert' LIMIT 1",
+                    tooling=True,
                 )
                 if not notif_types:
                     raise RuntimeError("CustomNotificationType A2ALab_Brief_Alert not deployed")

@@ -412,6 +412,16 @@ flowchart TB
     E4["a2a_lab_obs"]
     E5["a2a_lab_memory<br/>JWT-bearer → a360 CDP token<br/>(plan/18)"]
   end
+  subgraph SFU["Run-as — one integration user per job, never the admin (D86, D90)"]
+    U1["agent_caller<br/>empty bundle"]
+    U2["obs<br/>Data Cloud User"]
+    U3["memory<br/>Data Cloud + Context runtime"]
+  end
+  E1 -.-> U1
+  E2 -.-> U1
+  E3 -.-> U1
+  E4 -.-> U2
+  E5 -.-> U3
   TR --> E1
   LR --> E3
   SM --> E4
@@ -756,8 +766,9 @@ hosted design deliberately never granted. State as of 2026-08-07:
 - **Done (WS19 item 6, inline embed, 2026-08-09).** The console renders the
   dashboard **inline** for the owner via the **Tableau Next Embedding SDK** (pinned
   CDN build), no login step. The console backend mints the session server-side:
-  a **JWT-bearer assertion** (signed *as* the Tableau-Next-licensed admin — the
-  `a2a_lab_tab_embed` ECA's run-as user) is exchanged at `/services/oauth2/token`
+  a **JWT-bearer assertion** (signed *as* the `a2alab.tabembed` integration user, a Salesforce Platform
+  user holding Tableau Next Consumer and the `A2ALab_Tab_Embed` gate, which is the
+  `a2a_lab_tab_embed` ECA's run-as (D90)) is exchanged at `/services/oauth2/token`
   for a token, then at `/services/oauth2/singleaccess` for a short-lived
   **frontdoor URL**, which the SDK takes as `authCredential`. The SF credential
   never reaches the browser; only the single-use frontdoor URL does. JWT-bearer is
@@ -1077,8 +1088,9 @@ flowchart LR
 | `salesforce/.../applications/A2A_Lab.app` + `tabs/A2A_Lab_Traffic.tab` + `flexipages/A2A_Lab_Traffic.flexipage` | `sf project deploy` | The in-org **A2A Lab** Lightning app: an AppPage embedding the Tableau Next dashboard (native `analytics_embedding:dashboard`) over the live Zero-Copy federation (WS19/M10). Opened at `/lightning/app/A2A_Lab`; the console shows the live link to the owner alone | Salesforce |
 | `observability.pg.DDL` views `lab.trace_events_zc` + `lab.trace_rollup_zc` | `scripts/pg_migrate.py` (Aurora) then SSOT REST (`sf api request rest`) | Two **Zero-Copy DMOs** (`A2A_Lab_Trace_Event__dlm` hop grain, `A2A_Lab_Trace_Rollup__dlm` trace grain), Direct_Access — Data 360 federates Aurora live, nothing materialized (WS19/D71). The second grain exists because Tableau Semantics has no FIXED/LOD | Aurora → Salesforce Data 360 |
 | `src/console/app.py` `/api/tableau/frontdoor` + `tableau_next.embed` in `/api/config` | (part of `deploy/console/deploy_console.sh`) | WS19 owner-only **inline** Tableau Next embed: signs a **JWT-bearer** assertion *as* the ECA run-as user → `/services/oauth2/token` → `/singleaccess` → short-lived frontdoor URL → SDK `authCredential`. JWT-bearer because `/singleaccess` needs the `web` scope client-credentials never issues. Needs `SF_CLIENT_ID_TAB_EMBED` + `SF_TAB_EMBED_RUNAS_USER` in plain env + the RS256 key (`A2ALAB_TAB_EMBED_JWT_KEY`, from the local PEM) in the console secret. Ships in the console image; full rebuild (static baked by `COPY`) | AWS |
-| `salesforce/.../externalClientApps/a2a_lab_tab_embed.eca` + `extlClntAppGlobalOauthSets` (carries the JWT public cert) + `extlClntAppOauth{Settings,Policies}` | `sf project deploy` (all four files) | The `web`-scoped ECA whose JWT-bearer-as-user token drives the frontdoor exchange (WS19). Run-as = the Tableau-Next-licensed admin. **Fully headless** — the cert attaches via the `certificate` field on global-OAuth settings (Metadata API v60+); JWT-bearer needs no consumer secret | Salesforce |
+| `salesforce/.../externalClientApps/a2a_lab_tab_embed.eca` + `extlClntAppGlobalOauthSets` (carries the JWT public cert) + `extlClntAppOauth{Settings,Policies}` | `sf project deploy` (all four files) | The `web`-scoped ECA whose JWT-bearer-as-user token drives the frontdoor exchange (WS19). Run-as = `a2alab.tabembed`, a Salesforce Platform integration user holding Tableau Next Consumer, pre-authorized through the `A2ALab_Tab_Embed` gate (D90). **Fully headless** — the cert attaches via the `certificate` field on global-OAuth settings (Metadata API v60+); JWT-bearer needs no consumer secret | Salesforce |
 | `scripts/setup_jwt_eca.py` preset `memory` → ECA `a2a_lab_memory` (rendered from `.env` into a scratch SFDX project, **never committed**) | `uv run python scripts/setup_jwt_eca.py create memory` (`--validate` = check-only; `verify memory` = both legs) | plan/18 Phase 0: the JWT-bearer ECA whose run-as token (`api` + `cdp_ingest_api` + `cdp_profile_api` + `cdp_query_api`, plus `refresh_token`, which JWT bearer demands even though it never refreshes) is exchanged at `/services/a360/token` for the Data 360 tenant token the Agentic Memory `/api/v1/agentic/*` APIs take. Run-as = the operator admin until D86 (2026-10-14) moved it to a dedicated API-only integration user (`setup_agentic_memory.py user`, Salesforce Integration license). The policy now pre-authorizes the `A2ALab_Memory_Integration` permission set, deployed from `salesforce/…/permissionsets/`, not the admin profile. Key at `.a2alab/memory_jwt_private.pem`. Gated by `identity_preflight.py`. Deployed 2026-10-12 | Salesforce |
+| `scripts/integration_users.py` + `salesforce/.../permissionsets/A2ALab_{Agent_Caller,Briefs_Integration,Brief_Writer,Obs_Integration,Tab_Embed}` + `scripts/render_eca_metadata.py` (policies, **never committed**, D88) | `sf project deploy` the permission sets, `uv run python scripts/integration_users.py <user> --apply`, then `render_eca_metadata.py write` + deploy the six policies (`plan/04-runbooks.md` §11) | D90: the run-as users of the six client-credentials ECAs, one per job. `agent_caller` (claude/openai/shim, empty bundle), `briefs` (`a2a_lab_app`, the brief writer's measured object access), `obs` (Data Cloud User), and `tab_embed` (Platform license, Tableau Next Consumer). Each app's policy pre-authorizes its user's empty gate permission set, not the System Administrator profile | Salesforce |
 | `scripts/setup_agentic_memory.py` → `default` agentic setup + agent `A2ALab_Memory_Concierge` | `uv run python scripts/setup_agentic_memory.py setup --apply` then `register concierge --apply` (dry run without `--apply`; `status` / `wait`; `extraction concierge on --apply` is the v67 Automatic Memory Extraction PATCH; `probe concierge --apply` writes one synthetic turn to the tenant and reads it back) | plan/18 Phase 1: Connect API `/ssot/agentic/*` (v66). The setup provisions the Agentic Memory ingestion streams + DMOs in the `default` data space (~7 min to ACTIVE); each registration is one `DataAgenticContextAgent` row whose API name becomes the runtime `agent_id`. **Deleting an agent irreversibly deletes its memories.** Registered 2026-10-12 | Salesforce (Data 360) |
 | `salesforce/…/classes/A2ALabMemoryTurn.cls` + `aiAuthoringBundles/A2ALab_Memory_Concierge/` | `sf project deploy start -d salesforce/force-app/main/default/classes -o a2alab-prod -l RunSpecifiedTests -t A2ALabMemoryTurnTest`, then `sf agent publish authoring-bundle -n A2ALab_Memory_Concierge` + `sf agent activate` (`plan/04-runbooks.md` step 3) | plan/18 Phase 2 (D83): the concierge's `before_reasoning` runs `A2ALabMemoryTurn` every turn → `callout:A2ALab_Bridge/memory/turn` → the bridge → Data 360 tenant. **Deployed 2026-10-13**: 6/6 tests, 100% coverage; concierge v1 active. Native-action arms are D84 (plan/18 Phase 2b) | Salesforce |
 | `salesforce/.../flexipages/A2A_Lab_Home.flexipage` | `sf project deploy` | The in-org **A2A Lab Home** App Builder page (default tab of the A2A Lab app): lab intro, the in-org supporting components (Agentforce agents; Zero-Copy observability → Tableau Next), and a link out to the console (WS19). Deploys headless | Salesforce |

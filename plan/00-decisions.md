@@ -3731,3 +3731,228 @@ as it, preflight green, admin's `PersonalizationUser` grant removed. Earlier mem
 is still recalled (`plan/03-results.md`). The `Api` scope was
 measured as required 2026-10-15: the a360 exchange refuses a core token without it.
 Open: the six other ECAs (item 20).
+
+## 2026-10-15 — D87: the Agentforce reply reaches memory through `@system_variables.last_reply` from BOTH hooks, and entry ids are content-derived
+
+**Context.** WS27 item 9 measured the reply side (`plan/03-results.md`
+2026-10-15). No `agent_response` ever reached the concierge's memory
+conversation. The `AgenticConnector_*` streams land replies only in the STDM
+DMO under the Agentforce session, unlinked and hours late, so extraction learns
+from half the conversation. D83 had assumed no hook could see the reply, but
+`@system_variables.last_reply` exists and compiles in both hooks. Which reply it
+holds at each hook is undocumented. Separately, `before_reasoning` fires once
+per reasoning pass. That double-ingested 2 of 14 turns, and the extracted
+summary recorded a repeat the user never made.
+
+**Decision.**
+
+1. **`A2ALabMemoryTurn` gains `agentResponse`**, which the bridge already
+   accepted. `before_reasoning` passes `last_reply` alongside the user message.
+   A new `after_reasoning` hook passes `last_reply` alone. On a call with no user
+   message, the bridge ingests and skips GetContext, because nothing would read
+   the result.
+2. **Both hooks, not one guess.** If `last_reply` is the current reply at
+   `after_reasoning`, the reply lands that turn. If it is the previous reply, it
+   lands at the next turn's `before_reasoning`. Either way every reply lands,
+   except, under the second reading, the last reply of a conversation that ends.
+   That is the reason v2 measures it rather than keeping both forever.
+3. **Entry ids are content-derived:** `sha256(conversation, type, text)` in
+   `interop.memory.entry_id`. The tenant dedupes by id, so a hook's re-send is a
+   no-op. That fixes the per-pass double ingest and makes the both-hooks design
+   safe. **Accepted cost:** an identical message repeated in one conversation is
+   stored once.
+4. **Reply first.** When both sides travel together, the reply is stamped 1 ms
+   earlier. It is the message the user's text was answering.
+
+**Consequences.** This needs a production Apex deploy (additive input), concierge
+v2 published and activated, and a bridge full rebuild (`src/` changes). Replay
+from Session Trace (D83 item 5, D73) is dropped as unnecessary. The comparison
+arms (D84) inherit the reply path.
+
+**Status.** ACCEPTED 2026-10-15; **superseded in part by D89** the same day.
+Deployed (Apex, concierge v2, bridge rebuild). Decision 3 (content-derived ids)
+stands and is proven on the wire. Decisions 1–2 failed in production:
+`last_reply` is not the reply, and v1 is active again. WS27 items 21–22 in
+`plan/07-workstreams.md`.
+
+## 2026-10-15 — D88: Salesforce identifiers committed in ECA metadata are scrubbed from HEAD and guarded, not rewritten out of history
+
+**Context.** D39 put "no environment identifier in the repo" into CLAUDE.md on
+2026-07-27, naming Salesforce org ids among them, but only the AWS half got a
+boundary check (`tests/unit/test_no_account_identifiers.py`). Retrieved External
+Client App metadata carries three Salesforce identifiers: `oauthLink` and
+`orgScopedExternalApp` hold the **org id**, `clientCredentialsFlowUser` holds the
+**admin username**, and `contactEmail` holds a **personal email**. They reached
+this public repo in two ways. `745b053` (2026-07-24) came before the rule, when
+the only safeguard was the runbook's "deploy, then `rm -rf` — do not commit". A
+`git add -A` beat that habit, as `9b7019a` records for the consumer keys a day
+later. `5c58aa9` (2026-08-10) came after the rule and violated it plainly; it got
+through because nothing checked for it. Six commits and 15 files carry the values.
+
+**Decision.**
+
+1. **HEAD is clean and stays clean.** The ECA policy, OAuth-settings and app files
+   are gitignored and rendered from `.env` by `scripts/render_eca_metadata.py`.
+   The policies render byte-identical to what is deployed. The org-generated ids
+   are never rendered, because the org fills them in (`plan/04-runbooks.md`
+   §"To add another").
+2. **The check D39 lacked.** `test_no_salesforce_org_ids_in_tracked_files` matches
+   the `00D` key-prefix shape. `test_no_salesforce_usernames_or_contact_emails_in_tracked_files`
+   reads the org's username domain and the contact email from `.env`, so the test
+   itself names neither. It skips where `.env` is absent (CI).
+3. **History is not rewritten.** D39's rewrite was affordable "only because the
+   repo had one clone, no forks and no CI", and it said so as a fact about the
+   repo at that time. The repo has since gained CI, four worktrees, and
+   cross-agent handoff batons (D79). 229 commits would change SHA, and 42 SHA
+   citations in 28 tracked files would go stale. A force-push would also not
+   unpublish: GitHub keeps old commits reachable by SHA until Support purges them,
+   and every clone since 2026-07-24 already holds them.
+4. **The values are treated as public, and exposure is reduced at the source.**
+   None of them is a credential: the org id authenticates nothing, and the
+   username has no password with it. The username matters only while it is the
+   identity integrations run as, and WS27 item 20 moves every seam off the admin
+   onto integration users.
+
+**Consequences.** The ECA metadata is no longer version-controlled as files.
+What it is FOR, the per-caller least-privilege scope sets and the two refresh
+shapes, is recorded in the renderer's `POLICIES`. A fresh clone runs
+`render_eca_metadata.py write` before deploying an ECA.
+
+**Known gap, found the same day.** The org id also sits, lowercased, inside the
+agent user Salesforce generates for every Agentforce agent. Each agent's
+deployable source names that user: `default_agent_user` in the 8 `.agent`
+bundles and `<botUser>` in the 7 Bots. Rendering those means a publish-time
+wrapper around `sf agent publish`, which is more than a gitignore. So the org-id
+guard is case-insensitive and exempts exactly those two fields, and the fix is
+WS27 item 24.
+
+**Status.** ACCEPTED 2026-10-15. WS27 items 23–24 in `plan/07-workstreams.md`.
+
+## 2026-10-15 — D89: no Agent Script variable holds the Agentforce reply; v2 rolled back, and the reply reaches memory out of band
+
+**Context.** D87 bound `@system_variables.last_reply` to `A2ALabMemoryTurn`'s
+String `agentResponse` from both hooks, on the evidence that it compiles. Once
+concierge v2 was published and activated in production, every user turn returned
+`Failure: "I apologize, but I encountered an unexpected error."`, and no
+`/memory/turn` reached the bridge. A live preview of the same bundle
+(`sf agent preview start --use-live-actions`) named the cause: `INVALID_INPUT:
+Unable to convert value '{interrupted=false, interrupted_heard_text=null}' to
+Apex type String`. `last_reply` is voice barge-in state. The plan trace holds the
+reply text only in its LLM, response and guardrails steps, never in a variable a
+hook can bind, and `after_reasoning` runs before the response step
+(`plan/03-results.md`).
+
+**Decisions.**
+1. **Roll back, keep the version.** Concierge v1 is active again; v2 stays an
+   inactive version in the org, and the authoring bundle in the repo is v1's, so
+   a future publish cannot reship the binding.
+2. **Keep what stands from D87.** Content-derived entry ids are live: v1's two
+   per-pass sends of one turn carry the same id and are stored once. The bridge's
+   reply-only path stays, and so does `agentResponse` on `A2ALabMemoryTurn`, as an
+   optional seam with no current source. Removing an invocable input that the
+   inactive v2 still references would risk a dependency failure on deploy, and the
+   input is harmless when blank.
+3. **The reply reaches memory out of band.** It is PROPOSED, not built. Three
+   candidates, in order:
+   - **Session Trace replay (D73).** This is what D87 dropped as unnecessary. The
+     planner trace holds the reply text per turn.
+   - **The caller-side REST seam (plan/18 Phase 3).** Callers that already hold the
+     reply post it there. This covers lab traffic, not the Agentforce UI.
+   - **STDM `AiAgentInteractionMessage`.** Measured unlinked and hours late, so it
+     is last.
+4. **Preview live before publishing.** `sf agent validate` checks names, not the
+   types a hook binds. One live preview turn would have caught this without
+   touching the published agent, so it is now a step in the build runbook
+   (`plan/04-runbooks.md` §3).
+
+**Consequences.** Memory sees only the user side of Agentforce turns until item 25
+lands, which is D83's position, now with idempotent entries. D84's comparison
+arms inherit the same gap.
+
+**Status.** ACCEPTED 2026-10-15 for decisions 1, 2 and 4. Decision 3 is PROPOSED.
+WS27 items 21, 22 and 25 in `plan/07-workstreams.md`.
+
+## 2026-10-15 — D90: the six client-credentials ECAs move off the admin onto four integration users, each pre-authorized by its own gate
+
+**Context.** D86 moved `a2a_lab_memory` off the org admin and recorded the other
+six lab ECAs as the same anti-pattern. All six pre-authorized the **System
+Administrator profile** and ran client-credentials as the admin. Five of them
+carry the `api` scope, so any of their consumer secrets was an admin REST
+credential in the production org. The plan was one user per seam (WS27 item 20).
+Grouping by job instead gives four, because three of the six only open Agent API
+sessions, and the Agent API runs the agent as its own agent user (`bypassUser`),
+not as the caller.
+
+**Decision.** Four users, created headlessly by `scripts/integration_users.py`,
+which absorbed D86's memory user so all five specs live in one table. Each app's
+OAuth policy pre-authorizes the user's gate permission set instead of the profile,
+and is rendered from `.env` by `scripts/render_eca_metadata.py` (D88).
+
+| User | License / profile | Bundle | Gate | Apps |
+|---|---|---|---|---|
+| `a2alab.agentcaller` | Salesforce Integration / Minimum Access - API Only | nothing | `A2ALab_Agent_Caller` | `a2a_lab_claude`, `_openai`, `_shim` |
+| `a2alab.briefs` | Salesforce Integration / Minimum Access - API Only | `A2ALab_Brief_Writer` (on `SalesforceAPIIntegrationPsl`) | `A2ALab_Briefs_Integration` | `a2a_lab_app` |
+| `a2alab.obs` | Salesforce Integration / Minimum Access - API Only | Data Cloud User | `A2ALab_Obs_Integration` | `a2a_lab_obs` |
+| `a2alab.tabembed` | Salesforce Platform / Standard Platform User | Tableau Next Consumer (`TableauUser`) | `A2ALab_Tab_Embed` | `a2a_lab_tab_embed` |
+
+`a2a_lab_app` gets its own user rather than sharing the agent caller's, because it
+is also the hosted brief writer's identity (`src/briefs/salesforce.py`) and that
+job needs CRM object access the Agent API callers must not hold. The embed user
+takes a paid-seat-free Platform license because the frontdoor URL is a **UI**
+session, which the Integration license cannot open.
+
+**The bundles were measured, not assumed** (`plan/03-results.md`, 2026-10-15).
+`identity_preflight.py` gained one check per job, run as the new user:
+- **Brief writer:** every read the writer makes, plus describe-level create and
+  update rights on what it writes. It writes nothing, so it can run in production.
+- **obs:** the OTel Session Trace API (WS23) on a real session from the DMO read.
+- **tab_embed:** JWT bearer, then `/services/oauth2/singleaccess`.
+
+Two refusals shaped the brief writer's bundle:
+1. **Task.** It is invisible ("sObject type 'Task' is not supported") with Edit
+   Tasks alone. **Access Activities** is the gate.
+2. **`CustomNotificationType`.** It is a Setup object, and REST `/query` refuses
+   it without View Setup. The Tooling API answers the same query with no grant.
+   So the writer now reads it there, rather than holding a permission that reads
+   all of Setup.
+
+**The admin check is honest about what a token can see.** The preflight FAILs any
+identity whose token belongs to a System Administrator. How strong that check is
+depends on the token's scopes:
+- **`api`-scoped token.** An admin can always read its own profile, so a refused
+  read means not admin.
+- **Chatbot-only token** (the three Agent API apps). It cannot look at its own
+  user at all, and the preflight says "not observable" rather than claiming
+  "not admin".
+
+For those three, the proof is operator-side. LoginHistory shows every mint since
+the policy deploy ran as `a2alab.agentcaller`, and no lab app has minted as the
+admin since.
+
+**Alternatives.**
+- **One user for all six apps.** It would put the brief writer's CRM writes, the
+  Data Cloud reads and a UI session in one credential, which is the blast radius
+  D86 removed.
+- **Six users.** They would cost two more Integration seats out of four free, to
+  separate three apps whose bundle is empty.
+- **View Setup for the brief writer.** It is one checkbox, but it reads every
+  Setup object to find one notification type.
+
+**Consequences.**
+- **No client-side change for five of the six.** Client-credentials picks its
+  run-as server-side, so only the console needed a redeploy, a config-only one,
+  for its JWT `sub` (`SF_TAB_EMBED_RUNAS_USER`).
+- **The Tooling read needs a faces rebuild.** The hosted brief watcher runs in
+  the faces image, so the change ships with the next full faces rebuild. Until
+  then the watcher's in-app notification fails (best-effort, logged), and the
+  brief and Task still save.
+- **A new UI user must have a password before its first frontdoor session.** An
+  API-created user has never set one, so frontdoor lands on ChangePassword. The
+  embed user gets a random password nobody keeps. Only JWT bearer ever signs it in.
+- **The admin-profile policies are gone from every lab ECA.** A new ECA follows
+  the same shape: a `UserSpec` in `integration_users.py`, a gate, and a `Policy`
+  in `render_eca_metadata.py`.
+
+**Status.** ACCEPTED 2026-10-15. Live in production for all six apps. The embed
+render waits on the embed user's first password. WS27 items 26–30 in
+`plan/07-workstreams.md`.

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The gate for the a2a_lab_tab_embed External Client App (JWT bearer) (D86 pattern, D90). It grants
+     nothing itself: the ECA's OAuth policy pre-authorizes THIS permission set
+     instead of the System Administrator profile, so only users assigned it can
+     be the app's run-as user. Assign it to the Tableau embed user only
+     (`scripts/integration_users.py tab_embed`); the dashboard access comes from the standard Tableau Next Consumer permission set. -->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>A2A lab: pre-authorizes the a2a_lab_tab_embed External Client App (JWT bearer) for the Tableau embed user. Grants no data access by itself (D90).</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>A2ALab Tab Embed</label>
+</PermissionSet>

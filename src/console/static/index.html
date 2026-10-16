@@ -3330,7 +3330,7 @@ Two live surfaces, both **owner-only**, plus a screenshot for everyone else:
 - **Inline embed (in this tab).** For the owner, the console renders the dashboard *in the page* with
   the **Tableau Next Embedding SDK** (loaded from a pinned CDN build). The SDK needs a Salesforce
   session; the console's AWS backend mints one **server-side** so there is no login step: a
-  **JWT-bearer** assertion (signed *as* the Tableau-Next-licensed admin, the ECA's run-as user) is
+  **JWT-bearer** assertion (signed *as* a dedicated Salesforce Platform integration user holding Tableau Next Consumer, the ECA's run-as, D90) is
   exchanged at \`/services/oauth2/token\` for a token, then at \`/services/oauth2/singleaccess\` for a
   short-lived **frontdoor URL**, which the SDK takes as its \`authCredential\`. JWT-bearer is required
   because the exchange needs the **\`web\`** scope and Salesforce's client-credentials flow only ever

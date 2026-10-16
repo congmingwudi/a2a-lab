@@ -41,7 +41,11 @@ IDENTITIES = [
         "id_env": "SF_CLIENT_ID",
         "secret_env": "SF_CLIENT_SECRET",
         "agent_env": "SF_AGENT_ID",
-        "used_by": "local development (bridge, local servers, local harvests)",
+        # The hosted brief writer (src/briefs/salesforce.py) is this app's other
+        # job, and its bundle is measured (D90): prove every read it makes and
+        # that it MAY create/update what it writes, without writing anything.
+        "briefs": True,
+        "used_by": "local development + the brief writer's CRM writes (D90)",
         "required": True,
     },
     {
@@ -73,7 +77,10 @@ IDENTITIES = [
         "id_env": "SF_CLIENT_ID_OBS",
         "secret_env": "SF_CLIENT_SECRET_OBS",
         "soql": "SELECT ssot__Id__c FROM ssot__AiAgentSession__dlm LIMIT 1",
-        "used_by": "M11 harvest — Data Cloud DMO reads (needs the api scope)",
+        # The console's Session Trace tab reads the beta OTel API as this app too
+        # (WS23); a session from the query above is fetched to prove it.
+        "otel": True,
+        "used_by": "M11 harvest + console Session Trace — DMO reads, OTel API (D90)",
         "required": False,
     },
     {
@@ -86,7 +93,33 @@ IDENTITIES = [
         "used_by": "Agentic Memory & Context — JWT-bearer → a360 CDP token (plan/18)",
         "required": False,
     },
+    {
+        # JWT-bearer as a UI-licensed user: its job is the frontdoor URL the
+        # console's inline Tableau Next embed logs the browser in with (WS19).
+        "app": "a2a_lab_tab_embed",
+        "id_env": "SF_CLIENT_ID_TAB_EMBED",
+        "jwt": {"run_as_env": "SF_TAB_EMBED_RUNAS_USER", "key_file": "tab_embed_jwt_private.pem"},
+        "used_by": "console inline Tableau Next embed — JWT-bearer → /singleaccess (D90)",
+        "required": False,
+    },
 ]
+
+# Every lab seam runs as a dedicated integration user, not the org admin (D86,
+# D90): a token whose user is a System Administrator fails the identity even
+# when its capability works, because that is the state D90 removed.
+ADMIN_PROFILE = "System Administrator"
+
+# What the brief writer must be allowed to do, by sObject describe flag.
+BRIEF_WRITES = {"A2ALab_Account_Brief__c": ("createable", "updateable"),
+                "Task": ("createable", "updateable")}  # fmt: skip
+BRIEF_READS = (
+    "SELECT Id, Name FROM Account LIMIT 1",
+    "SELECT Id FROM A2ALab_Account_Brief__c LIMIT 1",
+    "SELECT Id FROM Task WHERE A2ALab_Delivery_Key__c != null LIMIT 1",
+    "SELECT Id FROM User WHERE IsActive = true LIMIT 1",
+    # Tooling, as the writer reads it: /query refuses Setup objects without View Setup.
+    "tooling:SELECT Id FROM CustomNotificationType WHERE DeveloperName = 'A2ALab_Brief_Alert'",
+)
 
 # A 404 from the Agent API is ambiguous: it means "no agent I can serve at
 # that id", which covers BOTH "this app may not call that agent" and "that
@@ -115,12 +148,17 @@ def _domain() -> str:
     return dom if dom.startswith("https://") else f"https://{dom}"
 
 
-def _token(http: httpx.Client, dom: str, cid: str, secret: str) -> tuple[int, str | None]:
+def _mint(http: httpx.Client, dom: str, cid: str, secret: str) -> tuple[int, dict]:
     r = http.post(
         f"{dom}/services/oauth2/token",
         data={"grant_type": "client_credentials", "client_id": cid, "client_secret": secret},
     )
-    return r.status_code, (r.json().get("access_token") if r.status_code == 200 else None)
+    return r.status_code, (r.json() if r.status_code == 200 else {})
+
+
+def _token(http: httpx.Client, dom: str, cid: str, secret: str) -> tuple[int, str | None]:
+    code, body = _mint(http, dom, cid, secret)
+    return code, body.get("access_token")
 
 
 def _configured_agent_ids() -> set[str]:
@@ -198,36 +236,117 @@ def _check_jwt(spec: dict) -> dict:
         if profile == "System Administrator":
             return {"state": "FAIL", "detail": "runs as a System Administrator, not the "
                     "dedicated integration user (D86, plan/18 Phase 0b)"}  # fmt: skip
-        # An admin can always read its own profile; the API-only integration
-        # profile cannot (no object access), so None is itself the non-admin signal.
-        who = repr(profile) if profile else "not readable by the user (API-only, not admin)"
-        return {"state": "ok", "detail": f"JWT-bearer + a360 CDP token OK, run-as profile {who}"}
+        return {"state": "ok", "detail": f"JWT-bearer + a360 CDP token OK, {_run_as_note(profile)}"}
     return {"state": "ok", "detail": "JWT-bearer + a360 CDP token OK"}
 
 
+def _check_briefs(http: httpx.Client, dom: str, headers: dict, _r) -> str | None:
+    """The brief writer's reads, and describe-level proof it may write (D90)."""
+    base = f"{dom}/services/data/v64.0"
+    for q in BRIEF_READS:
+        path, q = ("tooling/query", q[8:]) if q.startswith("tooling:") else ("query", q)
+        r = http.get(f"{base}/{path}", params={"q": q}, headers=headers)
+        if r.status_code != 200:
+            return f"brief writer read refused (HTTP {r.status_code}): {q[:60]} — {r.text[:160]}"
+    for sobject, flags in BRIEF_WRITES.items():
+        r = http.get(f"{base}/sobjects/{sobject}/describe", headers=headers)
+        d = r.json() if r.status_code == 200 else {}
+        missing = [f for f in flags if not d.get(f)]
+        if missing:
+            return f"brief writer may not {'/'.join(missing)} {sobject} (HTTP {r.status_code})"
+    return None
+
+
+def _check_otel(http: httpx.Client, dom: str, headers: dict, r: httpx.Response) -> str | None:
+    """Fetch one session's OTel trace; 404 is an aged-out session, not a refusal."""
+    recs = r.json().get("data") or r.json().get("records") or []
+    sid = next((str(v) for rec in recs for v in (rec if isinstance(rec, list) else
+                rec.values()) if isinstance(v, str) and len(v) >= 15), None)  # fmt: skip
+    if not sid:
+        return None  # no session to fetch; the DMO read already passed
+    o = http.get(f"{dom}/services/data/v66.0/einstein/audit/otel/{sid}", headers=headers)
+    if o.status_code in (200, 404):
+        return None
+    return f"OTel API refused (HTTP {o.status_code}): {o.text[:160]}"
+
+
+def _check_frontdoor(spec: dict) -> dict:
+    """JWT-bearer as the run-as user, then /singleaccess: what the embed does."""
+    from setup_jwt_eca import CredentialError, Preset, mint_core_token
+
+    j = spec["jwt"]
+    if not (os.environ.get(spec["id_env"]) and os.environ.get(j["run_as_env"])):
+        return {"state": "unset", "detail": f"{spec['id_env']} / {j['run_as_env']} not set"}
+    preset = Preset(name=spec["app"], description="", scopes="", client_id_env=spec["id_env"],
+                    run_as_env=j["run_as_env"], key_file=j["key_file"])  # fmt: skip
+    try:
+        core = mint_core_token(preset)
+    except CredentialError as e:
+        return {"state": "FAIL", "detail": str(e)}
+    fd = httpx.post(f"{core['instance_url']}/services/oauth2/singleaccess", timeout=20,
+                    headers={"authorization": f"Bearer {core['access_token']}",
+                             "accept": "application/json"})  # fmt: skip
+    if fd.status_code != 200 or not fd.json().get("frontdoor_uri"):
+        return {"state": "FAIL", "detail": f"frontdoor refused (HTTP {fd.status_code}): "
+                f"{fd.text[:160]}"}  # fmt: skip
+    profile = _own_profile(core)
+    if profile == ADMIN_PROFILE:
+        return {"state": "FAIL", "detail": f"frontdoor OK, but runs as a {ADMIN_PROFILE} (D90)"}
+    return {"state": "ok", "detail": f"JWT-bearer + frontdoor URL OK, {_run_as_note(profile)}"}
+
+
+UNNAMED = "?"  # the token's scopes cannot name its user or read its profile
+
+
+def _run_as_note(profile: str | None) -> str:
+    """How the run-as reads, never claiming more than the token proved."""
+    if profile == UNNAMED:
+        # Chatbot-scoped Agent API tokens land here: nothing they can call names
+        # the user, so the gate in the app's policy (D90) is the only guarantee.
+        return "run-as not observable with this token's scopes"
+    if profile is None:
+        # An admin can always read its own profile; an API-only integration
+        # profile cannot (no object access), so None is itself the non-admin signal.
+        return "run-as profile not readable by the user (API-only, not admin)"
+    return f"run-as profile {profile!r}"
+
+
 def _own_profile(core: dict) -> str | None:
-    """The token user's profile name, or None if the user can't read it."""
+    """The token user's profile name; None if the user can't read it, UNNAMED
+    if the token's scopes can't ask."""
     base, auth = core["instance_url"], {"authorization": f"Bearer {core['access_token']}"}
     try:
         uid = httpx.get(f"{base}/services/oauth2/userinfo", headers=auth, timeout=20).json()[
             "user_id"
         ]
+    except (httpx.HTTPError, KeyError, ValueError):
+        return UNNAMED
+    try:
         r = httpx.get(f"{base}/services/data/v64.0/query", headers=auth, timeout=20,
                       params={"q": f"SELECT Profile.Name FROM User WHERE Id = '{uid}'"})  # fmt: skip
-        recs = r.json().get("records") or [] if r.status_code == 200 else []
-    except (httpx.HTTPError, KeyError, ValueError):
+    except httpx.HTTPError:
         return None
+    if r.status_code != 200 and "api" not in (core.get("scope") or "").split():
+        # The token's scopes stop short of the query API (Chatbot-only Agent API
+        # apps): that says nothing about the user, so it is not a non-admin signal.
+        return UNNAMED
+    if r.status_code != 200:
+        return None  # an api-scoped token whose user may not read User: not an admin
+    recs = r.json().get("records") or []
     return ((recs[0].get("Profile") or {}).get("Name")) if recs else None
 
 
 def _check(http: httpx.Client, dom: str, spec: dict, active: dict[str, bool]) -> dict:
     if spec.get("jwt_preset"):
         return _check_jwt(spec)
+    if spec.get("jwt"):
+        return _check_frontdoor(spec)
     cid, secret = os.environ.get(spec["id_env"]), os.environ.get(spec["secret_env"])
     if not cid or not secret:
         return {"state": "unset", "detail": f"{spec['id_env']} / {spec['secret_env']} not set"}
 
-    code, token = _token(http, dom, cid, secret)
+    code, minted = _mint(http, dom, cid, secret)
+    token = minted.get("access_token")
     if not token:
         return {"state": "FAIL", "detail": f"token mint failed (HTTP {code})"}
 
@@ -264,7 +383,20 @@ def _check(http: httpx.Client, dom: str, spec: dict, active: dict[str, bool]) ->
                     f"{AGENT_API}/sessions/{sid}",
                     headers={**headers, "x-session-end-reason": "UserRequest"},
                 )
-        return {"state": "ok", "detail": f"{capability} OK"}
+        done = [f"{capability} OK"]
+        for extra in (_check_briefs if spec.get("briefs") else None,
+                      _check_otel if spec.get("otel") else None):  # fmt: skip
+            if extra:
+                problem = extra(http, dom, headers, r)
+                if problem:
+                    return {"state": "FAIL", "detail": problem}
+                done.append({_check_briefs: "brief writer access OK",
+                             _check_otel: "OTel API OK"}[extra])  # fmt: skip
+        profile = _own_profile({**minted, "instance_url": dom})
+        if profile == ADMIN_PROFILE:
+            return {"state": "FAIL", "detail": f"{', '.join(done)}, but runs as a "
+                    f"{ADMIN_PROFILE} — move it to its integration user (D90)"}  # fmt: skip
+        return {"state": "ok", "detail": f"{', '.join(done)}, {_run_as_note(profile)}"}
     # Separate "the agent is switched off" from "this app may not call it"
     # before handing out a fix — they produce the identical 404.
     if r.status_code == 404 and not spec.get("soql"):

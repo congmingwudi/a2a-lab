@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from bridge.app import create_bridge_app
 from interop import memory as memory_mod
-from interop.memory import MemoryCallError, MemoryClient, render_context
+from interop.memory import MemoryCallError, MemoryClient, entry_id, render_context
 from interop.registry import Registry
 
 CORE = "https://core.example"
@@ -108,6 +108,21 @@ async def test_ingest_sends_only_the_sides_it_has_and_caches_the_token():
     assert len(fake.exchanges) == 1
 
 
+async def test_ingest_ids_are_content_derived_and_the_reply_comes_first():
+    fake = FakeTenant()
+    mem = fake.client()
+    for _ in range(2):  # a hook firing twice in one turn re-sends the same ids
+        await mem.ingest("t1", conversation_id="c-1", user_message="yes",
+                         agent_response="Window or aisle?", **IDS)  # fmt: skip
+    first, second = fake.bodies("/entries")
+    assert [e["id"] for e in first["entries"]] == [e["id"] for e in second["entries"]]
+    reply, user = first["entries"]
+    assert (reply["type"], user["type"]) == ("agent_response", "user_message")
+    assert reply["timestamp"] < user["timestamp"]
+    assert reply["participantId"] == f"{IDS['agent_id']}-participant"
+    assert entry_id("c-2", "user_message", "yes") != user["id"]
+
+
 async def test_get_context_uses_the_context_header_and_records_a_hop(isolated_traces):
     fake = FakeTenant()
     ctx = await fake.client().get_context("t-ctx", conversation_id="c-1", **IDS)
@@ -193,6 +208,16 @@ def test_memory_turn_fails_open(bridge):
     assert data["ok"] is False and "403" in data["error"] and data["context"] == ""
     # a refused read must not cost the turn its ingest
     assert [c[0] for c in fake.calls] == ["context", "ingest"]
+
+
+def test_memory_turn_reply_only_ingests_without_reading(bridge):
+    client, fake = bridge
+    data = client.post(
+        "/memory/turn", json={**IDS, "conversation_id": "c-1", "agent_response": "Noted."}
+    ).json()
+    assert data["ok"] is True and data["context"] == ""
+    assert [c[0] for c in fake.calls] == ["ingest"]
+    assert fake.calls[0][1]["agent_response"] == "Noted."
 
 
 def test_memory_turn_requires_ids(bridge):

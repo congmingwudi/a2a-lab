@@ -19,11 +19,12 @@ Every call is a trace Hop with the raw request and response bodies, target
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,9 +43,24 @@ class MemoryCallError(RuntimeError):
     """A memory call refused; the message names the leg and the HTTP status."""
 
 
-def _now() -> str:
+def _now(back_ms: int = 0) -> str:
     """The SDK's timestamp shape: millisecond precision, literal Z."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    at = datetime.now(timezone.utc) - timedelta(milliseconds=back_ms)
+    return at.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def entry_id(conversation_id: str, kind: str, text: str) -> str:
+    """The same message gets the same id, so a re-send is a no-op.
+
+    The tenant dedupes entries by id (two posts of one id: both 202, one entry
+    stored, 2026-10-15), and the Agentforce hooks re-send: before_reasoning
+    fires once per reasoning PASS, not per turn, so a multi-pass turn ingested
+    its user message twice (2 of 14 turns, plan/03-results.md). The cost is
+    that a user saying the identical thing twice in one conversation is
+    stored once — harmless to what extraction learns from it.
+    """
+    digest = hashlib.sha256(f"{conversation_id}\0{kind}\0{text}".encode()).hexdigest()
+    return f"{kind[0]}-{digest[:32]}"
 
 
 def _signing_key() -> str:
@@ -220,17 +236,24 @@ class MemoryClient:
         user_message: str | None = None,
         agent_response: str | None = None,
     ) -> None:
-        """One turn's Message entries; either side may be absent (D83: Agentforce
-        can hand its hook the user text but not the reply)."""
-        turn, now = uuid.uuid4().hex, _now()
+        """One turn's Message entries; either side may be absent.
+
+        The reply goes FIRST, a millisecond earlier: beside a user message it
+        is the reply that message was answering (D87). No Agentforce hook can
+        supply it (D89), so today only out-of-band callers send one. Entry ids
+        are content-derived (`entry_id`), so a hook firing per reasoning pass
+        may re-send.
+        """
+        turn = uuid.uuid4().hex
         entries = []
-        for kind, pid, text in (
-            ("user_message", f"{owner_id}-participant", user_message),
-            ("agent_response", f"{agent_id}-participant", agent_response),
+        for kind, pid, text, back_ms in (
+            ("agent_response", f"{agent_id}-participant", agent_response, 1),
+            ("user_message", f"{owner_id}-participant", user_message, 0),
         ):
             if text:
-                entries.append({"id": f"{kind[0]}-{turn}", "participantId": pid, "type": kind,
-                                "timestamp": now, "category": "Message",
+                entries.append({"id": entry_id(conversation_id, kind, text),
+                                "participantId": pid, "type": kind,
+                                "timestamp": _now(back_ms), "category": "Message",
                                 "interactionId": turn, "content": text})  # fmt: skip
         if not entries:
             return

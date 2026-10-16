@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The gate for the a2a_lab_claude, a2a_lab_openai and a2a_lab_shim External Client Apps (client credentials) (D86 pattern, D90). It grants
+     nothing itself: the ECA's OAuth policy pre-authorizes THIS permission set
+     instead of the System Administrator profile, so only users assigned it can
+     be the app's run-as user. Assign it to the shared agent-caller integration user only
+     (`scripts/integration_users.py agent_caller`); Agent API callers need nothing beyond the API-only profile and the apps' Chatbot / SFApiPlatform scopes. -->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>A2A lab: pre-authorizes the a2a_lab_claude, a2a_lab_openai and a2a_lab_shim External Client Apps (client credentials) for the shared agent-caller integration user. Grants no data access by itself (D90).</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>A2ALab Agent Caller</label>
+</PermissionSet>

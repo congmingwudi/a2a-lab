@@ -329,20 +329,8 @@ def cmd_probe(args) -> None:
 # ---------------------------------------------------------------- integration user
 
 # D86: the memory ECA runs as a dedicated API-only integration user, not the org
-# admin. The Salesforce Integration license and its Minimum Access profile carry
-# no data access; the bundle below adds only what the two-leg token chain and the
-# agentic APIs use. (license, permission set): the license is assigned first, as
-# the permission set requires it.
-INTEGRATION_LICENSE = "Salesforce Integration"
-INTEGRATION_PROFILE = "Minimum Access - API Only Integrations"
-USER_BUNDLE = (
-    ("GenieDataPlatformStarterPsl", "GenieUserEnhancedSecurity"),  # Data Cloud User
-    ("ContextServiceRuntimePsl", "ContextServiceRuntimePsl"),  # agentic runtime APIs
-    # ContextServiceAdminPsl is not here: the Integration license refuses it
-    # ("user license doesn't support it", measured 2026-10-14), and nothing showed
-    # the runtime path needs it. plan/18 only assumed the writes did.
-    (None, "A2ALab_Memory_Integration"),  # the ECA's pre-authorization gate (repo metadata)
-)
+# admin. Its license, profile and bundle live with the other seams' users in
+# scripts/integration_users.py (D90); `user` below is that script's `memory`.
 # GetContext's 403 was once blamed on this pair (2026-10-13); the cause was the
 # ctx-agent-id header, so `ungrant` takes it back off the admin by default.
 READ_GRANT = ("PersonalizationPsl", "PersonalizationUser")  # (license, permission set)
@@ -370,53 +358,10 @@ def assigned(username: str) -> tuple[set[str], set[str]]:
 
 
 def cmd_user(args) -> None:
-    """Create (or reconcile) the memory integration user and its bundle; idempotent."""
-    from setup_jwt_eca import set_env_value
+    """Create (or reconcile) the memory integration user; integration_users.py memory."""
+    from integration_users import USERS, ensure
 
-    op = operator_user()
-    username = args.username or f"a2alab.memory@{op['Username'].split('@', 1)[1]}"
-    rows = soql(f"SELECT Id, IsActive, Profile.Name FROM User WHERE Username = '{username}'")
-    steps: list[tuple[str, ...]] = []
-    if not rows:
-        prof = soql(
-            f"SELECT Id, UserLicense.Name FROM Profile WHERE Name = '{INTEGRATION_PROFILE}'"
-        )
-        if not prof or prof[0]["UserLicense"]["Name"] != INTEGRATION_LICENSE:
-            sys.exit(f"no '{INTEGRATION_PROFILE}' profile on the {INTEGRATION_LICENSE} license")
-        # Locale and time zone copy the operator's, so nothing org-specific is
-        # written here; the email is the operator's, who receives its notices.
-        values = (f"Username='{username}' LastName='A2ALab Memory' FirstName='Integration' "
-                  f"Alias=a2amem CommunityNickname='a2alab.memory' Email='{op['Email']}' "
-                  f"ProfileId={prof[0]['Id']} TimeZoneSidKey={op['TimeZoneSidKey']} "
-                  f"LocaleSidKey={op['LocaleSidKey']} LanguageLocaleKey={op['LanguageLocaleKey']} "
-                  f"EmailEncodingKey={op['EmailEncodingKey']}")  # fmt: skip
-        steps.append(("data", "create", "record", "-s", "User", "-v", values))
-        psls, pss = set(), set()
-    else:
-        if rows[0]["Profile"]["Name"] != INTEGRATION_PROFILE:
-            sys.exit(f"{username} exists with profile {rows[0]['Profile']['Name']!r}, "
-                     f"not {INTEGRATION_PROFILE!r}; refusing to reuse it (D86)")  # fmt: skip
-        psls, pss = assigned(username)
-    for psl, ps in USER_BUNDLE:
-        if psl and psl not in psls:
-            steps.append(("org", "assign", "permsetlicense", "-n", psl, "-b", username))
-        if ps not in pss:
-            steps.append(("org", "assign", "permset", "-n", ps, "-b", username))
-    print(f"memory integration user: {username} ({'exists' if rows else 'new'})")
-    for st in steps:
-        print("  sf " + " ".join(st[:3]) + (f" {st[4]}" if st[0] == "org" else " User"))
-    if not steps:
-        print("  nothing to do")
-    if not args.apply:
-        print("(dry run — re-run with --apply to write these in the production org)")
-        return
-    for st in steps:
-        sf_json(*st)
-    set_env_value("SF_MEMORY_RUNAS_USER", username)
-    print(
-        "done; wrote SF_MEMORY_RUNAS_USER to .env. Next: deploy the A2ALab_Memory_Integration "
-        "permission set if it isn't yet, then `setup_jwt_eca.py create memory` (plan/04-runbooks.md)"
-    )
+    ensure(USERS["memory"], args.username, args.apply)
 
 
 def cmd_ungrant(args) -> None:

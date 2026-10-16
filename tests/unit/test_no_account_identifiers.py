@@ -1,4 +1,4 @@
-"""The repo names cloud regions, never cloud accounts.
+"""The repo names cloud regions, never cloud accounts — nor Salesforce orgs.
 
 The account id and the SSO profile name identify whose cloud this is and who
 pays for it. This is a public repo, so they are kept in `.env` and
@@ -66,6 +66,74 @@ def test_no_aws_account_ids_in_tracked_files():
             if match and _ACCOUNT_ID.search(match.group(0)):
                 hits.append(f"{path.relative_to(REPO)}:{i}")
     assert hits == [], f"AWS account id committed: {hits}"
+
+
+# A Salesforce org id: key prefix 00D, 15 or 18 chars. Retrieved ECA metadata
+# carries it in orgScopedExternalApp / oauthLink, which is how it was committed
+# until scripts/render_eca_metadata.py (2026-10-15). Case-insensitive, because
+# Salesforce lowercases it inside generated usernames (`…@00d…ext`).
+_SF_ORG_ID = re.compile(r"(?<![A-Za-z0-9])00D[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?", re.I)
+# KNOWN, not fixed (D88, WS27 item 24): the agent user Salesforce generates for
+# every Agentforce agent embeds the org id, and each agent's deployable source
+# names it — `default_agent_user` in an Agent Script bundle, `<botUser>` in a
+# Bot. Exempt exactly those two fields so a leak anywhere else still fails.
+_AGENT_USER_FIELD = re.compile(r"^\s*(default_agent_user:|<botUser>)")
+_HEX = re.compile(r"[0-9a-f]+", re.I)  # a content hash (uv.lock URLs), not an id
+
+
+def _org_id_in(line: str) -> bool:
+    return any(not _HEX.fullmatch(m.group(0)) for m in _SF_ORG_ID.finditer(line))
+
+
+def test_no_salesforce_org_ids_in_tracked_files():
+    hits = [
+        f"{path.relative_to(REPO)}:{i}"
+        for path, text in _text_files()
+        for i, line in enumerate(text.splitlines(), 1)
+        if _org_id_in(line) and not _AGENT_USER_FIELD.match(line)
+    ]
+    assert hits == [], f"Salesforce org id committed: {hits}"
+
+
+def _env_values(*keys: str) -> dict[str, str]:
+    """Values from .env, which is gitignored: CI has none and the check skips there."""
+    env = REPO / ".env"
+    if not env.exists():
+        return {}
+    found = {}
+    for line in env.read_text().splitlines():
+        k, sep, v = line.partition("=")
+        if sep and k.strip() in keys and v.strip().strip('"'):
+            found[k.strip()] = v.strip().strip('"')
+    return found
+
+
+def test_no_salesforce_usernames_or_contact_emails_in_tracked_files():
+    """The org's username DOMAIN (every user in the org shares it) and the ECA
+    contact email, read from .env so the test itself names neither. They were
+    committed in ECA metadata until 2026-10-15 and remain in history (D88)."""
+    import pytest
+
+    vals = _env_values(
+        "SF_AGENT_CALLER_RUNAS_USER",
+        "SF_BRIEFS_RUNAS_USER",
+        "SF_OBS_RUNAS_USER",
+        "SF_TAB_EMBED_RUNAS_USER",
+        "SF_MEMORY_RUNAS_USER",
+        "SF_ECA_CONTACT_EMAIL",
+    )
+    needles = {v.partition("@")[2] for k, v in vals.items() if k.endswith("_RUNAS_USER")}
+    needles |= {v for k, v in vals.items() if k == "SF_ECA_CONTACT_EMAIL"}
+    needles.discard("")
+    if not needles:
+        pytest.skip("no Salesforce identifiers in .env to check for (CI)")
+    hits = [
+        f"{path.relative_to(REPO)}:{i}"
+        for path, text in _text_files()
+        for i, line in enumerate(text.splitlines(), 1)
+        if any(n in line for n in needles)
+    ]
+    assert hits == [], f"Salesforce username domain or contact email committed: {hits}"
 
 
 def test_every_aws_deploy_script_sources_the_preflight():

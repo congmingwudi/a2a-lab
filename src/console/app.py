@@ -2339,7 +2339,7 @@ def create_console_app(registry: Registry | None = None):
     async def tableau_frontdoor(request: Request):
         """Mint a fresh Salesforce frontdoor URL for the inline Tableau Next
         embed (WS19/M10). OWNER-ONLY — same gate as the app deep link: the URL
-        opens a live session as the Tableau-Next-licensed admin, so it is never
+        opens a live session as the embed integration user (D90), so it is never
         handed to the operator or a viewer. Called per-render (frontdoor URLs
         are short-lived/single-use), so it is not cached. Returns 403 for
         non-owners, 503 if the embed ECA is unwired, 502 if Salesforce rejects
