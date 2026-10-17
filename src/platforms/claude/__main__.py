@@ -13,6 +13,7 @@ import argparse
 from dotenv import load_dotenv
 
 from interop.adapter import serve
+from interop.memory_adapter import with_memory
 from interop.secret_env import load_secret_env_and_log
 from platforms.claude.core import make_adapter
 
@@ -38,7 +39,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    adapter = make_adapter(args.backend)
+    # WS27 item 11 (D91): the owner's Data 360 memory around a turn whose run
+    # asked for it (metadata["memory"]); every other turn passes straight through.
+    adapter = with_memory(make_adapter(args.backend), "claude")
     port = args.port or DEFAULT_PORTS[args.protocol]
     serve(adapter, args.protocol, port=port, host=args.host, public_url=args.public_url)
 

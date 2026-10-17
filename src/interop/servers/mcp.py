@@ -70,6 +70,7 @@ def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 
         trace_id: str | None = None,
         user_context: dict | None = None,
         user_token: str | None = None,
+        memory: bool | None = None,
     ) -> AskResult:
         # user_context/user_token (WS6 U2): tool arguments are MCP's only
         # carriage for user identity — reassembled into metadata here so
@@ -79,6 +80,10 @@ def create_mcp_server(adapter: AgentAdapter, host: str = "0.0.0.0", port: int = 
             metadata["user_context"] = user_context
         if user_token is not None:
             metadata["user_token"] = user_token
+        # WS27/D91: the per-run memory choice, the same flag REST and A2A
+        # carry in metadata — a tool argument is MCP's only way to send it.
+        if memory is not None:
+            metadata["memory"] = memory
         req = AgentRequest(
             message=message,
             session_id=session_id,

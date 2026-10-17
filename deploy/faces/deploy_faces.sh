@@ -84,8 +84,15 @@ keys = [
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
+    # WS27/D91: the Claude face's memory seam signs as the memory ECA's run-as
+    # user, the same identity the bridge's /memory/turn holds (D86). JWT-bearer,
+    # so no secret exists; the signing key rides as PEM text (below).
+    "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
+_mem_key = pathlib.Path(os.environ.get("A2ALAB_JWT_DIR", ".a2alab")) / "memory_jwt_private.pem"
+if _mem_key.exists():  # the same file deploy_bridge.sh reads
+    payload["A2ALAB_MEMORY_JWT_KEY"] = _mem_key.read_text()
 
 # The lab JWT VERIFY key — public half ONLY. A face verifies lab JWTs (WS6 U1:
 # a signed per-user or machine credential accepted wherever the shared
@@ -240,7 +247,8 @@ for path in pathlib.Path("src").rglob("*.py"):
 SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
-           "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
+           "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN",
+           "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER"}
 
 
 def is_secret(name):

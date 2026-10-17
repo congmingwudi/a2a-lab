@@ -592,6 +592,15 @@ of this arm.
 
 ### Phase 3 — every other platform
 
+**Status (2026-10-17): the generic seam is built (D91).** `MemoryAdapter`
+(`src/interop/memory_adapter.py`) is the "REST at the lab seam" row below, keyed by
+the verified lab user and switched on per run by an experiment's Memory toggle, not
+per deployment; Claude (the `claude-to-agentforce` experiment) is first, pending its
+registration (WS27 item 32). Going live also means the faces' runtime secret carries
+the memory identity the bridge already holds (`SF_CLIENT_ID_MEMORY`,
+`SF_MEMORY_RUNAS_USER`, `A2ALAB_MEMORY_JWT_KEY`), plus a `plan/09-deployment-map.md`
+L6 update. The SDK adapters are not started.
+
 Integration modes, from least to most lab-side code:
 
 

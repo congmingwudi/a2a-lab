@@ -40,6 +40,9 @@ class EchoAdapter:
         if isinstance(user_ctx, dict):
             has_token = isinstance(req.metadata.get("user_token"), str)
             text += f" [user {user_ctx.get('sub')} token={'yes' if has_token else 'no'}]"
+        # WS27/D91: the per-run memory flag (a literal True, nothing looser)
+        if req.metadata.get("memory") is True:
+            text += " [memory on]"
         return AgentResponse(
             text=text,
             session_id=req.session_id,
@@ -218,6 +221,28 @@ async def test_concurrent_protocols(echo_servers):
     finally:
         await rest.aclose()
     assert [r.text for r in results] == ["echo: r", "echo: m", "echo: a"]
+
+
+async def test_memory_flag_propagates_over_all_three_protocols(echo_servers):
+    """WS27/D91: the per-run memory toggle reaches the server on every
+    protocol (MCP as a tool argument, REST and A2A in metadata), and a run
+    that does not set it arrives without it."""
+    clients = {
+        "rest": RestClient(f"http://127.0.0.1:{echo_servers['rest']}"),
+        "mcp": McpClient(f"http://127.0.0.1:{echo_servers['mcp']}/mcp"),
+        "a2a": A2AClient(f"http://127.0.0.1:{echo_servers['a2a']}"),
+    }
+    try:
+        for proto, client in clients.items():
+            on = await client.ask(
+                AgentRequest(message="m", metadata={"memory": True}, trace_id=f"t-m-{proto}")
+            )
+            assert "[memory on]" in on.text, f"{proto} dropped the memory flag: {on.text}"
+            off = await client.ask(AgentRequest(message="m", trace_id=f"t-m0-{proto}"))
+            assert "[memory on]" not in off.text
+    finally:
+        for client in clients.values():
+            await client.aclose()
 
 
 async def test_user_context_propagates_over_all_three_protocols(echo_servers):

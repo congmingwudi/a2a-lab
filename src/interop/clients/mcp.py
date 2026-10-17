@@ -52,7 +52,8 @@ class McpClient(RemoteAgentClient):
         # WS6 U2 — MCP's only channel for user context is a tool argument
         # (the protocol has no session or auth semantics to ride; metadata
         # does not cross this hop at all — a lab finding).
-        for key in ("user_context", "user_token"):
+        # WS27/D91: the per-run memory flag rides the same way.
+        for key in ("user_context", "user_token", "memory"):
             if (req.metadata or {}).get(key) is not None:
                 arguments[key] = req.metadata[key]
         start = time.perf_counter()

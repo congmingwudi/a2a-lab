@@ -330,6 +330,28 @@ def test_run_af_channel_routing_block(tmp_path, monkeypatch):
     assert "[A2A-LAB ROUTING]" not in registry.fake_client.requests[2].message
 
 
+def test_run_memory_toggle_is_per_run(tmp_path, monkeypatch):
+    """D91: memory is a per-run toggle on the experiment, not a lab setting —
+    only memory=true on a memory_toggle scenario asks the target for it."""
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    on = client.post(
+        "/api/run", json={"scenario": "claude-to-agentforce", "message": "hi", "memory": True}
+    ).json()
+    assert on["ok"] is True and on["memory"] is True
+    assert registry.fake_client.requests[0].metadata.get("memory") is True
+    off = client.post("/api/run", json={"scenario": "claude-to-agentforce", "message": "hi"})
+    assert off.json()["memory"] is False
+    assert "memory" not in registry.fake_client.requests[1].metadata
+    # a scenario without the toggle never asks, whatever the body says
+    other = client.post(
+        "/api/run", json={"scenario": "agentforce-to-claude", "message": "hi", "memory": True}
+    ).json()
+    assert not other.get("memory")
+    assert all(r.metadata.get("memory") is not True for r in registry.fake_client.requests[2:])
+
+
 def test_run_scenario_requires_mode_gate(tmp_path, monkeypatch):
     """A requires_mode scenario is refused with instructions in the wrong
     deployment mode, and runs once A2ALAB_MODE matches."""

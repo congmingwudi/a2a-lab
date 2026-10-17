@@ -2559,6 +2559,10 @@ def create_console_app(registry: Registry | None = None):
         # request metadata for the ADK orchestrator, a message routing block for
         # Agentforce (whose Apex body carries no field for it) — set below.
         chosen_dispatch: str | None = None
+        # WS27/D91: Data 360 Agentic Memory for THIS run, on an experiment that
+        # offers it (`memory_toggle`). Not a lab-wide switch: the target's
+        # memory wrapper is dormant until a request carries metadata["memory"].
+        chosen_memory: bool | None = None
 
         scenario_name = body.get("scenario")
         if scenario_name:
@@ -2757,6 +2761,8 @@ def create_console_app(registry: Registry | None = None):
                 if chosen_topology not in af_channel.TOPOLOGY_TOOLS:
                     chosen_topology = "delegated"
                 message += af_channel.topology_block(chosen_topology)
+            if spec.get("memory_toggle"):
+                chosen_memory = body.get("memory") is True
             if spec.get("dispatch_mode_toggle"):
                 # WS11: how the fan-out dispatches each leg — sync (blocking) vs
                 # async (A2A fire-then-poll). The CMA fan-out consumes this in
@@ -2811,6 +2817,8 @@ def create_console_app(registry: Registry | None = None):
         # chosen_dispatch is only ever set on a scenario, so `spec` is bound.
         if chosen_dispatch and not spec.get("af_topology_toggle"):
             req.metadata["dispatch_mode"] = chosen_dispatch
+        if chosen_memory:
+            req.metadata["memory"] = True
         # WS11: the ADK orchestrator MUST be driven fire-then-poll, never with a
         # blocking ask(). A blocking message:send runs the whole
         # SequentialAgent[ParallelAgent→synthesiser] graph inline on Agent Engine
@@ -2915,6 +2923,10 @@ def create_console_app(registry: Registry | None = None):
                 "af_route": chosen_route,
                 "af_topology": chosen_topology,
                 "dispatch_mode": chosen_dispatch,
+                # What memory DID on this turn (owner, conversation, read/ingest
+                # ms, error), as the wrapper reported it — None when not asked.
+                "memory": chosen_memory,
+                "memory_result": (resp.metadata or {}).get("memory") if chosen_memory else None,
             }
         except Exception as exc:  # surface the failure as a result, not a 500
             return {

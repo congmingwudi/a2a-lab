@@ -86,6 +86,13 @@ AGENTS = {
         label="A2ALab Memory Concierge",
         description="A2A lab: first Agentic Memory experiment, Agentforce (plan/18 Phase 1-2).",
     ),
+    # Phase 3: the generic seam (interop.memory_adapter) on the Claude face, used
+    # by a run whose Memory toggle is on (D91); kept in step with MEMORY_AGENTS.
+    "claude": Agent(
+        name="A2ALab_Memory_Claude",
+        label="A2ALab Memory Claude",
+        description="A2A lab: Claude research agent behind the generic memory seam (plan/18 Phase 3).",
+    ),
 }
 
 

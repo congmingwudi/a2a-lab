@@ -197,7 +197,7 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
         empty context, so a memory outage degrades the agent to no-memory
         instead of failing the user's turn inside the Agentforce action budget.
         """
-        from interop.memory import MemoryCallError, MemoryClient, render_context
+        from interop.memory import MemoryClient, open_and_read, write_turn
 
         check_auth(request)
         body = await request.json()
@@ -220,29 +220,14 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
             request_payload=body,
         ) as hop:
             ids = {"agent_id": agent_id, "owner_id": owner_id}
-            errors: list[str] = []
-            try:
-                if not cid:
-                    cid = await mem.start_conversation(trace_id, **ids)
-                    payload["conversation_id"] = cid
-            except MemoryCallError as exc:
-                errors.append(str(exc))
+            cid, payload["context"], errors = await open_and_read(
+                mem, trace_id, conversation_id=cid, read=bool(body.get("user_message")), **ids
+            )
+            payload["conversation_id"] = cid
             if cid:
-                # Read and write are independent: a refused read (GetContext
-                # 403'd for every conversation while writes 2xx'd, 2026-10-13)
-                # must not cost the turn its ingest, or memory never fills in.
-                try:
-                    if body.get("user_message"):
-                        ctx = await mem.get_context(trace_id, conversation_id=cid, **ids)
-                        payload["context"] = render_context(ctx)
-                except MemoryCallError as exc:
-                    errors.append(str(exc))
-                try:
-                    await mem.ingest(trace_id, conversation_id=cid,
-                                     user_message=body.get("user_message"),
-                                     agent_response=body.get("agent_response"), **ids)  # fmt: skip
-                except MemoryCallError as exc:
-                    errors.append(str(exc))
+                errors += await write_turn(mem, trace_id, conversation_id=cid,
+                                           user_message=body.get("user_message"),
+                                           agent_response=body.get("agent_response"), **ids)  # fmt: skip
             if errors:
                 payload.update(ok=False, error="; ".join(errors))
             payload["total_ms"] = int((time.perf_counter() - start) * 1000)

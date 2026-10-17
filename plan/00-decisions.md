@@ -3956,3 +3956,73 @@ admin since.
 **Status.** ACCEPTED 2026-10-15. Live in production for all six apps. The embed
 render waits on the embed user's first password. WS27 items 26–30 in
 `plan/07-workstreams.md`.
+
+## 2026-10-17 — D91: the generic memory seam keys memory by the verified lab user, and ingests both sides of the turn
+
+**Context.** `plan/18-agentic-memory-context.md` Phase 3 calls for one memory
+decorator over the inbound seam, so every agent the lab hosts gets Data 360
+Agentic Memory without per-platform code (WS27 item 11). Memory is keyed by
+`owner_id`, and whoever chooses the owner chooses whose memory is read. The
+Agentforce concierge takes its owner from a caller-set External variable (D83),
+and that was acceptable for one experimental agent that only the bridge calls.
+A decorator on every face is not that.
+
+**Decision.** `src/interop/memory_adapter.py`: `MemoryAdapter(inner, agent_id)`
+reads the owner's context before `inner.handle()` and ingests the turn after it.
+- **The owner is the verified end user.** `owner_of` verifies the lab JWT riding
+  `metadata["user_token"]` (WS6 U2; every protocol carries it, as
+  `tests/e2e/test_loopback.py` proves) and uses `a2alab-<sub>`. It never takes
+  `user_context` (display-only, unsigned) or a machine identity (`role: machine`
+  would pool every caller of a shared service into one owner). No verified user
+  means a pass-through turn. An experiment that needs a throwaway owner mints a
+  JWT for it.
+- **Both sides of the turn are ingested.** The decorator holds the request and
+  the response, so it sends the user's original text (not the memory-augmented
+  prompt) and the reply. That is the reply ingest no Agentforce hook can do
+  (D89), done for lab traffic at the seam, the fallback route WS27 item 25
+  names.
+- **One memory conversation per (agent, owner, lab session),** derived by
+  hashing, so a restarted face resumes it (start is idempotent, 409 = success). A
+  first turn without a session follows the session the inner agent mints.
+- **Fail-open and bounded.** Each half runs under `A2ALAB_MEMORY_BUDGET_S`
+  (default 8 s). A refusal or overrun degrades the turn to no-memory and is
+  recorded in `resp.metadata["memory"]` with `read_ms` and `ingest_ms`, the
+  per-turn numbers the recall matrix (item 12) reads.
+- **Memory is a per-run choice, not a lab-wide switch.** `with_memory(adapter,
+  platform)` wraps the platforms in `MEMORY_AGENTS` (a registered AgentApiName
+  each; the a360 exchange refuses an unregistered `aid`), and the wrapper is
+  dormant: a turn gets memory only when its request carries
+  `metadata["memory"] = True`. The console sets it from an experiment's
+  **Memory** radio (`memory_toggle` in `config/scenarios.yaml`, first on
+  `claude-to-agentforce`), stamps the choice on the turn like the other run
+  toggles, and badges what memory did. MCP carries it as a new `memory` tool
+  argument, since MCP forwards no metadata. So one experiment runs with and
+  without memory side by side, which is the comparison the recall matrix needs,
+  and no env change or redeploy flips it.
+- The bridge's `/memory/turn` and the decorator now share `open_and_read` /
+  `write_turn` in `interop.memory`, so the "a refused read must not cost the
+  ingest" rule exists once.
+
+**Alternatives.**
+- **An env var per platform (`A2ALAB_MEMORY_AGENT_<PLATFORM>`).** The first cut.
+  It made memory a property of the deployment: every turn on that face, from
+  every experiment, got memory, and the control arm needed a redeploy.
+- **A caller-asserted `metadata["memory_owner"]`.** It would match the concierge,
+  but any authenticated caller could read any owner's memory.
+- **The transport JWT's subject (`verified_subject()`).** On the faces that is
+  usually the calling service, not the user.
+- **Ingest in the background after replying.** It would cut the ingest latency,
+  but the Lambda and AgentCore hosts freeze after the response, and an
+  unobserved write is unmeasurable.
+
+**Consequences.**
+- The Agentforce concierge and the seam agree on an owner only when the
+  concierge's `memory_owner` is set to `a2alab-<sub>`. The cross-platform rows of
+  the recall matrix must drive it that way.
+- Memory adds up to two tenant round trips to a wrapped turn. Keep it off the
+  Path A target until measured against the Agentforce action budget (CLAUDE.md).
+
+**Status.** ACCEPTED 2026-10-17. Built and unit-tested. Registering
+`A2ALab_Memory_Claude` and giving the hosted faces the memory identity are WS27
+items 31–32 in `plan/07-workstreams.md`. Until then a memory-on run answers
+without memory and its badge says why.

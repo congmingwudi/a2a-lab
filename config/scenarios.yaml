@@ -197,6 +197,10 @@ scenarios:
 
   claude-to-agentforce:
     af_channel_toggle: true
+    # WS27/D91: per-run Data 360 Agentic Memory on the Claude face (the
+    # generic memory seam, src/interop/memory_adapter.py). Off = the run is
+    # exactly what it was before WS27.
+    memory_toggle: true
     group: claude-agentforce
     title: "Claude Managed Agent → Agentforce"
     summary: >-

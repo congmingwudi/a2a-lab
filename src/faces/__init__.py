@@ -127,6 +127,7 @@ def build_faces_app(
     (WS4), which passes its own public_base (${A2ALAB_LANGGRAPH_BASE}).
     """
     from interop.adapter import build_app
+    from interop.memory_adapter import with_memory
 
     faces = faces or FACES
     base = (public_base or os.environ.get(PUBLIC_BASE_ENV) or "").rstrip("/")
@@ -142,7 +143,9 @@ def build_faces_app(
                 f"{base}/{prefix}/" if base else f"http://localhost:8300/{prefix}/"
             )
         try:
-            app = build_app(_adapter(platform), protocol, **kwargs)
+            # WS27 item 11 (D91): a dormant memory wrapper on platforms with a
+            # registered memory agent; only a run that asks for memory wakes it.
+            app = build_app(with_memory(_adapter(platform), platform), protocol, **kwargs)
         except Exception as exc:  # noqa: BLE001
             # One face that cannot build (a missing key, an optional dep) must
             # not take down the other ten — the lab's point is comparing cells,

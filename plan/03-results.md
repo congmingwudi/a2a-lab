@@ -1419,3 +1419,34 @@ end (2026-10-16), and it needed three things the plan did not list: a first
 password changed by the user itself, Data Cloud User (the dashboard's queries run
 as the viewer), and the deep-link tab, because the link lands in the session the
 embed left in the browser.
+
+## 2026-10-17 — WS27 Claude behind the generic memory seam, hosted (D91, item 32)
+
+`A2ALab_Memory_Claude` registered (ACTIVE) with Automatic Memory Extraction on;
+the faces secret carries the memory identity; faces and console rebuilt and
+running the new images. Driver: a throwaway script against `claude-rest-hosted`
+with `metadata["memory"] = True` (what the console's Memory toggle sends), as a
+throwaway owner `a2alab-recall-smoke-1017` (a lab JWT minted for it).
+
+| Step | Result |
+|---|---|
+| Local read + write as `A2ALab_Memory_Claude` (before the deploy) | ok: open/read and ingest, no errors |
+| Session 1, hosted face, memory on ("teal kayak named Marmalade… summaries as three bullets") | `ok: true`, read 2629 ms, ingest 187 ms; reply acknowledged |
+| Session 1's conversation read back (`GET /conversations/{id}?scope=all`) | **both** entries stored: the user message AND the agent's reply, the reply side D89 left open, now ingested at the seam |
+| Session 2 (+2 min) and session 3 (+hours), new memory conversations | `ok: true`, `context_chars` 49 (`contextId` only, empty `ontology`); the agent said it had nothing |
+| `probe claude --apply` / `probe concierge --apply` | writes 201/201/202/202; GetContext ×3 empty; `get conversation` **404** at +15 s, 200 a few minutes later |
+| **Control:** concierge + the 2026-10-14 persona `a2alab-recall-9c030a89` (recalled 10-14 and 10-15) | **empty `ontology`** today, read on a fresh conversation and again minutes later |
+| `identity_preflight.py` | all identities ok, `a2a_lab_memory` both legs |
+
+**Reading.**
+- **The seam works hosted, end to end.** The per-run flag crosses the faces,
+  the verified owner is used, each half stays under budget, and both sides of
+  the turn land in the tenant.
+- **Recall is blocked tenant-side, not by the seam.** GetContext returns 200
+  with an empty `ontology` for every agent and owner today, including the
+  persona whose profile memory was recalled on 10-15 by the same code
+  (`get_context` is unchanged). Writes are also slow to become readable
+  (conversation 404 for minutes, against seconds on 10-13/14). What changed on
+  the tenant between 10-15 and 10-17 is not yet known.
+- **Next:** re-run the control first; when it recalls again, re-run sessions
+  2–3 for the smoke owner. No lab change is needed for that.

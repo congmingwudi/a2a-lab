@@ -279,6 +279,67 @@ class MemoryClient:
         return body if isinstance(body, dict) else {}
 
 
+async def open_and_read(
+    mem: MemoryClient,
+    trace_id: str,
+    *,
+    agent_id: str,
+    owner_id: str,
+    conversation_id: str | None = None,
+    start: bool | None = None,
+    read: bool = True,
+) -> tuple[str | None, str, list[str]]:
+    """The read half of a turn, fail-open: (conversation_id, context text, errors).
+
+    Opens the conversation first when `start` (default: only when there is no
+    id yet — a caller with a derived id passes start=True, and 409 is success),
+    then reads its context. A refusal is an entry in `errors`, never an
+    exception: every seam that calls this (the bridge's /memory/turn,
+    `MemoryAdapter`) degrades a memory outage to a no-memory turn instead of
+    failing the user's turn.
+    """
+    ids = {"agent_id": agent_id, "owner_id": owner_id}
+    errors: list[str] = []
+    cid = conversation_id
+    try:
+        if not cid if start is None else start:
+            cid = await mem.start_conversation(trace_id, conversation_id=cid, **ids)
+    except MemoryCallError as exc:
+        errors.append(str(exc))
+    context = ""
+    if cid and read:
+        try:
+            context = render_context(await mem.get_context(trace_id, conversation_id=cid, **ids))
+        except MemoryCallError as exc:
+            errors.append(str(exc))
+    return cid, context, errors
+
+
+async def write_turn(
+    mem: MemoryClient,
+    trace_id: str,
+    *,
+    agent_id: str,
+    owner_id: str,
+    conversation_id: str,
+    user_message: str | None = None,
+    agent_response: str | None = None,
+) -> list[str]:
+    """The write half of a turn, fail-open: the errors, if any.
+
+    Independent of the read on purpose: GetContext 403'd for every
+    conversation while writes 2xx'd (2026-10-13), and a refused read must not
+    cost the turn its ingest, or memory never fills in.
+    """
+    try:
+        await mem.ingest(trace_id, agent_id=agent_id, owner_id=owner_id,
+                         conversation_id=conversation_id, user_message=user_message,
+                         agent_response=agent_response)  # fmt: skip
+    except MemoryCallError as exc:
+        return [str(exc)]
+    return []
+
+
 def render_context(ctx: dict, limit: int = 4000) -> str:
     """The context payload as prompt text. The payload's exact shape is not yet
     measured on this tenant (plan/18 Phase 2), so this is deliberately generic:

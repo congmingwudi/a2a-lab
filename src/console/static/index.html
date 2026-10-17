@@ -1745,6 +1745,7 @@ let afTopologies = {};    // key -> "delegated" | "serial" (D61 fan-out topology
 let viaBridges = {};      // key -> bool (protocol cells: route via the lab bridge)
 let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
+let memoryModes = {};     // key -> "off" | "on" (WS27/D91 per-run Agentic Memory radio)
 let fanoutGates = {};     // key -> "none" | "jev" (WS26/D82 System-One gate radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
@@ -4335,6 +4336,64 @@ function fanoutGateRowHtml(key) {
       : `Which units to consult, decided before dispatch —
       <a onclick="setTab('details')">full explanation in Details</a>.`}</span>
   </div>`;
+}
+
+// WS27/D91: Data 360 Agentic Memory for THIS run. Not a lab-wide setting —
+// the target's memory wrapper is dormant until a run carries the flag, so the
+// same experiment can be run with and without memory side by side.
+const MEMORY_HELP = {
+  off: "no memory: the run is exactly the experiment without WS27 — the agent sees only your message (the control).",
+  on: "memory on: before the agent answers, the lab reads what Data 360 Agentic Memory already knows about YOU (the signed-in lab user) and puts it in front of your message; after it answers, both your message and its reply are written back, so a later session can recall them. Fails open: a memory outage answers without memory and the turn says why (D91).",
+};
+window.setMemoryMode = m => {
+  if (!view || view.type !== "experiment") return;
+  memoryModes[expKey(view.kind, view.name)] = m;
+  renderMain(true);
+};
+
+function memoryRowHtml(key) {
+  const m = memoryModes[key] || "off";
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Memory</span>
+    <label><input type="radio" name="memoryMode" value="off" ${m === "off" ? "checked" : ""}
+      onchange="setMemoryMode('off')"> off</label>${qhelp(MEMORY_HELP.off)}
+    <label><input type="radio" name="memoryMode" value="on" ${m === "on" ? "checked" : ""}
+      onchange="setMemoryMode('on')"> Data 360 Agentic Memory</label>${qhelp(MEMORY_HELP.on)}
+    <span class="chan-more">Recall across sessions, keyed to you —
+      <a onclick="setTab('details')">full explanation in Details</a>.</span>
+  </div>`;
+}
+
+// The Details half of the Memory radio (D57: what produces it, as whom, where
+// it is stored, what bounds it).
+function memoryDetailHtml(s) {
+  if (!s || !s.memory_toggle) return "";
+  return `<div class="flow">
+      <h6>Memory — Data 360 Agentic Memory for this run (WS27, D91)</h6>
+      <p class="desc-note">With <b>Memory</b> on, the Claude face wraps the turn in the lab's generic memory seam
+        (<code>src/interop/memory_adapter.py</code>, the "REST at the lab seam" mode in
+        <code>plan/18-agentic-memory-context.md</code> Phase 3). Off, the wrapper is dormant and the run is
+        byte-for-byte the experiment without it — the toggle is per run, never a lab-wide setting.</p>
+      <ul class="steps">
+        <li><b>Whose memory.</b> The owner is the <i>signed-in lab user</i>, taken from the verified lab JWT the
+          console already sends (WS6 U2), as <code>a2alab-&lt;user&gt;</code>. Never a name the caller types, and
+          never a machine identity, so no run can read another user's memory. Signed out, a memory run answers
+          without memory and says so.</li>
+        <li><b>Before the answer.</b> The seam opens (or resumes) one memory conversation per lab session and reads
+          GetContext from the Data 360 tenant, as the memory integration user (D86) through the
+          <code>a2a_lab_memory</code> ECA, under the registered agent <code>A2ALab_Memory_Claude</code>. Whatever
+          comes back is placed in front of your message.</li>
+        <li><b>After the answer.</b> Your message and the agent's reply are both ingested — the reply side no
+          Agentforce hook can supply (D89). Stored in the tenant's Agentic Memory conversation entries; profile
+          memory is then extracted from them by Data 360.</li>
+        <li><b>Bounds.</b> Each half is cut off at <code>A2ALAB_MEMORY_BUDGET_S</code> (default 8 s); any refusal
+          or overrun fails open. Every tenant call is its own <code>agentic-memory</code> hop in the trace, and the
+          turn's badge carries the read/ingest milliseconds.</li>
+        <li><b>Caveat.</b> The experiment's prompt suffix (the instruction to consult Agentforce) is part of the
+          message, so it is ingested with your words.</li>
+      </ul>
+    </div>`;
 }
 
 function dispatchModeRowHtml(key) {
@@ -9308,6 +9367,7 @@ window.loadPastChat = id => {
     if (tg.variant) fanoutVariants[key] = tg.variant;
     if (tg.dispatch_mode) dispatchModes[key] = tg.dispatch_mode;
     if (tg.gate) fanoutGates[key] = tg.gate;
+    if (tg.memory) memoryModes[key] = tg.memory;
   }
   chatHistoryOpen[key] = false;
   renderMain(true);
@@ -9359,8 +9419,17 @@ function chatTurnsHtml(chat) {
         turn.dispatch_mode === "async" ? ` · <span class="badge a2a" title="This turn's fan-out legs were dispatched with the A2A ASYNC (fire-then-poll) pattern (WS11/D47): each leg's SendMessage returned a task id in ~1s, then the host polled tasks/get until a terminal state — no single request held open across the work. A leg whose protocol has no task lifecycle (an AgentCore leg) falls back to a blocking call and is reported as async→sync in the fan-out coverage line, never hidden.">async dispatch</span>` : ""}${
         turn.variant === "mcp" ? ` · <span class="badge mcp" title="This turn fanned out with the REMOTE MCP TOOLS variant (D41): the model was given one MCP tool per business unit on the fan-out Lambda and scheduled the calls itself, rather than the host running a single custom fan-out tool.">remote MCP fan-out</span>`
         : turn.variant === "tool" ? ` · <span class="badge claude" title="This turn fanned out with the HOST-SIDE TOOL variant (D41): the orchestrator called one custom fan-out tool and the lab host owned concurrency, per-leg timeouts and the partial-failure contract.">host-side fan-out</span>` : ""}${
+        turn.memory ? ` · ${memoryBadgeHtml(turn.memory_result)}` : ""}${
         turn.session_platform === "salesforce" && turn.session_agent_id ? ` · <a href="#" onclick="openOtelTrace('${esc(turn.session_agent_id)}');return false" title="Fetch this Agentforce session's OpenTelemetry trace live from the beta Session Trace OTel API (WS23/D73). Uses the Agent API session id; the platform ingests it into the trace store a few minutes after the run, so a click right after the run may find nothing yet.">view session trace →</a>` : ""}</span></div>`;
   }).join("");
+}
+
+// WS27/D91: what memory did on one turn, as the wrapper reported it.
+function memoryBadgeHtml(m) {
+  if (!m) return `<span class="badge" title="Memory was asked for, but the target reported nothing back — it is not behind the memory seam (an older image, or a platform with no registered memory agent).">memory: no report</span>`;
+  if (!m.ok) return `<span class="badge" title="${esc(`Memory was asked for and failed open — the agent answered without it. ${m.error || ""}`)}">memory: unavailable</span>`;
+  const recalled = m.context_chars > 0;
+  return `<span class="badge claude" title="${esc(`Data 360 Agentic Memory, owner ${m.owner_id}, conversation ${m.conversation_id}. Read ${m.read_ms} ms (${m.context_chars} chars of context), ingest ${m.ingest_ms} ms (your message and the reply).`)}">${recalled ? "memory: recalled" : "memory: nothing yet"}</span>`;
 }
 
 // Is the experiment that owns this turn the one currently on screen? Runs are
@@ -9477,6 +9546,12 @@ async function sendTurn(kind, name, message, overrides) {
       body.gate = (overrides && overrides.gate) || fanoutGates[key] || "none";
       toggles.gate = body.gate;
     }
+    // WS27/D91: memory is per run; Run All passes no override, so the sweep
+    // runs memory-off (the control) unless a permutation asks.
+    if (spec && spec.memory_toggle) {
+      toggles.memory = (overrides && overrides.memory) || memoryModes[key] || "off";
+      body.memory = toggles.memory === "on";
+    }
   } else {
     body.target = name;
     body.via_bridge = !!viaBridges[key];
@@ -9525,6 +9600,7 @@ async function sendTurn(kind, name, message, overrides) {
       latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null,
       af_route: result.af_route || null, af_topology: result.af_topology || null,
       dispatch_mode: result.dispatch_mode || null, variant: result.variant || toggles.variant || null,
+      memory: result.memory || false, memory_result: result.memory_result || null,
       // WS23: carry the Agentforce session id (and the flag saying it IS one) so
       // an Agentforce-primary turn can deep-link to its Session Trace. A Claude
       // orchestrator that merely consults AF has session_platform null → no link.
@@ -9905,6 +9981,7 @@ function detailsTabHtml() {
       ${(s.agents || []).map(agentRow).join("")}
     </div>` : ""}
     ${fanoutControlsDetailHtml(s)}
+    ${memoryDetailHtml(s)}
     ${componentsHtml(s.components)}
     ${riderSectionHtml()}`;
 }
@@ -10151,6 +10228,7 @@ function renderMain(force) {
             ? dispatchModeRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.gate_toggle
             ? fanoutGateRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.memory_toggle ? memoryRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
