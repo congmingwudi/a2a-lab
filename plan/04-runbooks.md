@@ -544,7 +544,11 @@ The six client-credentials ECAs run as four integration users, one per job:
 - **`briefs`** for `a2a_lab_app`, holding the brief writer's object access;
 - **`obs`** for `a2a_lab_obs`, holding Data Cloud User;
 - **`tab_embed`** for `a2a_lab_tab_embed`, on a Salesforce Platform license with
-  Tableau Next Consumer, because the frontdoor URL opens a UI session.
+  Tableau Next Consumer, because the frontdoor URL opens a UI session. It also
+  holds Data Cloud User (the dashboard's queries run as the viewer; without it
+  the embed shows "We couldn't display this content") and `A2A_Lab_Access` (the
+  deep-link tab, which opens in the session the embed left in the browser).
+  Measured 2026-10-16, plan/13-tableau-next-obs-dashboard.md §5.
 
 Each is a `UserSpec` in `scripts/integration_users.py`, and each app's policy
 pre-authorizes that user's gate permission set (`render_eca_metadata.py`
@@ -576,11 +580,17 @@ uv run python scripts/env_sync.py push
 - **Proving the three Chatbot-only apps.** Their tokens cannot read their own
   profile, so for them the preflight says "not observable". The proof is
   LoginHistory, grouped by `Application, UserId`, today.
-- **A new UI user needs a first password.** A UI user created through the API
-  has never set one, and its first frontdoor session lands on ChangePassword.
-  Set a random password nobody keeps
-  (`sf org generate password --on-behalf-of <user>`), because only JWT bearer
-  ever signs it in.
+- **A new UI user needs a first password, set BY THE USER.** A UI user created
+  through the API has never set one, and its first frontdoor session lands on
+  ChangePassword. Two things do not clear it (measured 2026-10-16 on the tab
+  embed user): `sf org generate password` refuses a user that `sf org create
+  user` did not create, and an admin-set password (`POST
+  /sobjects/User/{id}/password`) is temporary, so frontdoor still forces the
+  change and a security question. What works: admin-set a temporary password,
+  sign in once as the user in a private window, and complete ChangePassword
+  with any password and answer. Nobody keeps either, because only JWT bearer
+  ever signs the user in. Verify by following a minted frontdoor URL: it should
+  route to `/one/one.app`, not `ChangePassword`.
 - **Rollback.** Retrieve the policies before deploying (`sf project retrieve start
   -m ExtlClntAppOauthConfigurablePolicies:<name> --target-metadata-dir <dir>`).
   Re-deploying that retrieved copy restores the admin profile.

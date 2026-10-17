@@ -3330,7 +3330,7 @@ Two live surfaces, both **owner-only**, plus a screenshot for everyone else:
 - **Inline embed (in this tab).** For the owner, the console renders the dashboard *in the page* with
   the **Tableau Next Embedding SDK** (loaded from a pinned CDN build). The SDK needs a Salesforce
   session; the console's AWS backend mints one **server-side** so there is no login step: a
-  **JWT-bearer** assertion (signed *as* a dedicated Salesforce Platform integration user holding Tableau Next Consumer, the ECA's run-as, D90) is
+  **JWT-bearer** assertion (signed *as* a dedicated Salesforce Platform integration user holding Tableau Next Consumer and Data Cloud User, the ECA's run-as, D90) is
   exchanged at \`/services/oauth2/token\` for a token, then at \`/services/oauth2/singleaccess\` for a
   short-lived **frontdoor URL**, which the SDK takes as its \`authCredential\`. JWT-bearer is required
   because the exchange needs the **\`web\`** scope and Salesforce's client-credentials flow only ever
@@ -3340,13 +3340,18 @@ Two live surfaces, both **owner-only**, plus a screenshot for everyone else:
   short-lived and single-use). The dedicated \`a2a_lab_tab_embed\` External Client App carries that
   \`web\` scope. Getting the frame to actually render took four separate gates, below (D72).
 - **Deep link (Open in Salesforce).** The in-org **A2A Lab** app's \`/lightning/n/A2A_Lab_Traffic\`
-  tab — an App Builder page that renders the same live dashboard behind a normal Salesforce login.
-  It points at the tab, not the raw dashboard view, because the tab carries the licence + asset-share
-  context the runtime needs: a viewer needs a **Tableau Next** perm set *and* **Data Cloud User**,
-  and the dashboard asset must be shared in Tableau Next, or the runtime throws a generic error.
+  tab — an App Builder page that renders the same live dashboard. It points at the tab, not the raw
+  dashboard view, because the tab carries the licence + asset-share context the runtime needs: a
+  viewer needs a **Tableau Next** perm set *and* **Data Cloud User**, and the dashboard asset must be
+  shared in Tableau Next, or the runtime throws a generic error ("We couldn't display this content").
+  **It opens as the embed user, not as you.** The inline embed's frontdoor URL signs this browser in to
+  the org's Lightning domain as the run-as user, and the link lands in that same session — so the
+  embed user also holds the tab's visibility (\`A2A_Lab_Access\`), and any other tab you have open on
+  this org may now be that user too. Use a separate browser profile to keep your own session (D90,
+  plan/13-tableau-next-obs-dashboard.md).
 
-Both are scrubbed server-side in \`/api/config\` (they name the org my-domain and open a live admin
-session) — the operator and viewers see only the screenshot, the same posture the public component
+Both are scrubbed server-side in \`/api/config\` (they name the org my-domain and open a live session
+as the embed user) — the operator and viewers see only the screenshot, the same posture the public component
 links follow (D36).
 
 ### Embedding a Tableau Next dashboard on a non-Salesforce site — the four gates that bit

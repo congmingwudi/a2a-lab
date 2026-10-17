@@ -117,6 +117,13 @@ USERS = {
         profile=PLATFORM[1],
         bundle=(
             ("TableauNextConsumerPsl", "TableauUser"),  # Tableau Next Consumer
+            # Data Cloud User: the dashboard's queries run as the viewer, and
+            # without it the embed shows "We couldn't display this content".
+            ("GenieDataPlatformStarterPsl", "GenieUserEnhancedSecurity"),
+            # The A2A_Lab_Traffic tab only. The console's "Open the live
+            # dashboard" link lands in the browser session the embed left
+            # behind, which is this user, so without it the page "doesn't exist".
+            (None, "A2A_Lab_Access"),
             (None, "A2ALab_Tab_Embed"),  # gate: a2a_lab_tab_embed (JWT bearer)
         ),
         used_by="a2a_lab_tab_embed: the console's inline Tableau Next dashboard (WS19)",

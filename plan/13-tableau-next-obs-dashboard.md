@@ -471,7 +471,19 @@ testing) needs BOTH a **Tableau Next** perm set (`Tableau Unmetered Admin`, or
 (`Data Cloud User`/`Architect`) — without the latter the backend data engine can't
 run the dashboard's queries and throws generic runtime errors. THEN share the asset
 in Tableau Next → **Share / Manage Access** on the dashboard. Same gate for the
-inline SDK embed.
+inline SDK embed. Measured again 2026-10-16 when the embed moved to its own user
+(D90): with Tableau Next Consumer alone the embed rendered "We couldn't display
+this content" (`coerceAuraErrors` in `analytics_embedding/dashboard3p`), and
+adding Data Cloud User fixed it.
+
+**The embed and the deep link share ONE browser session (2026-10-16).** The
+frontdoor URL signs the browser in to the org's Lightning domain as the embed's
+run-as user, so the console's "Open the live dashboard" link to
+`/lightning/n/A2A_Lab_Traffic` lands as that user, not as the person clicking.
+Without the tab's visibility (`A2A_Lab_Access`, which grants only that tab)
+Salesforce reports the page as missing. The embed user therefore holds
+`A2A_Lab_Access` too. Any other tab the owner has open on this org may also
+become the embed user; a separate browser profile keeps the owner's own session.
 
 ---
 
@@ -484,13 +496,12 @@ inline SDK embed.
   `.env` by `scripts/render_eca_metadata.py` and gitignored (they carried the org
   id and run-as username; `plan/04-runbooks.md`); record its key in the encrypted `f6-eca-wiring.md`; `chezmoi
   add --encrypt` the JWT private key.
-- **Create a dedicated minimal-privilege INTEGRATION USER** as the JWT `sub` /
-  ECA run-as, instead of the System Administrator. Today `clientCredentialsFlowUser`
-  / JWT `sub` is the sysadmin (a minted token can hit the REST API as admin, not
-  just mint frontdoor URLs). Tighter: an integration user with only the Tableau Next
-  perm set + `Data Cloud User` + the dashboard asset shared to it; set it as the ECA
-  run-as and JWT `sub`; verify the chain still returns `web`-scoped + 200. Sysadmin
-  run-as is the working stopgap.
+- ~~Create a dedicated minimal-privilege integration user as the JWT `sub`~~ —
+  done 2026-10-15/16 (D90): `a2alab.tabembed`, a Salesforce Platform user created
+  by `scripts/integration_users.py tab_embed --apply`, holding Tableau Next
+  Consumer, Data Cloud User and `A2A_Lab_Access`, pre-authorized through the
+  `A2ALab_Tab_Embed` gate. Its first password must be changed by the user itself
+  (`plan/04-runbooks.md` §11).
 - Deploy the CORS origin metadata for `console-lab.agenticthings.com`.
 - Console **full-rebuild** redeploy so D70 / item-5-done / L5.8 / the inline embed /
   any §4b work appears on the hosted console.

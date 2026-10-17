@@ -1402,11 +1402,20 @@ the org domain and ids stay in `.env`.
 | `a2a_lab_tab_embed` as `tabembed` (Platform license, Tableau Next Consumer) | JWT bearer + `/singleaccess` OK, run-as profile `Standard Platform User`. Hosted console redeployed config-only: `/api/tableau/frontdoor` 200 as owner |
 | Frontdoor URL opened in headless Chrome, then the Tableau Next tab | lands on `/_ui/system/security/ChangePassword`: an API-created user has never set a password. The render is not yet measured |
 | LoginHistory, today, per app × user | every mint before the deploy was a non-integration user (the admin). Every mint after it is the app's integration user, and no lab app has minted as the admin since |
+| 2026-10-16: an admin-set password (`POST /sobjects/User/{id}/password`) | `LastPasswordChangeDate` set, but frontdoor still routes to ChangePassword (an admin-set password is temporary, and a security question is required). `sf org generate password` refuses users `sf org create user` did not create |
+| + the user signs in once and changes its own password | frontdoor routes to `/one/one.app` |
+| Hosted inline embed, Tableau Next Consumer only | "We couldn't display this content" (`coerceAuraErrors` in `analytics_embedding/dashboard3p`) |
+| + **Data Cloud User** | the inline dashboard renders |
+| Console "Open the live dashboard" link (`/lightning/n/A2A_Lab_Traffic`) | opens in the browser session the embed's frontdoor left, so as `tabembed`; its token lists 81 tabs, not this one, and Salesforce reports the page as missing |
+| + **`A2A_Lab_Access`** (that tab's visibility only) | the link opens the dashboard tab, as `tabembed` |
 
 **Reading.** Only one seam needed anything the plan did not list: the brief
 writer. Edit Tasks does not open Task; Access Activities does. And one Setup-object
 read is cheaper to move to the Tooling API than to buy with View Setup. Three apps
 need no object access at all, which is why they share one user. For the
 Chatbot-only apps the token cannot prove its own run-as, so the evidence there
-is LoginHistory, not the preflight. The embed is the one seam not yet proven
-end to end: it waits on a first password for a user nobody signs in as.
+is LoginHistory, not the preflight. The embed was the last seam proven end to
+end (2026-10-16), and it needed three things the plan did not list: a first
+password changed by the user itself, Data Cloud User (the dashboard's queries run
+as the viewer), and the deep-link tab, because the link lands in the session the
+embed left in the browser.

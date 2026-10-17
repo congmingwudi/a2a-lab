@@ -28,6 +28,22 @@ def test_only_the_embed_user_has_a_ui_license():
     assert ui == {"tab_embed"}
 
 
+def test_the_embed_user_can_run_the_dashboards_queries():
+    """Tableau Next Consumer alone renders "We couldn't display this content":
+    the Data 360 engine runs the dashboard's queries as the viewer, so the viewer
+    needs Data Cloud User too (plan/13 §5, measured again 2026-10-16)."""
+    held = {ps for _, ps in iu.USERS["tab_embed"].bundle}
+    assert {"TableauUser", "GenieUserEnhancedSecurity"} <= held
+
+
+def test_the_embed_user_can_open_the_dashboard_tab():
+    """The console's "Open the live dashboard" link lands in the browser session
+    the embed's frontdoor left behind, which is the embed user, so that user needs
+    the tab or Salesforce reports the page as missing (measured 2026-10-16)."""
+    held = {ps for _, ps in iu.USERS["tab_embed"].bundle}
+    assert "A2A_Lab_Access" in held
+
+
 def test_plan_assigns_license_before_its_permission_set_and_skips_what_is_held():
     spec = iu.USERS["briefs"]
     steps = iu.plan_steps(spec, "b@example.com", False, set(), set())
