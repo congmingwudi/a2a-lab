@@ -556,15 +556,26 @@ Salesforce principal. The cross-platform question (one memory read by Claude,
 ADK, Foundry…) only passes if a native write appears in the Data 360 tenant
 under an owner id another platform can name. That is the decisive measurement.
 
-The arms, all on the concierge, each its own published version:
+The arms, each on the concierge's prompt and reasoning. The explicit arm is v1 itself; the two native arms are **sibling agents**, not versions (D92), because an Agent API session always runs the active version, and swapping v1 out would break every concierge run in between:
 
 1. **Explicit** (D83, v1, deployed): `before_reasoning` → `A2ALabMemoryTurn` →
    bridge → tenant. Deterministic write of every user turn; owner is
    `memory_owner`.
-2. **Native flag**: the same bundle with `context.memory` /
-   `past_conversations` on and the explicit action removed.
-3. **Native action**: `manageUserMemory` run from a hook with the user text,
-   the native analogue of arm 1 without the bridge.
+2. **Native flag** (`A2ALab_Memory_Native_Flag`): the same bundle with
+   `context.memory` / `past_conversations` on and the explicit action removed.
+3. **Native action** (`A2ALab_Memory_Native_Action`): `manageUserMemory` run
+   from `before_reasoning` with the user text, the native analogue of arm 1
+   without the bridge. An OOTB action needs `source:
+   "EmployeeCopilot__ManageUserMemory"`; validate doesn't check this, but
+   preview refuses the bundle without it. In preview the action answers "No
+   Agent or User found" (an unpublished bundle has no agent record), so it is
+   measured only once published (`plan/03-results.md`, 2026-10-18).
+
+Each arm is registered for memory under its own name, so a native write that
+reaches the tenant carries its arm in `agent_id`. `scripts/memory_arms.py <arm>…`
+runs one protocol on each: plant a run-unique fact, wait, ask from a new
+session, then read GetContext for every candidate owner and the
+`AiParticipantInsight` DMO.
 
 For each native arm: after the turn, read the tenant for the same owner
 (GetContext, get conversation with `scope=all`) and the `AgenticConnector_*`

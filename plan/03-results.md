@@ -1450,3 +1450,79 @@ throwaway owner `a2alab-recall-smoke-1017` (a lab JWT minted for it).
   the tenant between 10-15 and 10-17 is not yet known.
 - **Next:** re-run the control first; when it recalls again, re-run sessions
   2–3 for the smoke owner. No lab change is needed for that.
+
+## 2026-10-18 — WS27 tenant re-probe, and the native arms built (D84 → D92)
+
+**Re-probe (read-only, then one fresh explicit-arm run).** GetContext now
+requires `conversation_id` (400 "Required parameter 'conversation_id' is not
+present" without it), so each read uses a fresh conversation id.
+
+| Check | Result |
+|---|---|
+| Control persona `a2alab-recall-9c030a89` (concierge; recalled 10-14 and 10-15) | 200, `contextId` only, **empty `ontology`** |
+| Smoke owner `a2alab-recall-smoke-1017` (`A2ALab_Memory_Claude`) | 200, empty `ontology` |
+| `GET /api/v1/agentic/memory` with `ctx-agent-id` (memory CRUD) | **403** "Access forbidden" for both agents, the same as 2026-10-13 without the header |
+| Registrations (v67) and the `default` setup | both agents ACTIVE, `isMemoryGenerationEnabled: true`; setup ACTIVE, unchanged since 10-13 |
+| `AiParticipantInsight_std__dlm` (+ its chunk/index DMOs) | **0 rows** |
+| `memory_arms.py explicit --wait 150`: concierge v1, NEW owner `a2alab-arms-eb12d11f`, plant "dinghy named Silver Glacier" + bullet-point preference | within session 1 the second reply restates the fact (conversation history); **session 2: "I do not have anything remembered about you yet"**; GetContext empty for the persona and the agent-caller user; no insight rows |
+
+**Reading.** Recall is still blocked tenant-side, and it now fails for a fresh
+write, not just the old personas. The same protocol recalled all three facts
+after 90 s on 10-14. Nothing on the lab side changed between 10-14 and today
+(registrations, setup, ECA identity and the v1 path are all unchanged). The
+first registration change since 10-13 is `A2ALab_Memory_Claude`, created
+2026-10-17T17:55Z. Whether the control went empty before or after that time
+is the next question (the bridge's GetContext hops in Aurora would date it;
+AWS SSO had expired, so that query wasn't run).
+
+**Native arms (D92).** `A2ALab_Memory_Native_Flag` and
+`A2ALab_Memory_Native_Action` validate (`sf agent validate authoring-bundle`, 0
+errors each).
+
+| Native-action preview (live actions, admin) | Result |
+|---|---|
+| Start, `standardInvocableAction://manageUserMemory` with no `source` | refused: "Please specify a source when using an OOTB target" (validate had passed) |
+| With `source: "EmployeeCopilot__ManageUserMemory"` | session starts; both turns run the hook with no binding error |
+| `manageUserMemory` outputs, both turns | `resultMessage` **"No Agent or User found"**, `wasMemoryOperationPerformed: false`, `userMemoryEnabled: false`, `userMemories` empty |
+| In-session "what do you remember?" | correct, but from chat history: `memory_context` was empty |
+
+So the native action needs a published agent before it can be measured.
+`userMemoryEnabled: false` may also mean memory is off per user and agent until
+`updateAgentMemoryPreference` turns it on; that is to be measured on the
+published agent.
+
+**Later the same day: onset dated, and the arms published and run.** With AWS
+SSO renewed, the bridge's and adapter's GetContext hops in `lab.trace_events`
+date the break. **Correction to the 10-17 and 10-18 readings:** recalled memory
+comes back in `userContext` entries, not `ontology`. `ontology` is `{}` even on
+a read that recalled (trace `f1f870e6c726f6777ee5532723d7cdfd`, 10-15). Those
+readings still stand, because they also saw `contextId` only, with no
+`userContext`. `scripts/memory_arms.py` now reports `userContext`.
+
+| Window (hosted GetContext hops) | `userContext` |
+|---|---|
+| 2026-10-13 19:46Z → 2026-10-16 02:48Z (26 reads) | present on every read of a written owner |
+| 2026-10-17 18:23Z → 2026-10-18 20:42Z (8 reads) | absent on every read, bridge and adapter alike |
+
+So the break falls between 10-16 02:48Z and 10-17 18:23Z. That window holds
+the D90 ECA-policy deploys (from 10-16 15:31Z) and the `A2ALab_Memory_Claude`
+registration (10-17 17:55Z); the traces can't separate them. The memory ECA's
+own identity is not the cause: it moved off the admin on 10-14 (D86), and
+recall kept working through 10-16.
+
+The native arms were then published, activated and registered, and
+`memory_arms.py native-flag native-action` was run (120 s wait, 300 s total):
+
+| Arm | Session 1 | Session 2, new session | Tenant `userContext` (persona, caller username, caller Id) | Insight rows |
+|---|---|---|---|---|
+| `native-flag` (Silver Otter) | both turns answered in-session | "I do not have anything remembered about you yet" | none ×3 | 0 |
+| `native-action` (Silver Lantern) | both turns answered in-session | "I do not have anything remembered about you yet" | none ×3 | 0 |
+| Control `a2alab-recall-9c030a89` (concierge) | — | — | none ×3 | — |
+
+**Reading.** All three routes fail the same way: the explicit hook, the platform
+flag and the platform action. The native routes don't go through our
+registration or our bridge at all, so the fault is in the tenant's memory
+pipeline (extraction or retrieval), not in the lab's seam. The next step is
+the tenant side: check extraction status and the D90-window changes against
+the memory DMOs, and raise it with the Agentic Memory team if neither
+explains it.

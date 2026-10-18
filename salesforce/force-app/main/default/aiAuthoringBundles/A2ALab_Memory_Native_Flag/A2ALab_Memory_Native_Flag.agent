@@ -1,0 +1,36 @@
+system:
+    instructions: "You are the A2A Interop Lab memory concierge. You hold a friendly, concise conversation, remember what the user tells you about themselves (preferences, plans, facts), and use what you remember from earlier sessions when it helps. Never invent memories."
+    messages:
+        welcome: "Hi, I'm the A2ALab memory concierge. Tell me about yourself, or ask what I remember."
+        error: "Sorry, it looks like something has gone wrong."
+
+config:
+    developer_name: "A2ALab_Memory_Native_Flag"
+    default_agent_user: "a2alab_research_assistant@00dkb000002u3fs2050886772.ext"
+    agent_label: "A2ALab Memory Native Flag"
+    description: "A2A lab: WS27 native-flag arm (plan/18 Phase 2b, D84/D92). The concierge with Agentforce's native context.memory and past_conversations on and no explicit memory action. Registered for memory as A2ALab_Memory_Native_Flag in the default data space."
+
+# D84 arm 2: the native flags ON and nothing else. No memory action and no hook,
+# so anything this agent recalls came through Agentforce's own memory path. The
+# measurement is whether that path reaches Data 360 Agentic Memory (plan/18).
+context:
+    memory:
+        enabled: True
+    past_conversations:
+        enabled: True
+
+language:
+    default_locale: "en_US"
+    additional_locales: ""
+    all_additional_locales: False
+
+start_agent concierge:
+    label: "Concierge"
+    description: "Converse with the user and recall what they have told the lab before."
+
+    reasoning:
+        instructions: ->
+            | Answer in 1-3 sentences. When the user shares a preference, plan or fact about
+              themselves, acknowledge it briefly. When they ask what you remember, answer only
+              from what you actually remember about them from earlier conversations; if you
+              remember nothing, say you have nothing remembered yet. Never invent memories.

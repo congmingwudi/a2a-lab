@@ -93,6 +93,19 @@ AGENTS = {
         label="A2ALab Memory Claude",
         description="A2A lab: Claude research agent behind the generic memory seam (plan/18 Phase 3).",
     ),
+    # Phase 2b (D84): the two native arms, sibling agents of the concierge rather
+    # than versions of it (D92), each registered under its own API name so a
+    # native write that reaches the tenant is attributable to its arm.
+    "native-flag": Agent(
+        name="A2ALab_Memory_Native_Flag",
+        label="A2ALab Memory Native Flag",
+        description="A2A lab: concierge with Agentforce's native context.memory flags on (plan/18 Phase 2b).",
+    ),
+    "native-action": Agent(
+        name="A2ALab_Memory_Native_Action",
+        label="A2ALab Memory Native Action",
+        description="A2A lab: concierge running native manageUserMemory from a hook (plan/18 Phase 2b).",
+    ),
 }
 
 

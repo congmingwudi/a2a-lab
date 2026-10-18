@@ -15,6 +15,7 @@ class FakeAgentAPI:
         self.session_calls = 0
         self.messages: list[dict] = []
         self.deleted: list[str] = []
+        self.session_bodies: list[dict] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -23,6 +24,7 @@ class FakeAgentAPI:
             return httpx.Response(200, json={"access_token": f"tok-{self.token_calls}"})
         if path.endswith("/sessions") and "/agents/" in path:
             self.session_calls += 1
+            self.session_bodies.append(json.loads(request.content))
             assert request.headers["authorization"].startswith("Bearer tok-")
             return httpx.Response(200, json={"sessionId": f"sf-sess-{self.session_calls}"})
         if "/sessions/" in path and path.endswith("/messages"):
@@ -61,6 +63,16 @@ async def test_round_trip(client, fake_api):
     assert resp.raw["messages"][0]["type"] == "Inform"
     assert fake_api.messages[0]["body"]["message"]["text"] == "hello"
     assert fake_api.messages[0]["body"]["message"]["sequenceId"] == 1
+
+
+async def test_session_variables_sent_only_when_set(client, fake_api):
+    """An agent reading an External variable (the memory concierge's memory_owner)
+    gets it at session create; a client without variables sends no key at all."""
+    await client.ask(AgentRequest(message="hi", trace_id="t1"))
+    assert "variables" not in fake_api.session_bodies[0]
+    client.session_variables = [{"name": "memory_owner", "type": "Text", "value": "a2alab-x"}]
+    await client.ask(AgentRequest(message="hi", trace_id="t2"))
+    assert fake_api.session_bodies[1]["variables"] == client.session_variables
 
 
 async def test_session_reuse_and_sequence(client, fake_api):

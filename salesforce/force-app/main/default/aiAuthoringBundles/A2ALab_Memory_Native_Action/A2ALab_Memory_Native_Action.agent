@@ -1,0 +1,85 @@
+system:
+    instructions: "You are the A2A Interop Lab memory concierge. You hold a friendly, concise conversation, remember what the user tells you about themselves (preferences, plans, facts), and use what you remember from earlier sessions when it helps. Never invent memories."
+    messages:
+        welcome: "Hi, I'm the A2ALab memory concierge. Tell me about yourself, or ask what I remember."
+        error: "Sorry, it looks like something has gone wrong."
+
+config:
+    developer_name: "A2ALab_Memory_Native_Action"
+    default_agent_user: "a2alab_research_assistant@00dkb000002u3fs2050886772.ext"
+    agent_label: "A2ALab Memory Native Action"
+    description: "A2A lab: WS27 native-action arm (plan/18 Phase 2b, D84/D92). The concierge with manageUserMemory run from before_reasoning in place of the explicit bridge action. Registered for memory as A2ALab_Memory_Native_Action in the default data space."
+
+# D84 arm 3: the native analogue of the explicit arm. The same before_reasoning
+# hook, but it runs Agentforce's standard manageUserMemory action on the user's
+# text, with no bridge. The native flags stay OFF so any recall is attributable
+# to the action, and the action's userMemories output is the context the
+# planner sees, the way memory_turn's context is in the explicit arm.
+context:
+    memory:
+        enabled: False
+    past_conversations:
+        enabled: False
+
+variables:
+    memory_context: mutable string = ""
+        description: "The userMemories JSON manageUserMemory returned this turn."
+    memory_written: mutable boolean = False
+        description: "Whether manageUserMemory created, updated or deleted a memory this turn."
+
+language:
+    default_locale: "en_US"
+    additional_locales: ""
+    all_additional_locales: False
+
+start_agent concierge:
+    label: "Concierge"
+    description: "Converse with the user and recall what they have told the lab before."
+
+    actions:
+        manage_user_memory:
+            label: "Manage User Memory"
+            description: "Agentforce's native user memory: curates memories from this turn's user text and returns every memory held for this user and agent."
+            source: "EmployeeCopilot__ManageUserMemory"
+            target: "standardInvocableAction://manageUserMemory"
+            inputs:
+                userConversation: string
+                    label: "User Conversation"
+                    description: "This turn's user text"
+                    is_required: True
+                agentContext: string
+                    label: "Agent Context"
+                    description: "What this agent is for, so the curator knows what is worth remembering"
+                    is_required: False
+            outputs:
+                resultMessage: string
+                    label: "Result Message"
+                    description: "What the memory operation did"
+                wasMemoryOperationPerformed: boolean
+                    label: "Was Memory Operation Performed"
+                    description: "True when a memory was created, updated or deleted"
+                userMemories: string
+                    label: "User Memories"
+                    description: "Every memory held for this user and agent, as JSON"
+                userMemoryEnabled: boolean
+                    label: "User Memory Enabled"
+                    description: "Whether memory is on for this user and agent"
+
+    # Deterministic, every turn, before the planner, like memory_turn in the
+    # explicit arm (D83). Not in reasoning.actions, so the model cannot skip it.
+    before_reasoning:
+        run @actions.manage_user_memory
+            with userConversation=@system_variables.user_input
+            with agentContext="A memory concierge that remembers a user's preferences, plans and facts across sessions."
+            set @variables.memory_context = @outputs.userMemories
+            set @variables.memory_written = @outputs.wasMemoryOperationPerformed
+
+    reasoning:
+        instructions: ->
+            | Answer in 1-3 sentences. When the user shares a preference, plan or fact about
+              themselves, acknowledge it briefly. When they ask what you remember, answer only
+              from the memories below; if there are none, say you have nothing remembered yet.
+              Never invent memories.
+
+              Memories held for this user (may be empty):
+              {!@variables.memory_context}

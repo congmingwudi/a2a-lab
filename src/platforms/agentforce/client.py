@@ -43,6 +43,7 @@ class AgentforceClient(RemoteAgentClient):
         api_base: str = API_BASE,
         timeout: float = DEFAULT_TIMEOUT,
         source_name: str = "agentforce-client",
+        session_variables: list[dict[str, Any]] | None = None,
     ):
         # The hop label for this client's Agent API calls — the hosted shim
         # passes its own name so the diagram shows the shim as a network
@@ -54,6 +55,10 @@ class AgentforceClient(RemoteAgentClient):
         self.client_id = client_id
         self.client_secret = client_secret
         self.agent_id = agent_id
+        # Agent API session variables ({name, type, value}), sent at session
+        # create: how a caller sets an agent's External variable, e.g. the memory
+        # concierge's memory_owner (plan/18). None sends no `variables` key.
+        self.session_variables = session_variables
         self.api_base = api_base.rstrip("/")
         self._http = httpx.AsyncClient(timeout=timeout)
         self._token: str | None = None
@@ -125,6 +130,8 @@ class AgentforceClient(RemoteAgentClient):
             "streamingCapabilities": {"chunkTypes": ["Text"]},
             "bypassUser": True,
         }
+        if self.session_variables:
+            body["variables"] = self.session_variables
         with Hop(
             trace_id,
             source=self.source_name,

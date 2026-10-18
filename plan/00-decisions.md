@@ -4026,3 +4026,59 @@ reads the owner's context before `inner.handle()` and ingests the turn after it.
 `A2ALab_Memory_Claude` and giving the hosted faces the memory identity are WS27
 items 31–32 in `plan/07-workstreams.md`. Until then a memory-on run answers
 without memory and its badge says why.
+
+## 2026-10-18 — D92: the native memory arms are sibling agents of the concierge, not versions of it, and `manageUserMemory` names its GenAiFunction as `source`
+
+**Context.** D84 planned each native arm (plan/18 Phase 2b) as another
+published version of `A2ALab_Memory_Concierge`. But an Agent API session always
+runs the agent's ACTIVE version. Arms as versions would mean swapping the
+explicit arm (v1, D83) out of production for every native measurement, and
+every console or cross-platform concierge run in between would hit whichever
+arm was activated last. A native write would also be attributed to the same
+registered agent name as the explicit arm's, so "which route wrote this?" would
+be unanswerable from the tenant.
+
+**Decision.**
+- **Two sibling agents.** `A2ALab_Memory_Native_Flag` is the concierge with
+  `context.memory` and `past_conversations` ON and no memory action or hook.
+  `A2ALab_Memory_Native_Action` keeps the flags OFF and runs
+  `manageUserMemory` from `before_reasoning` on `@system_variables.user_input`,
+  with its `userMemories` output interpolated into the instructions the way
+  `memory_turn`'s context is in v1. Same system prompt and reasoning as v1, so
+  the route is the only variable. v1 stays active and unchanged.
+- **Each is registered for memory under its own name** (`setup_agentic_memory.py
+  register native-flag|native-action`), so a native write that reaches Data 360
+  carries its arm in `agent_id`, and a fair test can't fail on an unregistered
+  `aid`.
+- **An OOTB action names its GenAiFunction.** A `standardInvocableAction://`
+  target compiles without one (`sf agent validate` passes) but preview refuses
+  it: "Please specify a `source` when using an OOTB target". For
+  `manageUserMemory` that is `source: "EmployeeCopilot__ManageUserMemory"`. The
+  standard functions aren't `GenAiFunctionDefinition` rows in this org, so the
+  name came from internal agent bundles, not the org.
+- **One driver for every arm.** `scripts/memory_arms.py` runs the same protocol
+  on any arm and reads both stores afterwards. The native routes key memory to a
+  Salesforce principal rather than `memory_owner`, so the planted fact is unique
+  per run. `AgentforceClient` gains optional session variables, so the explicit
+  arm's `memory_owner` is set the way the console sets it.
+
+**Alternatives.**
+- **Versions, as D84 said.** Rejected for the reasons above. It is still the
+  shape to use when a change to the concierge itself must be measured.
+- **One sibling carrying both native routes.** Recall then couldn't be
+  attributed to the flag or to the action.
+
+**Consequences.**
+- Two more agents carry the generated agent user (org id) in
+  `default_agent_user`, so WS27 item 24's render-at-publish now covers ten
+  bundles.
+- Preview can't measure `manageUserMemory`. An unpublished bundle has no agent
+  record, and the action returns "No Agent or User found" with
+  `userMemoryEnabled: false` (`plan/03-results.md`, 2026-10-18). The native-action
+  arm is only measurable once it's published.
+
+**Status.** ACCEPTED 2026-10-18. Both bundles validate, and the native-action
+hook runs live in preview. Both agents were published, activated and registered
+the same day (WS27 items 10 and 14). Their first run fell inside the tenant-side
+recall break (`plan/03-results.md`), so neither has been measured against a
+working tenant yet.
