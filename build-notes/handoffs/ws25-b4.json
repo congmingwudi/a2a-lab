@@ -1,0 +1,25 @@
+{
+  "batch": "ws25-b4",
+  "title": "WS25 batch 4 \u2014 shim session key: close the platform/subject collision (A11 follow-up)",
+  "proposer": "claude",
+  "critic": "codex",
+  "implementer": null,
+  "station": "critique",
+  "holder": "codex",
+  "round": 0,
+  "verdict": null,
+  "adr": null,
+  "files": {
+    "plan": "build-notes/claude/ws25-b4-plan.md",
+    "notes": {},
+    "verdicts": {}
+  },
+  "history": [
+    {
+      "ts": "2026-10-18T09:34:13+00:00",
+      "agent": "claude",
+      "action": "propose",
+      "file": "build-notes/claude/ws25-b4-plan.md"
+    }
+  ]
+}
