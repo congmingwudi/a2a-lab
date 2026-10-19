@@ -1526,3 +1526,52 @@ pipeline (extraction or retrieval), not in the lab's seam. The next step is
 the tenant side: check extraction status and the D90-window changes against
 the memory DMOs, and raise it with the Agentic Memory team if neither
 explains it.
+
+## 2026-10-18 — WS27 diagnosis: the tenant acknowledges memory writes and does not keep them (defect, not client)
+
+The question was whether recall is blocked by something the lab does wrong, or by
+a defect in Data 360 Agentic Memory. All checks ran against the production tenant
+as the memory integration user, bound to `A2ALab_Memory_Concierge`.
+
+| Lab-side variable | Checked | Result |
+|---|---|---|
+| Request shape | GetContext and write hops, 10-15 (recalled) vs 10-18, in `lab.trace_events` | identical params, headers and bodies |
+| `conversation_id` on GetContext | git history of `interop.memory.get_context` | sent since the first commit, including on reads that recalled |
+| Agent memory generation | v67 `GET agent` + `DataAgenticContextAgent` | `isMemoryGenerationEnabled` true for the concierge and Claude, unchanged since 10-13 / 10-17 |
+| Agentic setup | `GET /ssot/agentic/setups/default` | `enabled`, ACTIVE, unchanged since 10-13 |
+| Memory user's grants | `PermissionSetAssignment` since 10-15 | unchanged since 10-15 03:07Z; recall worked after that |
+| Token | CDP exchange | memory integration user, `aid` = the concierge, data space `default`, same tenant |
+| Call sequence | the product team's smoke driver (`#agent-conversation-script-results`) | same five calls; no extraction trigger, flush or close required |
+
+| Controlled probe (fresh owner, explicit preferences) | Result |
+|---|---|
+| Writes: conversation, session, participant, entries | 201 / 201 / 202 / 202 |
+| GetContext, same and new conversation id, at +60 / +180 / +360 s | 200, `contextId` + `{}` `ontology`, **no `userContext`** |
+| `GET /conversations/{id}?scope=all` at +6 min and +10 min | **404 "Conversation not found"** |
+| Agentic stream counts (Conversation / Message / Insight) before → after | 51 / 51 / 59 → **51 / 51 / 59** |
+| A/B: distinct `sessionId`, then `POST …/sessions/{sid}/close` | close 202 `"closed"`; GetContext empty and the conversation 404 at +20 / +90 / +240 s |
+| Re-create either conversation id | **201 `created`** again (not 409); owner's conversation list `[]` |
+
+Baseline: on 10-15 the same probe read its conversation back at once (200, above),
+and on 10-17 it was readable after a few minutes (404 at +15 s, then 200). Today it
+never is. So the service has degraded in steps: extraction stopped first (last
+`userContext` 10-16 02:48Z), then storage.
+
+**Reading.** The tenant acknowledges every write, including closing a session it
+never stored, and keeps none of them. Retrieval has nothing to return, and old
+owners are empty too. No client sequence can fix that. The Setup Audit Trail shows
+system-initiated platform changes inside the onset window, none of them ours:
+`Customer 360 Data Platform Integration` was converted to the integration
+permission set `sfdc_a360` (10-16 22:00Z), standard groups were recalculated with
+`Data Space default` removed and re-added (22:02Z), Data Cloud object/field and
+record-level policies were regenerated (10-17 01:00Z), there was an org-wide
+provisioning push (04:32Z), and new agentic connector DLO fields were created
+(07:52Z). The product's own 6-hourly smoke test last produced memory at 10-15
+19:00Z, and every run since 10-16 19:00Z has failed with `500 "[AgentConversation]
+Failed to create conversation"`. A separate observation: the AiParticipantInsight
+stream holds 59 records but has no DLO→DMO mapping, and a `COUNT(*)` on its DLO
+scans 59 rows and returns 0 for this identity, so the DMO has never shown rows.
+
+Filed as a defect (the draft is in `build-notes/ws27/agentic-memory-defect-2026-10-18.md`). The
+native arms also have `isMemoryGenerationEnabled` false (registration's default),
+to turn on before their rerun once the tenant is fixed.
