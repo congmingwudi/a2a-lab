@@ -46,6 +46,12 @@ class FakeMemory:
     async def ingest(self, trace_id, **kw):
         self.calls.append(("ingest", kw))
 
+    async def close_session(self, trace_id, **kw):
+        self.calls.append(("close", kw))
+
+    async def list_memories(self, trace_id, **kw):
+        return []
+
 
 class Inner:
     name = "inner-agent"
@@ -116,7 +122,7 @@ async def test_a_turn_reads_before_and_ingests_both_sides_after():
     adapter, inner = _adapter(fake)
     resp = await adapter.handle(_req(session_id="s-1"))
 
-    assert [c[0] for c in fake.calls] == ["start", "context", "ingest"]
+    assert [c[0] for c in fake.calls] == ["start", "context", "ingest", "close"]
     sent = inner.seen[0]
     assert "prefers aisle seats" in sent.message and sent.message.endswith("Book me a flight")
     ingest = fake.calls[2][1]
@@ -135,7 +141,15 @@ async def test_the_conversation_follows_the_session_and_is_started_once():
     adapter, _ = _adapter(fake)
     first = await adapter.handle(_req(session_id="s-1"))
     second = await adapter.handle(_req(session_id="s-1", msg="And a window seat back"))
-    assert [c[0] for c in fake.calls] == ["start", "context", "ingest", "context", "ingest"]
+    assert [c[0] for c in fake.calls] == [
+        "start",
+        "context",
+        "ingest",
+        "close",
+        "context",
+        "ingest",
+        "close",
+    ]
     assert (
         first.metadata["memory"]["conversation_id"] == second.metadata["memory"]["conversation_id"]
     )
@@ -182,7 +196,7 @@ async def test_a_refused_read_still_answers_and_still_ingests():
     adapter, inner = _adapter(fake)
     resp = await adapter.handle(_req(session_id="s-1"))
     assert inner.seen[0].message == "Book me a flight"
-    assert [c[0] for c in fake.calls] == ["start", "context", "ingest"]
+    assert [c[0] for c in fake.calls] == ["start", "context", "ingest", "close"]
     assert resp.metadata["memory"]["ok"] is False
     assert "403" in resp.metadata["memory"]["error"]
 

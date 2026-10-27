@@ -7,6 +7,26 @@ lab's memory seam are D83, D86, D90, D91 and D92 in `plan/00-decisions.md`.
 The org id, tenant host and user ids are deliberately left out of this repo. Fill
 them in from `.env` / the CDP token exchange when filing.
 
+## Update 2026-10-27 — narrower than first filed
+
+Extraction is **not** broken, and the store is intact (`plan/03-results.md`,
+2026-10-27; D93). Read through the Memory API (`GET /api/v1/agentic/memory`,
+`agent_id` header), the 10-14 control persona's facts and preference are still
+there, and a fresh write closed with `sessions/{sid}/close` extracted a fact
+and a preference within 6 minutes. The lab had never closed its sessions, which
+explains why nothing written since 10-17 was extracted. That gap was on the
+client side and is fixed in D93. Two defects remain:
+
+1. **Conversations are not persisted.** The write is acknowledged, then
+   `GET /conversations/{id}` returns 404, a re-create returns 201, and the
+   owner's list is empty.
+2. **GetContext serves no `userContext`**, even for an owner whose facts the
+   Memory API returns from the same tenant at the same moment.
+
+Another org's memory worked from 2026-10-23 to 10-26 (an internal demo kit's
+evidence log), so this points at this tenant or its cell. The original
+summary below is kept as filed.
+
 ## Summary
 
 Since roughly 2026-10-16/17, the Agentic Memory tenant API returns success for
@@ -61,8 +81,9 @@ The request shape (paths, params, headers) is the same as on 2026-10-15, when re
 unchanged since registration; the agentic setup is enabled and unchanged since
 2026-10-13; the memory user's grants are unchanged since 2026-10-15 03:07Z; the
 token carries the right `aid`, data space and tenant; the sequence matches the
-product smoke driver; closing the session and using a distinct `sessionId` change
-nothing.
+product smoke driver. (Filed as "closing the session changes nothing", which held
+for GetContext but was wrong for extraction: a closed session does extract, as the
+2026-10-27 update says.)
 
 ## Asks
 
@@ -74,9 +95,8 @@ nothing.
 3. Check the `enablePerAgentMemoryGenerationConfig` gate state for this cell
    (precedent: `#cdp-realtime-service`, 2026-10-06, W-23936246) and
    decisioning-pipeline PR #2151 / W-24459714 (Context Pack layered cache).
-4. Secondary: the `AgenticConnector_AiParticipantInsight` stream has 59 records
-   and **no DLO→DMO mapping**, so `AiParticipantInsight` (and its chunk/index
-   DMOs) has always queried 0 rows. Is that expected?
+4. ~~Secondary: the empty `AiParticipantInsight` DMO.~~ Withdrawn 2026-10-27: the
+   demo kit's org shows 0 insight rows while its memory works, so it is not evidence.
 
 ## Where to file
 

@@ -1575,3 +1575,53 @@ scans 59 rows and returns 0 for this identity, so the DMO has never shown rows.
 Filed as a defect (the draft is in `build-notes/ws27/agentic-memory-defect-2026-10-18.md`). The
 native arms also have `isMemoryGenerationEnabled` false (registration's default),
 to turn on before their rerun once the tenant is fixed.
+
+## 2026-10-27 — WS27 rerun, nine days after the defect was filed: still broken, same signature
+
+The explicit route was rerun end to end. The two native arms were not: their
+`isMemoryGenerationEnabled` is still false, so a miss there would prove nothing. The
+probe was also run directly against the tenant (`setup_agentic_memory.py probe concierge`).
+
+| Check | Result |
+| --- | --- |
+| Control persona `a2alab-recall-9c030a89` (recalled 10-15), and `a2alab-recall-smoke-1017` | GetContext 200, **no `userContext`** |
+| Tenant probe writes (conversation / session / participant / entries) | all acknowledged (`participantsAdded`, 202 `entriesAdded`) |
+| Probe GetContext at +5 / +10 / +15 s | 200, `contextId` + `{}` `ontology`, no `userContext` |
+| `GET /conversations/a2alab-probe-50071f62` at +15 s and at about +5 min | **404 "Conversation not found"** |
+| `memory_arms.py explicit` (run `2b6b2fae`, wait 150 s) | session 1 planted "Ochre Cactus"; session 2: "I do not have anything remembered about you yet"; `recalled: false` |
+| Arm tenant reads (persona, caller username, caller Id) | 200, no `userContext` for all three |
+| AiParticipantInsight rows since run start | 0 |
+
+**Reading.** Nothing has changed since the 10-18 diagnosis: writes are acknowledged
+and not stored, so there is nothing to recall. The lab side is unchanged since then
+too. A working demo elsewhere fits a fault in this tenant (or its cell), not in the
+feature. Open: set the native arms' extraction on
+(`setup_agentic_memory.py extraction native-flag|native-action on --apply`) before
+their rerun.
+
+## 2026-10-27 (later) — the Memory API holds what GetContext will not serve, and the close is what extracts
+
+Prompted by the governed-mcp-demo-kit's agent-memory playbook (an internal Salesforce
+demo repo; its org's memory worked from 10-23 to 10-26). The kit reads extracted memories
+from the **Memory API** (`GET /api/v1/agentic/memory?profile_id&profile_type&category`,
+`agent_id` header), not GetContext, and closes every session. Rerun here against the
+concierge registration:
+
+| Check | Result |
+| --- | --- |
+| Memory API, control persona `a2alab-recall-9c030a89`, as Concierge | **2 facts** (Porto half marathon, lapsang souchong) + **1 preference** (short bullet points) — the 10-14 memories are intact |
+| Same persona, as `A2ALab_Memory_Claude` | 0 — facts and preferences are stored **per agent** |
+| `a2alab-recall-smoke-1017` (never closed) | 0 |
+| Fresh probe, two owners, kit's wire shape and ours | create 201, session 201, entries 202, **close 202** |
+| `GET /conversations/{cid}` for the probe | 400 without `owner_id`, 404 with it; re-create 201; owner's list `[]` |
+| Memory API at +6 min after close | **extracted in both shapes**: a fact about two beehives in Lisbon, a preference for Portuguese |
+| GetContext, every variant (incl. `insight_query`, `unfiltered_insights`) | 200, no `userContext` |
+| A closed session: more entries, then re-close | 202 `entriesAdded`, 202 `closed`; **re-extracted** at about +7 min (the new fact about a greyhound named Biscuit, as two overlapping facts) |
+| New `open_and_read` (as Claude, control persona, no start) | the Concierge's 3 lines; 3.7 s cold, 0.5–0.7 s warm — inside the 8 s adapter budget |
+
+**Reading.** The 10-18 diagnosis was too broad. Extraction works and the store is intact:
+what is broken is that conversations are not persisted (so no summary) and that
+GetContext serves no `userContext` even while the Memory API holds facts for the same
+owner. One gap was ours: no seam ever closed a session, and the close is the extraction
+trigger, so every owner written since 10-17 had nothing to extract. The fix (D93) closes
+after every write and reads saved memories from the Memory API across the shared agents.

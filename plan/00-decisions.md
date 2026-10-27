@@ -4082,3 +4082,67 @@ hook runs live in preview. Both agents were published, activated and registered
 the same day (WS27 items 10 and 14). Their first run fell inside the tenant-side
 recall break (`plan/03-results.md`), so neither has been measured against a
 working tenant yet.
+
+## 2026-10-27 — D93: every memory write ends in a close, and recall reads saved memories from the Memory API across the shared agents
+
+**Context.** Recall broke on 2026-10-17 and was filed as a tenant defect
+(`build-notes/ws27/agentic-memory-defect-2026-10-18.md`). An internal demo kit
+(governed-mcp-demo-kit, agent-memory playbook) showed two things we had missed
+(`plan/03-results.md`, 2026-10-27). First, extraction runs when a session is
+**closed**, and no lab seam (D83's `/memory/turn`, D91's `MemoryAdapter`) ever
+closed one. Second, the extracted facts and preferences are readable from the
+Memory API (`GET /api/v1/agentic/memory`) even while GetContext returns no
+`userContext`. The Memory API stores them **per agent**, though, so the
+Concierge's facts are invisible to `A2ALab_Memory_Claude`. Measured: the 10-14
+control persona's three memories are intact under the Concierge and absent
+under Claude, and a fresh write extracts within 6 minutes of its close.
+
+**Decision.**
+- **Close after every write.** `write_turn` posts `sessions/{cid}/close` after
+  any non-empty ingest. Neither seam has an end-of-chat signal, and a closed
+  session still takes entries and re-closes (202 both), so per-turn is the
+  only place a close can go. Measured: re-closing a closed session extracts
+  the turn's new fact, so closing every turn keeps extraction current.
+- **Recall merges two reads.** `open_and_read` keeps GetContext (the
+  conversation summary, when the service serves it) and adds `saved_memories`:
+  every shared agent × {`sys_PROFILE_FACT`, `sys_PROFILE_PREFERENCES`}, asked in
+  parallel, keyed only by owner. The calling agent comes first, duplicates are
+  dropped case-insensitively, and at most 20 lines are kept. The shared set
+  defaults to the two explicit-seam agents and is overridden by
+  `A2ALAB_MEMORY_SHARED_AGENTS`.
+- **Fail-open per agent.** A refused agent (an unregistered name returns 500)
+  costs only its own lines, as with every other memory call (D83).
+- **GetContext's `contextId` goes to the trace, not the prompt.** It is a fresh
+  UUID per response (17 of 17 distinct). The API reference calls it the id "for
+  tracing and debugging", so it means nothing to the model. It becomes the hop's
+  `platform_ref`, the field M11 reserves for a platform's own execution id. That
+  makes every empty read quotable to the product team by its server-side id.
+  `render_context` drops the whole envelope (`contextId`, `sessionId`,
+  `createdAt`) for the same reason. This tenant returns no `sessionId` or
+  `createdAt`, though the reference documents both.
+
+**Alternatives.**
+- **Wait for GetContext to be fixed.** It is the documented read and stays in
+  the path, but recall should not hinge on one service's defect when the store
+  answers directly.
+- **One shared agent name for every platform.** It would make facts shared by
+  construction, but it would erase which route wrote a memory, the attribution
+  D92 depends on.
+- **A new session id per turn.** It would also give a clean close per turn, but
+  it fragments the conversation the summary is built from, and re-closing
+  already re-extracts.
+
+**Consequences.**
+- Extraction can split one statement into overlapping facts ("has a dog named
+  Biscuit", "Biscuit is a greyhound"). Exact-match dedupe keeps both, and the
+  20-line cap bounds how much that costs the prompt.
+- Each turn costs one more POST (the close) and four more GETs (0.5–0.7 s warm,
+  3.7 s cold, inside `MemoryAdapter`'s 8 s budget).
+- Writes from 10-17 onward were never closed and stay unextracted. They are
+  not backfilled.
+- The defect narrows to conversations not persisting and GetContext serving no
+  `userContext`. Extraction is not part of it.
+
+**Status.** ACCEPTED 2026-10-27. Built and unit-tested, and the read was verified
+live against the tenant. Not yet deployed: the bridge and the faces need a full
+image rebuild (`src/` changed).

@@ -19,6 +19,7 @@ Every call is a trace Hop with the raw request and response bodies, target
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import time
@@ -164,6 +165,7 @@ class MemoryClient:
         json_body: dict | None = None,
         params: dict | None = None,
         ok: tuple[int, ...] = (200, 201, 202),
+        ref_key: str | None = None,
     ) -> tuple[int, Any]:
         tok = await self._token(agent_id)
         detail = f"{method} {path}"
@@ -186,6 +188,8 @@ class MemoryClient:
                 r.json() if r.content and "json" in r.headers.get("content-type", "") else r.text
             )
             hop.response_payload = {"status": r.status_code, "body": body}
+            if ref_key and isinstance(body, dict) and body.get(ref_key):
+                hop.platform_ref = str(body[ref_key])
             if r.status_code not in ok:
                 raise MemoryCallError(f"{detail} refused (HTTP {r.status_code}): {str(body)[:200]}")
         return r.status_code, body
@@ -270,13 +274,88 @@ class MemoryClient:
         # 403s with an empty body, the agent_id param notwithstanding. The SDK
         # omits it; the product's QA fit tests (a360-quality/jarlsberg-fit-tests,
         # AgenticContextApi) send it, and that is what works (2026-10-13).
+        # The response's contextId is the service's id for this one read ("use
+        # for tracing and debugging", the API reference), so it becomes the
+        # hop's platform_ref: the handle to quote when a read comes back empty.
         _, body = await self._call(
-            trace_id, agent_id, "GET", "/api/v1/agentic/context",
+            trace_id, agent_id, "GET", "/api/v1/agentic/context", ref_key="contextId",
             headers={"ctx-agent-id": agent_id, "ctx-dataspace-ds_name": DATA_SPACE},
             params={"conversation_id": conversation_id, "owner_id": owner_id,
                     "agent_id": agent_id, "owner_type": OWNER_TYPE},
         )  # fmt: skip
         return body if isinstance(body, dict) else {}
+
+    async def close_session(
+        self, trace_id: str, *, agent_id: str, owner_id: str, conversation_id: str
+    ) -> None:
+        """Close the session — the trigger for extraction (2026-10-27: facts
+        landed within 6 min of a close; owners never closed had none). A closed
+        session still takes entries and re-closes (202 both), so a seam with no
+        end-of-chat signal closes after every turn."""
+        await self._call(
+            trace_id, agent_id, "POST",
+            f"/api/v1/agentic/conversations/{conversation_id}/sessions/{conversation_id}/close",
+            headers=self._post_headers(owner_id, agent_id), json_body={},
+        )  # fmt: skip
+
+    async def list_memories(
+        self, trace_id: str, *, agent_id: str, owner_id: str, category: str
+    ) -> list[str]:
+        """Extracted memories of one category, as stored under ONE agent — the
+        store is per agent, so a shared read asks each agent (`saved_memories`).
+        This is the read that still answers while GetContext returns no
+        `userContext` (2026-10-27, plan/03)."""
+        _, body = await self._call(
+            trace_id, agent_id, "GET", "/api/v1/agentic/memory",
+            headers={"agent_id": agent_id},
+            params={"profile_id": owner_id, "profile_type": OWNER_TYPE, "category": category},
+        )  # fmt: skip
+        memories = body.get("memories", []) if isinstance(body, dict) else []
+        return [m["content"].strip() for m in memories if str(m.get("content") or "").strip()]
+
+
+SAVED_CATEGORIES = {"sys_PROFILE_FACT": "saved fact", "sys_PROFILE_PREFERENCES": "saved preference"}
+SHARED_AGENTS_ENV = "A2ALAB_MEMORY_SHARED_AGENTS"  # comma-separated registration names
+SHARED_AGENTS = ("A2ALab_Memory_Concierge", "A2ALab_Memory_Claude")  # the explicit-seam agents
+MAX_SAVED = 20
+
+
+def shared_agents(agent_id: str) -> list[str]:
+    """The calling agent first, then every other agent whose memories it shares."""
+    names = os.environ.get(SHARED_AGENTS_ENV)
+    others = [n.strip() for n in names.split(",")] if names else list(SHARED_AGENTS)
+    return list(dict.fromkeys([agent_id, *(n for n in others if n)]))
+
+
+async def saved_memories(
+    mem: MemoryClient, trace_id: str, *, agent_id: str, owner_id: str
+) -> tuple[str, list[str]]:
+    """Every shared agent's saved facts and preferences as prompt lines, fail-open.
+
+    The cross-agent half of recall: GetContext serves the conversation summary
+    for the conversation you pass, but facts are stored per agent (plan/18,
+    after the governed-mcp-demo-kit's `memoryContextFor`). One refused agent
+    costs only its own lines.
+    """
+    asks = [(a, c) for a in shared_agents(agent_id) for c in SAVED_CATEGORIES]
+    results = await asyncio.gather(
+        *(mem.list_memories(trace_id, agent_id=a, owner_id=owner_id, category=c) for a, c in asks),
+        return_exceptions=True,
+    )
+    lines: list[str] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for (_, cat), got in zip(asks, results):
+        if isinstance(got, MemoryCallError):
+            errors.append(str(got))
+            continue
+        if isinstance(got, BaseException):
+            raise got
+        for text in got:
+            if text.lower() not in seen and len(lines) < MAX_SAVED:
+                seen.add(text.lower())
+                lines.append(f"- {SAVED_CATEGORIES[cat]}: {text}")
+    return "\n".join(lines), errors
 
 
 async def open_and_read(
@@ -312,6 +391,11 @@ async def open_and_read(
             context = render_context(await mem.get_context(trace_id, conversation_id=cid, **ids))
         except MemoryCallError as exc:
             errors.append(str(exc))
+    if read:
+        # Owner-keyed, so it needs no conversation — it answers even when opening one failed.
+        saved, saved_errors = await saved_memories(mem, trace_id, **ids)
+        errors += saved_errors
+        context = "\n".join(part for part in (context, saved) if part)
     return cid, context, errors
 
 
@@ -329,22 +413,31 @@ async def write_turn(
 
     Independent of the read on purpose: GetContext 403'd for every
     conversation while writes 2xx'd (2026-10-13), and a refused read must not
-    cost the turn its ingest, or memory never fills in.
+    cost the turn its ingest, or memory never fills in. Every write ends in a
+    close, because the close is what triggers extraction.
     """
+    ids = {"agent_id": agent_id, "owner_id": owner_id, "conversation_id": conversation_id}
     try:
-        await mem.ingest(trace_id, agent_id=agent_id, owner_id=owner_id,
-                         conversation_id=conversation_id, user_message=user_message,
-                         agent_response=agent_response)  # fmt: skip
+        await mem.ingest(trace_id, user_message=user_message,
+                         agent_response=agent_response, **ids)  # fmt: skip
+        if user_message or agent_response:
+            await mem.close_session(trace_id, **ids)
     except MemoryCallError as exc:
         return [str(exc)]
     return []
 
 
+# Response envelope, not memory: ids and a timestamp mean nothing to the model.
+# contextId is kept on the trace hop instead (`get_context`).
+ENVELOPE_KEYS = frozenset({"contextId", "sessionId", "createdAt"})
+
+
 def render_context(ctx: dict, limit: int = 4000) -> str:
-    """The context payload as prompt text. The payload's exact shape is not yet
-    measured on this tenant (plan/18 Phase 2), so this is deliberately generic:
-    every non-empty string leaf, labelled by its key path."""
+    """The context payload as prompt text: every non-empty string leaf,
+    labelled by its key path, minus the top-level envelope (`ENVELOPE_KEYS`).
+    Deliberately generic, because the service has added fields before."""
     lines: list[str] = []
+    ctx = {k: v for k, v in ctx.items() if k not in ENVELOPE_KEYS}
 
     def walk(node: Any, path: str) -> None:
         if isinstance(node, dict):

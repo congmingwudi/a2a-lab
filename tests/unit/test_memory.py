@@ -39,6 +39,8 @@ class FakeTenant:
         self.context = context if context is not None else {"summary": "likes aisle seats"}
         self.context_status = context_status
         self.conversation_status = 201
+        self.memories: dict[tuple[str, str], list[str]] = {}
+        self.refuse_memory: set[str] = set()
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
@@ -56,6 +58,12 @@ class FakeTenant:
             return httpx.Response(self.context_status, json=self.context)
         if path == "/api/v1/agentic/conversations":
             return httpx.Response(self.conversation_status, json={})
+        if path == "/api/v1/agentic/memory":
+            key = (request.headers["agent_id"], request.url.params["category"])
+            if request.headers["agent_id"] in self.refuse_memory:
+                return httpx.Response(500, json={"error": "Failed to load agent configuration"})
+            contents = self.memories.get(key, [])
+            return httpx.Response(200, json={"memories": [{"content": c} for c in contents]})
         return httpx.Response(202, json={})
 
     def client(self) -> MemoryClient:
@@ -124,9 +132,9 @@ async def test_ingest_ids_are_content_derived_and_the_reply_comes_first():
 
 
 async def test_get_context_uses_the_context_header_and_records_a_hop(isolated_traces):
-    fake = FakeTenant()
+    fake = FakeTenant(context={"contextId": "ctx-7", "summary": "likes aisle seats"})
     ctx = await fake.client().get_context("t-ctx", conversation_id="c-1", **IDS)
-    assert ctx == {"summary": "likes aisle seats"}
+    assert ctx["summary"] == "likes aisle seats"
     req = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/context")
     assert req.headers["ctx-dataspace-ds_name"] == "default"
     # the read 403s without it (2026-10-13), whatever the agent_id param says
@@ -137,6 +145,14 @@ async def test_get_context_uses_the_context_header_and_records_a_hop(isolated_tr
     hops = [h for h in hops if h["trace_id"] == "t-ctx"]
     assert [h["target"] for h in hops] == ["agentic-memory"]
     assert hops[0]["response_payload_raw"]["status"] == 200
+    assert hops[0]["platform_ref"] == "ctx-7"  # the service's id for this read
+
+
+async def test_hops_without_a_context_id_carry_no_platform_ref(isolated_traces):
+    await FakeTenant().client().ingest("t-in", conversation_id="c-1", user_message="x", **IDS)
+    hops = [json.loads(line) for f in isolated_traces.glob("*.jsonl")
+            for line in f.read_text().splitlines()]  # fmt: skip
+    assert [h.get("platform_ref") for h in hops if h["trace_id"] == "t-in"] == [None]
 
 
 async def test_refusal_raises_with_the_status():
@@ -145,9 +161,56 @@ async def test_refusal_raises_with_the_status():
         await fake.client().get_context("t1", conversation_id="c-1", **IDS)
 
 
+async def test_close_session_posts_the_close_for_the_conversation_session():
+    fake = FakeTenant()
+    await fake.client().close_session("t1", conversation_id="c-1", **IDS)
+    (req,) = [r for r in fake.calls if r.url.host == "tenant.example"]
+    assert (req.method, req.url.path) == (
+        "POST", "/api/v1/agentic/conversations/c-1/sessions/c-1/close"
+    )  # fmt: skip
+
+
+async def test_list_memories_reads_one_agents_store_by_owner():
+    fake = FakeTenant()
+    fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["Keeps bees.", "  "]
+    got = await fake.client().list_memories("t1", category="sys_PROFILE_FACT", **IDS)
+    assert got == ["Keeps bees."]
+    req = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/memory")
+    assert req.headers["agent_id"] == IDS["agent_id"]
+    assert dict(req.url.params) == {"profile_id": "persona-ana", "profile_type": "individual",
+                                    "category": "sys_PROFILE_FACT"}  # fmt: skip
+
+
+async def test_saved_memories_merge_every_shared_agent_and_fail_open(monkeypatch):
+    monkeypatch.setenv(memory_mod.SHARED_AGENTS_ENV, "A2ALab_Memory_Claude, Gone_Agent")
+    fake = FakeTenant()
+    fake.memories[("A2ALab_Memory_Concierge", "sys_PROFILE_FACT")] = ["Keeps bees."]
+    fake.memories[("A2ALab_Memory_Claude", "sys_PROFILE_FACT")] = ["keeps bees.", "Has a dog."]
+    fake.memories[("A2ALab_Memory_Claude", "sys_PROFILE_PREFERENCES")] = ["Answers in Portuguese."]
+    fake.refuse_memory.add("Gone_Agent")
+    text, errors = await memory_mod.saved_memories(fake.client(), "t1", **IDS)
+    # the calling agent's lines first, a case-insensitive duplicate dropped
+    assert text.splitlines() == [
+        "- saved fact: Keeps bees.",
+        "- saved fact: Has a dog.",
+        "- saved preference: Answers in Portuguese.",
+    ]
+    assert len(errors) == 2 and all("HTTP 500" in e for e in errors)  # one per category
+
+
 def test_render_context_labels_string_leaves():
     text = render_context({"summary": "Lisbon trip", "facts": [{"value": "aisle"}, {"n": 3}]})
     assert text == "- summary: Lisbon trip\n- facts.value: aisle"
+
+
+def test_render_context_drops_the_envelope():
+    # the live shape (2026-10-13): ids and timestamps are not memory
+    ctx = {"contextId": "f0fa", "sessionId": "s", "createdAt": "2026-10-13T17:32:27Z",
+           "userContext": [{"entry": "Prefers aisle seats.", "sourceType": "Profile"}],
+           "ontology": {}}  # fmt: skip
+    assert render_context(ctx) == (
+        "- userContext.entry: Prefers aisle seats.\n- userContext.sourceType: Profile"
+    )
 
 
 # ---------------------------------------------------------------- bridge route
@@ -157,6 +220,8 @@ class FakeMemory:
     def __init__(self, fail: bool = False):
         self.fail = fail
         self.calls: list[tuple] = []
+        self.listed: list[dict] = []
+        self.saved: dict[tuple[str, str], list[str]] = {}
 
     async def start_conversation(self, trace_id, **kw):
         self.calls.append(("start", kw))
@@ -170,6 +235,13 @@ class FakeMemory:
 
     async def ingest(self, trace_id, **kw):
         self.calls.append(("ingest", kw))
+
+    async def close_session(self, trace_id, **kw):
+        self.calls.append(("close", kw))
+
+    async def list_memories(self, trace_id, **kw):
+        self.listed.append(kw)
+        return self.saved.get((kw["agent_id"], kw["category"]), [])
 
     async def aclose(self):
         pass
@@ -189,14 +261,27 @@ def test_memory_turn_first_turn_starts_reads_then_ingests(bridge):
     data = r.json()
     assert data["ok"] is True and data["conversation_id"] == "c-new"
     assert data["context"] == "- summary: likes aisle seats"
-    assert [c[0] for c in fake.calls] == ["start", "context", "ingest"]
+    assert [c[0] for c in fake.calls] == ["start", "context", "ingest", "close"]
     assert fake.calls[2][1]["user_message"] == "hi"
+
+
+def test_memory_turn_context_carries_saved_memories(bridge):
+    client, fake = bridge
+    fake.saved[("A2ALab_Memory_Claude", "sys_PROFILE_FACT")] = ["Training for Porto."]
+    data = client.post(
+        "/memory/turn", json={**IDS, "conversation_id": "c-1", "user_message": "hi"}
+    ).json()
+    assert data["context"] == "- summary: likes aisle seats\n- saved fact: Training for Porto."
+    # the store is per agent: every shared agent is asked, by owner
+    assert {(k["agent_id"], k["owner_id"]) for k in fake.listed} == {
+        ("A2ALab_Memory_Concierge", "persona-ana"), ("A2ALab_Memory_Claude", "persona-ana")
+    }  # fmt: skip
 
 
 def test_memory_turn_reuses_the_conversation(bridge):
     client, fake = bridge
     client.post("/memory/turn", json={**IDS, "conversation_id": "c-1", "user_message": "x"})
-    assert [c[0] for c in fake.calls] == ["context", "ingest"]
+    assert [c[0] for c in fake.calls] == ["context", "ingest", "close"]
 
 
 def test_memory_turn_fails_open(bridge):
@@ -207,7 +292,7 @@ def test_memory_turn_fails_open(bridge):
     ).json()
     assert data["ok"] is False and "403" in data["error"] and data["context"] == ""
     # a refused read must not cost the turn its ingest
-    assert [c[0] for c in fake.calls] == ["context", "ingest"]
+    assert [c[0] for c in fake.calls] == ["context", "ingest", "close"]
 
 
 def test_memory_turn_reply_only_ingests_without_reading(bridge):
@@ -216,7 +301,7 @@ def test_memory_turn_reply_only_ingests_without_reading(bridge):
         "/memory/turn", json={**IDS, "conversation_id": "c-1", "agent_response": "Noted."}
     ).json()
     assert data["ok"] is True and data["context"] == ""
-    assert [c[0] for c in fake.calls] == ["ingest"]
+    assert [c[0] for c in fake.calls] == ["ingest", "close"]
     assert fake.calls[0][1]["agent_response"] == "Noted."
 
 
