@@ -4143,6 +4143,7 @@ under Claude, and a fresh write extracts within 6 minutes of its close.
 - The defect narrows to conversations not persisting and GetContext serving no
   `userContext`. Extraction is not part of it.
 
-**Status.** ACCEPTED 2026-10-27. Built and unit-tested, and the read was verified
-live against the tenant. Not yet deployed: the bridge and the faces need a full
-image rebuild (`src/` changed).
+**Status.** ACCEPTED 2026-10-27. Built and unit-tested. A two-session recall
+through these helpers worked against the live tenant within 2 minutes of the close
+(`plan/03-results.md`), the first recall since 2026-10-16. Not yet deployed: the
+bridge and the faces need a full image rebuild (`src/` changed).

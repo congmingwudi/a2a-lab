@@ -1625,3 +1625,21 @@ GetContext serves no `userContext` even while the Memory API holds facts for the
 owner. One gap was ours: no seam ever closed a session, and the close is the extraction
 trigger, so every owner written since 10-17 had nothing to extract. The fix (D93) closes
 after every write and reads saved memories from the Memory API across the shared agents.
+
+## 2026-10-27 — D93 seam, two-session recall against the live tenant (before deploy)
+
+The D93 helpers (`write_turn`, `open_and_read`) were driven directly from the
+operator's machine as `A2ALab_Memory_Claude`, for a fresh owner `a2alab-d93-2145e1a5`.
+The hosted bridge and faces are not yet rebuilt: the image build stopped at Docker
+Desktop's enforced organization sign-in.
+
+| Step | Result |
+| --- | --- |
+| Session 1: start, ingest a planted fact plus the reply, close | no errors, 3.0 s |
+| Session 2 at +60 s: a NEW conversation, `open_and_read` | no recall, no errors |
+| Session 2 at +120 s: another new conversation | **recalled**: two saved facts (a kayak named "Saffron Otter 2145e1a5", paddled on the Tagus), no errors |
+| GetContext hops | 200, no `userContext`; `contextId` recorded as `platform_ref` on both |
+
+**Reading.** First recall since 2026-10-16, and all of it came through the Memory API.
+GetContext still serves nothing. Extraction took 1–2 minutes after the close, in line
+with the ~64 s measured 2026-10-14.
