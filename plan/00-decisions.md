@@ -4145,5 +4145,6 @@ under Claude, and a fresh write extracts within 6 minutes of its close.
 
 **Status.** ACCEPTED 2026-10-27. Built and unit-tested. A two-session recall
 through these helpers worked against the live tenant within 2 minutes of the close
-(`plan/03-results.md`), the first recall since 2026-10-16. Not yet deployed: the
-bridge and the faces need a full image rebuild (`src/` changed).
+(`plan/03-results.md`), the first recall since 2026-10-16. Deployed the same day (full
+bridge + faces rebuild). The hosted explicit arm then recalled across two Agent API
+sessions while GetContext still served nothing.

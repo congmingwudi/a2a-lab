@@ -1643,3 +1643,21 @@ Desktop's enforced organization sign-in.
 **Reading.** First recall since 2026-10-16, and all of it came through the Memory API.
 GetContext still serves nothing. Extraction took 1–2 minutes after the close, in line
 with the ~64 s measured 2026-10-14.
+
+## 2026-10-27 — D93 deployed: hosted recall through the explicit arm
+
+The bridge and the faces were fully rebuilt and deployed (commit `7540607`); both
+services are stable, and `/healthz` returns 200 on both hostnames. Then
+`memory_arms.py explicit --wait 180` (run `f07c03ca`, persona `a2alab-arms-f07c03ca`):
+the concierge's `before_reasoning` hook goes to the hosted bridge's `/memory/turn`.
+
+| Check | Result |
+| --- | --- |
+| Session 1 | planted "Saffron Lantern" and asked for short bullet points |
+| Session 2 (new Agent API session, +180 s) | "Your dinghy is named Saffron Lantern … You prefer answers in short bullet points." **`recalled: true`** |
+| GetContext for persona, caller username, caller Id | 200, no `userContext` for all three |
+| AiParticipantInsight rows | 0 |
+
+**Reading.** The first hosted recall since 2026-10-16. The tenant's GetContext still
+serves nothing, so the recall came entirely through the D93 path: close on write,
+then a Memory API read. The two native arms still have extraction off and were not run.
