@@ -1688,3 +1688,12 @@ was set true at about 11:57Z, and `memory_arms.py explicit native-flag native-ac
 routes left nothing in the Data 360 Memory API for any owner they could key to. That fits
 the demo kit's claim that GA `context: memory` uses a separate store. This run was
 inside the 15–20 minutes a config change can take to apply, so the arms are rerun after it.
+
+**Settled rerun, 15:40Z (about 3.7 h after the flag change), `--wait 300`.** native-flag
+(`3bd1c872`) and native-action (`6001d172`) both answer "I have nothing remembered yet".
+GetContext shows no `userContext` for the persona, the caller username or the caller Id, and
+there are 0 insight rows. The Memory API, as each native agent, holds 0 facts and 0
+preferences for the personas and the username, under both `individual` and `employee`.
+So the miss is not the settle window. Neither native route writes to the Data 360 Memory
+API store that the explicit seam reads and writes, or it writes under an owner key that
+this API cannot be asked for.
