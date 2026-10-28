@@ -1759,3 +1759,21 @@ owner's one conversation. Before D94 that read always came back empty. Extractio
 persistence: chat 2's facts were listed while its session was still missing. So D93's Memory API read covers the lag
 window. A summary naming both chats is the one check still open. Re-read GetContext for this owner once chat 2's
 session appears.
+
+**~20:40Z — native arms, with reads that ask about the right conversation.** Until today `memory_arms.py`'s
+tenant reads asked GetContext about a **fresh** `conversation_id`. After D94 that is known to be empty
+whatever is stored, so every earlier native-arm "no `userContext`" was uninformative. The reads now ask about
+each arm's two **Agent API session ids**. Those are the conversations a per-session native route would write.
+They cover every candidate owner (the run persona, the agent-caller username, the caller's user Id). Both arms
+ran at `--wait 240`:
+
+| Arm | Session-2 recall | GetContext at either session id, any owner | AiParticipantInsight rows |
+| --- | --- | --- | --- |
+| native-flag (`A2ALab_Memory_Native_Flag`) | no: "nothing remembered yet" | 200, no `userContext` (6/6) | 0 |
+| native-action (`A2ALab_Memory_Native_Action`) | no: "no memories about you yet" | 200, no `userContext` (6/6) | 0 |
+
+**Reading.** The per-session-conversation hypothesis is **refuted**. The native routes write nothing GetContext can
+read, not even under the conversation their own session ran in. With 0 Memory API facts (earlier today) and 0
+insight rows, the lab's reads find no trace of the native routes in the Data 360 agentic store at all. That fits
+the demo kit's warning that GA `context: memory` is likely a separate store (D92). Next is the platform's own
+surface for that store (the agent's memory, per user), not more Data 360 reads.

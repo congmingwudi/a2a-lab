@@ -33,6 +33,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from interop.memory import owner_conversation
 from setup_agentic_memory import AGENTS, DATA_SPACE, api, soql, tenant_session
 from setup_jwt_eca import load_env
 
@@ -84,37 +85,45 @@ def insight_rows(since_iso: str) -> list[list]:
     return resp.get("data", []) if isinstance(resp, dict) else [["query failed", str(resp)]]
 
 
-def tenant_reads(agent_key: str, owners: list[str]) -> dict[str, str]:
+def tenant_reads(agent_key: str, owners: list[str], conversations: list[str]) -> dict[str, str]:
+    """GetContext for every (owner, conversation) pair. GetContext summarises only
+    the conversation it is asked about (D94), so a fresh id proves nothing: the
+    candidates are the conversations the arm could have written — the owner's
+    derived one (explicit, D94) and the Agent API session ids (native)."""
     a = AGENTS[agent_key]
     out = {}
     with tenant_session(a) as http:
         for owner in owners:
-            r = http.get("/api/v1/agentic/context",
-                         params={"owner_id": owner, "owner_type": "individual",
-                                 "agent_id": a.name,
-                                 "conversation_id": f"a2alab-arms-read-{uuid.uuid4().hex[:8]}"},
-                         headers={"ctx-agent-id": a.name,
-                                  "ctx-dataspace-ds_name": DATA_SPACE})  # fmt: skip
-            body = r.json() if r.status_code == 200 else {}
-            # Recalled memory is `userContext` entries; `ontology` is {} even on a
-            # read that recalls (trace f1f870e6, 2026-10-15), so it proves nothing.
-            uc = body.get("userContext") or []
-            out[owner] = f"{r.status_code} userContext {json.dumps(uc)[:600] if uc else 'NONE'}"
+            for cid in conversations or [owner_conversation(owner)]:
+                r = http.get("/api/v1/agentic/context",
+                             params={"owner_id": owner, "owner_type": "individual",
+                                     "agent_id": a.name, "conversation_id": cid},
+                             headers={"ctx-agent-id": a.name,
+                                      "ctx-dataspace-ds_name": DATA_SPACE})  # fmt: skip
+                body = r.json() if r.status_code == 200 else {}
+                # Recalled memory is `userContext` entries; `ontology` is {} even on a
+                # read that recalls (trace f1f870e6, 2026-10-15), so it proves nothing.
+                uc = body.get("userContext") or []
+                out[f"{owner} @ {cid}"] = (
+                    f"{r.status_code} userContext {json.dumps(uc)[:600] if uc else 'NONE'}"
+                )
     return out
 
 
-async def turns(client, run: str, messages: list[str]) -> list[str]:
+async def turns(client, run: str, messages: list[str]) -> tuple[list[str], str | None]:
+    """(the replies, the Agent API session id they ran in)."""
     from interop.models import AgentRequest
 
-    replies = []
+    replies, sf_session = [], None
     session = f"arms-{run}-{uuid.uuid4().hex[:6]}"
     try:
         for m in messages:
             resp = await client.ask(AgentRequest(message=m, session_id=session))
             replies.append(resp.text)
+            sf_session = resp.metadata.get("agent_session_id") or sf_session
     finally:
         await client.end_session(session)
-    return replies
+    return replies, sf_session
 
 
 async def run_arm(arm: str, run: str, wait: int, extra_owners: list[str]) -> dict:
@@ -135,10 +144,12 @@ async def run_arm(arm: str, run: str, wait: int, extra_owners: list[str]) -> dic
         if arm == "explicit" else None,
     )  # fmt: skip
     try:
-        s1 = await turns(client, run, [fact, "Please always answer me in short bullet points."])
+        s1, sf1 = await turns(
+            client, run, [fact, "Please always answer me in short bullet points."]
+        )
         print(f"[{arm}] session 1 done; waiting {wait}s for extraction", file=sys.stderr)
         await asyncio.sleep(wait)
-        s2 = await turns(client, run, ["What do you remember about me from before?"])
+        s2, sf2 = await turns(client, run, ["What do you remember about me from before?"])
     finally:
         await client.aclose()
     owners = candidate_owners(persona, extra_owners)
@@ -146,7 +157,9 @@ async def run_arm(arm: str, run: str, wait: int, extra_owners: list[str]) -> dic
         "arm": arm, "agent": agent.name, "run": run, "persona": persona,
         "planted": fact, "session1": s1, "session2": s2[0],
         "recalled": recalled(s2[0], words),
-        "tenant": tenant_reads(ARMS[arm], owners),
+        "agent_sessions": [sf1, sf2],
+        "tenant": tenant_reads(ARMS[arm], owners,
+                               [] if arm == "explicit" else [c for c in (sf1, sf2) if c]),
         "insight_rows": insight_rows(started),
     }  # fmt: skip
 
