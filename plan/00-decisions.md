@@ -4196,8 +4196,8 @@ its agents, so it is no evidence for the native route either (D92).
 - Conversations and sessions written before D94 stay where they are. Their facts are still
   read through the Memory API, which is keyed by owner, and their summaries are orphaned.
 - One conversation per owner grows without bound. The summary is the service's to bound.
-- **Not yet proven live.** The first D94 write (17:45Z) and an A/B of both id shapes (17:55Z)
-  were acknowledged end to end and still returned 404 to `GET /conversations/{cid}`. Writes
-  at about 12:00Z read back fine, so the tenant's non-persistence is **intermittent** and not
-  caused by the shape (`plan/03-results.md`). The live proof is a GetContext summary that spans
-  two chats, read once writes persist again.
+- **Proven live the same day (about 20:00Z).** The 17:45Z write had only lagged: it read back hours
+  later with its summary. A second chat, opened by the **other** agent in a new session, recalled the first
+  chat's GetContext summary before writing anything (`plan/03-results.md`). Persistence still lags
+  intermittently, and extraction runs ahead of it. So in that window D93's Memory API read is what carries
+  the new chat's facts.

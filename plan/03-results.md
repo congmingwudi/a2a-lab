@@ -1739,3 +1739,23 @@ with two fresh owners. One had session id = conversation id (the old shape), the
 The shape makes no difference. The tenant was persisting no new conversation in that window, though the
 ones written at about 12:00Z read back fine. So the defect is intermittent. While it lasts, GetContext can
 summarise nothing new, and recall falls back to the Memory API facts already extracted (D93).
+
+**~20:00Z — the D94 two-chat proof (after the reboot).** The 17:45Z conversation (`a2alab-o-0e3c…`, owner
+`a2alab-d94-f6e80374`, chat 1 as `A2ALab_Memory_Claude`) now reads back 200, with a `CONVERSATION_SUMMARY`
+naming the canoe "Indigo Lark" on the Douro. So the earlier 404s were **lag of some hours, not loss**. The
+planted key in chat 1 is stored as `[REDACTED_TOKEN]`, so `memory.redact` holds on the live wire. Chat 2 then ran
+as the **other** agent (`A2ALab_Memory_Concierge`) in a new session (`a2alab-3578…`) under the same owner:
+
+| Step | Result |
+| --- | --- |
+| chat 2 `open_and_read`, before any chat-2 write | GetContext `userContext` = chat 1's summary (Indigo Lark): **cross-chat, cross-agent recall through GetContext** |
+| chat 2 `write_turn` (green Hilleberg tent "Basalt Wren") | ingest + close acknowledged, no errors |
+| Memory API facts, +15 min | Concierge: tent named Basalt Wren, green Hilleberg. Claude: the canoe facts from chat 1 |
+| `GET /conversations/{cid}`, +15 min | still lists chat 1's session only. Chat 2's session is not persisted yet |
+| GetContext summary naming both chats, polled 15 min | not yet: it waits on the same persistence lag |
+
+**Reading.** The D94 claim holds live. A new chat, opened by a different agent, recalls the earlier chat from the
+owner's one conversation. Before D94 that read always came back empty. Extraction runs ahead of conversation
+persistence: chat 2's facts were listed while its session was still missing. So D93's Memory API read covers the lag
+window. A summary naming both chats is the one check still open. Re-read GetContext for this owner once chat 2's
+session appears.
