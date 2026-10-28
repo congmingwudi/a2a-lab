@@ -21,6 +21,9 @@
 # Request changes). It is deliberately NOT implied by any role — running
 # an experiment and vouching for a published claim are different acts, and
 # the second one is the lab owner's alone.
+#
+# `listed: false` keeps a user out of the sign-in picker. It is for test
+# principals that no person signs in as.
 # Display-only relabelling for the sign-in surface (the badge + the user
 # picker). The role STRING above is the functional identity — every gate,
 # the JWT, the .env password env (identity.ROLE_PASSWORD_ENVS) and the wire
@@ -40,6 +43,15 @@ users:
   vic:
     name: Vic the Visitor
     role: viewer
+  memprobe:
+    # WS27/D93: the memory owner for recall tests (owner id a2alab-memprobe).
+    # Agentic Memory has no delete short of deleting the agent registration, so
+    # a test fact written for a real persona stays in that persona for good.
+    # Tokens are minted locally (identity.issue_token); the faces verify only
+    # the signature, so this entry needs no image rebuild.
+    name: Memory Probe
+    role: viewer
+    listed: false
   mulesoft-omni-gateway:
     name: MuleSoft Omni Gateway
     role: machine

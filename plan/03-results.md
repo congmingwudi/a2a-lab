@@ -1661,3 +1661,30 @@ the concierge's `before_reasoning` hook goes to the hosted bridge's `/memory/tur
 **Reading.** The first hosted recall since 2026-10-16. The tenant's GetContext still
 serves nothing, so the recall came entirely through the D93 path: close on write,
 then a Memory API read. The two native arms still have extraction off and were not run.
+
+## 2026-10-28 — WS27 item 32: hosted Claude recalls behind the seam, and the first three-arm run with extraction on
+
+**Claude, hosted.** Two turns against `claude-rest-hosted` with the Memory toggle on
+(`metadata.memory`) and a locally minted token for the new test user `memprobe`
+(owner `a2alab-memprobe`, `listed: false` in `config/users.yaml`). Each turn ran in its
+own lab session, so each had its own derived conversation.
+
+| Turn | Memory metadata | Reply |
+| --- | --- | --- |
+| Session 1: plant "my telescope is named Cobalt Heron efeaa6, I observe from Sintra" | `ok`, `context_chars` 0, read 3.8 s (cold), ingest 0.5 s | acknowledged |
+| Session 2 at +150 s, a new conversation: "What do you remember about me?" | `ok`, `context_chars` 111, read 1.5 s, ingest 0.4 s | "…an observer based in Sintra, and you have a telescope called Cobalt Heron efeaa6" — **recalled** |
+
+**Three arms, extraction on.** The two native arms' `isMemoryGenerationEnabled`
+was set true at about 11:57Z, and `memory_arms.py explicit native-flag native-action
+--wait 180` started at 11:58Z.
+
+| Arm | Session 2 | Tenant GetContext | Memory API (Native agents, every candidate owner) |
+| --- | --- | --- | --- |
+| explicit (`f81239a6`) | "Your dinghy is named Ochre Falcon … short bullet points" — **recalled** | no `userContext` | — |
+| native-flag (`2c66824b`) | "I have nothing remembered yet" — not recalled | no `userContext` | 0 for persona and username; the user **Id** as `profile_id` is refused, 400 "request does not satisfy partitionKeyRules" |
+| native-action (`92f4dabb`) | "I have nothing remembered yet" — not recalled | no `userContext` | same |
+
+**Reading.** Claude and Agentforce now share the D93 path, and both recall. The native
+routes left nothing in the Data 360 Memory API for any owner they could key to. That fits
+the demo kit's claim that GA `context: memory` uses a separate store. This run was
+inside the 15–20 minutes a config change can take to apply, so the arms are rerun after it.

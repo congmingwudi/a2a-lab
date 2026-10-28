@@ -1024,6 +1024,8 @@ def test_users_picker_omits_machine_principals(tmp_path, monkeypatch):
     roles = {u["role"] for u in users}
     assert "machine" not in roles
     assert "mulesoft-omni-gateway" not in {u["username"] for u in users}
+    # Test principals marked `listed: false` are not personas either.
+    assert "memprobe" not in {u["username"] for u in users}
     # The human personas are still listed.
     assert {"ryan", "ana", "vic"} <= {u["username"] for u in users}
 
