@@ -11,7 +11,14 @@ from fastapi.testclient import TestClient
 
 from bridge.app import create_bridge_app
 from interop import memory as memory_mod
-from interop.memory import MemoryCallError, MemoryClient, entry_id, render_context
+from interop.memory import (
+    MemoryCallError,
+    MemoryClient,
+    entry_id,
+    owner_conversation,
+    redact,
+    render_context,
+)
 from interop.registry import Registry
 
 CORE = "https://core.example"
@@ -76,17 +83,19 @@ class FakeTenant:
 IDS = {"agent_id": "A2ALab_Memory_Concierge", "owner_id": "persona-ana"}
 
 
-async def test_start_conversation_runs_the_sdk_lifecycle():
+async def test_start_conversation_opens_a_session_in_the_owners_conversation():
     fake = FakeTenant()
-    cid = await fake.client().start_conversation("t1", **IDS)
+    sid = await fake.client().start_conversation("t1", **IDS)
+    cid = owner_conversation("persona-ana")
     paths = [r.url.path for r in fake.calls if r.url.host == "tenant.example"]
     assert paths == [
         "/api/v1/agentic/conversations",
         f"/api/v1/agentic/conversations/{cid}/sessions",
-        f"/api/v1/agentic/conversations/{cid}/sessions/{cid}/participants",
+        f"/api/v1/agentic/conversations/{cid}/sessions/{sid}/participants",
     ]
+    assert fake.bodies("/conversations")[0]["conversationId"] == cid
     session = fake.bodies("/sessions")[0]
-    assert session["sessionId"] == cid  # one id for both, as the SDK does
+    assert session["sessionId"] == sid != cid  # D94: a chat is a session, not a conversation
     assert session["participants"][0]["id"] == "persona-ana-participant"
     agent = fake.bodies("/participants")[0]["participants"][0]
     assert agent == {**agent, "id": "A2ALab_Memory_Concierge-participant", "type": "agent"}
@@ -100,14 +109,21 @@ async def test_start_conversation_runs_the_sdk_lifecycle():
 async def test_existing_conversation_409_is_success():
     fake = FakeTenant()
     fake.conversation_status = 409
-    assert await fake.client().start_conversation("t1", conversation_id="c-1", **IDS) == "c-1"
+    assert await fake.client().start_conversation("t1", session_id="c-1", **IDS) == "c-1"
+
+
+def test_owner_conversation_is_per_owner_never_per_agent():
+    # every agent sharing memory must read the same summary (D94)
+    assert owner_conversation("persona-ana") == owner_conversation("persona-ana")
+    assert owner_conversation("persona-ana") != owner_conversation("persona-bo")
+    assert "persona" not in owner_conversation("persona-ana")  # hashed, not the username
 
 
 async def test_ingest_sends_only_the_sides_it_has_and_caches_the_token():
     fake = FakeTenant()
     mem = fake.client()
-    await mem.ingest("t1", conversation_id="c-1", user_message="I prefer aisle seats", **IDS)
-    await mem.ingest("t1", conversation_id="c-1", user_message=None, **IDS)  # no-op
+    await mem.ingest("t1", session_id="c-1", user_message="I prefer aisle seats", **IDS)
+    await mem.ingest("t1", session_id="c-1", user_message=None, **IDS)  # no-op
     (body,) = fake.bodies("/entries")
     (entry,) = body["entries"]
     assert entry["type"] == "user_message"
@@ -120,7 +136,7 @@ async def test_ingest_ids_are_content_derived_and_the_reply_comes_first():
     fake = FakeTenant()
     mem = fake.client()
     for _ in range(2):  # a hook firing twice in one turn re-sends the same ids
-        await mem.ingest("t1", conversation_id="c-1", user_message="yes",
+        await mem.ingest("t1", session_id="c-1", user_message="yes",
                          agent_response="Window or aisle?", **IDS)  # fmt: skip
     first, second = fake.bodies("/entries")
     assert [e["id"] for e in first["entries"]] == [e["id"] for e in second["entries"]]
@@ -128,18 +144,38 @@ async def test_ingest_ids_are_content_derived_and_the_reply_comes_first():
     assert (reply["type"], user["type"]) == ("agent_response", "user_message")
     assert reply["timestamp"] < user["timestamp"]
     assert reply["participantId"] == f"{IDS['agent_id']}-participant"
-    assert entry_id("c-2", "user_message", "yes") != user["id"]
+    assert entry_id("c-2", "user_message", "yes") != user["id"]  # same words, another chat
+
+
+async def test_ingest_redacts_before_the_tenant_stores_it():
+    fake = FakeTenant()
+    await fake.client().ingest(
+        "t1", session_id="c-1", user_message="my password is hunter2, mail ana@example.com", **IDS
+    )
+    (entry,) = fake.bodies("/entries")[0]["entries"]
+    assert entry["content"] == "my password is [REDACTED] mail [REDACTED_EMAIL]"
+    assert fake.calls[-1].url.path.endswith(f"/{owner_conversation('persona-ana')}/entries")
+
+
+def test_redact_keeps_ordinary_facts():
+    assert redact("My canoe is Indigo Lark 9c03, race on Sunday at 10") == (
+        "My canoe is Indigo Lark 9c03, race on Sunday at 10"
+    )
+    assert redact("Bearer abcdefgh12345") == "Bearer [REDACTED_TOKEN]"
+    assert redact("card 4111 1111 1111 1111") == "card [REDACTED_CARD]"
 
 
 async def test_get_context_uses_the_context_header_and_records_a_hop(isolated_traces):
     fake = FakeTenant(context={"contextId": "ctx-7", "summary": "likes aisle seats"})
-    ctx = await fake.client().get_context("t-ctx", conversation_id="c-1", **IDS)
+    ctx = await fake.client().get_context("t-ctx", **IDS)
     assert ctx["summary"] == "likes aisle seats"
     req = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/context")
     assert req.headers["ctx-dataspace-ds_name"] == "default"
     # the read 403s without it (2026-10-13), whatever the agent_id param says
     assert req.headers["ctx-agent-id"] == "A2ALab_Memory_Concierge"
     assert req.url.params["owner_type"] == "individual"
+    # the OWNER's conversation: the one with every earlier chat in it (D94)
+    assert req.url.params["conversation_id"] == owner_conversation("persona-ana")
     hops = [json.loads(line) for f in isolated_traces.glob("*.jsonl")
             for line in f.read_text().splitlines()]  # fmt: skip
     hops = [h for h in hops if h["trace_id"] == "t-ctx"]
@@ -149,7 +185,7 @@ async def test_get_context_uses_the_context_header_and_records_a_hop(isolated_tr
 
 
 async def test_hops_without_a_context_id_carry_no_platform_ref(isolated_traces):
-    await FakeTenant().client().ingest("t-in", conversation_id="c-1", user_message="x", **IDS)
+    await FakeTenant().client().ingest("t-in", session_id="c-1", user_message="x", **IDS)
     hops = [json.loads(line) for f in isolated_traces.glob("*.jsonl")
             for line in f.read_text().splitlines()]  # fmt: skip
     assert [h.get("platform_ref") for h in hops if h["trace_id"] == "t-in"] == [None]
@@ -158,15 +194,15 @@ async def test_hops_without_a_context_id_carry_no_platform_ref(isolated_traces):
 async def test_refusal_raises_with_the_status():
     fake = FakeTenant(context={}, context_status=403)
     with pytest.raises(MemoryCallError, match="HTTP 403"):
-        await fake.client().get_context("t1", conversation_id="c-1", **IDS)
+        await fake.client().get_context("t1", **IDS)
 
 
-async def test_close_session_posts_the_close_for_the_conversation_session():
+async def test_close_session_closes_the_chats_session_in_the_owners_conversation():
     fake = FakeTenant()
-    await fake.client().close_session("t1", conversation_id="c-1", **IDS)
+    await fake.client().close_session("t1", session_id="c-1", **IDS)
     (req,) = [r for r in fake.calls if r.url.host == "tenant.example"]
     assert (req.method, req.url.path) == (
-        "POST", "/api/v1/agentic/conversations/c-1/sessions/c-1/close"
+        "POST", f"/api/v1/agentic/conversations/{owner_conversation('persona-ana')}/sessions/c-1/close"
     )  # fmt: skip
 
 

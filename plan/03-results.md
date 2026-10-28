@@ -1697,3 +1697,45 @@ preferences for the personas and the username, under both `individual` and `empl
 So the miss is not the settle window. Neither native route writes to the Data 360 Memory
 API store that the explicit seam reads and writes, or it writes under an owner key that
 this API cannot be asked for.
+
+### 2026-10-28 — GetContext answers per conversation; both filed defects fail to reproduce (WS27, D93)
+
+**Where the idea came from.** The internal demo kit's `AgentMemoryClient.cls` keeps **one long-lived
+conversation per owner** (`<prefix>-<ownerId>`) and opens one session per chat. Its comment says
+GetContext "only returns memory for the conversation id it is given", so every agent sharing memory
+must use the same id. The lab does the opposite. `memory_adapter._derived_conversation` and the bridge's
+`/memory/turn` open a **new conversation for every session**, so each session-2 read asked about a
+conversation with no history yet. The kit also sets `context: memory: enabled: False` on both of its
+agents and does all memory through explicit Apex actions. It is no evidence that the native route works.
+
+**Read-only probe** as `A2ALab_Memory_Claude`, owner `a2alab-memprobe` (the item 32 run, about 3.5 h earlier):
+
+| GetContext `conversation_id` | Result |
+| --- | --- |
+| session-1 conversation (`…b6404102…`) | 200, `userContext` = `CONVERSATION_SUMMARY`: "…their telescope is named Cobalt Heron efeaa6, and they observe from Sintra" |
+| session-2 conversation (`…ddf4f488…`) | 200, `userContext` = that session's summary, the recall included |
+| an id never used | 200, `contextId` + `ontology`, **no `userContext`** — the shape filed as the defect |
+
+`GET /conversations/{cid}?scope=all` (it needs `owner_id`, `owner_type` and the `agent_id` header) returns
+200 for both conversations, with their entries, and each session is `CLOSED`.
+
+**Reading.** GetContext is not broken. It summarises the conversation it is asked about, and the
+lab never asked about one that had history. Conversations persist again. The 10-17/18 non-persistence was corroborated
+by the product smoke driver failing in the same window. It is **intermittent, not over**: see the 17:45Z A/B below. `build-notes/ws27/agentic-memory-defect-2026-10-18.md` withdraws the GetContext defect. The same scoping is a
+candidate explanation for the native arms' misses: every Agent API session is a new conversation. That is a hypothesis
+and has not been tested. It also does not explain why no Memory API facts appear under any owner.
+
+**17:45Z — the D94 probe, and an A/B on the id shape.** The first one-conversation-per-owner write
+(`a2alab-o-0e3c…`, session `a2alab-ce93…`, written as `A2ALab_Memory_Claude`) was acknowledged
+end to end: conversation 201, session 201, participants 202, entries 202, close 202 `closed`.
+GetContext then stayed empty for 7 minutes, and `GET /conversations/{cid}` returned 404. The A/B ran at 17:55Z
+with two fresh owners. One had session id = conversation id (the old shape), the other had different ids (D94):
+
+| Shape | GET conversation at +15 / +45 / +120 / +240 s |
+| --- | --- |
+| session id = conversation id | 404 / 404 / 404 / 404 |
+| session id ≠ conversation id | 404 / 404 / 404 / 404 |
+
+The shape makes no difference. The tenant was persisting no new conversation in that window, though the
+ones written at about 12:00Z read back fine. So the defect is intermittent. While it lasts, GetContext can
+summarise nothing new, and recall falls back to the Memory API facts already extracted (D93).

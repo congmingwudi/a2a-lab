@@ -4148,3 +4148,56 @@ through these helpers worked against the live tenant within 2 minutes of the clo
 (`plan/03-results.md`), the first recall since 2026-10-16. Deployed the same day (full
 bridge + faces rebuild). The hosted explicit arm then recalled across two Agent API
 sessions while GetContext still served nothing.
+
+
+## 2026-10-28 — D94: one memory conversation per owner, each chat a session inside it, and messages redacted before they are stored
+
+**Context.** GetContext summarises **the conversation it is asked about** and nothing
+else (`plan/03-results.md`, 2026-10-28). Asked about the memprobe run's session-1
+conversation, it returned a `CONVERSATION_SUMMARY` holding the planted fact. Asked about
+an id that had never been used, it returned 200 with no `userContext`, the shape filed
+as a tenant defect. Every lab seam opened a **fresh conversation per chat**, with the
+session id equal to the conversation id, as the `agentic-context` SDK does (D83, D91).
+So a new chat always read an empty conversation, and recall rested on the Memory API
+facts alone (D93). The internal demo kit's `AgentMemoryClient.cls` keeps one long-lived
+conversation per owner for exactly this reason. Its `context: memory` is off on both of
+its agents, so it is no evidence for the native route either (D92).
+
+**Decision.**
+- **The owner's conversation is derived, never sent.** `memory.owner_conversation(owner)`
+  is `a2alab-o-` + a sha256 prefix of the owner id. It is keyed on the owner alone, never
+  the calling agent, so the Concierge and Claude read one summary. It is hashed so a
+  username never becomes a tenant id.
+- **A chat is a session.** `start_conversation` creates the owner's conversation (409 is
+  success), then this chat's session and both participants. It returns the **session**
+  id. `ingest`, `close_session`, `open_and_read` and `write_turn` take `session_id`.
+  GetContext asks about the owner's conversation.
+- **Apex is unchanged.** The bridge's `/memory/turn` keeps `A2ALabMemoryTurn`'s
+  `conversation_id` wire key. The id Apex threads between turns now names the chat's
+  session, so the production org needs no deploy.
+- **Entry ids hash the session.** The same words in two chats are two entries. Within a
+  chat a re-send still dedupes (D87).
+- **Redact before ingest.** `memory.redact` ports the kit's patterns: JWTs, bearer tokens,
+  `password/secret/token = …`, runs of 32+ token characters, SSNs, card numbers, email
+  addresses and phone numbers. Extraction would otherwise save a pasted credential as a
+  "fact".
+- **Close stays per turn (D93).** The kit closes at the end of a chat, with a MessagingSession
+  trigger as backstop. No lab seam gets an end-of-chat signal: Agent API, A2A and MCP turns
+  just stop. So per-turn is still the only place a close can go.
+
+**Alternatives.**
+- **Keep conversation-per-chat and read the previous chat's conversation.** That needs a
+  per-owner index of past conversations, which the tenant already is.
+- **A conversation per (agent, owner).** It would keep attribution in the summary, but it
+  splits what the agents share. Attribution already rides on the per-agent Memory API store
+  (D92/D93).
+
+**Consequences.**
+- Conversations and sessions written before D94 stay where they are. Their facts are still
+  read through the Memory API, which is keyed by owner, and their summaries are orphaned.
+- One conversation per owner grows without bound. The summary is the service's to bound.
+- **Not yet proven live.** The first D94 write (17:45Z) and an A/B of both id shapes (17:55Z)
+  were acknowledged end to end and still returned 404 to `GET /conversations/{cid}`. Writes
+  at about 12:00Z read back fine, so the tenant's non-persistence is **intermittent** and not
+  caused by the shape (`plan/03-results.md`). The live proof is a GetContext summary that spans
+  two chats, read once writes persist again.

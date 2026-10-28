@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -50,17 +51,62 @@ def _now(back_ms: int = 0) -> str:
     return at.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-def entry_id(conversation_id: str, kind: str, text: str) -> str:
+def owner_conversation(owner_id: str) -> str:
+    """The owner's ONE long-lived conversation; each chat is a session inside it.
+
+    GetContext summarises the conversation it is asked about and nothing else
+    (2026-10-28, plan/03): a fresh conversation per chat — the shape until D94 —
+    meant every new chat read an empty one. Keyed on the owner alone, never the
+    calling agent, so every agent sharing memory reads the same summary (the
+    internal demo kit's `conversationIdFor`, after its `Conversation_Prefix__c`).
+    Hashed so a username never becomes a tenant id.
+    """
+    return f"a2alab-o-{hashlib.sha256(owner_id.encode()).hexdigest()[:24]}"
+
+
+# Order matters: tokens and card numbers before phone numbers, so a long digit
+# run is not half-matched as a phone. Ported from the demo kit's
+# AgentMemoryClient.REDACTIONS: what extraction never needs to learn.
+REDACTIONS = [
+    (re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"), "[REDACTED_TOKEN]"),
+    (re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}"), r"\1 [REDACTED_TOKEN]"),
+    (
+        re.compile(r"(?i)\b(password|passcode|pwd|api[ _-]?key|secret|token)(\s*(?:is|:|=)\s*)\S+"),
+        r"\1\2[REDACTED]",
+    ),
+    (re.compile(r"\b[A-Za-z0-9_-]{32,}\b"), "[REDACTED_TOKEN]"),
+    (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[REDACTED_SSN]"),
+    (re.compile(r"\b\d{4}([ -])\d{4}\1\d{4}\1\d{1,7}\b"), "[REDACTED_CARD]"),
+    (re.compile(r"\b\d{4}([ -])\d{6}\1\d{5}\b"), "[REDACTED_CARD]"),
+    (
+        re.compile(r"(?i)\b(card|visa|mastercard|amex|credit|debit)(\D{0,20})\d{13,19}\b"),
+        r"\1\2[REDACTED_CARD]",
+    ),
+    (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[REDACTED_EMAIL]"),
+    (re.compile(r"(?:\+?1[ .-]?)?\(?\b\d{3}\)?[ .-]?\d{3}[ .-]?\d{4}\b"), "[REDACTED_PHONE]"),
+]
+
+
+def redact(text: str) -> str:
+    """Secrets and contact details out of a message before the tenant stores it:
+    extraction would otherwise happily save a pasted token as a "fact"."""
+    for pattern, repl in REDACTIONS:
+        text = pattern.sub(repl, text)
+    return text
+
+
+def entry_id(session_id: str, kind: str, text: str) -> str:
     """The same message gets the same id, so a re-send is a no-op.
 
     The tenant dedupes entries by id (two posts of one id: both 202, one entry
     stored, 2026-10-15), and the Agentforce hooks re-send: before_reasoning
     fires once per reasoning PASS, not per turn, so a multi-pass turn ingested
     its user message twice (2 of 14 turns, plan/03-results.md). The cost is
-    that a user saying the identical thing twice in one conversation is
-    stored once — harmless to what extraction learns from it.
+    that a user saying the identical thing twice in one chat is stored once —
+    harmless to what extraction learns from it. Keyed on the SESSION, not the
+    owner's conversation: the same question in two chats is two entries.
     """
-    digest = hashlib.sha256(f"{conversation_id}\0{kind}\0{text}".encode()).hexdigest()
+    digest = hashlib.sha256(f"{session_id}\0{kind}\0{text}".encode()).hexdigest()
     return f"{kind[0]}-{digest[:32]}"
 
 
@@ -200,14 +246,16 @@ class MemoryClient:
     # ------------------------------------------------------------ verbs
 
     async def start_conversation(
-        self, trace_id: str, *, agent_id: str, owner_id: str, conversation_id: str | None = None
+        self, trace_id: str, *, agent_id: str, owner_id: str, session_id: str | None = None
     ) -> str:
-        """Conversation + session + both participants, the SDK's lifecycle.
+        """The owner's conversation (if new) + this chat's session + both
+        participants: the SDK's lifecycle, minus its one-id-for-both (D94).
 
-        One id for both the conversation and its session (as the SDK does), and
-        409 is success, so a retried first turn is harmless.
+        409 is success at every step, so an owner's second chat and a retried
+        first turn are both harmless. Returns the session id.
         """
-        cid = conversation_id or f"a2alab-{uuid.uuid4().hex[:12]}"
+        cid = owner_conversation(owner_id)
+        sid = session_id or f"a2alab-{uuid.uuid4().hex[:12]}"
         h = self._post_headers(owner_id, agent_id)
         now = _now()
         base = "/api/v1/agentic/conversations"
@@ -217,18 +265,18 @@ class MemoryClient:
                                     "channel": {"type": "web", "id": "a2alab"}})  # fmt: skip
         await self._call(trace_id, agent_id, "POST", f"{base}/{cid}/sessions", headers=h,
                          ok=(200, 201, 202, 409),
-                         json_body={"sessionId": cid, "conversationOwnerId": owner_id,
+                         json_body={"sessionId": sid, "conversationOwnerId": owner_id,
                                     "ownerType": OWNER_TYPE,
                                     "participants": [{"id": f"{owner_id}-participant",
                                                       "type": OWNER_TYPE, "role": "owner",
                                                       "startTime": now, "orgId": "default"}]})  # fmt: skip
         await self._call(trace_id, agent_id, "POST",
-                         f"{base}/{cid}/sessions/{cid}/participants", headers=h,
+                         f"{base}/{cid}/sessions/{sid}/participants", headers=h,
                          ok=(200, 201, 202, 409),
                          json_body={"participants": [{"id": f"{agent_id}-participant",
                                                       "type": "agent", "role": "participant",
                                                       "startTime": now}]})  # fmt: skip
-        return cid
+        return sid
 
     async def ingest(
         self,
@@ -236,7 +284,7 @@ class MemoryClient:
         *,
         agent_id: str,
         owner_id: str,
-        conversation_id: str,
+        session_id: str,
         user_message: str | None = None,
         agent_response: str | None = None,
     ) -> None:
@@ -246,7 +294,7 @@ class MemoryClient:
         is the reply that message was answering (D87). No Agentforce hook can
         supply it (D89), so today only out-of-band callers send one. Entry ids
         are content-derived (`entry_id`), so a hook firing per reasoning pass
-        may re-send.
+        may re-send. Both sides are `redact`ed first.
         """
         turn = uuid.uuid4().hex
         entries = []
@@ -255,21 +303,20 @@ class MemoryClient:
             ("user_message", f"{owner_id}-participant", user_message, 0),
         ):
             if text:
-                entries.append({"id": entry_id(conversation_id, kind, text),
+                text = redact(text)
+                entries.append({"id": entry_id(session_id, kind, text),
                                 "participantId": pid, "type": kind,
                                 "timestamp": _now(back_ms), "category": "Message",
                                 "interactionId": turn, "content": text})  # fmt: skip
         if not entries:
             return
         await self._call(trace_id, agent_id, "POST",
-                         f"/api/v1/agentic/conversations/{conversation_id}/entries",
+                         f"/api/v1/agentic/conversations/{owner_conversation(owner_id)}/entries",
                          headers=self._post_headers(owner_id, agent_id),
-                         json_body={"sessionId": conversation_id, "conversationOwnerId": owner_id,
+                         json_body={"sessionId": session_id, "conversationOwnerId": owner_id,
                                     "entries": entries})  # fmt: skip
 
-    async def get_context(
-        self, trace_id: str, *, agent_id: str, owner_id: str, conversation_id: str
-    ) -> dict:
+    async def get_context(self, trace_id: str, *, agent_id: str, owner_id: str) -> dict:
         # ctx-agent-id is what the read authorizes on: without it every read
         # 403s with an empty body, the agent_id param notwithstanding. The SDK
         # omits it; the product's QA fit tests (a360-quality/jarlsberg-fit-tests,
@@ -277,16 +324,18 @@ class MemoryClient:
         # The response's contextId is the service's id for this one read ("use
         # for tracing and debugging", the API reference), so it becomes the
         # hop's platform_ref: the handle to quote when a read comes back empty.
+        # It reads the OWNER's conversation — the summary of every earlier chat
+        # (D94); asked about a conversation with no history it is 200 + empty.
         _, body = await self._call(
             trace_id, agent_id, "GET", "/api/v1/agentic/context", ref_key="contextId",
             headers={"ctx-agent-id": agent_id, "ctx-dataspace-ds_name": DATA_SPACE},
-            params={"conversation_id": conversation_id, "owner_id": owner_id,
+            params={"conversation_id": owner_conversation(owner_id), "owner_id": owner_id,
                     "agent_id": agent_id, "owner_type": OWNER_TYPE},
         )  # fmt: skip
         return body if isinstance(body, dict) else {}
 
     async def close_session(
-        self, trace_id: str, *, agent_id: str, owner_id: str, conversation_id: str
+        self, trace_id: str, *, agent_id: str, owner_id: str, session_id: str
     ) -> None:
         """Close the session — the trigger for extraction (2026-10-27: facts
         landed within 6 min of a close; owners never closed had none). A closed
@@ -294,7 +343,8 @@ class MemoryClient:
         end-of-chat signal closes after every turn."""
         await self._call(
             trace_id, agent_id, "POST",
-            f"/api/v1/agentic/conversations/{conversation_id}/sessions/{conversation_id}/close",
+            f"/api/v1/agentic/conversations/{owner_conversation(owner_id)}"
+            f"/sessions/{session_id}/close",
             headers=self._post_headers(owner_id, agent_id), json_body={},
         )  # fmt: skip
 
@@ -303,8 +353,8 @@ class MemoryClient:
     ) -> list[str]:
         """Extracted memories of one category, as stored under ONE agent — the
         store is per agent, so a shared read asks each agent (`saved_memories`).
-        This is the read that still answers while GetContext returns no
-        `userContext` (2026-10-27, plan/03)."""
+        GetContext carries facts only inside the conversation summary, which is
+        rebuilt on a schedule; these are listed within minutes of a close."""
         _, body = await self._call(
             trace_id, agent_id, "GET", "/api/v1/agentic/memory",
             headers={"agent_id": agent_id},
@@ -364,39 +414,39 @@ async def open_and_read(
     *,
     agent_id: str,
     owner_id: str,
-    conversation_id: str | None = None,
+    session_id: str | None = None,
     start: bool | None = None,
     read: bool = True,
 ) -> tuple[str | None, str, list[str]]:
-    """The read half of a turn, fail-open: (conversation_id, context text, errors).
+    """The read half of a turn, fail-open: (session_id, context text, errors).
 
-    Opens the conversation first when `start` (default: only when there is no
-    id yet — a caller with a derived id passes start=True, and 409 is success),
-    then reads its context. A refusal is an entry in `errors`, never an
+    Opens the session first when `start` (default: only when there is no id
+    yet — a caller with a derived id passes start=True, and 409 is success),
+    then reads the owner's context. A refusal is an entry in `errors`, never an
     exception: every seam that calls this (the bridge's /memory/turn,
     `MemoryAdapter`) degrades a memory outage to a no-memory turn instead of
     failing the user's turn.
     """
     ids = {"agent_id": agent_id, "owner_id": owner_id}
     errors: list[str] = []
-    cid = conversation_id
+    sid = session_id
     try:
-        if not cid if start is None else start:
-            cid = await mem.start_conversation(trace_id, conversation_id=cid, **ids)
+        if not sid if start is None else start:
+            sid = await mem.start_conversation(trace_id, session_id=sid, **ids)
     except MemoryCallError as exc:
         errors.append(str(exc))
     context = ""
-    if cid and read:
+    if sid and read:
         try:
-            context = render_context(await mem.get_context(trace_id, conversation_id=cid, **ids))
+            context = render_context(await mem.get_context(trace_id, **ids))
         except MemoryCallError as exc:
             errors.append(str(exc))
     if read:
-        # Owner-keyed, so it needs no conversation — it answers even when opening one failed.
+        # Owner-keyed, so it needs no session — it answers even when opening one failed.
         saved, saved_errors = await saved_memories(mem, trace_id, **ids)
         errors += saved_errors
         context = "\n".join(part for part in (context, saved) if part)
-    return cid, context, errors
+    return sid, context, errors
 
 
 async def write_turn(
@@ -405,7 +455,7 @@ async def write_turn(
     *,
     agent_id: str,
     owner_id: str,
-    conversation_id: str,
+    session_id: str,
     user_message: str | None = None,
     agent_response: str | None = None,
 ) -> list[str]:
@@ -414,9 +464,10 @@ async def write_turn(
     Independent of the read on purpose: GetContext 403'd for every
     conversation while writes 2xx'd (2026-10-13), and a refused read must not
     cost the turn its ingest, or memory never fills in. Every write ends in a
-    close, because the close is what triggers extraction.
+    close, because the close is what triggers extraction, and no seam the lab
+    has gets an end-of-chat signal (Agent API, A2A and MCP turns just stop).
     """
-    ids = {"agent_id": agent_id, "owner_id": owner_id, "conversation_id": conversation_id}
+    ids = {"agent_id": agent_id, "owner_id": owner_id, "session_id": session_id}
     try:
         await mem.ingest(trace_id, user_message=user_message,
                          agent_response=agent_response, **ids)  # fmt: skip

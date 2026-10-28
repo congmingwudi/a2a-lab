@@ -7,6 +7,22 @@ lab's memory seam are D83, D86, D90, D91 and D92 in `plan/00-decisions.md`.
 The org id, tenant host and user ids are deliberately left out of this repo. Fill
 them in from `.env` / the CDP token exchange when filing.
 
+## Update 2026-10-28 — GetContext withdrawn; non-persistence is intermittent
+
+**GetContext is not a defect, so withdraw it.** It returns a `CONVERSATION_SUMMARY` `userContext` when it
+is asked about a conversation **that has history** (`plan/03-results.md`, 2026-10-28). The lab
+opened a fresh conversation for every session and read that empty conversation. "No `userContext`"
+came from the lab's own scoping, not from the tenant. The internal demo kit keeps one conversation per owner
+for this reason, and the lab now does too (D94).
+
+**Non-persistence is intermittent and still open.** Conversations written at about 12:00Z
+on 10-28 are readable: `GET /conversations/{cid}` (it takes `owner_id`, `owner_type` and the
+`agent_id` header) returns 200 with their entries and `CLOSED` sessions. Every conversation
+written from 17:45Z returns 404 "Conversation not found", still 404 at +240 s, while all five
+writes were acknowledged (201/201/202/202/202 `closed`). The session id was tried both equal
+to the conversation id and different from it, and **both** failed (A/B, `plan/03`), so the request shape
+is not the cause. Defect 1 below stands, in a narrower form: some writes persist and some do not.
+
 ## Update 2026-10-27 — narrower than first filed
 
 Extraction is **not** broken, and the store is intact (`plan/03-results.md`,

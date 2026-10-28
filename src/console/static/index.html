@@ -4380,13 +4380,15 @@ function memoryDetailHtml(s) {
           console already sends (WS6 U2), as <code>a2alab-&lt;user&gt;</code>. Never a name the caller types, and
           never a machine identity, so no run can read another user's memory. Signed out, a memory run answers
           without memory and says so.</li>
-        <li><b>Before the answer.</b> The seam opens (or resumes) one memory conversation per lab session and reads
-          GetContext from the Data 360 tenant, as the memory integration user (D86) through the
-          <code>a2a_lab_memory</code> ECA, under the registered agent <code>A2ALab_Memory_Claude</code>. Whatever
-          comes back is placed in front of your message.</li>
-        <li><b>After the answer.</b> Your message and the agent's reply are both ingested — the reply side no
-          Agentforce hook can supply (D89). Stored in the tenant's Agentic Memory conversation entries; profile
-          memory is then extracted from them by Data 360.</li>
+        <li><b>Before the answer.</b> Each owner has <i>one</i> memory conversation, and each lab session is a
+          session inside it (D94). The seam opens (or resumes) this session, then makes two reads from the Data 360
+          tenant as the memory integration user (D86), through the <code>a2a_lab_memory</code> ECA, under the
+          registered agent <code>A2ALab_Memory_Claude</code>. GetContext returns the summary of the owner's earlier
+          chats. The Memory API returns the facts and preferences extracted so far, under every agent that shares
+          memory (D93). Whatever comes back is placed in front of your message.</li>
+        <li><b>After the answer.</b> Your message and the agent's reply are both ingested, with tokens, passwords
+          and contact details redacted first (D94). The reply is the side no Agentforce hook can supply (D89). Then
+          the session is closed, because the close is what makes Data 360 extract memory from the entries (D93).</li>
         <li><b>Bounds.</b> Each half is cut off at <code>A2ALAB_MEMORY_BUDGET_S</code> (default 8 s); any refusal
           or overrun fails open. Every tenant call is its own <code>agentic-memory</code> hop in the trace, and the
           turn's badge carries the read/ingest milliseconds.</li>
@@ -9429,7 +9431,7 @@ function memoryBadgeHtml(m) {
   if (!m) return `<span class="badge" title="Memory was asked for, but the target reported nothing back — it is not behind the memory seam (an older image, or a platform with no registered memory agent).">memory: no report</span>`;
   if (!m.ok) return `<span class="badge" title="${esc(`Memory was asked for and failed open — the agent answered without it. ${m.error || ""}`)}">memory: unavailable</span>`;
   const recalled = m.context_chars > 0;
-  return `<span class="badge claude" title="${esc(`Data 360 Agentic Memory, owner ${m.owner_id}, conversation ${m.conversation_id}. Read ${m.read_ms} ms (${m.context_chars} chars of context), ingest ${m.ingest_ms} ms (your message and the reply).`)}">${recalled ? "memory: recalled" : "memory: nothing yet"}</span>`;
+  return `<span class="badge claude" title="${esc(`Data 360 Agentic Memory, owner ${m.owner_id}, conversation ${m.conversation_id}${m.session_id ? `, session ${m.session_id}` : ""}. Read ${m.read_ms} ms (${m.context_chars} chars of context), ingest ${m.ingest_ms} ms (your message and the reply).`)}">${recalled ? "memory: recalled" : "memory: nothing yet"}</span>`;
 }
 
 // Is the experiment that owns this turn the one currently on screen? Runs are

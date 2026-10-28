@@ -47,7 +47,7 @@ from collections import OrderedDict
 from typing import Any
 
 from interop.adapter import AgentAdapter
-from interop.memory import MemoryClient, open_and_read, write_turn
+from interop.memory import MemoryClient, open_and_read, owner_conversation, write_turn
 from interop.models import AgentRequest, AgentResponse
 
 # platform -> the AgentApiName its hosted agent is registered under in the
@@ -58,7 +58,7 @@ REQUEST_FLAG = "memory"  # metadata key: True asks for memory on THIS turn
 BUDGET_ENV = "A2ALAB_MEMORY_BUDGET_S"
 DEFAULT_BUDGET_S = 8.0
 OWNER_PREFIX = "a2alab-"  # tenant-wide owner ids: keep the lab's users in their own namespace
-_MAX_CONVERSATIONS = 1024
+_MAX_SESSIONS = 1024
 
 _shared: MemoryClient | None = None
 
@@ -76,9 +76,10 @@ def owner_of(req: AgentRequest) -> str | None:
     return f"{OWNER_PREFIX}{claims['sub']}"
 
 
-def _derived_conversation(agent_id: str, owner_id: str, session_id: str) -> str:
-    """One conversation per (agent, owner, lab session), stable across restarts —
-    start_conversation treats 409 as success, so a restarted face resumes it."""
+def _derived_session(agent_id: str, owner_id: str, session_id: str) -> str:
+    """One memory session per (agent, owner, lab session), inside the owner's
+    one conversation (D94), stable across restarts — start_conversation treats
+    409 as success, so a restarted face resumes it."""
     digest = hashlib.sha256(f"{agent_id}\0{owner_id}\0{session_id}".encode()).hexdigest()
     return f"a2alab-{digest[:24]}"
 
@@ -115,8 +116,8 @@ class MemoryAdapter:
             if budget_s is not None
             else float(os.environ.get(BUDGET_ENV, DEFAULT_BUDGET_S))
         )
-        # (owner, lab session) -> an OPENED memory conversation
-        self._conversations: OrderedDict[tuple[str, str], str] = OrderedDict()
+        # (owner, lab session) -> an OPENED memory session
+        self._sessions: OrderedDict[tuple[str, str], str] = OrderedDict()
 
     def __getattr__(self, attr: str):
         # Anything else the protocol servers look for on an adapter
@@ -131,11 +132,11 @@ class MemoryAdapter:
             _shared = MemoryClient(source="memory-adapter")
         return _shared
 
-    def _remember(self, key: tuple[str, str], cid: str) -> None:
-        self._conversations[key] = cid
-        self._conversations.move_to_end(key)
-        while len(self._conversations) > _MAX_CONVERSATIONS:
-            self._conversations.popitem(last=False)
+    def _remember(self, key: tuple[str, str], sid: str) -> None:
+        self._sessions[key] = sid
+        self._sessions.move_to_end(key)
+        while len(self._sessions) > _MAX_SESSIONS:
+            self._sessions.popitem(last=False)
 
     async def _bounded(self, coro, what: str) -> tuple[Any, list[str]]:
         try:
@@ -159,20 +160,20 @@ class MemoryAdapter:
         trace_id = req.trace_id or ""
         ids = {"agent_id": self.agent_id, "owner_id": owner}
 
-        known = self._conversations.get((owner, req.session_id)) if req.session_id else None
-        cid = known or (
-            _derived_conversation(self.agent_id, owner, req.session_id) if req.session_id else None
+        known = self._sessions.get((owner, req.session_id)) if req.session_id else None
+        sid = known or (
+            _derived_session(self.agent_id, owner, req.session_id) if req.session_id else None
         )
         t0 = time.perf_counter()
         opened, errors = await self._bounded(
-            open_and_read(mem, trace_id, conversation_id=cid, start=not known, **ids), "read"
+            open_and_read(mem, trace_id, session_id=sid, start=not known, **ids), "read"
         )
         context = ""
         if opened is not None:
-            cid, context, errors = opened
+            sid, context, errors = opened
         read_ms = int((time.perf_counter() - t0) * 1000)
-        if cid and req.session_id and not errors:
-            self._remember((owner, req.session_id), cid)
+        if sid and req.session_id and not errors:
+            self._remember((owner, req.session_id), sid)
 
         sent = (
             dataclasses.replace(req, message=_with_context(req.message, context))
@@ -182,12 +183,12 @@ class MemoryAdapter:
         resp = await self.inner.handle(sent)
 
         t1 = time.perf_counter()
-        if cid:
+        if sid:
             written, overrun = await self._bounded(
                 write_turn(
                     mem,
                     trace_id,
-                    conversation_id=cid,
+                    session_id=sid,
                     user_message=req.message,
                     agent_response=resp.text or None,
                     **ids,
@@ -197,15 +198,16 @@ class MemoryAdapter:
             errors += overrun or written or []
         ingest_ms = int((time.perf_counter() - t1) * 1000)
         # A first turn with no session: the inner agent minted one, and the next
-        # turn arrives carrying it — follow it to the conversation just opened.
-        if cid and not req.session_id and resp.session_id and not errors:
-            self._remember((owner, resp.session_id), cid)
+        # turn arrives carrying it — follow it to the session just opened.
+        if sid and not req.session_id and resp.session_id and not errors:
+            self._remember((owner, resp.session_id), sid)
 
         meta = dict(resp.metadata or {})
         meta["memory"] = {
             "agent_id": self.agent_id,
             "owner_id": owner,
-            "conversation_id": cid,
+            "conversation_id": owner_conversation(owner),
+            "session_id": sid,
             "context_chars": len(context),
             "read_ms": read_ms,
             "ingest_ms": ingest_ms,

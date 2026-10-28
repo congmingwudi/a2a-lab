@@ -9,7 +9,7 @@ import pytest
 
 from interop import identity
 from interop import memory_adapter as ma
-from interop.memory import MemoryCallError
+from interop.memory import MemoryCallError, owner_conversation
 from interop.memory_adapter import MemoryAdapter, owner_of, with_memory
 from interop.models import AgentRequest, AgentResponse
 
@@ -34,7 +34,7 @@ class FakeMemory:
 
     async def start_conversation(self, trace_id, **kw):
         self.calls.append(("start", kw))
-        return kw.get("conversation_id") or "c-fresh"
+        return kw.get("session_id") or "c-fresh"
 
     async def get_context(self, trace_id, **kw):
         self.calls.append(("context", kw))
@@ -132,11 +132,12 @@ async def test_a_turn_reads_before_and_ingests_both_sides_after():
     assert ingest["owner_id"] == "a2alab-ana" and ingest["agent_id"] == AGENT
     mem = resp.metadata["memory"]
     assert mem["ok"] is True and mem["owner_id"] == "a2alab-ana"
-    assert mem["conversation_id"] == fake.calls[0][1]["conversation_id"]
+    assert mem["session_id"] == fake.calls[0][1]["session_id"]
+    assert mem["conversation_id"] == owner_conversation("a2alab-ana")  # the owner's, D94
     assert mem["context_chars"] > 0
 
 
-async def test_the_conversation_follows_the_session_and_is_started_once():
+async def test_the_memory_session_follows_the_lab_session_and_is_started_once():
     fake = FakeMemory()
     adapter, _ = _adapter(fake)
     first = await adapter.handle(_req(session_id="s-1"))
@@ -150,15 +151,11 @@ async def test_the_conversation_follows_the_session_and_is_started_once():
         "ingest",
         "close",
     ]
-    assert (
-        first.metadata["memory"]["conversation_id"] == second.metadata["memory"]["conversation_id"]
-    )
-    # deterministic, so a restarted face resumes the same conversation (409 = ok)
+    assert first.metadata["memory"]["session_id"] == second.metadata["memory"]["session_id"]
+    # deterministic, so a restarted face resumes the same session (409 = ok)
     other, _ = _adapter(FakeMemory())
     again = await other.handle(_req(session_id="s-1"))
-    assert (
-        again.metadata["memory"]["conversation_id"] == first.metadata["memory"]["conversation_id"]
-    )
+    assert again.metadata["memory"]["session_id"] == first.metadata["memory"]["session_id"]
 
 
 async def test_a_first_turn_without_a_session_is_followed_by_the_reply_session():
@@ -167,9 +164,7 @@ async def test_a_first_turn_without_a_session_is_followed_by_the_reply_session()
     first = await adapter.handle(_req())  # inner mints session "s-new"
     second = await adapter.handle(_req(session_id="s-new"))
     assert [c[0] for c in fake.calls].count("start") == 1
-    assert (
-        second.metadata["memory"]["conversation_id"] == first.metadata["memory"]["conversation_id"]
-    )
+    assert second.metadata["memory"]["session_id"] == first.metadata["memory"]["session_id"]
 
 
 async def test_owners_never_share_a_conversation_for_the_same_session():
@@ -181,7 +176,8 @@ async def test_owners_never_share_a_conversation_for_the_same_session():
                        metadata={"memory": True,
                                  "user_token": identity.issue_token("vic", users=users)})  # fmt: skip
     b = await adapter.handle(vic)
-    assert a.metadata["memory"]["conversation_id"] != b.metadata["memory"]["conversation_id"]
+    for key in ("session_id", "conversation_id"):
+        assert a.metadata["memory"][key] != b.metadata["memory"][key]
 
 
 async def test_an_empty_context_leaves_the_message_alone():

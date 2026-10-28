@@ -208,8 +208,11 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
         if "client" not in memory_state:
             memory_state["client"] = MemoryClient(source="bridge")
         mem = memory_state["client"]
-        cid = body.get("conversation_id") or None
-        payload: dict = {"conversation_id": cid, "context": "", "ok": True}
+        # The wire key is A2ALabMemoryTurn's, unchanged so Apex needs no
+        # redeploy: the id it threads between turns is the chat's memory
+        # SESSION. The owner's conversation is derived, never sent (D94).
+        sid = body.get("conversation_id") or None
+        payload: dict = {"conversation_id": sid, "context": "", "ok": True}
         start = time.perf_counter()
         with Hop(
             trace_id,
@@ -220,12 +223,12 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
             request_payload=body,
         ) as hop:
             ids = {"agent_id": agent_id, "owner_id": owner_id}
-            cid, payload["context"], errors = await open_and_read(
-                mem, trace_id, conversation_id=cid, read=bool(body.get("user_message")), **ids
+            sid, payload["context"], errors = await open_and_read(
+                mem, trace_id, session_id=sid, read=bool(body.get("user_message")), **ids
             )
-            payload["conversation_id"] = cid
-            if cid:
-                errors += await write_turn(mem, trace_id, conversation_id=cid,
+            payload["conversation_id"] = sid
+            if sid:
+                errors += await write_turn(mem, trace_id, session_id=sid,
                                            user_message=body.get("user_message"),
                                            agent_response=body.get("agent_response"), **ids)  # fmt: skip
             if errors:
