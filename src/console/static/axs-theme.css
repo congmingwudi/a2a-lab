@@ -393,7 +393,6 @@ html[data-design="axs"] .hero-sub {
 
 html[data-design="axs"] .hero-body,
 html[data-design="axs"] .hero-ethos {
-  max-width: 900px;
   font-size: 15.5px;
 }
 
@@ -465,7 +464,6 @@ html[data-design="axs"] .landing h2 {
 }
 
 html[data-design="axs"] .landing .lede {
-  max-width: 820px;
   color: var(--muted);
   font-size: 16px;
 }

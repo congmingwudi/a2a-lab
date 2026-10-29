@@ -22,6 +22,14 @@
 
 - Desktop, 1440×1000: `build-notes/codex/screenshots/ws28-axs-desktop.png`.
 - Phone, 390×844: `build-notes/codex/screenshots/ws28-axs-mobile.png`.
+- Signed-in Control Panel, 1440×1000:
+  `build-notes/codex/screenshots/ws28-axs-control-panel.png`.
+- Signed-in experiment canvas, 1440×1000:
+  `build-notes/codex/screenshots/ws28-axs-experiment.png`.
+- Signed-in Lab Guide, 1440×1000: `build-notes/codex/screenshots/ws28-axs-guide.png`.
+- Responsive Control Panel overlay and Lab Guide, 390×844:
+  `build-notes/codex/screenshots/ws28-axs-mobile-control-panel.png` and
+  `build-notes/codex/screenshots/ws28-axs-mobile-guide.png`.
 - First render exposed a specificity bug: the theme's two-column grid overrode
   `main.side-closed`, squeezing the signed-out hero into 336px. Added the explicit scoped
   state rule, added a static regression assertion, and recaptured both images.
@@ -46,3 +54,10 @@ Open `http://localhost:8200/design/axs`. This batch is local-only: no deployment
 was run. If a later ADR promotes it, use a full console rebuild because both the route and
 stylesheet live under `src/`, which the console image bakes in.
 
+## Round 1 response
+
+| finding | fixed / disputed (evidence) / deferred to D<n> | what changed |
+|---|---|---|
+| Text-level width caps conflict with the console prose rule | fixed | Removed `max-width` from `.hero-body`, `.hero-ethos`, and `.landing .lede`; the page wrappers remain the only reading-width boundary. |
+| Interactive-state visual evidence was missing | fixed | Added signed-in desktop captures for the Control Panel, experiment Run canvas, and Lab Guide, plus 390×844 Control Panel overlay and full-width Guide captures. Login used the configured local persona endpoint; no credential or token is stored in the evidence. |
+| Implementation commit-range whitespace check failed | fixed | Removed the two Markdown hard-break spaces and the blank line at EOF. Verified the complete batch range with `git diff 2b3a1b6^ --check`, not only the unstaged worktree. |

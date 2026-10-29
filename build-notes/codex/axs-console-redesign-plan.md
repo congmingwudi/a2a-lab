@@ -1,7 +1,7 @@
 # AXS-inspired local console redesign — proposal
 
-**Proposed batch:** `ws28-b1-axs-console-theme`  
-**Proposer:** Codex  
+**Proposed batch:** `ws28-b1-axs-console-theme`
+**Proposer:** Codex
 **Status:** station 1 proposal; no implementation before operator settlement (D79)
 
 ## Goal and evidence
