@@ -4249,3 +4249,43 @@ name that user's session. So it cannot replace the Data 360 memory D83/D91 build
 Measured the same night (`plan/03-results.md`, 10-29): the Employee native-action arm recalled across sessions,
 with `userMemoryEnabled: true` and three stored memories. The Employee flag arm recalled nothing. Neither left
 anything in the Data 360 tenant.
+
+Corrected 2026-10-29 ~02:00Z (D96): the flag-arm miss did not reproduce. Three flag runs since, as the
+lab user over the Agent API and as the admin through preview, all recalled the planted name with no
+`manageUserMemory` call in the traces.
+
+## 2026-10-29 — D96: the Employee memory arms run as a dedicated lab user over the Agent API
+
+**Context.** D95 ran the Employee arms as the admin through `sf agent preview`, and listed a
+dedicated, fully licensed lab user as the cleaner alternative it did not take. The admin is a
+poor memory owner: its native store already holds other probes' memories ("Probe Employee",
+`plan/03-results.md`), and preview is a CLI path no lab seam uses. The org has free Salesforce
+licences.
+
+**Decision.**
+- **A per-seam user, as D86/D90 built the others:** `employee` in
+  `scripts/integration_users.py`. It has the Salesforce licence and the `Minimum Access - Salesforce`
+  profile, and its bundle is `EinsteinGPTCopilotPsl` (Agentforce (Default)) + `A2ALab_Employee_Agent_User`,
+  then the empty gate `A2ALab_Employee_Caller`. **The Salesforce licence alone refuses
+  `EinsteinCopilotUser` too** ("The user license doesn't allow the permission"). The permission
+  comes with the Agentforce (Default) permission set licence, which is how the admin holds it.
+- **A JWT-bearer app, `a2a_lab_employee`** (`setup_jwt_eca.py create employee`, no consumer secret).
+  It is pre-authorized for the gate only, with scopes `Api, RefreshToken, Chatbot, SFApiPlatform` and
+  **named-user JWT access tokens on** (`isNamedUserJwtEnabled`, a new per-preset switch; the memory app
+  keeps it off). The Agent API requires JWT-shaped tokens.
+- **The arms run over the Agent API as that user**, with `bypassUser: false`. `AgentforceClient`
+  takes a `token_provider` (the JWT-bearer mint) and `bypass_user`. The client-credentials path is
+  unchanged for every other caller. The first session started and answered at once.
+  `memory_arms.py --preview` keeps the D95 preview path, as the CLI's user, for its local
+  `manageUserMemory` traces.
+
+**Alternatives.** Keep the admin (rejected for the reasons above). Client credentials with the
+lab user as run-as: its consumer secret is retrievable only through Setup, whereas JWT bearer is
+headless end to end.
+
+**Consequence.** Every lab identity is now a per-seam user, and only two leave the Integration licence:
+the embed (a UI session) and this one (an Employee agent needs a session user), pinned by
+`tests/unit/test_integration_users.py`. The native-memory owner is a user that holds only this
+arm's memories. Measured (`plan/03-results.md`, 10-29 ~02:00Z): both Employee arms recall across
+sessions as the lab user. That corrects D95's flag-arm miss: three flag runs since have recalled.
+Neither arm writes to Data 360.

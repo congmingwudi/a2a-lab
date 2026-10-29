@@ -1847,3 +1847,33 @@ The arms therefore run as the admin, through programmatic `sf agent preview star
 - So the native route is a **within-Agentforce, per-user** memory. Its owner is whoever is signed in, which is
   why no non-Salesforce seam can share it. The cross-platform memory stays the explicit Data 360 route
   (D83/D91/D94).
+
+**~02:00Z (10-29) — the Employee arms as a dedicated lab user (D96).** The `employee` lab user
+(Salesforce licence, `Minimum Access - Salesforce`) was created by `integration_users.py employee --apply`.
+Assigning `A2ALab_Employee_Agent_User` first failed, "The user license doesn't allow the permission:
+EinsteinCopilotUser". **The full Salesforce licence refuses it too.** The admin holds it through the
+`EinsteinGPTCopilotPsl` (Agentforce (Default)) permission set licence, and assigning that first fixed it.
+`setup_jwt_eca.py create employee` (validated check-only, then deployed: 4 components) made the
+`a2a_lab_employee` JWT-bearer app with named-user JWT tokens on. The minted token is JWT-shaped. An Agent API
+session on `A2ALab_Memory_Employee_Action` with `bypassUser: false` started (200) and answered on the first
+try.
+
+`memory_arms.py employee-action employee-flag` (Agent API as the lab user, wait 120 s, 305 s total), then
+`memory_arms.py employee-flag --preview` (the admin, through preview):
+
+| Arm (session user, path) | Session 2 recalls the planted name? | Data 360 GetContext (user's username and Id × both session ids) | `AiParticipantInsight` rows |
+|---|---|---|---|
+| employee-action (lab user, Agent API) | **yes**: "Saffron Falcon" | `userContext` NONE ×4 | 0 |
+| employee-flag (lab user, Agent API) | **yes**: "Amber Quokka" | `userContext` NONE ×4 | 0 |
+| employee-flag (admin, preview) | **yes**: "Silver Lantern"; the planner traces show no `manageUserMemory` call | `userContext` NONE ×4 | 0 |
+
+**Reading.**
+- **A dedicated lab user can run an Employee agent over the GA Agent API.** It needs a Salesforce licence +
+  Agentforce (Default) PSL, and a JWT-bearer app issuing named-user JWT tokens. No preview, no admin.
+- **Correction to ~01:30Z: the flags alone do recall.** The flag arm's single miss did not reproduce in three
+  runs, across both users and both paths. Recall came with no `manageUserMemory` call, so the flag route
+  stores and injects memory platform-side. The one miss was the arm's first run after publish; the cause is
+  not measured.
+- **Neither the bullet-point preference nor any native write reaches Data 360.** No session-2 reply used
+  bullets, and every GetContext read is empty. The reading above stands: native memory is per agent and per
+  Salesforce user, within Agentforce only.

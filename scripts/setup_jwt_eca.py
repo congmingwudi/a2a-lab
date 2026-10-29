@@ -56,6 +56,9 @@ class Preset:
     # Administrator profile (D86). Set, it also means the run-as user must be a
     # dedicated integration user: `create` refuses an admin `sub`.
     preauth_permission_set: str | None = None
+    # Issue JWT-based access tokens for named users: the Agent API accepts only
+    # those (its setup guide), so a preset that opens Agent API sessions sets it.
+    named_user_jwt: bool = False
 
 
 PRESETS = {
@@ -83,6 +86,22 @@ PRESETS = {
         key_file="memory_jwt_private.pem",
         cdp_exchange=True,
         preauth_permission_set="A2ALab_Memory_Integration",
+    ),
+    "employee": Preset(
+        name="a2a_lab_employee",
+        description=(
+            "A2A lab: Agent API sessions on the WS27 Employee memory arms (D95). An "
+            "Employee agent runs as the session user, so the token's user is the agent's "
+            "user: JWT-bearer as the dedicated employee lab user."
+        ),
+        # The Agent API scopes (api, chatbot_api, sfap_api) + RefreshToken, which
+        # the JWT grant needs (see memory above).
+        scopes="Api, RefreshToken, Chatbot, SFApiPlatform",
+        client_id_env="SF_CLIENT_ID_EMPLOYEE",
+        run_as_env="SF_EMPLOYEE_RUNAS_USER",
+        key_file="employee_jwt_private.pem",
+        preauth_permission_set="A2ALab_Employee_Caller",
+        named_user_jwt=True,
     ),
 }
 
@@ -265,7 +284,7 @@ def render(p: Preset, run_as: str, email: str, cert_pem: str, consumer_key: str 
     <isConsumerSecretOptional>true</isConsumerSecretOptional>
     <isDeviceFlowEnabled>false</isDeviceFlowEnabled>
     <isIntrospectAllTokens>false</isIntrospectAllTokens>
-    <isNamedUserJwtEnabled>false</isNamedUserJwtEnabled>
+    <isNamedUserJwtEnabled>{str(p.named_user_jwt).lower()}</isNamedUserJwtEnabled>
     <isPkceRequired>true</isPkceRequired>
     <isSecretRequiredForRefreshToken>false</isSecretRequiredForRefreshToken>
     <isSecretRequiredForTokenExchange>false</isSecretRequiredForTokenExchange>

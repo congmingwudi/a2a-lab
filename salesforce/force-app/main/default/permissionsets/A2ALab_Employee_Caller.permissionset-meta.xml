@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The gate for the a2a_lab_employee ECA (D86, D95). It grants nothing itself:
+     the ECA's OAuth policy pre-authorizes THIS permission set instead of the
+     System Administrator profile, so only users assigned it can be the
+     JWT-bearer `sub`. Assign it to the dedicated employee lab user only
+     (`scripts/integration_users.py employee`). The Employee-agent capability
+     comes from A2ALab_Employee_Agent_User. -->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>A2A lab: pre-authorizes the a2a_lab_employee External Client App (JWT bearer) for the dedicated employee lab user. Grants no data access by itself (D86, D95).</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>A2ALab Employee Caller</label>
+</PermissionSet>

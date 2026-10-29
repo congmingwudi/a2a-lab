@@ -75,6 +75,20 @@ async def test_session_variables_sent_only_when_set(client, fake_api):
     assert fake_api.session_bodies[1]["variables"] == client.session_variables
 
 
+async def test_token_provider_runs_as_that_user(client, fake_api):
+    """An Employee agent runs as the token's user (D95): the client takes that
+    user's token from the provider, never the client-credentials grant, and
+    starts the session without bypassUser."""
+    await client.ask(AgentRequest(message="hi", trace_id="t1"))
+    assert fake_api.session_bodies[0]["bypassUser"] is True
+    client.token_provider = lambda: {"access_token": "tok-employee", "expires_in": 7200}
+    client.bypass_user = False
+    client._token = None
+    await client.ask(AgentRequest(message="hi", trace_id="t2"))
+    assert fake_api.token_calls == 1  # only the first, client-credentials, ask
+    assert fake_api.session_bodies[1]["bypassUser"] is False
+
+
 async def test_session_reuse_and_sequence(client, fake_api):
     await client.ask(AgentRequest(message="q1", session_id="lab-1"))
     await client.ask(AgentRequest(message="q2", session_id="lab-1"))

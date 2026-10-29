@@ -572,10 +572,10 @@ The arms, each on the concierge's prompt and reasoning. The explicit arm is v1 i
    measured only once published (`plan/03-results.md`, 2026-10-18).
 4. **Employee flag / Employee action** (`A2ALab_Memory_Employee_{Flag,Action}`, D95): arms 2 and 3 as
    Employee agents. Agentforce Agent Memory is per agent and per Salesforce user, and the Service arms'
-   Agent API sessions have no user ("No Agent or User found"). These run as the admin through
-   `sf agent preview`, because the Integration licence cannot run an Employee agent. Measured 2026-10-29:
-   the action arm recalls across sessions, the flag arm stores nothing, and neither write reaches Data 360
-   (`plan/03-results.md`).
+   Agent API sessions have no user ("No Agent or User found"). These run over the Agent API as the
+   dedicated `employee` lab user (D96: a Salesforce licence plus the Agentforce (Default) PSL, because the
+   Integration licence cannot run an Employee agent; JWT bearer through `a2a_lab_employee`). Measured
+   2026-10-29: both arms recall across sessions, and neither write reaches Data 360 (`plan/03-results.md`).
 
 Each arm is registered for memory under its own name, so a native write that
 reaches the tenant carries its arm in `agent_id`. `scripts/memory_arms.py <arm>…`

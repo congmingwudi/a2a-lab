@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import integration_users as iu  # noqa: E402
 import render_eca_metadata as rp  # noqa: E402
+import setup_jwt_eca as jwt_eca  # noqa: E402
 
 
 def test_every_app_runs_as_a_spec_user_holding_its_gate():
@@ -23,9 +24,17 @@ def test_every_app_runs_as_a_spec_user_holding_its_gate():
         assert user.bundle[-1] == (None, p.preauth_permission_set), p.name
 
 
-def test_only_the_embed_user_has_a_ui_license():
+def test_every_jwt_bearer_app_runs_as_a_spec_user_holding_its_gate():
+    by_env = {u.env_key: u for u in iu.USERS.values()}
+    for p in jwt_eca.PRESETS.values():
+        assert by_env[p.run_as_env].bundle[-1] == (None, p.preauth_permission_set), p.name
+
+
+def test_only_the_embed_and_employee_users_leave_the_integration_license():
+    """The embed needs a UI session; an Employee agent needs a session user holding
+    EinsteinCopilotUser, which the Integration licence refuses (D95). Nothing else."""
     ui = {k for k, u in iu.USERS.items() if u.license != iu.INTEGRATION[0]}
-    assert ui == {"tab_embed"}
+    assert ui == {"tab_embed", "employee"}
 
 
 def test_the_embed_user_can_run_the_dashboards_queries():

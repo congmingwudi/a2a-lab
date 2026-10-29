@@ -28,6 +28,7 @@ from setup_jwt_eca import load_env
 
 INTEGRATION = ("Salesforce Integration", "Minimum Access - API Only Integrations")
 PLATFORM = ("Salesforce Platform", "Standard Platform User")
+SALESFORCE = ("Salesforce", "Minimum Access - Salesforce")
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,24 @@ USERS = {
             (None, "A2ALab_Tab_Embed"),  # gate: a2a_lab_tab_embed (JWT bearer)
         ),
         used_by="a2a_lab_tab_embed: the console's inline Tableau Next dashboard (WS19)",
+    ),
+    "employee": UserSpec(
+        name="employee",
+        env_key="SF_EMPLOYEE_RUNAS_USER",
+        local="a2alab.employee",
+        last_name="A2ALab Employee",
+        alias="a2aemp",
+        # An Employee agent runs as the session user, who needs EinsteinCopilotUser:
+        # the Integration licence refuses it (measured 2026-10-29, D95), and even
+        # the Salesforce licence grants it only with the Agentforce (Default) PSL.
+        license=SALESFORCE[0],
+        profile=SALESFORCE[1],
+        bundle=(
+            # The two WS27 Employee memory arms.
+            ("EinsteinGPTCopilotPsl", "A2ALab_Employee_Agent_User"),
+            (None, "A2ALab_Employee_Caller"),  # gate: a2a_lab_employee (JWT bearer)
+        ),
+        used_by="a2a_lab_employee: Agent API sessions on the Employee memory arms (D95)",
     ),
 }
 
