@@ -13,7 +13,9 @@ One protocol per arm, over the GA Agent API as the agent-caller identity:
 
 Arms: `explicit` is concierge v1 (D83: hook -> A2ALabMemoryTurn -> bridge, owner =
 the `memory_owner` session variable); `native-flag` and `native-action` are its
-sibling agents (D92). The native routes key memory to a Salesforce principal, not
+sibling agents (D92), and `employee-flag` / `employee-action` the same two as
+Employee agents, which run as the sf CLI's logged-in user through programmatic
+`sf agent preview` (D95): no Integration-licensed identity can run one. The native routes key memory to a Salesforce principal, not
 to `memory_owner`, so the planted fact is unique per run: a recall can't be a
 leftover from an earlier run. Candidate owners read from the tenant are the
 persona, the agent-caller run-as user (Id and username) and any `--owner`.
@@ -28,20 +30,29 @@ import argparse
 import asyncio
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from interop.memory import owner_conversation
-from setup_agentic_memory import AGENTS, DATA_SPACE, api, soql, tenant_session
-from setup_jwt_eca import load_env
+from setup_agentic_memory import AGENTS, DATA_SPACE, api, sf_json, soql, tenant_session
+from setup_jwt_eca import load_env, target_org
 
 ARMS = {  # arm -> setup_agentic_memory.AGENTS key (the registered agent)
     "explicit": "concierge",
     "native-flag": "native-flag",
     "native-action": "native-action",
+    # D95: the native arms as Employee agents. An Employee agent runs as the session
+    # user, which the Integration-licensed agent-caller cannot be (the licence refuses
+    # EinsteinCopilotUser), so these run through `sf agent preview` as the CLI's user.
+    "employee-flag": "employee-flag",
+    "employee-action": "employee-action",
 }
+EMPLOYEE_ARMS = {"employee-flag", "employee-action"}
 # A run-unique fact: a word pair chosen by the run id, so session 2's reply is
 # checked for a name no earlier run planted.
 _ADJ = ("amber", "cobalt", "saffron", "violet", "scarlet", "jade", "ochre", "silver")
@@ -126,6 +137,71 @@ async def turns(client, run: str, messages: list[str]) -> tuple[list[str], str |
     return replies, sf_session
 
 
+SF_PROJECT = Path(__file__).resolve().parents[1] / "salesforce"  # preview needs a project dir
+
+
+def _sf(*args: str) -> dict:
+    cmd = ["sf", "agent", "preview", *args, "-o", target_org(), "--json"]
+    proc = subprocess.run(cmd, cwd=SF_PROJECT, capture_output=True, text=True, check=False)
+    out = json.loads(proc.stdout or "{}")
+    if out.get("status") != 0:
+        sys.exit(f"sf agent preview {args[0]} failed: {out.get('message') or proc.stderr}")
+    return out["result"]
+
+
+def native_memory(traces_path: str) -> list[dict]:
+    """The manageUserMemory outputs in a preview session's local planner traces."""
+    found = []
+    for f in sorted(Path(traces_path, "traces").glob("*.json")):
+        text = f.read_text()
+        for m in re.finditer(r'"userMemoryEnabled": (true|false)', text):
+            window = text[m.start() : m.start() + 1200]
+            msg = re.search(r'"resultMessage": "([^"]*)"', window)
+            mem = re.search(r'"userMemories": "((?:[^"\\]|\\.)*)"', window)
+            found.append({"userMemoryEnabled": m.group(1) == "true",
+                          "resultMessage": msg.group(1) if msg else None,
+                          "userMemories": mem.group(1)[:300] if mem else None})  # fmt: skip
+    return found
+
+
+def preview_turns(api_name: str, messages: list[str]) -> tuple[list[str], str, list[dict]]:
+    """(the replies, the session id, its manageUserMemory outputs) for one preview
+    session of a published agent, run as the CLI's user (D95)."""
+    sid = _sf("start", "-n", api_name)["sessionId"]
+    replies = []
+    try:
+        for m in messages:
+            r = _sf("send", "-n", api_name, "--session-id", sid, "-u", m)
+            replies.append(" ".join(x.get("message", "") for x in r.get("messages", [])))
+    finally:
+        traces = _sf("end", "-n", api_name, "--session-id", sid).get("tracesPath", "")
+    return replies, sid, native_memory(traces) if traces else []
+
+
+def run_employee_arm(arm: str, run: str, wait: int, extra_owners: list[str]) -> dict:
+    agent = AGENTS[ARMS[arm]]
+    fact, words = planted(run)
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    s1, sf1, m1 = preview_turns(
+        agent.name, [fact, "Please always answer me in short bullet points."]
+    )
+    print(f"[{arm}] session 1 done; waiting {wait}s for extraction", file=sys.stderr)
+    time.sleep(wait)
+    s2, sf2, m2 = preview_turns(agent.name, ["What do you remember about me from before?"])
+    user = sf_json("org", "display")["username"]
+    owners = [user] + [r["Id"] for r in soql(f"SELECT Id FROM User WHERE Username = '{user}'")]
+    return {
+        "arm": arm, "agent": agent.name, "run": run, "session_user": user,
+        "planted": fact, "session1": s1, "session2": s2[0],
+        "recalled": recalled(s2[0], words),
+        "agent_sessions": [sf1, sf2],
+        "native_memory": {"session1": m1, "session2": m2},
+        "tenant": tenant_reads(ARMS[arm], owners + [o for o in extra_owners if o not in owners],
+                               [sf1, sf2]),
+        "insight_rows": insight_rows(started),
+    }  # fmt: skip
+
+
 async def run_arm(arm: str, run: str, wait: int, extra_owners: list[str]) -> dict:
     from platforms.agentforce.client import AgentforceClient
 
@@ -174,7 +250,9 @@ def main() -> None:
     t0 = time.time()
     for arm in args.arms:  # a run id (so a fact) per arm: no arm can recall another's plant
         run = uuid.uuid4().hex[:8]
-        print(json.dumps(asyncio.run(run_arm(arm, run, args.wait, args.owner)), indent=2))
+        result = (run_employee_arm(arm, run, args.wait, args.owner) if arm in EMPLOYEE_ARMS
+                  else asyncio.run(run_arm(arm, run, args.wait, args.owner)))  # fmt: skip
+        print(json.dumps(result, indent=2))
     print(f"{len(args.arms)} arm(s) in {time.time() - t0:.0f}s", file=sys.stderr)
 
 

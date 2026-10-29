@@ -570,6 +570,12 @@ The arms, each on the concierge's prompt and reasoning. The explicit arm is v1 i
    preview refuses the bundle without it. In preview the action answers "No
    Agent or User found" (an unpublished bundle has no agent record), so it is
    measured only once published (`plan/03-results.md`, 2026-10-18).
+4. **Employee flag / Employee action** (`A2ALab_Memory_Employee_{Flag,Action}`, D95): arms 2 and 3 as
+   Employee agents. Agentforce Agent Memory is per agent and per Salesforce user, and the Service arms'
+   Agent API sessions have no user ("No Agent or User found"). These run as the admin through
+   `sf agent preview`, because the Integration licence cannot run an Employee agent. Measured 2026-10-29:
+   the action arm recalls across sessions, the flag arm stores nothing, and neither write reaches Data 360
+   (`plan/03-results.md`).
 
 Each arm is registered for memory under its own name, so a native write that
 reaches the tenant carries its arm in `agent_id`. `scripts/memory_arms.py <arm>…`

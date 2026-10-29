@@ -1806,3 +1806,44 @@ API) for native-action session 1 (`01a184e1-8971-…`) shows both `manage_user_m
 the arm needs a session that carries a user: an Employee agent (the run-as user is the memory owner), or a Service
 session with a verified participant. Either way the native store stays per agent and per Salesforce user, so it can
 never be the cross-platform memory D83/D91 builds on Data 360. It is a within-Agentforce comparison arm.
+
+**~01:30Z (10-29) — the native arms, given a user (D95).** Two routes to a session that carries a user.
+
+*B: keep the Service agent and give the session a user.* Each shape got one `A2ALab_Memory_Native_Action` turn
+over the Agent API as the agent-caller. Each was read back from the Session Trace once the spans landed (~1 h lag):
+
+| Session start | `manage_user_memory` output |
+|---|---|
+| `bypassUser: false` | `userMemoryEnabled: false`, "No Agent or User found" |
+| `bypassUser: true` + `$Context.EndUserId` = the caller's User Id (`type: Text`; `Id` is refused, 400 `InvalidTypeIdException`) | the same |
+| `bypassUser: false` + `$Context.EndUserId` | the same |
+
+No Agent API lever gives a Service agent's session a participant that Agent Memory accepts.
+
+*A: rebuild the arms as Employee agents.* `A2ALab_Memory_Employee_{Action,Flag}` are the native bundles with
+`agent_type: "AgentforceEmployeeAgent"`; `validate` rejects any other value, and any unknown config key. Three
+refusals on the way, each with its real cause:
+
+| Step | Refusal | Cause |
+|---|---|---|
+| `sf agent publish` | `AgentApiNotFound` (404) | the CLI's host fallback hides the real answer. Replaying the POST gives **401 "User doesn't have access to agent"**: an Employee agent must not carry `default_agent_user`. Removing it published v1 |
+| Agent API session as the agent-caller, `bypassUser: false` | **412 "No access to Einstein Copilot"** | the token user lacks `EinsteinCopilotUser` |
+| Assign `A2ALab_Employee_Agent_User` to the agent-caller | "The user license doesn't allow the permission: EinsteinCopilotUser" | the **Salesforce Integration licence cannot run an Employee agent**, so no D90 identity can |
+
+The arms therefore run as the admin, through programmatic `sf agent preview start|send|end -n <agent>`.
+`scripts/memory_arms.py employee-action employee-flag` (wait 120 s, 350 s total):
+
+| Arm | Session 2 recalls the planted name? | `manageUserMemory` (from the preview planner traces) | Data 360 GetContext (admin username and Id × both session ids) | `AiParticipantInsight` rows |
+|---|---|---|---|---|
+| employee-action | **yes**: "Cobalt Glacier", plus "Probe Employee" from a one-turn preview an hour earlier | `userMemoryEnabled: true`; "I updated the user memory"; 3 memories at 0.95 confidence (canoe, dinghy, Sundays). The bullet-point preference was not stored | `userContext` NONE ×4 | 0 |
+| employee-flag | **no**: "I have nothing remembered yet" | no action runs | `userContext` NONE ×4 | 0 |
+
+**Reading.**
+- **Agent Memory works once the session has a user.** Agent-scoped native memory recalls across sessions. It is
+  written only when something calls `manageUserMemory`.
+- **The flags alone write nothing.** `context.memory` and `past_conversations` gave no recall here, even on an
+  Employee agent.
+- **The native store never reaches Data 360**, under any owner or session id.
+- So the native route is a **within-Agentforce, per-user** memory. Its owner is whoever is signed in, which is
+  why no non-Salesforce seam can share it. The cross-platform memory stays the explicit Data 360 route
+  (D83/D91/D94).

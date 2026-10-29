@@ -106,6 +106,18 @@ AGENTS = {
         label="A2ALab Memory Native Action",
         description="A2A lab: concierge running native manageUserMemory from a hook (plan/18 Phase 2b).",
     ),
+    # D95: the same two arms as Employee agents. Agent Memory keys on the session
+    # user, and a Service agent over the Agent API has none ("No Agent or User found").
+    "employee-flag": Agent(
+        name="A2ALab_Memory_Employee_Flag",
+        label="A2ALab Memory Employee Flag",
+        description="A2A lab: native-flag arm as an Employee agent, run as the session user (D95).",
+    ),
+    "employee-action": Agent(
+        name="A2ALab_Memory_Employee_Action",
+        label="A2ALab Memory Employee Action",
+        description="A2A lab: native-action arm as an Employee agent, run as the session user (D95).",
+    ),
 }
 
 

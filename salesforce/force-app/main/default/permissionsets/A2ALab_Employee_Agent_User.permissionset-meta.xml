@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- D95: lets the shared agent-caller integration user start Agent API sessions on the
+     two WS27 Employee-agent memory arms. An Employee agent runs as the token's user (the
+     Agent API refuses bypassUser for it), and that user needs the Employee-agent user
+     permission ("No access to Einstein Copilot" without it) plus access to each agent.
+     Kept apart from A2ALab_Agent_Caller, which grants nothing by design (D90). -->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <agentAccesses>
+        <agentName>A2ALab_Memory_Employee_Action</agentName>
+        <enabled>true</enabled>
+    </agentAccesses>
+    <agentAccesses>
+        <agentName>A2ALab_Memory_Employee_Flag</agentName>
+        <enabled>true</enabled>
+    </agentAccesses>
+    <description>A2A lab: Employee-agent access for the agent-caller integration user, limited to the two WS27 Employee memory arms (D95).</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>A2ALab Employee Agent User</label>
+    <userPermissions>
+        <enabled>true</enabled>
+        <name>EinsteinCopilotUser</name>
+    </userPermissions>
+</PermissionSet>

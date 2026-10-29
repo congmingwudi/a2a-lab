@@ -4202,3 +4202,50 @@ its agents, so it is no evidence for the native route either (D92).
   intermittently, and extraction runs ahead of it. So in that window D93's Memory API read is what carries
   the new chat's facts.
   Deployed hosted the same evening. One hosted `/memory/turn` returned a single summary that spans both chats.
+
+## 2026-10-29 — D95: the native memory arms also run as Employee agents, through `sf agent preview` as a licensed user
+
+**Context.** Both D92 native arms are Service agents (`EinsteinServiceAgent`), reached
+over the Agent API with the agent-caller's client-credentials token (D90). Their Session
+Trace shows `manageUserMemory` answering `userMemoryEnabled: false`, "No Agent or User
+found", on every turn (`plan/03-results.md`, 10-29). Agentforce **Agent Memory** is per
+agent and per Salesforce user, and a Service agent keys it on an authenticated
+participant, which such a session never has. Three Service-agent session shapes were
+tried on `A2ALab_Memory_Native_Action`: `bypassUser: false`, a `$Context.EndUserId`
+variable naming the caller user, and both. All three still answered "No Agent or User
+found". The Agent API sets no participant for a Service agent from either lever.
+
+**Decision.**
+- **Two more sibling agents, not versions (D92):** `A2ALab_Memory_Employee_Flag` and
+  `A2ALab_Memory_Employee_Action`. They are the native bundles with
+  `agent_type: "AgentforceEmployeeAgent"` and **no `default_agent_user`**, because an
+  Employee agent runs as its session user. With a default agent user, the authoring API
+  refuses the publish with 401 "User doesn't have access to agent". The CLI's host
+  fallback reports that as a 404 `AgentApiNotFound`.
+- **They run as the sf CLI's licensed user, through programmatic preview.** The Agent API
+  refuses `bypassUser: true` for an Employee agent. Without it, the agent-caller
+  integration user gets 412 "No access to Einstein Copilot". The Salesforce Integration
+  licence refuses the `EinsteinCopilotUser` permission, so no D90 identity can ever run
+  an Employee agent. `scripts/memory_arms.py employee-flag employee-action` drives them
+  with `sf agent preview start|send|end -n <agent>` (named-user JWT, `bypassUser: false`).
+  It reads `manageUserMemory`'s outputs from the local planner traces that `end` writes.
+- **`A2ALab_Employee_Agent_User`** grants `EinsteinCopilotUser` and agent access to the
+  two Employee arms only. It is assigned to the admin. `A2ALab_Agent_Caller` still grants
+  nothing (D90).
+- **Registered for memory** as `employee-flag` / `employee-action`, so a native write
+  that reaches Data 360 carries its arm in `agent_id`.
+
+**Alternatives.**
+- **Give the Service arms a verified participant.** No Agent API lever sets one (the
+  three shapes above). A verified messaging session (Enhanced Chat with a verified user)
+  might, but it is a channel deployment, and the Agent API arms would still not measure it.
+- **A dedicated, fully licensed lab user.** That would be cleaner than the admin, but it
+  costs a Salesforce licence. The native store keys on whoever runs the session, so the
+  owner is recorded with every result instead.
+
+**Consequence.** This is a within-Agentforce arm, not a cross-platform one. Native
+memory belongs to one Salesforce user and one agent, and no seam outside Salesforce can
+name that user's session. So it cannot replace the Data 360 memory D83/D91 build on.
+Measured the same night (`plan/03-results.md`, 10-29): the Employee native-action arm recalled across sessions,
+with `userMemoryEnabled: true` and three stored memories. The Employee flag arm recalled nothing. Neither left
+anything in the Data 360 tenant.
