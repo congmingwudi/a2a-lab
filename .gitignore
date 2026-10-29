@@ -110,3 +110,7 @@ lab.db
 
 # flattened Claude Design upload (build product of bundle_for_claude_design.sh)
 build-notes/claude/dist/
+# `sf agent publish` compiles each aiAuthoringBundles/<agent> into these two
+# trees on every publish; the .agent bundle is the source, so they are build output.
+salesforce/force-app/main/default/aiAgents/
+salesforce/force-app/main/default/aiAgentDefinitionVersions/
