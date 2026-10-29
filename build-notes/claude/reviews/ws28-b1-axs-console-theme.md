@@ -57,3 +57,57 @@ authenticated console configuration instead of rendering the sign-in-capable pub
 
 After the auth exemption and its authenticated-configuration regression test are added to the
 proposal, the design can proceed to operator settlement.
+
+## Round 1 — implementation cross-review
+
+**Verdict: REQUEST CHANGES**
+
+The implementation correctly resolves the proposal-critique auth boundary: the data-free
+`/design/axs` shell is public, the API remains gated, `/` and `/guide` do not receive the design
+marker or stylesheet, and the design CSS is scoped to the opt-in marker. The checked-in landing
+captures show a coherent visual direction at the promised desktop and phone viewport sizes.
+Three settled requirements remain incomplete.
+
+### Required findings
+
+1. **Remove the text-level width caps that reinstate a named console regression.**
+   `axs-theme.css` sets `max-width: 900px` on `.hero-body` and `max-width: 820px` on
+   `.landing .lede` (`src/console/static/axs-theme.css#L394-L398`,
+   `src/console/static/axs-theme.css#L467-L470`). `CLAUDE.md#L149` explicitly names those two
+   selectors as the prior premature-wrapping defect and requires flowing prose to take its width
+   from the page-level wrapper. The desktop capture exhibits that narrower text column inside the
+   1120px hero wrapper. Remove the paragraph-level caps; if a reading-width constraint is still
+   intended, put it on the appropriate container as the repository rule specifies.
+
+2. **Supply the settled visual evidence for interactive console states.** The proposal requires
+   the desktop and narrow-viewport evidence to cover the landing, Control Panel, an experiment
+   canvas, and the Lab Guide drawer
+   (`build-notes/codex/axs-console-redesign-plan.md#L60-L67`). Both committed captures show only
+   the signed-out landing hero, and the implementation notes list only those two captures
+   (`build-notes/codex/reviews/ws28-b1-axs-console-theme.md#L21-L29`). Capture the missing signed-in
+   states at desktop and narrow width (separate or composite evidence is fine) so sidebar,
+   canvas, drawer, form, and responsive-overlay styling are verified rather than inferred from
+   CSS.
+
+3. **Make the implementation commit pass a committed-diff whitespace check.**
+   `git diff 2b3a1b6^ 2b3a1b6 --check` reports trailing whitespace at lines 3 and 4 of the proposal
+   and a blank line at EOF in the implementation notes, despite the notes recording
+   `git diff --check: passed` (`build-notes/codex/reviews/ws28-b1-axs-console-theme.md#L31-L37`).
+   Clean those three committed-diff errors and report the commit-range check used; checking only
+   the current unstaged worktree does not validate an already committed batch.
+
+### Independent evidence
+
+- `env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy uv run pytest -q`:
+  **777 passed, 3 skipped, 6 deselected** (105 dependency deprecation warnings).
+- `.venv/bin/pytest -q tests/unit/test_console.py -k 'axs or shell_asks_browsers_to_revalidate'`:
+  **3 passed, 89 deselected**.
+- `.venv/bin/ruff check src tests scripts`: **passed**.
+- `git diff --check` on the current worktree: **passed**; the implementation commit-range check
+  fails with the three whitespace errors described above.
+- Visual inspection: the committed PNGs are genuinely 1440x1000 and 390x844 and render the
+  landing treatment cleanly; neither contains the other three promised UI states.
+- The four Claude honesty skills named by D79 are not installed in this session's available
+  skill catalog. They do not fit this isolated local visual-only route closely enough to replace
+  the focused route, auth, CSS, viewport, and full-suite checks above, and no claim is made that
+  they were run.
