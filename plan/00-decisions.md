@@ -4289,3 +4289,27 @@ the embed (a UI session) and this one (an Employee agent needs a session user), 
 arm's memories. Measured (`plan/03-results.md`, 10-29 ~02:00Z): both Employee arms recall across
 sessions as the lab user. That corrects D95's flag-arm miss: three flag runs since have recalled.
 Neither arm writes to Data 360.
+
+## 2026-10-29 — D97: trial the AXS-inspired console design as an isolated local route
+
+**Context.** The operator wants to explore a smoother, more visually appealing console
+using the AXS Experience Specialists site as design inspiration. The released console is
+a 10,835-line static SPA, and `src/console/static/index.html` already carries unrelated
+uncommitted work. D79 requires the joint proposal, critique and settlement loop before an
+implementation edit. Codex proposed an isolated theme route; Claude's critique found that
+the new shell must share `/` and `/guide`'s public-shell auth exemption so initial browser
+navigation can load before client-side persona authentication begins.
+
+**Decision.** Build the experiment at local route `/design/axs`, serving the existing SPA
+with an additional, fully scoped `axs-theme.css` layer and a pre-paint
+`data-design="axs"` marker. The normal `/` and `/guide` responses remain unchanged. Add
+`/design/axs` to the exact public-shell auth exemptions; all API and live-data routes stay
+gated. Borrow interaction and visual principles—pale-blue field, radial navy/blue hero,
+white elevated cards, generous radii, restrained lift motion, responsive polish and
+reduced-motion support—not AXS branding, proprietary fonts, copy, illustrations or assets.
+
+**Consequences.** This is local-only and is not deployed. It shares the current console's
+behavior, APIs, local storage and role gates without duplicating the SPA. A later decision
+is required to promote or replace the released theme; that promotion would need a full
+console image rebuild because `src/` is baked into the image. A visual-only route on the
+same console component does not change the deployment map.

@@ -1301,12 +1301,25 @@ def create_console_app(registry: Registry | None = None):
     # assets) keeps its own caching. Applies to both entry points.
     SHELL_HEADERS = {"cache-control": "no-cache"}
 
+    def shell_html(*, design: str | None = None) -> str:
+        """Return the shared SPA shell, optionally with an isolated design layer.
+
+        Design studies transform only the document response. They do not fork
+        the SPA, its API behavior, or the user's local-storage state (D97).
+        """
+        shell = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        if design == "axs":
+            shell = shell.replace('<html lang="en">', '<html lang="en" data-design="axs">', 1)
+            shell = shell.replace(
+                "</head>",
+                '<link rel="stylesheet" href="/static/axs-theme.css">\n</head>',
+                1,
+            )
+        return shell
+
     @app.get("/", response_class=HTMLResponse)
     async def index():
-        return HTMLResponse(
-            (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
-            headers=SHELL_HEADERS,
-        )
+        return HTMLResponse(shell_html(), headers=SHELL_HEADERS)
 
     @app.get("/guide", response_class=HTMLResponse)
     async def guide_page():
@@ -1314,10 +1327,13 @@ def create_console_app(registry: Registry | None = None):
         # it boots guide-only off location.pathname and shares the JWT + chat
         # history the console left in localStorage. No separate template to
         # keep in step.
-        return HTMLResponse(
-            (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
-            headers=SHELL_HEADERS,
-        )
+        return HTMLResponse(shell_html(), headers=SHELL_HEADERS)
+
+    @app.get("/design/axs", response_class=HTMLResponse)
+    async def axs_design_page():
+        # D97: an opt-in local visual study over the SAME console. The marker
+        # is present before first paint, avoiding a flash of the normal theme.
+        return HTMLResponse(shell_html(design="axs"), headers=SHELL_HEADERS)
 
     @app.get("/api/targets")
     async def targets(request: Request):
@@ -4849,6 +4865,11 @@ and console never present a combined dollar total across tools (WS12/D44).
             # itself carries no data, so exempting it discloses nothing "/" does
             # not. All /api/guide calls it makes stay behind the JWT.
             "/guide",
+            # D97: the AXS-inspired design study is another rendering of the
+            # same data-free SPA shell. Browser navigation cannot attach the
+            # persona JWT stored by the shell, so it must load publicly; every
+            # API and live-data request remains behind the JWT.
+            "/design/axs",
             # WS13: the ALB health check has no credentials and never will —
             # a gated health path marks every task unhealthy and the service
             # never stabilises. It answers {"status":"healthy"} and nothing

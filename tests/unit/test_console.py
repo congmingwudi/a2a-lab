@@ -83,10 +83,55 @@ def test_shell_asks_browsers_to_revalidate(tmp_path, monkeypatch):
     # (WS18) that deployed correctly yet stayed invisible behind a stale shell.
     app = make_app(tmp_path / "traces", monkeypatch)
     client = TestClient(app)
-    for path in ("/", "/guide"):
+    for path in ("/", "/guide", "/design/axs"):
         r = client.get(path)
         assert r.status_code == 200
         assert r.headers.get("cache-control") == "no-cache", path
+
+
+def test_axs_design_is_an_isolated_public_shell(tmp_path, monkeypatch):
+    """The design study changes only its opt-in document response.
+
+    Like /guide, the data-free shell must load before browser JavaScript can
+    attach the persona JWT held in localStorage. Live-data routes stay gated.
+    """
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+
+    themed = client.get("/design/axs")
+    assert themed.status_code == 200
+    assert 'data-design="axs"' in themed.text
+    assert 'href="/static/axs-theme.css"' in themed.text
+
+    for path in ("/", "/guide"):
+        normal = client.get(path)
+        assert normal.status_code == 200
+        assert 'data-design="axs"' not in normal.text
+        assert 'href="/static/axs-theme.css"' not in normal.text
+
+    assert client.get("/api/traces").status_code == 401
+
+
+def test_axs_theme_is_scoped_accessible_and_keeps_semantic_colors():
+    css = Path("src/console/static/axs-theme.css").read_text()
+    assert 'html[data-design="axs"]' in css
+    assert 'html[data-design="axs"] main.side-closed' in css
+    assert "prefers-reduced-motion: reduce" in css
+
+    semantic_tokens = (
+        "--rest:",
+        "--mcp:",
+        "--a2a:",
+        "--agentforce-api:",
+        "--chip-agentforce:",
+        "--chip-claude:",
+        "--chip-openai:",
+        "--chip-google:",
+        "--chip-aws:",
+        "--chip-foundry:",
+    )
+    assert not [token for token in semantic_tokens if token in css]
 
 
 def test_targets_listed(tmp_path, monkeypatch):

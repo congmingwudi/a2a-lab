@@ -3636,3 +3636,17 @@ and the experiment design: `plan/18-agentic-memory-context.md`.
 34. ✅ One memory conversation per owner (D94): each chat is a session inside the owner's derived conversation (`memory.owner_conversation`), so GetContext summarises earlier chats; Apex's `conversation_id` key now carries the session id (no org deploy); messages `redact`ed before ingest (the demo kit's patterns). Built and unit-tested 2026-10-28, then proven live the same day: a new chat as the Concierge recalled the Claude chat's GetContext summary before writing anything (`plan/03-results.md`). Deployed (bridge + faces, full rebuild) and checked hosted: one GetContext summary spans both chats.
 35. ✅ Native arms as Employee agents (D95): `A2ALab_Memory_Employee_{Flag,Action}` (`agent_type: AgentforceEmployeeAgent`, no `default_agent_user`), published, activated and registered for memory; `A2ALab_Employee_Agent_User` grants `EinsteinCopilotUser` plus access to the two agents. The Integration licence refuses that permission, so they ran first as the admin through programmatic `sf agent preview`, now `memory_arms.py --preview` (item 36 moved them to a lab user). Measured 2026-10-29: both arms recall across sessions (the flag arm's first miss did not reproduce), and neither reaches Data 360 (`plan/03-results.md`).
 36. ✅ Employee lab user (D96): the `employee` per-seam user (Salesforce licence, `Minimum Access - Salesforce`, `EinsteinGPTCopilotPsl` + `A2ALab_Employee_Agent_User`, gate `A2ALab_Employee_Caller`) and the JWT-bearer app `a2a_lab_employee` with named-user JWT tokens; `AgentforceClient` takes a `token_provider` and `bypass_user`, so the Employee arms run over the GA Agent API as that user with `bypassUser: false`. Created, deployed and measured 2026-10-29: both arms recall across sessions as the lab user, nothing in Data 360 (`plan/03-results.md`).
+
+## WS28 — AXS-inspired local console design study (raised 2026-10-29, D97)
+
+An isolated local design route for comparing a smoother, lighter visual treatment against
+the released console without forking its behavior or disturbing current console work. The
+D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` and
+`build-notes/claude/reviews/ws28-b1-axs-console-theme.md`.
+
+1. ⏳ Serve `/design/axs` from the existing SPA with an isolated theme marker and stylesheet;
+   keep `/` and `/guide` unchanged, and exempt only the data-free shell from initial auth.
+2. ⏳ Apply the AXS-inspired visual system with responsive and reduced-motion behavior while
+   preserving protocol/platform semantics and all existing console interactions.
+3. ⏳ Add route, auth-boundary and theme-isolation tests; validate desktop and narrow layouts
+   locally and record the implementation evidence for cross-review.
