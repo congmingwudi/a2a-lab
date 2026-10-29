@@ -1777,3 +1777,11 @@ read, not even under the conversation their own session ran in. With 0 Memory AP
 insight rows, the lab's reads find no trace of the native routes in the Data 360 agentic store at all. That fits
 the demo kit's warning that GA `context: memory` is likely a separate store (D92). Next is the platform's own
 surface for that store (the agent's memory, per user), not more Data 360 reads.
+
+**~23:10Z — D94 deployed (bridge `:20`, faces `:20`, full rebuild), and the summary now spans both chats.** One hosted
+`POST /memory/turn` (`bridge-lab`, as `A2ALab_Memory_Concierge`, owner `a2alab-d94-f6e80374`, no id sent) opened a
+third session (`a2alab-e9ab…`) inside the owner's conversation. It returned one `CONVERSATION_SUMMARY` covering
+**both** earlier chats: the canoe "Indigo Lark" on the Douro (chat 1, Claude) and the green Hilleberg tent "Basalt
+Wren" (chat 2, Concierge). The Memory API facts of both agents came back beside it. That closes the one check left open
+at 20:00Z. The summary dates the tent at 23:10:33Z, though chat 2 was written at about 20:00Z. So the tenant timestamps
+the summarised entry when it finally persists, not when it was ingested, which fits the persistence lag.

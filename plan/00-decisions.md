@@ -4201,3 +4201,4 @@ its agents, so it is no evidence for the native route either (D92).
   chat's GetContext summary before writing anything (`plan/03-results.md`). Persistence still lags
   intermittently, and extraction runs ahead of it. So in that window D93's Memory API read is what carries
   the new chat's facts.
+  Deployed hosted the same evening. One hosted `/memory/turn` returned a single summary that spans both chats.
