@@ -1785,3 +1785,24 @@ third session (`a2alab-e9ab…`) inside the owner's conversation. It returned on
 Wren" (chat 2, Concierge). The Memory API facts of both agents came back beside it. That closes the one check left open
 at 20:00Z. The summary dates the tent at 23:10:33Z, though chat 2 was written at about 20:00Z. So the tenant timestamps
 the summarised entry when it finally persists, not when it was ingested, which fits the persistence lag.
+
+**~00:45Z (10-29) — why the native arms never remember: "No Agent or User found".** The Session Trace (WS23, OTel
+API) for native-action session 1 (`01a184e1-8971-…`) shows both `manage_user_memory` steps returning
+`__action_execution_status__: success` with `userMemoryEnabled: false`, `wasMemoryOperationPerformed: false`,
+`userMemories: ""` and `resultMessage: "No Agent or User found"`. The help docs (Salesforce Help, *Agent Memory*,
+`ai.agent_memory*.htm`, read 10-28) say what that means:
+
+- Agentforce **Agent Memory** is a store of its own, **per agent and per Salesforce user**: 50 per agent per user,
+  plus 50 user-level memories. It is not Data 360 Agentic Memory, which is why no Data 360 read ever saw it (D92).
+- It needs three switches: the org's conversational-memory setting (on by default), `context: memory: enabled: True`
+  in Agent Script, and, for **Employee agents in Lightning only**, a user opt-in. Other surfaces need no opt-in.
+- For **Service** agents, memories key on the **authenticated participant** (User, Contact, Lead or Account:
+  `getUserMemories.authParticipantId`). Both native arms are `EinsteinServiceAgent`, reached over the Agent API with
+  a client-credentials token, so the session has no authenticated participant, and nothing is ever stored.
+- `getUserMemories`, invoked outside an agent session, fails with "Agent context not established". Native memory can
+  be read only from inside an agent turn: `GetAgentMemoryPreference`, `getUserMemories`, or the session trace.
+
+**Reading.** The native arms' misses are an **identity gap, not a store or wiring defect.** To test the native route,
+the arm needs a session that carries a user: an Employee agent (the run-as user is the memory owner), or a Service
+session with a verified participant. Either way the native store stays per agent and per Salesforce user, so it can
+never be the cross-platform memory D83/D91 builds on Data 360. It is a within-Agentforce comparison arm.
