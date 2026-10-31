@@ -3650,3 +3650,10 @@ D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` a
    preserving protocol/platform semantics and all existing console interactions.
 3. ⏳ Add route, auth-boundary and theme-isolation tests; validate desktop and narrow layouts
    locally and record the implementation evidence for cross-review.
+4. ⏳ Promote the study as the optional Skyline theme under D98: add a Default/Skyline header
+   selector with independent color mode, pre-paint persistence, accessible labels and explicit
+   `/design/axs` compatibility behavior.
+5. ⏳ Normalize experiment identity in the main canvas: reuse escaped platform title marks,
+   complete LangGraph matching and remove the inconsistent Claude-specific `aws` heading badge.
+6. ⏳ Add selector, persistence, alias-precedence, heading and responsive regressions; capture
+   Default/Skyline × light/dark evidence and hand the completed batch to Claude for cross-review.

@@ -1,5 +1,5 @@
 /*
- * D97 — AXS-inspired local design study.
+ * D97 — Skyline local design study.
  *
  * This is an A2A Lab visual system, not a copy of the reference site's brand.
  * Every rule is scoped to the opt-in document marker so / and /guide retain
@@ -7,7 +7,7 @@
  * base console stylesheet because they carry meaning.
  */
 
-html[data-design="axs"] {
+html[data-design="skyline"] {
   --bg: #f2f7fd;
   --card: #ffffff;
   --card2: #eaf2fb;
@@ -29,19 +29,19 @@ html[data-design="axs"] {
   --hero-link: #9ad5ff;
   --bar: #0b5cff;
   --wordmark-grad: linear-gradient(100deg, #ffffff 0%, #bfe8ff 48%, #d9c6ff 100%);
-  --axs-navy: #032d60;
-  --axs-blue: #0b5cff;
-  --axs-sky: #e3f0fd;
-  --axs-cyan: #7ad3ff;
-  --axs-radius: 18px;
-  --axs-radius-sm: 12px;
-  --axs-shadow: 0 10px 30px rgba(3, 45, 96, .08);
-  --axs-shadow-lift: 0 18px 48px rgba(3, 45, 96, .16);
+  --skyline-navy: #032d60;
+  --skyline-blue: #0b5cff;
+  --skyline-sky: #e3f0fd;
+  --skyline-cyan: #7ad3ff;
+  --skyline-radius: 18px;
+  --skyline-radius-sm: 12px;
+  --skyline-shadow: 0 10px 30px rgba(3, 45, 96, .08);
+  --skyline-shadow-lift: 0 18px 48px rgba(3, 45, 96, .16);
   color-scheme: light;
   background: var(--bg);
 }
 
-html[data-design="axs"][data-theme="dark"] {
+html[data-design="skyline"][data-theme="dark"] {
   --bg: #06182f;
   --card: #0d2544;
   --card2: #122f54;
@@ -62,20 +62,20 @@ html[data-design="axs"][data-theme="dark"] {
   color-scheme: dark;
 }
 
-html[data-design="axs"] body {
+html[data-design="skyline"] body {
   background:
     radial-gradient(circle at 92% 8%, rgba(85, 184, 255, .14), transparent 26rem),
     var(--bg);
   letter-spacing: 0;
 }
 
-html[data-design="axs"] :focus-visible {
-  outline: 2px solid var(--axs-blue);
+html[data-design="skyline"] :focus-visible {
+  outline: 2px solid var(--skyline-blue);
   outline-offset: 3px;
   border-radius: 6px;
 }
 
-html[data-design="axs"] header {
+html[data-design="skyline"] header {
   min-height: 64px;
   padding: 10px 20px;
   gap: 12px;
@@ -86,12 +86,12 @@ html[data-design="axs"] header {
   z-index: 20;
 }
 
-html[data-design="axs"] header .brand {
+html[data-design="skyline"] header .brand {
   gap: 12px;
   padding-right: 14px;
 }
 
-html[data-design="axs"] .brandmark {
+html[data-design="skyline"] .brandmark {
   width: 38px;
   height: 38px;
   border-radius: 12px;
@@ -102,27 +102,39 @@ html[data-design="axs"] .brandmark {
   position: relative;
 }
 
-html[data-design="axs"] header h1 {
+html[data-design="skyline"] header h1 {
   color: var(--fg-hi);
   font-size: 15.5px;
   font-weight: 750;
   letter-spacing: -.2px;
 }
 
-html[data-design="axs"] header .sub {
+html[data-design="skyline"] header .sub {
   max-width: 430px;
   color: var(--muted);
   font-size: 12.5px;
 }
 
-html[data-design="axs"] header .live {
+html[data-design="skyline"] header .live {
   padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: color-mix(in srgb, var(--card2) 62%, transparent);
 }
 
-html[data-design="axs"] .theme-switch {
+html[data-design="skyline"] .design-theme {
+  margin-left: 4px;
+  color: color-mix(in srgb, var(--muted) 88%, var(--skyline-blue));
+}
+
+html[data-design="skyline"] .design-theme select {
+  min-height: 33px;
+  border-color: transparent;
+  background: var(--card2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+html[data-design="skyline"] .theme-switch {
   margin-left: 4px;
   padding: 3px;
   background: var(--card2);
@@ -130,19 +142,19 @@ html[data-design="axs"] .theme-switch {
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
-html[data-design="axs"] .theme-switch .tbtn {
+html[data-design="skyline"] .theme-switch .tbtn {
   width: 29px;
   height: 27px;
   transition: color .15s ease, background .15s ease, box-shadow .15s ease;
 }
 
-html[data-design="axs"] .theme-switch .tbtn.on {
+html[data-design="skyline"] .theme-switch .tbtn.on {
   background: var(--card);
   box-shadow: 0 2px 8px var(--shadow);
 }
 
-html[data-design="axs"] .guide-btn,
-html[data-design="axs"] .gear-btn {
+html[data-design="skyline"] .guide-btn,
+html[data-design="skyline"] .gear-btn {
   min-height: 36px;
   border-color: var(--border);
   border-radius: 10px;
@@ -152,24 +164,24 @@ html[data-design="axs"] .gear-btn {
   transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
 
-html[data-design="axs"] .guide-btn:hover,
-html[data-design="axs"] .gear-btn:hover {
+html[data-design="skyline"] .guide-btn:hover,
+html[data-design="skyline"] .gear-btn:hover {
   transform: translateY(-1px);
   border-color: #94b8dc;
   box-shadow: 0 7px 20px var(--shadow);
 }
 
-html[data-design="axs"] main {
+html[data-design="skyline"] main {
   grid-template-columns: 336px minmax(0, 1fr);
   height: calc(100vh - 64px);
   transition: grid-template-columns .2s ease;
 }
 
-html[data-design="axs"] main.side-closed {
+html[data-design="skyline"] main.side-closed {
   grid-template-columns: minmax(0, 1fr);
 }
 
-html[data-design="axs"] #side {
+html[data-design="skyline"] #side {
   border-right-color: var(--border);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--sidebar) 98%, #eaf3ff), var(--sidebar));
@@ -177,7 +189,7 @@ html[data-design="axs"] #side {
   scrollbar-color: var(--border-hi) transparent;
 }
 
-html[data-design="axs"] .side-head {
+html[data-design="skyline"] .side-head {
   min-height: 48px;
   padding: 12px 16px;
   color: var(--fg-hi);
@@ -186,37 +198,37 @@ html[data-design="axs"] .side-head {
   letter-spacing: .8px;
 }
 
-html[data-design="axs"] .side-head::before {
+html[data-design="skyline"] .side-head::before {
   content: "";
   width: 7px;
   height: 7px;
   margin-right: 2px;
   border-radius: 50%;
-  background: var(--axs-blue);
+  background: var(--skyline-blue);
   box-shadow: 0 0 0 5px rgba(11, 92, 255, .09);
 }
 
-html[data-design="axs"] .side-head .x {
+html[data-design="skyline"] .side-head .x {
   margin-left: auto;
   min-width: 30px;
   min-height: 30px;
 }
 
-html[data-design="axs"] details.acc {
+html[data-design="skyline"] details.acc {
   margin: 8px 10px;
   border: 1px solid transparent;
-  border-radius: var(--axs-radius-sm);
+  border-radius: var(--skyline-radius-sm);
   overflow: clip;
   transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
 
-html[data-design="axs"] details.acc[open] {
+html[data-design="skyline"] details.acc[open] {
   border-color: var(--border);
   background: color-mix(in srgb, var(--card2) 42%, transparent);
   box-shadow: 0 4px 16px rgba(3, 45, 96, .045);
 }
 
-html[data-design="axs"] details.acc > summary {
+html[data-design="skyline"] details.acc > summary {
   min-height: 46px;
   padding: 10px 12px;
   color: var(--muted);
@@ -226,17 +238,17 @@ html[data-design="axs"] details.acc > summary {
   transition: color .15s ease, background .15s ease;
 }
 
-html[data-design="axs"] details.acc > summary:hover {
-  color: var(--axs-blue);
-  background: color-mix(in srgb, var(--axs-sky) 72%, transparent);
+html[data-design="skyline"] details.acc > summary:hover {
+  color: var(--skyline-blue);
+  background: color-mix(in srgb, var(--skyline-sky) 72%, transparent);
 }
 
-html[data-design="axs"][data-theme="dark"] details.acc > summary:hover {
+html[data-design="skyline"][data-theme="dark"] details.acc > summary:hover {
   background: rgba(122, 211, 255, .08);
-  color: var(--axs-cyan);
+  color: var(--skyline-cyan);
 }
 
-html[data-design="axs"] details.acc > summary::before {
+html[data-design="skyline"] details.acc > summary::before {
   display: grid;
   place-items: center;
   width: 18px;
@@ -245,7 +257,7 @@ html[data-design="axs"] details.acc > summary::before {
   background: var(--card2);
 }
 
-html[data-design="axs"] details.acc > summary .sicon {
+html[data-design="skyline"] details.acc > summary .sicon {
   width: 17px;
   height: 17px;
   padding: 2px;
@@ -253,36 +265,36 @@ html[data-design="axs"] details.acc > summary .sicon {
   opacity: 1;
 }
 
-html[data-design="axs"] details.acc[open] > summary {
-  color: var(--axs-blue);
+html[data-design="skyline"] details.acc[open] > summary {
+  color: var(--skyline-blue);
 }
 
-html[data-design="axs"] details.acc > summary .count,
-html[data-design="axs"] .nav-group .gcount {
+html[data-design="skyline"] details.acc > summary .count,
+html[data-design="skyline"] .nav-group .gcount {
   border: 0;
-  background: color-mix(in srgb, var(--axs-blue) 9%, transparent);
-  color: color-mix(in srgb, var(--axs-blue) 76%, var(--fg));
+  background: color-mix(in srgb, var(--skyline-blue) 9%, transparent);
+  color: color-mix(in srgb, var(--skyline-blue) 76%, var(--fg));
 }
 
-html[data-design="axs"] details.acc details.acc.sub {
+html[data-design="skyline"] details.acc details.acc.sub {
   margin: 5px 8px;
   border-top: 1px solid var(--border);
   border-radius: 0;
 }
 
-html[data-design="axs"] .nav-group {
+html[data-design="skyline"] .nav-group {
   margin: 3px 9px;
   padding: 8px 9px;
   border-radius: 9px;
   transition: color .15s ease, background .15s ease;
 }
 
-html[data-design="axs"] .nav-group:hover {
+html[data-design="skyline"] .nav-group:hover {
   color: var(--fg-hi);
   background: var(--card);
 }
 
-html[data-design="axs"] .card {
+html[data-design="skyline"] .card {
   margin: 8px 10px;
   padding: 14px;
   border-color: var(--border);
@@ -291,40 +303,40 @@ html[data-design="axs"] .card {
   transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
 
-html[data-design="axs"] .card::before {
+html[data-design="skyline"] .card::before {
   display: none;
 }
 
-html[data-design="axs"] .card:hover {
+html[data-design="skyline"] .card:hover {
   transform: translateY(-2px);
   border-color: #a9c7e6;
   box-shadow: 0 14px 28px rgba(3, 45, 96, .12);
 }
 
-html[data-design="axs"] .card.open {
-  border-color: var(--axs-blue);
+html[data-design="skyline"] .card.open {
+  border-color: var(--skyline-blue);
   box-shadow: 0 0 0 3px rgba(11, 92, 255, .08), 0 12px 28px var(--shadow);
 }
 
-html[data-design="axs"] .side-handle {
+html[data-design="skyline"] .side-handle {
   width: 36px;
   padding: 15px 0;
   border-radius: 0 12px 12px 0;
-  color: var(--axs-blue);
+  color: var(--skyline-blue);
   background: var(--card);
   box-shadow: 0 8px 24px rgba(3, 45, 96, .16);
 }
 
-html[data-design="axs"] #detail {
+html[data-design="skyline"] #detail {
   padding: 24px 28px;
   scroll-behavior: smooth;
 }
 
-html[data-design="axs"] #detail.landing-host {
+html[data-design="skyline"] #detail.landing-host {
   padding: 0;
 }
 
-html[data-design="axs"] .hero {
+html[data-design="skyline"] .hero {
   min-height: min(700px, calc(100vh - 64px));
   padding: clamp(54px, 7vh, 88px) clamp(30px, 6vw, 88px) 52px;
   border: 0;
@@ -332,7 +344,7 @@ html[data-design="axs"] .hero {
     radial-gradient(90% 105% at 86% 3%, #287cff 0%, #0b5cff 34%, #073d99 66%, #032d60 100%);
 }
 
-html[data-design="axs"] .hero::before {
+html[data-design="skyline"] .hero::before {
   content: "";
   position: absolute;
   width: 460px;
@@ -347,19 +359,19 @@ html[data-design="axs"] .hero::before {
   pointer-events: none;
 }
 
-html[data-design="axs"] .hero::after {
+html[data-design="skyline"] .hero::after {
   filter: blur(34px);
   background:
     radial-gradient(42% 48% at 75% 26%, rgba(122, 211, 255, .34), transparent 76%),
     radial-gradient(25% 30% at 20% 88%, rgba(185, 176, 255, .2), transparent 80%);
 }
 
-html[data-design="axs"] .hero-inner,
-html[data-design="axs"] .archsvg-wrap {
+html[data-design="skyline"] .hero-inner,
+html[data-design="skyline"] .archsvg-wrap {
   max-width: 1120px;
 }
 
-html[data-design="axs"] .kicker {
+html[data-design="skyline"] .kicker {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -372,13 +384,13 @@ html[data-design="axs"] .kicker {
   backdrop-filter: blur(8px);
 }
 
-html[data-design="axs"] .kicker::before {
+html[data-design="skyline"] .kicker::before {
   content: "✦";
   color: #fbcb0d;
   font-size: 13px;
 }
 
-html[data-design="axs"] .wordmark {
+html[data-design="skyline"] .wordmark {
   max-width: 800px;
   margin-bottom: 14px;
   font-size: clamp(40px, 6vw, 70px);
@@ -386,24 +398,24 @@ html[data-design="axs"] .wordmark {
   letter-spacing: -2px;
 }
 
-html[data-design="axs"] .hero-sub {
+html[data-design="skyline"] .hero-sub {
   font-size: clamp(18px, 2.1vw, 26px);
   color: #d8edff;
 }
 
-html[data-design="axs"] .hero-body,
-html[data-design="axs"] .hero-ethos {
+html[data-design="skyline"] .hero-body,
+html[data-design="skyline"] .hero-ethos {
   font-size: 15.5px;
 }
 
-html[data-design="axs"] .hero-ethos {
+html[data-design="skyline"] .hero-ethos {
   border-left-color: #7ad3ff;
   background: linear-gradient(90deg, rgba(255, 255, 255, .07), transparent 72%);
   border-radius: 0 12px 12px 0;
   padding: 12px 16px;
 }
 
-html[data-design="axs"] .hero-cta {
+html[data-design="skyline"] .hero-cta {
   padding: 12px 21px;
   border: 1px solid rgba(255, 255, 255, .55);
   border-radius: 12px;
@@ -413,16 +425,16 @@ html[data-design="axs"] .hero-cta {
   transition: transform .18s ease, box-shadow .18s ease;
 }
 
-html[data-design="axs"] .hero-cta:hover {
+html[data-design="skyline"] .hero-cta:hover {
   transform: translateY(-2px);
   box-shadow: 0 20px 42px rgba(3, 24, 60, .3);
 }
 
-html[data-design="axs"] .hero-link {
+html[data-design="skyline"] .hero-link {
   color: #d7edff;
 }
 
-html[data-design="axs"] .hero .intro-card {
+html[data-design="skyline"] .hero .intro-card {
   padding: 18px;
   border-color: rgba(255, 255, 255, .2);
   border-radius: 16px;
@@ -432,102 +444,102 @@ html[data-design="axs"] .hero .intro-card {
   transition: transform .18s ease, background .18s ease, border-color .18s ease;
 }
 
-html[data-design="axs"] .hero .intro-card:hover {
+html[data-design="skyline"] .hero .intro-card:hover {
   transform: translateY(-3px);
   border-color: rgba(255, 255, 255, .45);
   background: rgba(255, 255, 255, .15);
 }
 
-html[data-design="axs"] .landing {
+html[data-design="skyline"] .landing {
   background:
-    linear-gradient(180deg, var(--axs-sky) 0, var(--bg) 520px);
+    linear-gradient(180deg, var(--skyline-sky) 0, var(--bg) 520px);
 }
 
-html[data-design="axs"][data-theme="dark"] .landing {
+html[data-design="skyline"][data-theme="dark"] .landing {
   background: linear-gradient(180deg, #0b2a50 0, var(--bg) 520px);
 }
 
-html[data-design="axs"] .landing section:not(.hero) {
+html[data-design="skyline"] .landing section:not(.hero) {
   max-width: 1180px;
   padding: 64px 34px 10px;
 }
 
-html[data-design="axs"] .landing section:not(.hero) + section:not(.hero) {
+html[data-design="skyline"] .landing section:not(.hero) + section:not(.hero) {
   margin-top: 14px;
 }
 
-html[data-design="axs"] .landing h2 {
+html[data-design="skyline"] .landing h2 {
   color: var(--fg-hi);
   font-size: clamp(25px, 3vw, 38px);
   line-height: 1.15;
   letter-spacing: -1px;
 }
 
-html[data-design="axs"] .landing .lede {
+html[data-design="skyline"] .landing .lede {
   color: var(--muted);
   font-size: 16px;
 }
 
-html[data-design="axs"] .intro-grid,
-html[data-design="axs"] .tiles,
-html[data-design="axs"] .usecases,
-html[data-design="axs"] .ins-grid,
-html[data-design="axs"] .obs-cards {
+html[data-design="skyline"] .intro-grid,
+html[data-design="skyline"] .tiles,
+html[data-design="skyline"] .usecases,
+html[data-design="skyline"] .ins-grid,
+html[data-design="skyline"] .obs-cards {
   gap: 18px;
 }
 
-html[data-design="axs"] .intro-card,
-html[data-design="axs"] .tile,
-html[data-design="axs"] .usecase,
-html[data-design="axs"] .ins-card,
-html[data-design="axs"] .obs-card,
-html[data-design="axs"] .tbl-card,
-html[data-design="axs"] .cells-strip,
-html[data-design="axs"] .tabpanel,
-html[data-design="axs"] .chat,
-html[data-design="axs"] .flow {
+html[data-design="skyline"] .intro-card,
+html[data-design="skyline"] .tile,
+html[data-design="skyline"] .usecase,
+html[data-design="skyline"] .ins-card,
+html[data-design="skyline"] .obs-card,
+html[data-design="skyline"] .tbl-card,
+html[data-design="skyline"] .cells-strip,
+html[data-design="skyline"] .tabpanel,
+html[data-design="skyline"] .chat,
+html[data-design="skyline"] .flow {
   border-color: var(--border);
-  border-radius: var(--axs-radius);
+  border-radius: var(--skyline-radius);
   background: var(--card);
-  box-shadow: var(--axs-shadow);
+  box-shadow: var(--skyline-shadow);
 }
 
-html[data-design="axs"] .intro-card,
-html[data-design="axs"] .tile,
-html[data-design="axs"] .usecase,
-html[data-design="axs"] .ins-card,
-html[data-design="axs"] .obs-card {
+html[data-design="skyline"] .intro-card,
+html[data-design="skyline"] .tile,
+html[data-design="skyline"] .usecase,
+html[data-design="skyline"] .ins-card,
+html[data-design="skyline"] .obs-card {
   transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 
-html[data-design="axs"] .intro-card:hover,
-html[data-design="axs"] .tile:hover,
-html[data-design="axs"] .usecase:hover,
-html[data-design="axs"] .ins-card:hover,
-html[data-design="axs"] .obs-card:hover {
+html[data-design="skyline"] .intro-card:hover,
+html[data-design="skyline"] .tile:hover,
+html[data-design="skyline"] .usecase:hover,
+html[data-design="skyline"] .ins-card:hover,
+html[data-design="skyline"] .obs-card:hover {
   transform: translateY(-3px);
   border-color: #b5cce3;
-  box-shadow: var(--axs-shadow-lift);
+  box-shadow: var(--skyline-shadow-lift);
 }
 
-html[data-design="axs"] .tile::before {
+html[data-design="skyline"] .tile::before {
   display: none;
 }
 
-html[data-design="axs"] .tile-banner {
+html[data-design="skyline"] .tile-banner {
   min-height: 108px;
   border-bottom-color: rgba(255, 255, 255, .15);
 }
 
-html[data-design="axs"] .tile-body {
+html[data-design="skyline"] .tile-body {
   padding: 18px 19px 20px;
 }
 
-html[data-design="axs"] .cells-strip {
+html[data-design="skyline"] .cells-strip {
   padding: 18px 20px;
 }
 
-html[data-design="axs"] button.primary {
+html[data-design="skyline"] button.primary {
   min-height: 38px;
   padding: 7px 16px;
   border-radius: 10px;
@@ -535,192 +547,196 @@ html[data-design="axs"] button.primary {
   transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
 }
 
-html[data-design="axs"] button.primary:hover {
+html[data-design="skyline"] button.primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 11px 24px rgba(11, 92, 255, .24);
 }
 
-html[data-design="axs"] button.ghost,
-html[data-design="axs"] a.ghost,
-html[data-design="axs"] .tab {
+html[data-design="skyline"] button.ghost,
+html[data-design="skyline"] a.ghost,
+html[data-design="skyline"] .tab {
   border-color: var(--border);
   border-radius: 10px;
   background: var(--card);
   transition: color .15s ease, border-color .15s ease, background .15s ease, transform .15s ease;
 }
 
-html[data-design="axs"] button.ghost:hover,
-html[data-design="axs"] a.ghost:hover,
-html[data-design="axs"] .tab:hover {
+html[data-design="skyline"] button.ghost:hover,
+html[data-design="skyline"] a.ghost:hover,
+html[data-design="skyline"] .tab:hover {
   transform: translateY(-1px);
   border-color: #96b9dc;
   background: var(--card2);
 }
 
-html[data-design="axs"] .tab.on {
+html[data-design="skyline"] .tab.on {
   color: #ffffff;
-  border-color: var(--axs-blue);
-  background: var(--axs-blue);
+  border-color: var(--skyline-blue);
+  background: var(--skyline-blue);
   box-shadow: 0 5px 14px rgba(11, 92, 255, .2);
 }
 
-html[data-design="axs"] input,
-html[data-design="axs"] textarea,
-html[data-design="axs"] select {
+html[data-design="skyline"] input,
+html[data-design="skyline"] textarea,
+html[data-design="skyline"] select {
   border-radius: 10px;
   border-color: var(--border);
   background: var(--card);
 }
 
-html[data-design="axs"] input:focus,
-html[data-design="axs"] textarea:focus,
-html[data-design="axs"] select:focus {
-  border-color: var(--axs-blue);
+html[data-design="skyline"] input:focus,
+html[data-design="skyline"] textarea:focus,
+html[data-design="skyline"] select:focus {
+  border-color: var(--skyline-blue);
   box-shadow: 0 0 0 3px rgba(11, 92, 255, .1);
 }
 
-html[data-design="axs"] .guide-drawer {
+html[data-design="skyline"] .guide-drawer {
   border-left-color: var(--border);
   background: var(--card);
   box-shadow: -18px 0 48px rgba(3, 45, 96, .18);
 }
 
-html[data-design="axs"] .gd-head {
+html[data-design="skyline"] .gd-head {
   min-height: 56px;
   background: linear-gradient(110deg, #032d60, #0b5cff);
   color: #ffffff;
 }
 
-html[data-design="axs"] .gd-head .hint {
+html[data-design="skyline"] .gd-head .hint {
   color: #cfe6ff;
 }
 
-html[data-design="axs"] .warm-panel,
-html[data-design="axs"] .dpopover {
+html[data-design="skyline"] .warm-panel,
+html[data-design="skyline"] .dpopover {
   border-color: var(--border);
   border-radius: 16px;
   background: var(--card);
   box-shadow: 0 22px 60px rgba(3, 45, 96, .2);
 }
 
-html[data-design="axs"] .trace:hover,
-html[data-design="axs"] .trace.sel,
-html[data-design="axs"] .target:hover,
-html[data-design="axs"] .ins-cat:hover {
+html[data-design="skyline"] .trace:hover,
+html[data-design="skyline"] .trace.sel,
+html[data-design="skyline"] .target:hover,
+html[data-design="skyline"] .ins-cat:hover {
   background: var(--card2);
 }
 
-html[data-design="axs"] .trace.sel,
-html[data-design="axs"] .target.open {
-  box-shadow: inset 3px 0 0 var(--axs-blue);
+html[data-design="skyline"] .trace.sel,
+html[data-design="skyline"] .target.open {
+  box-shadow: inset 3px 0 0 var(--skyline-blue);
 }
 
-html[data-design="axs"] pre,
-html[data-design="axs"] code {
+html[data-design="skyline"] pre,
+html[data-design="skyline"] code {
   border-radius: 7px;
 }
 
-html[data-design="axs"] table th {
+html[data-design="skyline"] table th {
   color: var(--fg-hi);
   background: color-mix(in srgb, var(--card2) 72%, var(--card));
 }
 
-html[data-design="axs"] .detail-head h2,
-html[data-design="axs"] .tabbar h2,
-html[data-design="axs"] .flow h2,
-html[data-design="axs"] .flow h3 {
+html[data-design="skyline"] .detail-head h2,
+html[data-design="skyline"] .tabbar h2,
+html[data-design="skyline"] .flow h2,
+html[data-design="skyline"] .flow h3 {
   color: var(--fg-hi);
 }
 
 @media (max-width: 900px) {
-  html[data-design="axs"] header {
+  html[data-design="skyline"] header {
     min-height: 58px;
     padding: 9px 12px;
   }
 
-  html[data-design="axs"] header .sub,
-  html[data-design="axs"] header .live,
-  html[data-design="axs"] #modeBadge {
+  html[data-design="skyline"] header .sub,
+  html[data-design="skyline"] header .live,
+  html[data-design="skyline"] #modeBadge {
     display: none !important;
   }
 
-  html[data-design="axs"] .brandmark {
+  html[data-design="skyline"] .brandmark {
     width: 34px;
     height: 34px;
   }
 
-  html[data-design="axs"] main {
+  html[data-design="skyline"] main {
     height: calc(100vh - 58px);
   }
 
-  html[data-design="axs"] #side {
+  html[data-design="skyline"] #side {
     width: min(340px, 88vw);
     box-shadow: 18px 0 48px rgba(3, 45, 96, .22);
   }
 
-  html[data-design="axs"] .hero {
+  html[data-design="skyline"] .hero {
     min-height: auto;
     padding: 50px 22px 38px;
   }
 
-  html[data-design="axs"] .wordmark {
+  html[data-design="skyline"] .wordmark {
     font-size: clamp(38px, 12vw, 56px);
     letter-spacing: -1.4px;
   }
 
-  html[data-design="axs"] .archsvg-wrap {
+  html[data-design="skyline"] .archsvg-wrap {
     margin-top: 26px;
   }
 
-  html[data-design="axs"] .landing section:not(.hero) {
+  html[data-design="skyline"] .landing section:not(.hero) {
     padding: 48px 20px 8px;
   }
 
-  html[data-design="axs"] #detail {
+  html[data-design="skyline"] #detail {
     padding: 16px;
   }
 }
 
 @media (max-width: 560px) {
-  html[data-design="axs"] header .brand {
+  html[data-design="skyline"] header .brand {
     padding-right: 0;
   }
 
-  html[data-design="axs"] header h1 {
+  html[data-design="skyline"] header h1 {
     font-size: 14px;
   }
 
-  html[data-design="axs"] .theme-switch {
+  html[data-design="skyline"] .theme-switch {
+    margin-left: 0;
+  }
+
+  html[data-design="skyline"] .design-theme {
     margin-left: auto;
   }
 
-  html[data-design="axs"] .hero-body,
-  html[data-design="axs"] .hero-ethos {
+  html[data-design="skyline"] .hero-body,
+  html[data-design="skyline"] .hero-ethos {
     font-size: 14px;
   }
 
-  html[data-design="axs"] .hero-ctas {
+  html[data-design="skyline"] .hero-ctas {
     align-items: stretch;
     flex-direction: column;
   }
 
-  html[data-design="axs"] .hero-cta {
+  html[data-design="skyline"] .hero-cta {
     width: 100%;
   }
 
-  html[data-design="axs"] .intro-grid,
-  html[data-design="axs"] .tiles,
-  html[data-design="axs"] .usecases,
-  html[data-design="axs"] .ins-grid,
-  html[data-design="axs"] .obs-cards {
+  html[data-design="skyline"] .intro-grid,
+  html[data-design="skyline"] .tiles,
+  html[data-design="skyline"] .usecases,
+  html[data-design="skyline"] .ins-grid,
+  html[data-design="skyline"] .obs-cards {
     grid-template-columns: 1fr;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html[data-design="axs"] *,
-  html[data-design="axs"] *::before,
-  html[data-design="axs"] *::after {
+  html[data-design="skyline"] *,
+  html[data-design="skyline"] *::before,
+  html[data-design="skyline"] *::after {
     scroll-behavior: auto !important;
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;

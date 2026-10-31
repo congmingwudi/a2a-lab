@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A Interop Lab Console</title>
-<!-- Apply the saved theme before first paint so light-mode users see no dark flash. -->
-<script>try { var t = localStorage.getItem("a2a-theme-v2"); document.documentElement.setAttribute("data-theme", t || "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }</script>
+<!-- Apply both saved appearance axes before first paint. Only allow known values. -->
+<script>(() => { try { var root = document.documentElement; var savedTheme = localStorage.getItem("a2a-theme-v2"); var savedDesign = localStorage.getItem("a2a-design-v1"); var forcedDesign = root.getAttribute("data-design-forced"); root.setAttribute("data-theme", savedTheme === "dark" ? "dark" : "light"); if (forcedDesign === "skyline" || savedDesign === "skyline") root.setAttribute("data-design", "skyline"); else root.removeAttribute("data-design"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); } })();</script>
+<link rel="stylesheet" href="/static/skyline-theme.css?v=1">
 <style>
   /* Design system aligned with labs.agentforce.com: their dark palette
      (#0b0b0b / #161616 / #292929), the labs hero — deep-navy radial
@@ -77,7 +78,13 @@
   header .live { margin-left: auto; font-size: 12px; color: var(--muted); }
   header .live.on::before { content: "●"; color: var(--rest); margin-right: 5px; }
 
-  /* theme switch — small segmented toggle in the top-right settings area */
+  /* Independent design + color-mode controls in the top-right settings area. */
+  .design-theme { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px;
+                  color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .03em; }
+  .design-theme select { min-height: 28px; padding: 2px 24px 2px 9px; border: 1px solid var(--border);
+                         border-radius: 999px; background: var(--card); color: var(--fg);
+                         font: 600 11.5px var(--font-ui); cursor: pointer; }
+  .design-theme select:focus-visible { outline: 2px solid var(--hero-link); outline-offset: 2px; }
   .theme-switch { display: inline-flex; align-items: center; gap: 2px; margin-left: 16px;
                   padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); }
   .theme-switch .tbtn { display: inline-flex; align-items: center; justify-content: center;
@@ -1375,7 +1382,8 @@
     header { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
     header .sub { display: none; }
     header .live { margin-left: auto; }
-    .theme-switch { margin-left: 8px; }
+    .design-theme { margin-left: 0; }
+    .theme-switch { margin-left: 0; }
 
     /* Canvas is a single full-width column; the sidebar leaves the grid. */
     main, main.side-closed { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 50px); }
@@ -1445,7 +1453,13 @@
   <span class="sub">cross-platform, cross-hyperscaler agent-to-agent experiments</span>
   <span id="live" class="live" title="Live trace stream — the console's connection to the lab's own backend (/api/stream). When 'live', new wire-trace hops appear here the instant an experiment runs, no refresh needed. It streams under your persona sign-in, so it shows 'sign in for live' until you do.">connecting…</span>
   <span id="modeBadge" class="mode-badge" style="display:none"></span>
-  <div class="theme-switch" role="group" aria-label="Theme">
+  <label class="design-theme" for="designTheme"><span>Theme</span>
+    <select id="designTheme" onchange="setDesignTheme(this.value)">
+      <option value="default">Default</option>
+      <option value="skyline">Skyline</option>
+    </select>
+  </label>
+  <div class="theme-switch" role="group" aria-label="Color mode">
     <button class="tbtn" id="themeLight" onclick="setTheme('light')" title="Light mode" aria-label="Switch to light mode">☀</button>
     <button class="tbtn" id="themeDark" onclick="setTheme('dark')" title="Dark mode" aria-label="Switch to dark mode">☾</button>
   </div>
@@ -2789,11 +2803,12 @@ const logoSvg = key => PLATFORM_LOGOS[key] || "";
 // "Claude (AWS) → Agentforce", where the parenthetical says WHERE the Claude
 // end is hosted; a mark there competes with the Anthropic one two words
 // earlier and adds nothing the word doesn't already say.
-const LOGO_RE = /Salesforce Agentforce|Microsoft Foundry|Google Cloud|Google ADK|Vertex AI|Agent Engine|AWS Strands|Agentforce|Claude|OpenAI|Gemini|Foundry|Microsoft|Google/g;
+const LOGO_RE = /Salesforce Agentforce|Microsoft Foundry|Google Cloud|Google ADK|Vertex AI|Agent Engine|AWS Strands|LangGraph|Claude|Agentforce|OpenAI|Gemini|Foundry|Microsoft|Google/g;
 const LOGO_KEY = {
   "Salesforce Agentforce": "salesforce", "Microsoft Foundry": "microsoft",
   "Google Cloud": "gcloud", "Google ADK": "gcloud", "Vertex AI": "gcloud",
-  "Agent Engine": "gcloud", "AWS Strands": "aws", "Agentforce": "salesforce",
+  "Agent Engine": "gcloud", "AWS Strands": "aws", "LangGraph": "langgraph",
+  "Agentforce": "salesforce",
   "Claude": "anthropic", "OpenAI": "openai", "Gemini": "google",
   "Foundry": "microsoft", "Microsoft": "microsoft", "Google": "gcloud",
 };
@@ -10196,11 +10211,9 @@ function renderMain(force) {
     mainKey = skeletonKey;
     el.innerHTML = `
       <div class="tabbar">
-        <h2>${esc(title)}</h2>
+        <h2>${view.kind === "scenario" ? withLogos(title) : esc(title)}</h2>
         ${viewerRole ? `<span class="badge hosted"
           title="Viewer role — experiments and protocol calls are view-only. Details, traces, observability, and the Lab Guide are all open.">view only</span>` : ""}
-        ${exp && (exp.tags || []).includes("agentcore") ? `<span class="badge aws"
-          title="The Claude end runs self-hosted on AWS Bedrock AgentCore (D26)">aws</span>` : ""}
         ${modeUnmet(exp) ? `<span class="badge hosted"
           title="Needs A2ALAB_MODE=${esc(exp.requires_mode)} — the top-right mode badge shows the active mode">needs ${esc(exp.requires_mode)} mode</span>` : ""}
         <div class="tabs">
@@ -10415,7 +10428,36 @@ async function connectStream() {
 }
 
 // ---------------------------------------------------------------------------
-// Theme (light default, mirrored dark) — persisted in localStorage; the
+// Design theme (Default/Skyline) and color mode are independent persisted axes.
+// `/design/axs` carries a server-forced Skyline marker for that document only;
+// it never overwrites the saved preference, and choosing Default exits to `/`.
+// ---------------------------------------------------------------------------
+const DESIGN_KEY = "a2a-design-v1";
+const forcedDesign = document.documentElement.getAttribute("data-design-forced");
+const applyDesignTheme = design => {
+  const skyline = forcedDesign === "skyline" || design === "skyline";
+  document.documentElement.toggleAttribute("data-design", skyline);
+  if (skyline) document.documentElement.setAttribute("data-design", "skyline");
+  const select = document.getElementById("designTheme");
+  if (select) select.value = skyline ? "skyline" : "default";
+};
+window.setDesignTheme = design => {
+  const normalized = design === "skyline" ? "skyline" : "default";
+  if (forcedDesign === "skyline") {
+    if (normalized === "default") window.location.assign("/");
+    else applyDesignTheme("skyline");
+    return;
+  }
+  try { localStorage.setItem(DESIGN_KEY, normalized); } catch { /* private mode */ }
+  applyDesignTheme(normalized);
+};
+(() => {
+  let saved = null;
+  try { saved = localStorage.getItem(DESIGN_KEY); } catch { /* ignore */ }
+  applyDesignTheme(saved === "skyline" ? "skyline" : "default");
+})();
+
+// Color mode (light default, mirrored dark) — persisted in localStorage; the
 // data-theme attribute is set pre-paint by the inline <head> script.
 // Key is versioned ("a2a-theme-v2"): the legacy "a2a-theme" key may hold a
 // "dark" value written by the old dark-default init, which would silently

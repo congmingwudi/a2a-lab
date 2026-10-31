@@ -4313,3 +4313,36 @@ behavior, APIs, local storage and role gates without duplicating the SPA. A late
 is required to promote or replace the released theme; that promotion would need a full
 console image rebuild because `src/` is baked into the image. A visual-only route on the
 same console component does not change the deployment map.
+
+## 2026-10-31 — D98: promote Skyline as an optional console theme
+
+**Context.** D97 deliberately isolated the AXS-inspired design study at `/design/axs` and
+left `/` and `/guide` unchanged until the operator reviewed it. The operator approved the
+study under the product name **Skyline** and asked to compare it directly with the released
+design from the normal console header. The same change also needs to make main-canvas
+experiment identity match the Control Panel: platform marks belong in the title, while the
+sporadic `aws` badge is inconsistent and carries Claude-specific copy on Strands scenarios.
+Codex proposed the promotion and an actual Claude Opus headless critique verified the source,
+required explicit alias precedence, distinct accessible control names, invalid-value handling,
+and complete LangGraph title matching before implementation.
+
+**Decision.** Keep the released console design as **Default** and add **Skyline** as a second,
+persisted design choice in the normal header, immediately left of the independent light/dark
+color-mode control. Load a renamed, versioned `skyline-theme.css` on each SPA shell, but keep it
+fully scoped to `data-design="skyline"`; missing or invalid saved values select Default. Preserve
+`/design/axs` as a backward-compatible, data-free Skyline preview alias: its server marker wins
+for that document, opening it does not mutate the saved preference, and choosing Default there
+navigates to `/`. Rename the existing light/dark accessible group to **Color mode** so it is not
+ambiguous with the **Theme** selector.
+
+Render main-canvas scenario titles with the same escaped `withLogos()` helper used by the
+Control Panel and landing tiles, and add the already-defined LangGraph mark to its title matcher.
+Remove only the conditional main-heading `aws` badge; retain `(AWS)` in configured titles and all
+runtime/tag metadata elsewhere. D98 supersedes D97 only where D97 kept `/` and `/guide`
+unchanged and deferred promotion. D97 remains the historical record of the isolated local study.
+
+**Consequences.** Default remains visually unchanged because Skyline CSS has no effect without
+its design marker. Theme and color mode persist independently, are applied before first paint,
+and can be switched without losing the current SPA view. `/design/axs` bookmarks continue to
+work without silently changing the normal-route preference. Publishing these `src/` changes
+requires a full console image rebuild; the component topology and deployment map do not change.

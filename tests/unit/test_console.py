@@ -89,8 +89,8 @@ def test_shell_asks_browsers_to_revalidate(tmp_path, monkeypatch):
         assert r.headers.get("cache-control") == "no-cache", path
 
 
-def test_axs_design_is_an_isolated_public_shell(tmp_path, monkeypatch):
-    """The design study changes only its opt-in document response.
+def test_skyline_theme_is_available_from_every_public_shell(tmp_path, monkeypatch):
+    """Default stays unmarked while the compatibility alias forces Skyline.
 
     Like /guide, the data-free shell must load before browser JavaScript can
     attach the persona JWT held in localStorage. Live-data routes stay gated.
@@ -101,22 +101,23 @@ def test_axs_design_is_an_isolated_public_shell(tmp_path, monkeypatch):
 
     themed = client.get("/design/axs")
     assert themed.status_code == 200
-    assert 'data-design="axs"' in themed.text
-    assert 'href="/static/axs-theme.css"' in themed.text
+    assert '<html lang="en" data-design="skyline" data-design-forced="skyline">' in themed.text
+    assert 'href="/static/skyline-theme.css?v=1"' in themed.text
 
     for path in ("/", "/guide"):
         normal = client.get(path)
         assert normal.status_code == 200
-        assert 'data-design="axs"' not in normal.text
-        assert 'href="/static/axs-theme.css"' not in normal.text
+        assert '<html lang="en">' in normal.text
+        assert 'data-design-forced="skyline"' not in normal.text
+        assert 'href="/static/skyline-theme.css?v=1"' in normal.text
 
     assert client.get("/api/traces").status_code == 401
 
 
-def test_axs_theme_is_scoped_accessible_and_keeps_semantic_colors():
-    css = Path("src/console/static/axs-theme.css").read_text()
-    assert 'html[data-design="axs"]' in css
-    assert 'html[data-design="axs"] main.side-closed' in css
+def test_skyline_theme_is_scoped_accessible_and_keeps_semantic_colors():
+    css = Path("src/console/static/skyline-theme.css").read_text()
+    assert 'html[data-design="skyline"]' in css
+    assert 'html[data-design="skyline"] main.side-closed' in css
     assert "prefers-reduced-motion: reduce" in css
 
     semantic_tokens = (
@@ -132,6 +133,28 @@ def test_axs_theme_is_scoped_accessible_and_keeps_semantic_colors():
         "--chip-foundry:",
     )
     assert not [token for token in semantic_tokens if token in css]
+
+
+def test_theme_controls_bootstrap_and_experiment_heading_identity():
+    html = Path("src/console/static/index.html").read_text()
+
+    assert '<select id="designTheme"' in html
+    assert '<option value="default">Default</option>' in html
+    assert '<option value="skyline">Skyline</option>' in html
+    assert 'aria-label="Color mode"' in html
+    assert 'aria-label="Theme"' not in html
+
+    # Both pre-paint and runtime paths allow-list Skyline. Garbage storage
+    # values therefore leave the default design marker absent.
+    assert 'savedDesign === "skyline"' in html
+    assert 'forcedDesign === "skyline"' in html
+    assert 'localStorage.getItem("a2a-design-v1")' in html
+    assert 'window.location.assign("/")' in html
+
+    assert 'LangGraph|Claude|Agentforce' in html
+    assert '"LangGraph": "langgraph"' in html
+    assert '<h2>${view.kind === "scenario" ? withLogos(title) : esc(title)}</h2>' in html
+    assert 'includes("agentcore") ? `<span class="badge aws"' not in html
 
 
 def test_targets_listed(tmp_path, monkeypatch):
