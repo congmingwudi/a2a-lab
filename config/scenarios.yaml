@@ -337,6 +337,11 @@ scenarios:
   account-brief-async:
     group: claude-agentforce
     title: "Account Intelligence Brief (async)"
+    title_identity:
+      - platform: claude
+        role: researcher
+      - platform: agentforce
+        role: delivery-org
     summary: >-
       A scheduled Claude Managed Agent runs long running tasks and updates
       Salesforce daily.
@@ -562,7 +567,7 @@ scenarios:
   strands-to-agentforce:
     af_channel_toggle: true
     group: strands-agentforce
-    title: "AWS Strands (AWS) → Agentforce"
+    title: "AWS Strands → Agentforce"
     summary: >-
       An AWS Strands agent calls the Agentforce Agent mid-answer.
     description: >-
@@ -1478,6 +1483,7 @@ scenarios:
   supplier-disruption-cma:
     group: fan-out
     title: "Supplier Disruption — orchestrated by Claude (Managed Agents)"
+    fanout_platforms: [adk, foundry, openai]
     summary: >
       An Anthropic Managed Agent orchestrates three business-unit agents on
       three platforms — Google ADK, Microsoft Foundry and OpenAI — then writes
@@ -1671,6 +1677,7 @@ scenarios:
   supplier-disruption-adk:
     group: fan-out
     title: "Supplier Disruption — orchestrated by Google ADK (ParallelAgent)"
+    fanout_platforms: [adk, foundry, openai]
     summary: >
       The SAME scenario and the same three business-unit agents, orchestrated by
       Google ADK on Vertex AI Agent Engine. Here the fan-out is DECLARED in the
@@ -1819,6 +1826,7 @@ scenarios:
   supplier-disruption-agentforce:
     group: fan-out
     title: "Supplier Disruption — orchestrated by Agentforce"
+    fanout_platforms: [adk, foundry, openai]
     summary: >
       The SAME scenario and the same three business-unit agents, orchestrated
       by an Agentforce agent authored in Agent Script (D14). This is the third

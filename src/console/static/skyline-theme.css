@@ -153,6 +153,14 @@ html[data-design="skyline"] .theme-switch .tbtn.on {
   box-shadow: 0 2px 8px var(--shadow);
 }
 
+html[data-design="skyline"] .title-icons {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card2) 76%, transparent);
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
 html[data-design="skyline"] .guide-btn,
 html[data-design="skyline"] .gear-btn {
   min-height: 36px;

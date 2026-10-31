@@ -1,4 +1,5 @@
 import pytest
+import yaml
 
 import importlib
 import json
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, AgentResponse
 from interop.registry import Registry, Target
+from orchestration.agents import LEG_AGENTS
 
 
 def make_app(trace_dir, monkeypatch, registry=None):
@@ -154,8 +156,72 @@ def test_theme_controls_bootstrap_and_experiment_heading_identity():
 
     assert 'LangGraph|Claude|Agentforce' in html
     assert '"LangGraph": "langgraph"' in html
-    assert '<h2>${view.kind === "scenario" ? withLogos(title) : esc(title)}</h2>' in html
+    assert '<h2>${view.kind === "scenario" ? scenarioTitleHtml(exp) : targetTitleHtml(exp)}</h2>' in html
     assert 'includes("agentcore") ? `<span class="badge aws"' not in html
+
+
+def test_d99_platform_identity_contract_and_shared_renderers():
+    scenarios = yaml.safe_load(Path("config/scenarios.yaml").read_text())["scenarios"]
+    targets = yaml.safe_load(Path("config/targets.yaml").read_text())["targets"]
+    html = Path("src/console/static/index.html").read_text()
+
+    # Account Brief identity describes the actual run roles: Claude researches,
+    # Salesforce receives the brief. It must not imply an Agentforce call.
+    assert scenarios["account-brief-async"]["title_identity"] == [
+        {"platform": "claude", "role": "researcher"},
+        {"platform": "agentforce", "role": "delivery-org"},
+    ]
+
+    expected_legs = {agent.platform for agent in LEG_AGENTS}
+    assert expected_legs == {"adk", "foundry", "openai"}
+    for name in (
+        "supplier-disruption-cma",
+        "supplier-disruption-adk",
+        "supplier-disruption-agentforce",
+    ):
+        scenario = scenarios[name]
+        assert set(scenario["fanout_platforms"]) == expected_legs
+        agent_platforms = {
+            targets[agent["target"]]["platform"]
+            for agent in scenario["agents"]
+            if not agent["title"].startswith("Orchestrator")
+        }
+        assert agent_platforms == expected_legs
+
+    configured_platforms = {target["platform"] for target in targets.values()}
+    expected_marks = {
+        "claude": "anthropic",
+        "agentforce": "salesforce",
+        "openai": "openai",
+        "adk": "gcloud",
+        "foundry": "microsoft",
+        "strands": "aws",
+        "langgraph": "langgraph",
+        "guide": "aws",
+        "mulesoft": None,
+    }
+    assert configured_platforms == set(expected_marks)
+    for platform, mark in expected_marks.items():
+        value = "null" if mark is None else f'"{mark}"'
+        assert f'{platform}: {value}' in html
+
+    declared = {
+        item["platform"] for item in scenarios["account-brief-async"]["title_identity"]
+    }
+    declared.update(scenarios["supplier-disruption-cma"]["fanout_platforms"])
+    assert declared <= configured_platforms
+
+    assert 'function scenarioTitleHtml(s)' in html
+    assert '<h3>${scenarioTitleHtml(s)}</h3>' in html
+    assert '<div class="tile-head"><h3>${scenarioTitleHtml(s)}</h3>' in html
+    assert 'function targetTitleHtml(t)' in html
+    assert '<span class="tname mono">${targetTitleHtml(t)}' in html
+    assert 'role="img" aria-label="${esc(label)}"' in html
+    assert 'const seen = new Set();' in html
+    assert 'if (!mark || seen.has(mark)) return "";' in html
+
+    assert scenarios["strands-to-agentforce"]["title"] == "AWS Strands → Agentforce"
+    assert scenarios["agentforce-to-strands"]["title"] == "Agentforce → AWS Strands (AWS)"
 
 
 def test_targets_listed(tmp_path, monkeypatch):

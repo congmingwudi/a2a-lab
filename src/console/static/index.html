@@ -173,6 +173,11 @@
   .plogo.awslogo { width: 23px; }
   .pmark { white-space: nowrap; }          /* a mark never wraps off its name */
   .pmark + .pmark { margin-left: 2px; }
+  .title-icons { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px;
+                 padding-left: 8px; border-left: 1px solid var(--border-hi); white-space: nowrap; }
+  .title-icons .plogo { margin-right: 0; }
+  .target .title-icons, .tabbar h2 > .title-icons:first-child { margin-left: 0; padding-left: 0;
+                                                                border-left: 0; }
   .warm-row > .plogo { margin-right: 0; }  /* the flex row supplies the gap */
   /* Section marks in the Control Panel headings — same optical weight as the
      heading text, so they read as part of the label rather than as buttons. */
@@ -2719,7 +2724,7 @@ function scenarioCardHtml(s) {
   return `
     <div class="card ${soon ? "soon" : ""} ${isOpen ? "open" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
       <div class="head">
-        <h3>${withLogos(s.title || s.name)}</h3>
+        <h3>${scenarioTitleHtml(s)}</h3>
         ${statusHtml("scn:" + s.name, "status")}
       </div>
       <p>${esc(s.summary || s.description || "")}</p>
@@ -2790,6 +2795,25 @@ const PLATFORM_LOGOS = {
 };
 const logoSvg = key => PLATFORM_LOGOS[key] || "";
 
+// One registry-wide translation from target platform ids to the vendor/cloud
+// marks above. `null` is an explicit text-only decision, not a missing case.
+// Guide keeps the AWS hosting identity already used by Agent Registry; the
+// warm-up shim remains a local AWS override because it is an endpoint role.
+const PLATFORM_MARK = {
+  claude: "anthropic", agentforce: "salesforce", openai: "openai",
+  adk: "gcloud", foundry: "microsoft", strands: "aws",
+  langgraph: "langgraph", guide: "aws", mulesoft: null,
+};
+const PLATFORM_LABEL = {
+  claude: "Anthropic Claude", agentforce: "Salesforce Agentforce", openai: "OpenAI",
+  adk: "Google ADK", foundry: "Microsoft Foundry", strands: "AWS Strands",
+  langgraph: "LangGraph", guide: "AWS-hosted Lab Guide", mulesoft: "MuleSoft",
+};
+const TITLE_ROLE_LABEL = {
+  "claude:researcher": "Claude Managed Agents researcher",
+  "agentforce:delivery-org": "Salesforce delivery org",
+};
+
 // ONE pass with ordered alternation, longest name first: "Salesforce
 // Agentforce" and "Microsoft Foundry" take a single mark. Running the
 // patterns in sequence instead would re-match the short name inside the
@@ -2819,6 +2843,41 @@ const LOGO_KEY = {
 function withLogos(text) {
   return esc(String(text || ""))
     .replace(LOGO_RE, m => `<span class="pmark">${logoSvg(LOGO_KEY[m])}${m}</span>`);
+}
+
+// Icon-only marks need one accessible name for the semantic group. Roles in
+// title_identity are deliberate display copy; ordinary platform labels come
+// only from the trusted registry above. A duplicate vendor mark is collapsed
+// only inside this cluster, never against a mark already present in the title.
+function titleIconGroupHtml(items, groupLabel) {
+  const seen = new Set();
+  const labels = [];
+  const icons = (items || []).map(item => {
+    const platform = typeof item === "string" ? item : item && item.platform;
+    const mark = Object.prototype.hasOwnProperty.call(PLATFORM_MARK, platform)
+      ? PLATFORM_MARK[platform] : undefined;
+    if (!mark || seen.has(mark)) return "";
+    seen.add(mark);
+    const role = typeof item === "object" && item ? item.role : "";
+    labels.push(TITLE_ROLE_LABEL[`${platform}:${role}`] || PLATFORM_LABEL[platform]);
+    return logoSvg(mark);
+  }).join("");
+  if (!icons || !labels.length) return "";
+  const label = `${groupLabel}: ${labels.join(", ")}`;
+  return `<span class="title-icons" role="img" aria-label="${esc(label)}" title="${esc(label)}">${icons}</span>`;
+}
+
+function scenarioTitleHtml(s) {
+  if (!s) return "";
+  return withLogos(s.title || s.name)
+    + titleIconGroupHtml(s.title_identity, "Experiment identity")
+    + titleIconGroupHtml(s.fanout_platforms, "Fan-out units");
+}
+
+function targetTitleHtml(t) {
+  if (!t) return "";
+  const icons = titleIconGroupHtml([t.platform], "Platform");
+  return `${icons}${icons ? " " : ""}${esc(t.name)}`;
 }
 
 function tagChipsHtml(tags) {
@@ -2885,9 +2944,8 @@ function renderTargets() {
     const isOpen = view && view.type === "experiment" && view.kind === "cell" && view.name === t.name;
     return `
     <div class="target ${isOpen ? "open" : ""}" onclick="openExperiment('cell', '${esc(t.name)}')">
-      <span class="badge ${t.protocol}">${t.protocol}</span>
-      <span class="tname mono">
-        <span title="platform: ${esc(t.platform)}">${esc(t.name)}</span>
+      <span class="badge ${esc(t.protocol)}">${esc(t.protocol)}</span>
+      <span class="tname mono">${targetTitleHtml(t)}
         <span class="st">${esc(t.status)}</span>
       </span>
       ${r && r.state === "running" ? `<span class="spin">running…</span>` : statusHtml("cell:" + t.name, "result")}
@@ -7872,9 +7930,8 @@ Is that server running? scripts/run_local.sh starts the full stack.</pre></div>`
 function registryTile(a) {
   // The platform mark: the VENDOR's cloud (D-system), not the model spark —
   // ADK/guide are on a cloud, agentforce is Salesforce, claude is Anthropic.
-  const platLogoKey = { claude: "anthropic", openai: "openai", adk: "gcloud",
-    foundry: "microsoft", agentforce: "salesforce", guide: "aws",
-    strands: "aws" }[a.platform] || a.platform;
+  const platLogoKey = Object.prototype.hasOwnProperty.call(PLATFORM_MARK, a.platform)
+    ? PLATFORM_MARK[a.platform] : null;
   const deploys = (a.deployments || []).map(d =>
     `<span class="reg-deploy badge ${esc(d.cloud)}">${logoSvg(d.cloud)}${esc(d.where)}</span>`).join(" ");
   const protos = (a.protocols || []).map(p => `<span class="badge ${esc(p)}">${esc(p)}</span>`).join(" ");
@@ -8859,9 +8916,7 @@ function warmRowHtml(t, anyBusy) {
   // The shim row is an AWS Lambda, so it wears the AWS mark, not Salesforce's.
   // adk warms an Agent Engine runtime — a Google CLOUD asset, so the cloud
   // mark; the spark stays for the model itself.
-  const WARM_LOGO = { claude: "anthropic", openai: "openai", adk: "gcloud",
-    gemini: "google", foundry: "microsoft", agentforce: "salesforce" };
-  const mark = logoSvg(isShim ? "aws" : WARM_LOGO[t.platform]);
+  const mark = logoSvg(isShim ? "aws" : PLATFORM_MARK[t.platform]);
   // A failure that only lives in a tooltip is a failure nobody sees. Show the
   // platform's own words, then what to do about them.
   const failed = last && !last.ok && !start;
@@ -9038,7 +9093,7 @@ function tileHtml(s, i) {
   <div class="tile ${soon ? "soon" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
     <div class="tile-banner" style="${tileBannerStyle(i)}">${pathStripHtml(s.flow)}</div>
     <div class="tile-body">
-      <div class="tile-head"><h3>${withLogos(s.title || s.name)}</h3>
+      <div class="tile-head"><h3>${scenarioTitleHtml(s)}</h3>
         ${soon ? `<span class="badge soon">coming soon</span>` : `<span class="badge rest">live</span>`}</div>
       <p>${esc(s.summary || s.description || "")}</p>
       <div class="tile-foot">${tagChipsHtml(s.tags)}
@@ -10198,7 +10253,6 @@ function renderMain(force) {
   const key = expKey(view.kind, view.name);
   const chat = chats[key];
   const exp = currentExperiment();
-  const title = view.kind === "scenario" ? (exp && (exp.title || exp.name)) || view.name : view.name;
   const soon = view.kind === "scenario" && exp && exp.status !== "live";
   // requires_mode gate: the server 409s a mismatched run — say so up front
   // and disable Send instead of letting the demo hit the refusal blind.
@@ -10212,7 +10266,7 @@ function renderMain(force) {
     mainKey = skeletonKey;
     el.innerHTML = `
       <div class="tabbar">
-        <h2>${view.kind === "scenario" ? withLogos(title) : esc(title)}</h2>
+        <h2>${view.kind === "scenario" ? scenarioTitleHtml(exp) : targetTitleHtml(exp)}</h2>
         ${viewerRole ? `<span class="badge hosted"
           title="Viewer role — experiments and protocol calls are view-only. Details, traces, observability, and the Lab Guide are all open.">view only</span>` : ""}
         ${modeUnmet(exp) ? `<span class="badge hosted"

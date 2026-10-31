@@ -3659,3 +3659,11 @@ D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` a
    Default/Skyline × light/dark evidence and hand the completed batch to Claude for cross-review.
 7. ⏳ Correct the shared `agentcore` tag-chip tooltip so Strands cards no longer describe a
    nonexistent Claude end; keep the chip because it still identifies the hosting runtime.
+8. ⏳ Complete role-accurate scenario heading identity under D99: show Claude + Salesforce for
+   Account Intelligence Brief and the three fan-out unit marks for every Supplier Disruption
+   variant across the Control Panel, landing tiles and main canvas.
+9. ⏳ Add platform marks to protocol-cell target titles in both the Control Panel and main canvas,
+   consolidate the platform-mark registry, and remove the redundant `(AWS)` from the forward
+   `AWS Strands → Agentforce` title.
+10. ⏳ Add configuration-drift, escaping, accessibility and shared-renderer regressions; capture
+    Default/Skyline browser evidence and hand the completed D99 batch to Claude for cross-review.

@@ -4346,3 +4346,39 @@ its design marker. Theme and color mode persist independently, are applied befor
 and can be switched without losing the current SPA view. `/design/axs` bookmarks continue to
 work without silently changing the normal-route preference. Publishing these `src/` changes
 requires a full console image rebuild; the component topology and deployment map do not change.
+
+## 2026-10-31 — D99: complete platform identity across experiment and protocol titles
+
+**Context.** D98 added platform marks to scenario headings when a platform name was already in
+the title. That cannot identify the two systems behind the generic Account Intelligence Brief,
+the three business-unit agents behind Supplier Disruption, or protocol cells whose titles are
+target ids. The operator also identified `AWS Strands (AWS) → Agentforce` as redundant. Codex's
+proposal and an independent Claude Opus critique found two divergent platform-mark maps and
+required role-accurate labels, full target-platform coverage, accessible icon-only groups and
+configuration drift tests before implementation.
+
+**Decision.** Keep display intent explicit and role-bearing. `account-brief-async` declares its
+title identity as the Claude Managed Agents researcher and Salesforce delivery org; it does not
+describe the Agentforce consumer as a called participant. Each Supplier Disruption scenario
+declares the same three fan-out unit platforms (Google ADK, Microsoft Foundry and OpenAI), and
+that icon group remains separate from the orchestrator mark even when both use Google Cloud.
+Validate those declarations against the target registry, runtime `LEG_AGENTS` and scenario agent
+cards so drift fails tests.
+
+Use one complete platform-id-to-mark map for scenario headings, protocol-cell target titles, the
+Agent Registry and warm-up rows. The Lab Guide retains its existing AWS hosting mark; MuleSoft is
+explicitly text-only. “Protocol title” means the selected target/cell title, not the REST/MCP/A2A
+badge, and both its Control Panel row and main-canvas heading take identity only from the target's
+`platform` field. Icon-only groups carry trusted accessible labels. The Agent Registry experiment
+relationship list remains title-text-only because its API does not carry scenario display data.
+
+Remove `(AWS)` only from the operator-named forward title, yielding `AWS Strands → Agentforce`.
+The reverse title remains unchanged in this batch because the requested scope was explicitly the
+forward experiment; that is a deliberate narrow scope, not a claim that its suffix is different.
+Retain hosting qualifiers on non-Strands titles such as `Claude (AWS)` and `OpenAI (AWS)`.
+
+**Consequences.** Control Panel cards, landing tiles and main scenario headings now share one
+renderer, while target rows and protocol-cell headings share platform metadata. The change is
+display/configuration only: flows, targets, protocols and hosting are unchanged. Local validation
+requires a console restart; any hosted publication requires a full image rebuild because both
+`config/` and `src/` are baked into the console image. No deployment-map change is required.
