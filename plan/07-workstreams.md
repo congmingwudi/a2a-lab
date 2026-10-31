@@ -3657,3 +3657,5 @@ D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` a
    complete LangGraph matching and remove the inconsistent Claude-specific `aws` heading badge.
 6. ⏳ Add selector, persistence, alias-precedence, heading and responsive regressions; capture
    Default/Skyline × light/dark evidence and hand the completed batch to Claude for cross-review.
+7. ⏳ Correct the shared `agentcore` tag-chip tooltip so Strands cards no longer describe a
+   nonexistent Claude end; keep the chip because it still identifies the hosting runtime.

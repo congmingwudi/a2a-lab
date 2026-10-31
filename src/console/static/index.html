@@ -6,6 +6,7 @@
 <title>A2A Interop Lab Console</title>
 <!-- Apply both saved appearance axes before first paint. Only allow known values. -->
 <script>(() => { try { var root = document.documentElement; var savedTheme = localStorage.getItem("a2a-theme-v2"); var savedDesign = localStorage.getItem("a2a-design-v1"); var forcedDesign = root.getAttribute("data-design-forced"); root.setAttribute("data-theme", savedTheme === "dark" ? "dark" : "light"); if (forcedDesign === "skyline" || savedDesign === "skyline") root.setAttribute("data-design", "skyline"); else root.removeAttribute("data-design"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); } })();</script>
+<!-- Bump the version on every skyline-theme.css change so deployed browsers refetch it. -->
 <link rel="stylesheet" href="/static/skyline-theme.css?v=1">
 <style>
   /* Design system aligned with labs.agentforce.com: their dark palette
@@ -10444,8 +10445,10 @@ const applyDesignTheme = design => {
 window.setDesignTheme = design => {
   const normalized = design === "skyline" ? "skyline" : "default";
   if (forcedDesign === "skyline") {
-    if (normalized === "default") window.location.assign("/");
-    else applyDesignTheme("skyline");
+    if (normalized === "default") {
+      try { localStorage.setItem(DESIGN_KEY, "default"); } catch { /* private mode */ }
+      window.location.assign("/");
+    } else applyDesignTheme("skyline");
     return;
   }
   try { localStorage.setItem(DESIGN_KEY, normalized); } catch { /* private mode */ }

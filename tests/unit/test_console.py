@@ -149,6 +149,7 @@ def test_theme_controls_bootstrap_and_experiment_heading_identity():
     assert 'savedDesign === "skyline"' in html
     assert 'forcedDesign === "skyline"' in html
     assert 'localStorage.getItem("a2a-design-v1")' in html
+    assert 'localStorage.setItem(DESIGN_KEY, "default")' in html
     assert 'window.location.assign("/")' in html
 
     assert 'LangGraph|Claude|Agentforce' in html
