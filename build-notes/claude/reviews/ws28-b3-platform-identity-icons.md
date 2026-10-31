@@ -178,3 +178,30 @@ scope the reset to that modifier. Recapture Account Brief in Default and Skyline
 3. Anchor platform-map tests to the actual map block and assert Registry/warm-up reuse it.
 4. Capture Skyline target rows/cards while recapturing the Account Brief evidence.
 5. Preserve a plain-text platform hover for text-only MuleSoft targets.
+
+## Round 2
+
+**Verdict: PASS**
+
+Review of response commit `a5c28ff` against `d64b911`; `76bfd11` only advances handoff state.
+The review graded the committed diff and edited no files.
+
+### Reviewer evidence
+
+| Command | Tree | Result |
+|---|---|---|
+| proxy-free `uv run pytest -q` | main checkout | **779 passed, 3 skipped, 6 deselected, 105 warnings in 90.80s** |
+| proxy-free `pytest -q tests/unit/test_console.py --no-sync` | clean detached `a5c28ff` worktree | **94 passed** |
+| `ruff check tests src` | clean detached worktree | **All checks passed** |
+| `git diff d64b911 a5c28ff --check` | committed response | clean |
+
+R1-B1 is fixed: only `targetTitleHtml` passes `lead=true`; the helper emits that modifier only for
+targets; CSS no longer uses `:first-child`; and Default/Skyline screenshots show the restored
+Account Brief gap, separator and complete pill. All five suggestion responses were also verified:
+escaped heading fallbacks, label-map guards, anchored map/reuse tests, Skyline protocol-row evidence,
+and restored platform hover text. Unrelated unstaged work remains outside the commits.
+
+Two non-blocking follow-ups remain: Skyline leading target icons retain the theme's top/right/bottom
+pill decoration while deliberately losing the left edge, and the pre-existing `esc()` helper does
+not encode double quotes for attribute contexts. Both inputs are trusted repo literals/config in
+this batch; neither is a D99 regression or release blocker.
