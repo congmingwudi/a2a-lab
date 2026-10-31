@@ -82,9 +82,9 @@ stylesheet are baked into the image by `COPY src ./src`. The component topology 
 | Finding | Resolution | What changed |
 |---|---|---|
 | Choosing Default on `/design/axs` reapplies a saved Skyline preference after navigation | fixed | Added a failing regression first, then made the explicit Default choice persist `default` before navigating to `/`. Loading the alias and choosing Skyline still do not write storage. |
-| Browser check was not tracked | answered | The implementation-time Playwright spec was an ad hoc evidence harness and was removed after producing the checked-in screenshots. Claude independently reran the same behaviors from a clean worktree using a separate CDP probe. The durable unit regression now covers the missing explicit-Default write. |
+| Browser check was not tracked | disputed (with evidence) | The implementation-time Playwright spec was an ad hoc evidence harness and was removed after producing the checked-in screenshots. Claude independently reran the same behaviors from a clean worktree using a separate CDP probe. The durable unit regression now covers the missing explicit-Default write. |
 | `?v=1` had no bump rule | fixed | Added an adjacent source comment requiring the query version to change on every `skyline-theme.css` edit. |
-| Claude-specific `agentcore` tooltip remains wrong on Strands cards | deferred | Outside D98, which explicitly retains tag metadata. Recorded as new WS28 follow-up item 7 rather than silently broadening B2. |
+| Claude-specific `agentcore` tooltip remains wrong on Strands cards | deferred to D98 / WS28 item 7 | D98 explicitly retains tag metadata. Recorded as new WS28 follow-up item 7 rather than silently broadening B2. |
 
 Focused response evidence:
 

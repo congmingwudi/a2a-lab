@@ -1,4 +1,4 @@
-**Verdict: REQUEST CHANGES**
+**Verdict: PASS**
 
 # WS28 B2 proposal critique — Skyline theme selector and experiment-heading identity
 
@@ -243,3 +243,80 @@ mobile LangGraph heading carries both marks.
   copy and found none. `workstream-honesty`: broader than this batch and reads the Jira board.
   The three new WS28 lines were checked by hand (table above). They stay `⏳` until the verdict
   and the deploy.
+
+## Round 2
+
+Station 5 (cross-review, round 2) of the D79 loop. Claude Code reviewed response commit `fb5f8e8`
+and the handoff `5aceb2d` against every round-1 finding, D98 (`plan/00-decisions.md#L4317`–`#L4348`),
+the source at `5aceb2d` and Codex's response table
+(`build-notes/codex/ws28-b2-skyline-selector.md#L80`–`#L94`). No implementation code was edited.
+Line citations are at `5aceb2d`.
+
+**Verdict: PASS.** The one blocking finding is fixed and reproduced fixed in a browser. The three
+non-blocking findings are fixed, answered or recorded. Nothing new blocks.
+
+### Round-1 findings
+
+| # | Round-1 finding | Response | Verified |
+|---|---|---|---|
+| 1 | Choosing Default on `/design/axs` lands on Skyline when Skyline is saved (blocking) | fixed | The forced branch of `setDesignTheme` now writes `a2a-design-v1=default` (same private-mode guard) before `location.assign("/")` (`src/console/static/index.html#L10445`–`#L10450`). Loading the alias and choosing Skyline there still write nothing (`#L10436`–`#L10444`, `#L10451`–`#L10452`). Probe step E, the exact round-1 repro: `{"path":"/","design":null,"select":"default","saved":"default"}` (round 1 was `design:"skyline"`). The new static assert (`tests/unit/test_console.py#L152`) is red before the fix: the string occurs 0 times at `e0843b5` and once at `5aceb2d`. That makes it a real regression, not a re-labelled pass. |
+| 2 | Browser checks not tracked in the repo | answered: the Playwright spec was ad hoc and removed | This is the second option round 1 offered ("say in the notes that it was ad hoc"), so the finding is answered in substance. Form nit below. The behavioural claims now rest on my independent CDP probe (below) plus the static regression. |
+| 3 | `?v=1` cache-buster has no bump rule | fixed | Adjacent comment: "Bump the version on every skyline-theme.css change so deployed browsers refetch it." (`index.html#L9`). This is a manual rule, which the finding accepted as one of its two options. |
+| 4 | The `agentcore` tag-chip tooltip still claims a Claude end on Strands cards | deferred to WS28 item 7 | New item line appended, existing items 1–6 untouched (`plan/07-workstreams.md#L3660`–`#L3661`). The `jira_sync.py` dry run parses WS28 as 7 items, so the follow-up will be on the board after the next `--apply`. |
+
+### Non-blocking (form only; no change needed for this batch)
+
+- **Response vocabulary.** plan/16 allows exactly *fixed*, *disputed (with evidence)* or
+  *deferred to D<n>* (`plan/16-joint-agent-workflow.md#L32`–`#L34`). Row 2 says "answered" and row 4
+  defers to a WS item rather than a `D<n>`. Both are honest, and D98's "tag metadata is retained"
+  clause is the decision that puts row 4 out of scope. But a future round should use the three
+  words, citing D98 for row 4, so the response table stays machine-readable.
+- **`withLogos` text leak, pre-existing.** The Strands heading's `textContent` reads
+  `"awsAWS Strands (AWS) → Agentforce"`. The aws mark's SVG contributes the text `aws`. Visual
+  output is correct (2 marks, 0 badges), and the same mark renders this way on every `withLogos`
+  surface, so it is not a D98 regression. It is worth checking that the mark is `aria-hidden` when
+  item 7 is picked up.
+
+### What the round-2 probe verified
+
+Headless Chrome over CDP against a console served from a detached worktree at `5aceb2d` with an empty
+environment (`env -i`, `create_console_app --factory`). It exercised the commit under review, not
+the dirty working tree. The probe extends round 1's `/tmp/ws28b2-probe/probe.py` with alias steps
+E2–E5 (`/tmp/ws28b2-r2-probe/probe.py`, a local note, not checked in).
+
+| Step | Observed |
+|---|---|
+| A. fresh `/` | `design:null, select:"default"`; served `<html lang="en">` (no server marker) |
+| C. garbage `a2a-design-v1="<script>"`, `a2a-theme-v2="neon"` | `design:null, theme:"light"` |
+| B. select Skyline, reload | `saved:"skyline"` → reload `design:"skyline"` |
+| F. color mode independent | dark+Skyline and dark+Default both hold |
+| D. alias with saved `default` | `design:"skyline", forced:"skyline", saved:"default"` (no write) |
+| **E. alias with saved `skyline`, choose Default** | **`path:"/", design:null, select:"default", saved:"default"`** |
+| E2. reload `/` | still Default |
+| E3. re-open alias | forced Skyline, `saved:"default"` (bookmark still works, no write) |
+| E4. choose Skyline on alias, then `/` | applies on alias, `saved` stays `default`; `/` is Default |
+| E5. no saved value, alias, choose Default | lands on `/` Default, `saved:"default"` |
+| Headings, both designs | Claude (AWS)→Agentforce, LangGraph→Agentforce, Agentforce→LangGraph, AWS Strands→Agentforce: 2 marks, 0 `.badge.aws` |
+| 390px header | `scrollWidth` 390, no overflow |
+| JS exceptions | none (`Runtime.exceptionThrown` empty across every navigation) |
+
+### Evidence rerun
+
+- `uv run pytest -q` with `ALL_PROXY`/`HTTP(S)_PROXY` (both cases) unset, working tree as found:
+  **778 passed, 3 skipped, 6 deselected**, 105 dependency deprecation warnings, exit 0. Same count
+  as round 1: the response added an assertion to the existing test, not a new test.
+- `tests/unit/test_console.py` in the clean `5aceb2d` worktree: **93 passed**.
+- `uv run ruff check src tests scripts`: passed. `git diff --check 46f7e3e 5aceb2d`: clean.
+- `scripts/jira_sync.py` dry run (no `--apply`): WS28 epic parsed with 7 items; nothing created.
+- The dirty working tree's `index.html` hunks (obs Details copy and diagrams at `#L3105`ff,
+  `#L5344`ff, `#L7031`ff, `#L7530`ff) do not overlap the response's hunks at `#L9` and
+  `#L10449`, and were left as found.
+- **Honesty skills: none apply,** for the same reasons as round 1. The response touches no protocol
+  cell, insight, host, identity or dependency. The one `plan/07` change, item 7, was checked by
+  hand above.
+
+### Before deploy (operator)
+
+This is unchanged from the implementer notes. A **full** console rebuild (`deploy/console/deploy_console.sh`,
+no `--skip-build`) is needed, because `index.html`, `app.py` and the renamed `skyline-theme.css`
+are baked in by `COPY src ./src`. B2 is based on the B1 branch, so B1 must merge or ship first.
