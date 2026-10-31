@@ -176,8 +176,8 @@
   .title-icons { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px;
                  padding-left: 8px; border-left: 1px solid var(--border-hi); white-space: nowrap; }
   .title-icons .plogo { margin-right: 0; }
-  .target .title-icons, .tabbar h2 > .title-icons:first-child { margin-left: 0; padding-left: 0;
-                                                                border-left: 0; }
+  .target .title-icons.lead, .tabbar h2 > .title-icons.lead { margin-left: 0; padding-left: 0;
+                                                             border-left: 0; }
   .warm-row > .plogo { margin-right: 0; }  /* the flex row supplies the gap */
   /* Section marks in the Control Panel headings — same optical weight as the
      heading text, so they read as part of the label rather than as buttons. */
@@ -2849,7 +2849,7 @@ function withLogos(text) {
 // title_identity are deliberate display copy; ordinary platform labels come
 // only from the trusted registry above. A duplicate vendor mark is collapsed
 // only inside this cluster, never against a mark already present in the title.
-function titleIconGroupHtml(items, groupLabel) {
+function titleIconGroupHtml(items, groupLabel, lead = false) {
   const seen = new Set();
   const labels = [];
   const icons = (items || []).map(item => {
@@ -2864,7 +2864,7 @@ function titleIconGroupHtml(items, groupLabel) {
   }).join("");
   if (!icons || !labels.length) return "";
   const label = `${groupLabel}: ${labels.join(", ")}`;
-  return `<span class="title-icons" role="img" aria-label="${esc(label)}" title="${esc(label)}">${icons}</span>`;
+  return `<span class="title-icons${lead ? " lead" : ""}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${icons}</span>`;
 }
 
 function scenarioTitleHtml(s) {
@@ -2876,7 +2876,7 @@ function scenarioTitleHtml(s) {
 
 function targetTitleHtml(t) {
   if (!t) return "";
-  const icons = titleIconGroupHtml([t.platform], "Platform");
+  const icons = titleIconGroupHtml([t.platform], "Platform", true);
   return `${icons}${icons ? " " : ""}${esc(t.name)}`;
 }
 
@@ -2945,7 +2945,7 @@ function renderTargets() {
     return `
     <div class="target ${isOpen ? "open" : ""}" onclick="openExperiment('cell', '${esc(t.name)}')">
       <span class="badge ${esc(t.protocol)}">${esc(t.protocol)}</span>
-      <span class="tname mono">${targetTitleHtml(t)}
+      <span class="tname mono" title="platform: ${esc(t.platform)}">${targetTitleHtml(t)}
         <span class="st">${esc(t.status)}</span>
       </span>
       ${r && r.state === "running" ? `<span class="spin">running…</span>` : statusHtml("cell:" + t.name, "result")}
@@ -10266,7 +10266,9 @@ function renderMain(force) {
     mainKey = skeletonKey;
     el.innerHTML = `
       <div class="tabbar">
-        <h2>${view.kind === "scenario" ? scenarioTitleHtml(exp) : targetTitleHtml(exp)}</h2>
+        <h2>${view.kind === "scenario"
+          ? (scenarioTitleHtml(exp) || esc(view.name))
+          : (targetTitleHtml(exp) || esc(view.name))}</h2>
         ${viewerRole ? `<span class="badge hosted"
           title="Viewer role — experiments and protocol calls are view-only. Details, traces, observability, and the Lab Guide are all open.">view only</span>` : ""}
         ${modeUnmet(exp) ? `<span class="badge hosted"

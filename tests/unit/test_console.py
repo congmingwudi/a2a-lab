@@ -156,7 +156,8 @@ def test_theme_controls_bootstrap_and_experiment_heading_identity():
 
     assert 'LangGraph|Claude|Agentforce' in html
     assert '"LangGraph": "langgraph"' in html
-    assert '<h2>${view.kind === "scenario" ? scenarioTitleHtml(exp) : targetTitleHtml(exp)}</h2>' in html
+    assert "scenarioTitleHtml(exp) || esc(view.name)" in html
+    assert "targetTitleHtml(exp) || esc(view.name)" in html
     assert 'includes("agentcore") ? `<span class="badge aws"' not in html
 
 
@@ -201,9 +202,10 @@ def test_d99_platform_identity_contract_and_shared_renderers():
         "mulesoft": None,
     }
     assert configured_platforms == set(expected_marks)
+    mark_block = html.split("const PLATFORM_MARK = {", 1)[1].split("};", 1)[0]
     for platform, mark in expected_marks.items():
         value = "null" if mark is None else f'"{mark}"'
-        assert f'{platform}: {value}' in html
+        assert f'{platform}: {value}' in mark_block
 
     declared = {
         item["platform"] for item in scenarios["account-brief-async"]["title_identity"]
@@ -215,10 +217,20 @@ def test_d99_platform_identity_contract_and_shared_renderers():
     assert '<h3>${scenarioTitleHtml(s)}</h3>' in html
     assert '<div class="tile-head"><h3>${scenarioTitleHtml(s)}</h3>' in html
     assert 'function targetTitleHtml(t)' in html
-    assert '<span class="tname mono">${targetTitleHtml(t)}' in html
+    assert '<span class="tname mono" title="platform: ${esc(t.platform)}">${targetTitleHtml(t)}' in html
     assert 'role="img" aria-label="${esc(label)}"' in html
+    assert 'class="title-icons${lead ? " lead" : ""}"' in html
+    assert ".tabbar h2 > .title-icons.lead" in html
+    assert ".title-icons:first-child" not in html
     assert 'const seen = new Set();' in html
     assert 'if (!mark || seen.has(mark)) return "";' in html
+    assert "PLATFORM_MARK[a.platform]" in html
+    assert 'PLATFORM_MARK[t.platform]' in html
+    assert "WARM_LOGO" not in html
+
+    label_block = html.split("const PLATFORM_LABEL = {", 1)[1].split("};", 1)[0]
+    role_block = html.split("const TITLE_ROLE_LABEL = {", 1)[1].split("};", 1)[0]
+    assert '\\"' not in label_block + role_block
 
     assert scenarios["strands-to-agentforce"]["title"] == "AWS Strands → Agentforce"
     assert scenarios["agentforce-to-strands"]["title"] == "Agentforce → AWS Strands (AWS)"

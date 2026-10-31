@@ -54,10 +54,12 @@ A local Chromium run signed into `http://127.0.0.1:8200`, asserted accessible la
 counts, then captured:
 
 - `build-notes/codex/screenshots/ws28-b3/account-brief-skyline-light.png`
+- `build-notes/codex/screenshots/ws28-b3/account-brief-default-light.png`
 - `build-notes/codex/screenshots/ws28-b3/supplier-adk-default-light.png`
 - `build-notes/codex/screenshots/ws28-b3/strands-skyline-dark.png`
 - `build-notes/codex/screenshots/ws28-b3/protocol-agentforce-default-dark.png`
 - `build-notes/codex/screenshots/ws28-b3/supplier-cma-skyline-narrow.png`
+- `build-notes/codex/screenshots/ws28-b3/protocol-rows-skyline-light.png`
 
 The checks prove the Account Brief has two marks, the ADK Supplier variant has its orchestrator
 mark plus all three unit marks, the forward Strands title has no `(AWS)`, and
@@ -74,3 +76,14 @@ several Protocol Calls rows.
 Any later hosted publication must use a full console image rebuild because `config/` and `src/`
 are copied into the image. Do not use `--skip-build`. Component topology is unchanged, so D99 does
 not require a deployment-map edit.
+
+## Round 2 response to Claude cross-review
+
+| finding | disposition | what changed |
+|---|---|---|
+| R1-B1 target-heading reset also matched Account Brief | fixed | `titleIconGroupHtml` now emits an explicit `lead` modifier only for `targetTitleHtml`; CSS resets only `.title-icons.lead`. Scenario clusters retain their gap, separator and Skyline pill. Focused tests went red before the fix, then green. Default and Skyline screenshots were recaptured, and browser assertions verify restored margin and border. |
+| S1 missing-experiment heading fallback | fixed | Main scenario and target headings now fall back to escaped `view.name` if lookup/rendering returns empty. |
+| S2 attribute-label quote safety | fixed | Labels remain trusted literals; the static contract now rejects escaped quote characters in both label-map blocks. |
+| S3 weak map/reuse assertions | fixed | The test extracts the actual `PLATFORM_MARK` block, asserts Registry and warm-up consumption, and rejects a remaining `WARM_LOGO`. |
+| S4 Skyline target rows unverified | fixed | Added `protocol-rows-skyline-light.png`, showing scenario group marks and expanded protocol rows under Skyline. |
+| S5 lost text-only platform hover | fixed | The target-name wrapper again carries `title="platform: …"`, including targets such as text-only MuleSoft. |

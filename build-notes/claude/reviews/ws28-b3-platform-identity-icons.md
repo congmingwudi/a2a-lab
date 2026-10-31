@@ -122,3 +122,59 @@ desired, the ADR must explain the deliberate asymmetry.
 8. Add accessible labels for icon-only marks.
 9. Name each test mechanism and preserve the existing heading assertion's intent.
 10. Settle the suffix rule for both Strands directions.
+
+## Round 1
+
+**Verdict: REQUEST CHANGES**
+
+Cross-review of implementation commit `d64b911` against parent `e061abd`; `299c9b3` only moves
+handoff state. The review graded the committed diff and edited no repository files.
+
+### Reviewer evidence
+
+| Command | Tree | Result |
+|---|---|---|
+| proxy-free `uv run pytest -q` | main checkout | **779 passed, 3 skipped, 6 deselected, 105 warnings in 90.00s** |
+| same command with `--no-sync` | clean detached `d64b911` worktree | **777 passed, 5 skipped, 6 deselected**; the two additional skips are gitignored `.env` checks |
+| `pytest -q tests/unit/test_console.py` | clean `d64b911` | **94 passed** |
+| `uv run ruff check src tests scripts` | committed diff | **All checks passed** |
+| `git diff d64b911^ d64b911 --check` | committed diff | clean |
+
+The optional `workstream-honesty` skill is not installed in `.claude/skills`; D99 and WS28 items
+8–10 were audited manually. The matrix, insights and architecture honesty passes do not apply.
+
+### Blocking finding R1-B1 — scenario spacing is stripped by the target-heading reset
+
+`src/console/static/index.html:179` resets margin, padding and border for
+`.tabbar h2 > .title-icons:first-child`. It intends to target protocol-cell headings, where
+`targetTitleHtml` puts the icon before the name. CSS `:first-child` ignores text nodes, however, so
+the generic Account Brief title's identity group is also its first element child. In Default the
+cluster loses its 8px gap/separator; in Skyline the more-specific reset beats the theme pill rule
+and removes left padding/border. The committed Account Brief screenshot shows the Anthropic mark
+touching `)` and the missing pill edge.
+
+Required fix: give the leading target group an explicit modifier class from `targetTitleHtml` and
+scope the reset to that modifier. Recapture Account Brief in Default and Skyline.
+
+### Verified correct
+
+- Config drift tests pin Account Brief roles, all three runtime `LEG_AGENTS`, scenario agent-card
+  platforms and all nine target platform ids.
+- Target names/protocols are escaped; label text comes only from trusted JS maps, YAML roles are
+  lookup keys, and `hasOwnProperty` rejects prototype keys.
+- Icon-only groups have correct `role="img"`, `aria-label` and title semantics.
+- Control Panel cards, landing tiles and main headings share `scenarioTitleHtml`; target rows and
+  cell headings share `targetTitleHtml` based only on `t.platform`.
+- Registry and warm-up rows reuse the complete map; Guide remains AWS and MuleSoft is text-only.
+- Account Brief roles are accurate, ADK keeps its orchestrator mark plus all three fan-out marks,
+  and the forward-only Strands rename matches D99 exactly.
+- The implementation commit contains only B3 `index.html` hunks; unrelated dirty work remains
+  outside it. WS28 items 8–10 honestly remain pending.
+
+### Non-blocking suggestions
+
+1. Preserve the old `view.name` heading fallback when the experiment lookup is temporarily absent.
+2. Guard trusted attribute-label literals against future quote characters.
+3. Anchor platform-map tests to the actual map block and assert Registry/warm-up reuse it.
+4. Capture Skyline target rows/cards while recapturing the Account Brief evidence.
+5. Preserve a plain-text platform hover for text-only MuleSoft targets.
