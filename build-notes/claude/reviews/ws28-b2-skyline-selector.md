@@ -137,3 +137,109 @@ changes the scope.
   Dockerfile `COPY` and an exempt static prefix. `workstream-honesty` audits all of
   `plan/07` and reads the Jira board, which is broader than this batch. I checked the WS28 lines
   it would touch by hand instead (item 9 above).
+
+## Round 1
+
+Station 5 (cross-review) of the D79 loop. Claude Code reviewed implementation `e0843b5` and the
+handoff `f705617` against D98 (`plan/00-decisions.md#L4317`–`#L4348`), the corrected proposal
+and the source at `f705617`. No implementation code was edited. All line citations below are at
+`f705617`.
+
+**Verdict: REQUEST CHANGES. One blocking finding.** The batch meets nearly all of D98, and every
+round-0 correction landed. But when Skyline is saved, choosing Default on the legacy alias does
+not select Default. The alias rule that round 0 asked to have pinned down is exactly where this
+fails. I share the blame for the gap: my round-0 recommendation said "the alias never writes
+storage" and did not say what happens when the user explicitly picks Default there.
+
+### Blocking
+
+1. **On `/design/axs`, choosing Default lands on Skyline when Skyline is saved.**
+   `setDesignTheme` handles the forced alias by navigating to `/` without writing anything
+   (`src/console/static/index.html#L10444`–`#L10450`). On `/`, the pre-paint script
+   (`index.html#L8`) and the runtime init (`index.html#L10454`–`#L10458`) then read the saved
+   `a2a-design-v1`. With that value set to `skyline`, the user arrives on `/` with
+   `data-design="skyline"` and the selector reads **Skyline**. The only visible effect of
+   picking Default is a URL change. Reproduced in headless Chrome against a clean worktree of
+   `f705617` (probe below, step E):
+   `{"path":"/","design":"skyline","select":"skyline","saved":"skyline"}`.
+   This breaks D98's own description of the selector, where Default is a persisted design
+   choice (`plan/00-decisions.md#L4329`–`#L4331`). The alias clauses do not forbid the fix. D98
+   says *opening* the alias does not mutate the preference (`#L4334`). The proposal says
+   *selecting Skyline or loading* the alias does not overwrite it
+   (`build-notes/codex/skyline-theme-selector-plan.md#L42`–`#L44`). Neither covers an explicit
+   Default. **Fix:** in the forced branch, persist the explicit choice before leaving. That
+   means `localStorage.setItem(DESIGN_KEY, "default")` (guarded the same way as `#L10451`), then
+   `location.assign("/")`. Loading the alias and choosing Skyline there still write nothing.
+   **Test:** the current check is the static string `'window.location.assign("/")' in html`
+   (`tests/unit/test_console.py#L152`), which passes with the defect present. Add a check that
+   fails today. Either check in the browser check you already ran, or assert in the static test
+   that the forced Default branch writes `a2a-design-v1`, and record the browser result in the
+   notes.
+
+### Non-blocking (answer or defer; none blocks a PASS on its own)
+
+2. **The browser checks that caught the real bug are not in the repo.** The notes say the first
+   Playwright run caught the `var forcedDesign` / `const forcedDesign` collision, which no
+   static test could have seen (`build-notes/codex/ws28-b2-skyline-selector.md#L48`–`#L58`).
+   No spec is tracked (`git ls-files` has no Playwright or CDP spec), so the alias-precedence,
+   garbage-value and persistence claims rest on substring asserts
+   (`tests/unit/test_console.py#L149`–`#L152`). The invalid-value fallback, for instance, is
+   asserted only by the presence of `savedDesign === "skyline"`. Either check the script in
+   under `build-notes/codex/` as reviewer-rerunnable evidence, or say in the notes that it was
+   ad hoc.
+3. **`?v=1` is a manual cache-buster with no rule attached.** `index.html#L9` hardcodes it, and
+   `/static/` still has no cache directive. The rename itself busts the cache this time. The
+   next CSS-only edit will ship under the same `v=1`, with nothing to prompt a bump. Add a
+   one-line comment at the `<link>` ("bump on every skyline-theme.css change"), or derive the
+   value server-side in `shell_html` (`src/console/app.py#L1304`).
+4. **The same wrong tooltip survives on the Control Panel chip (follow-up, outside D98).** D98
+   removes the heading badge partly because its "Claude end runs self-hosted on AWS Bedrock
+   AgentCore" copy is false on Strands scenarios (`plan/00-decisions.md#L4323`–`#L4324`). The
+   identical copy is still on every `agentcore` tag chip (`index.html#L2823`–`#L2825`), so
+   Strands cards in the Control Panel still claim a Claude end. D98 explicitly retains tag
+   metadata (`#L4340`–`#L4341`), so this is not a B2 defect. Record it as a follow-up item, not a
+   silent leftover.
+
+### What the probe verified (held)
+
+| D98 / proposal requirement | Source | Observed (headless Chrome, clean worktree `f705617`) |
+|---|---|---|
+| Missing value selects Default; no server marker on `/` | `index.html#L8`; `app.py#L1304`–`#L1317` | `design:null, select:"default"` |
+| Invalid stored values fall back (both axes) | `index.html#L8`, `#L10454`–`#L10458` | `a2a-design-v1="<script>"`, `a2a-theme-v2="neon"` → `design:null, theme:"light"` |
+| Selector persists Skyline; applied pre-paint on reload | `index.html#L10444`–`#L10453` | `saved:"skyline"` → reload `design:"skyline"` |
+| Color mode independent of design | `index.html#L1462`, `#L10461`ff | dark+Skyline and dark+Default both hold after reload |
+| Alias forces Skyline and does not write storage | `app.py#L1311`–`#L1316`, `#L1331`–`#L1335` | saved `default` stays `default` on `/design/axs`, `design:"skyline"` |
+| Distinct accessible names | `index.html#L1456`–`#L1462` | `<label>` "Theme" + `role=group` "Color mode"; no `aria-label="Theme"` |
+| Two platform marks in main headings; no `aws` badge | `index.html#L2806`–`#L2813`, `#L10214` | Claude (AWS)→Agentforce, LangGraph→Agentforce, Agentforce→LangGraph: 2 marks, 0 `.badge.aws`, in both designs; `strands-to-agentforce` also 2 marks, 0 badge |
+| `withLogos` escapes before splicing SVG (no new injection surface) | `index.html#L2818`–`#L2821` | — (source read) |
+| No JS exceptions after the IIFE scoping fix | `index.html#L8` | `Runtime.exceptionThrown`: none across every probe navigation |
+| Narrow header fits | `index.html#L1385`–`#L1386`; `skyline-theme.css#L709` | 390px: `scrollWidth` 390, select on row 1, color mode wraps to row 2; no overflow |
+| Auth exemption kept and retitled | `app.py#L4867`–`#L4871` | `/design/axs` 200 unauthenticated; test asserts `/api/traces` 401 (`test_console.py#L114`) |
+| Delivery record appended, not reworded | `plan/07-workstreams.md#L3653`–`#L3660` | items 4–6 `⏳`; items 1–3 text unchanged |
+| The D97 isolation test was replaced under an ADR, not weakened | `test_console.py#L92`–`#L114`; D98 `#L4341`–`#L4342` | keeps the "no server-forced marker on `/` and `/guide`" invariant |
+| Committed diff touches only the scoped hunks of `index.html` | `git show e0843b5 -- src/console/static/index.html` | header, bootstrap, `LOGO_RE`/`LOGO_KEY`, heading, design runtime only; the working tree's unrelated obs edits are not in the commit |
+
+Codex's screenshots (`build-notes/codex/screenshots/ws28-b2/`) agree with the probe: Default
+light is the released design, Skyline dark shows the two-mark heading with no badge, and the
+mobile LangGraph heading carries both marks.
+
+### Evidence rerun
+
+- `uv run pytest -q` with `ALL_PROXY`/`HTTP(S)_PROXY` (both cases) unset, working tree as found:
+  **778 passed, 3 skipped, 6 deselected**, 105 dependency deprecation warnings, exit 0. This
+  matches the implementer's count. The earlier baseline was 777; the one new test is
+  `test_theme_controls_bootstrap_and_experiment_heading_identity`.
+- Browser probe: headless Chrome over CDP, driven by a scratch script outside the repo
+  (`/tmp/ws28b2-probe/probe.py`, a local note, not checked in). It ran against a console served
+  from a detached worktree at `f705617` with an empty environment, so it exercised the commit
+  under review and not the dirty working tree. The Playwright MCP browser tool was unavailable
+  in this session (permission denied), so the probe used Chrome's DevTools protocol directly.
+- **Honesty skills: none apply.** `matrix-honesty-sweep`: no protocol cell, `targets.yaml` or
+  `plan/02` change. `insights-audit`: `config/insights.yaml` untouched. `architecture-sweep`: no
+  host, identity or dependency change. Same console component and route, the stylesheet ships
+  under the existing `COPY src ./src`, and `plan/09` needs no entry, as the notes say
+  (`build-notes/codex/ws28-b2-skyline-selector.md#L76`–`#L78`). I grepped `plan/09`,
+  `config/diagrams.yaml`, the guide corpus and `index.html` for stale "design study" or alias
+  copy and found none. `workstream-honesty`: broader than this batch and reads the Jira board.
+  The three new WS28 lines were checked by hand (table above). They stay `⏳` until the verdict
+  and the deploy.
