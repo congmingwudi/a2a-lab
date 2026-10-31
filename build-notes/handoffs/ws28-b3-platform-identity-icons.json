@@ -1,0 +1,25 @@
+{
+  "batch": "ws28-b3-platform-identity-icons",
+  "title": "Complete experiment and protocol platform identity",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": null,
+  "station": "critique",
+  "holder": "claude",
+  "round": 0,
+  "verdict": null,
+  "adr": null,
+  "files": {
+    "plan": "build-notes/codex/platform-identity-icons-plan.md",
+    "notes": {},
+    "verdicts": {}
+  },
+  "history": [
+    {
+      "ts": "2026-10-31T16:49:39+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/platform-identity-icons-plan.md"
+    }
+  ]
+}
