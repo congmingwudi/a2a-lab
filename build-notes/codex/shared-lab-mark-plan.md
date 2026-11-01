@@ -1,5 +1,18 @@
 # WS28 B5 proposal — one shared A2A Interop Lab mark
 
+## D101 settlement
+
+The operator approved the rendered **A2A Exchange Mark** in
+`build-notes/codex/screenshots/ws28-b5/shared-lab-mark-review.png` after the Claude Opus
+critique. Implementation retains the current Default five-stop gradient exactly and uses fixed
+deep-navy `#0b1f33` artwork for 7.2–9.8:1 contrast across those stops. The 20-unit drawing uses
+two radius-2.2 endpoint nodes and two opposing open chevrons with 1.5-unit round-capped strokes.
+The field stays in base CSS to avoid SVG definition IDs. Theme-specific spacing around the mark
+may remain, but no theme may override the mark itself. D101 also includes the required
+`themes.css?v=2` cache bust, selector-level regression coverage, ADR/workstream records and
+browser evidence before cross-review. These settled details supersede looser geometry and ID
+language in the original proposal below.
+
 ## Request
 
 Replace the theme-specific artwork beside `A2A Interop Lab` with one lab-owned mark that is

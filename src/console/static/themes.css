@@ -91,17 +91,6 @@ html[data-design="skyline"] header .brand {
   padding-right: 14px;
 }
 
-html[data-design="skyline"] .brandmark {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 28% 25%, #7ad3ff, transparent 34%),
-    linear-gradient(145deg, #0b5cff 15%, #4a4cf0 58%, #8a2be2 100%);
-  box-shadow: 0 7px 18px rgba(11, 92, 255, .25);
-  position: relative;
-}
-
 html[data-design="skyline"] header h1 {
   color: var(--fg-hi);
   font-size: 15.5px;
@@ -664,11 +653,6 @@ html[data-design="skyline"] .flow h3 {
     display: none !important;
   }
 
-  html[data-design="skyline"] .brandmark {
-    width: 34px;
-    height: 34px;
-  }
-
   html[data-design="skyline"] main {
     height: calc(100vh - 58px);
   }
@@ -894,39 +878,6 @@ html[data-design="parchment"] header {
   background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: blur(16px);
   z-index: 20;
-}
-
-html[data-design="canvas"] .brandmark {
-  width: 31px;
-  height: 31px;
-  border: 1px solid var(--fg);
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, transparent 0 27%, var(--fg) 29% 34%, transparent 36%),
-    conic-gradient(from 45deg, var(--fg) 0 12%, transparent 12% 25%, var(--fg) 25% 37%, transparent 37% 50%, var(--fg) 50% 62%, transparent 62% 75%, var(--fg) 75% 87%, transparent 87%);
-  box-shadow: none;
-}
-
-html[data-design="parchment"] .brandmark {
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--border-hi);
-  border-radius: 50% 45% 52% 42%;
-  background:
-    radial-gradient(circle at 36% 35%, color-mix(in srgb, var(--primary) 52%, transparent), transparent 30%),
-    var(--card2);
-  box-shadow: inset 0 0 0 6px color-mix(in srgb, var(--card) 55%, transparent);
-  transform: rotate(-7deg);
-  position: relative;
-}
-
-html[data-design="parchment"] .brandmark::after {
-  content: "";
-  position: absolute;
-  inset: 9px;
-  border: 1px solid var(--primary);
-  border-radius: 48% 52% 45% 55%;
-  background: color-mix(in srgb, var(--primary) 24%, transparent);
 }
 
 html[data-design="canvas"] header h1,

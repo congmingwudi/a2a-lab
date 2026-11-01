@@ -120,14 +120,14 @@ def test_optional_themes_are_available_from_every_public_shell(tmp_path, monkeyp
     themed = client.get("/design/axs")
     assert themed.status_code == 200
     assert '<html lang="en" data-design="skyline" data-design-forced="skyline">' in themed.text
-    assert 'href="/static/themes.css?v=1"' in themed.text
+    assert re.search(r'href="/static/themes\.css\?v=\d+"', themed.text)
 
     for path in ("/", "/guide"):
         normal = client.get(path)
         assert normal.status_code == 200
         assert '<html lang="en">' in normal.text
         assert 'data-design-forced="skyline"' not in normal.text
-        assert 'href="/static/themes.css?v=1"' in normal.text
+        assert re.search(r'href="/static/themes\.css\?v=\d+"', normal.text)
 
     assert client.get("/api/traces").status_code == 401
 
@@ -157,6 +157,49 @@ def test_optional_themes_are_scoped_accessible_and_keep_semantic_colors():
         "--chip-foundry:",
     )
     assert not [token for token in semantic_tokens if token in css]
+
+
+def test_shared_lab_mark_is_fixed_accessible_and_not_theme_overridden():
+    html = Path("src/console/static/index.html").read_text()
+    css = Path("src/console/static/themes.css").read_text()
+
+    mark = re.search(r'<svg class="brandmark".*?</svg>', html, flags=re.S)
+    assert mark
+    markup = mark.group(0)
+    assert 'width="20"' in markup
+    assert 'height="20"' in markup
+    assert 'viewBox="0 0 20 20"' in markup
+    assert 'aria-hidden="true"' in markup
+    assert 'focusable="false"' in markup
+    assert markup.count('data-part="agent"') == 2
+    assert markup.count('data-part="message"') == 2
+    assert 'stroke="#0b1f33"' in markup
+    assert 'stroke-width="1.5"' in markup
+    assert 'stroke-linecap="round"' in markup
+
+    base_rule = re.search(r"\.brandmark\s*\{(.*?)\}", html, flags=re.S)
+    assert base_rule
+    declarations = base_rule.group(1)
+    for expected in ("display: block", "width: 20px", "height: 20px", "flex: none"):
+        assert expected in declarations
+    assert "#09decb 0%" in declarations
+    assert "#3fc7d8 30%" in declarations
+    assert "#7db9e8 55%" in declarations
+    assert "#a8a2ec 78%" in declarations
+    assert "#c99df0 100%" in declarations
+
+    # The mark is lab identity, not a theme surface. Inspect all selector
+    # headers so overrides nested in media queries and pseudo-elements fail.
+    without_comments = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    selector_groups = re.findall(r"([^{};]+)\{", without_comments)
+    mark_selectors = [
+        selector.strip()
+        for group in selector_groups
+        if not group.strip().startswith("@")
+        for selector in group.split(",")
+        if ".brandmark" in selector
+    ]
+    assert mark_selectors == []
 
 
 def test_optional_theme_scope_check_catches_first_rule_inside_media():

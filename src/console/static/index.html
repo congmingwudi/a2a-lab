@@ -7,7 +7,7 @@
 <!-- Apply both saved appearance axes before first paint. Only allow known values. -->
 <script>(() => { try { var root = document.documentElement; var DESIGNS = ["default", "skyline", "canvas", "parchment"]; var savedTheme = localStorage.getItem("a2a-theme-v2"); var savedDesign = localStorage.getItem("a2a-design-v1"); var forcedDesign = root.getAttribute("data-design-forced"); var design = forcedDesign === "skyline" ? "skyline" : (DESIGNS.includes(savedDesign) ? savedDesign : "default"); root.setAttribute("data-theme", savedTheme === "dark" ? "dark" : "light"); if (design === "default") root.removeAttribute("data-design"); else root.setAttribute("data-design", design); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); } })();</script>
 <!-- Bump the version on every themes.css change so deployed browsers refetch it. -->
-<link rel="stylesheet" href="/static/themes.css?v=1">
+<link rel="stylesheet" href="/static/themes.css?v=2">
 <style>
   /* Design system aligned with labs.agentforce.com: their dark palette
      (#0b0b0b / #161616 / #292929), the labs hero — deep-navy radial
@@ -72,7 +72,7 @@
            border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 2; }
   header .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
   header .brand:hover h1 { color: var(--fg-hi); }
-  .brandmark { width: 20px; height: 20px; border-radius: 6px; flex: none;
+  .brandmark { display: block; width: 20px; height: 20px; border-radius: 6px; flex: none;
                background: linear-gradient(135deg, #09decb 0%, #3fc7d8 30%, #7db9e8 55%, #a8a2ec 78%, #c99df0 100%); }
   header h1 { font-family: var(--font-head); font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .3px; }
   header .sub { color: var(--muted); font-size: 12px; }
@@ -1453,7 +1453,21 @@
 <body>
 <header>
   <div class="brand" onclick="goHome()" title="Back to the lab overview">
-    <span class="brandmark"></span>
+    <svg class="brandmark" width="20" height="20" viewBox="0 0 20 20"
+         aria-hidden="true" focusable="false">
+      <g data-part="message" fill="none" stroke="#0b1f33" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7.5 7.35h5"/>
+        <path d="m11.1 5.95 1.4 1.4-1.4 1.4"/>
+      </g>
+      <g data-part="message" fill="none" stroke="#0b1f33" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12.5 12.65h-5"/>
+        <path d="m8.9 11.25-1.4 1.4 1.4 1.4"/>
+      </g>
+      <circle data-part="agent" cx="3.8" cy="10" r="2.2" fill="#0b1f33"/>
+      <circle data-part="agent" cx="16.2" cy="10" r="2.2" fill="#0b1f33"/>
+    </svg>
     <h1>A2A Interop Lab</h1>
   </div>
   <span class="sub">cross-platform, cross-hyperscaler agent-to-agent experiments</span>

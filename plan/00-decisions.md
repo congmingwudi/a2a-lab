@@ -4420,3 +4420,37 @@ filters or vendor endorsements. Mermaid continues to choose its renderer palette
 independent light/dark axis and is visually checked on Parchment dark. Publishing these `src/`
 and `plan/` changes requires a full console image rebuild; no component topology, Dockerfile
 `COPY`, deployment-map or runtime API change is needed.
+
+## 2026-11-01 — D101: adopt one shared A2A Exchange Mark
+
+**Context.** D98 made theme and color mode independent appearance axes, while D100 added Canvas
+and Parchment as original theme studies under D97's inspiration-without-imitation boundary. Each
+optional theme nevertheless replaced the compact Default gradient tile with different artwork,
+so the lab itself had no stable identity across designs. The operator asked to retain the
+Default mark's blueish color and 20px footprint while giving it a simple agent-to-agent meaning.
+Under the D79 handoff, Codex proposed two agents in bidirectional exchange and rendered it across
+all four themes; the operator approved that visual. Claude Opus confirmed the concept was
+original and legible in principle, then found that white artwork would provide only 1.7–2.3:1
+contrast over the existing gradient and that changing `themes.css` requires an asset-version
+bump.
+
+**Decision.** Adopt the original **A2A Exchange Mark** as the one console identity in Default,
+Skyline, Canvas and Parchment, in light and dark mode. Keep the current 20×20 rounded-square
+field and its exact five-stop `#09decb → #3fc7d8 → #7db9e8 → #a8a2ec → #c99df0` gradient. Draw
+two endpoint nodes and two opposing open-chevron message paths in fixed deep navy `#0b1f33`,
+using 1.5-unit round-capped strokes in a 20-unit view box. The resulting ink contrast is
+7.2–9.8:1 across the field. The inline SVG is decorative beside the visible lab heading and is
+therefore hidden from assistive technology and keyboard focus.
+
+The mark's dimensions, palette, geometry and transform are lab identity and cannot be overridden
+by a theme or responsive rule. Themes may retain spacing and chrome around it. Remove all
+`.brandmark` selectors from `themes.css`, keep the field gradient in base CSS so the SVG needs no
+definition IDs, and bump the versioned asset to `themes.css?v=2`. Tests inspect every optional-
+theme selector header, including media blocks, and use stable `data-part` hooks rather than
+element counts to preserve the two-agent/two-message meaning.
+
+**Consequences.** Header identity is now consistent across every appearance choice without a
+remote asset, font, script or vendor mark. This is a presentation-only change: experiment
+identity, protocols, runtime behavior and hosting are unchanged. Publishing requires the normal
+full console image rebuild because `src/` and `plan/` are baked into that image. No Details-pane,
+Dockerfile `COPY`, architecture diagram or deployment-map change is required.

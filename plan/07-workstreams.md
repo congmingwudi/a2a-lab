@@ -3677,3 +3677,9 @@ D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` a
 14. ✅ Add allow-list, scoping, semantic-color, contrast and forced-alias regressions; capture
     Canvas/Parchment light/dark desktop and narrow evidence plus computed Skyline tokens, then
     hand the completed D100 batch to Claude for cross-review.
+15. ⏳ Adopt the D101 A2A Exchange Mark: two deep-navy agent nodes and opposing message paths on
+    the compact Default blue/cyan-to-lavender field, identical across every theme and mode.
+16. ⏳ Remove every optional-theme and responsive mark override, bump `themes.css` to version 2,
+    and add accessibility, fixed-geometry, stable-part and all-selector regression coverage.
+17. ⏳ Capture actual-size Default/Skyline/Canvas/Parchment light/dark and narrow browser evidence,
+    then hand the completed shared-mark batch to Claude Opus for cross-review.
