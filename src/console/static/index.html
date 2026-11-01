@@ -366,11 +366,9 @@
   .kicker { font: 600 11px var(--font-mono); letter-spacing: 1.6px; text-transform: uppercase;
             color: var(--hero-sub); margin-bottom: 14px; }
   .landing-title { --landing-title-size: clamp(30px, 4.4vw, 46px);
-                   display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
-  .landing-title .landing-brandmark { width: calc(var(--landing-title-size) * .7);
-                                      height: calc(var(--landing-title-size) * .7);
-                                      margin-top: calc(var(--landing-title-size) * .03);
-                                      border-radius: .18em; align-self: flex-start; }
+                   display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px;
+                   font-family: var(--font-head); font-size: var(--landing-title-size); }
+  .landing-title .landing-brandmark { width: 1cap; height: 1cap; border-radius: .18em; }
   .wordmark { font-family: var(--font-head); font-weight: 700; font-size: var(--landing-title-size);
               line-height: 1.08; letter-spacing: .2px; margin: 0;
               background: var(--wordmark-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }

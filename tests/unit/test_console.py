@@ -213,7 +213,13 @@ def test_landing_title_reuses_the_shared_lab_mark():
 
     wrapper = re.search(r"\.landing-title\s*\{(.*?)\}", html, flags=re.S)
     assert wrapper
-    for expected in ("display: flex", "align-items: center", "gap: 12px"):
+    for expected in (
+        "display: flex",
+        "align-items: baseline",
+        "gap: 12px",
+        "font-family: var(--font-head)",
+        "font-size: var(--landing-title-size)",
+    ):
         assert expected in wrapper.group(1)
 
     landing_mark = re.search(
@@ -221,10 +227,8 @@ def test_landing_title_reuses_the_shared_lab_mark():
     )
     assert landing_mark
     for expected in (
-        "width: calc(var(--landing-title-size) * .7)",
-        "height: calc(var(--landing-title-size) * .7)",
-        "margin-top: calc(var(--landing-title-size) * .03)",
-        "align-self: flex-start",
+        "width: 1cap",
+        "height: 1cap",
     ):
         assert expected in landing_mark.group(1)
 
