@@ -367,9 +367,10 @@
             color: var(--hero-sub); margin-bottom: 14px; }
   .landing-title { --landing-title-size: clamp(30px, 4.4vw, 46px);
                    display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
-  .landing-title .landing-brandmark { width: var(--landing-title-size);
-                                      height: var(--landing-title-size);
-                                      border-radius: .26em; }
+  .landing-title .landing-brandmark { width: calc(var(--landing-title-size) * .7);
+                                      height: calc(var(--landing-title-size) * .7);
+                                      margin-top: calc(var(--landing-title-size) * .03);
+                                      border-radius: .18em; align-self: flex-start; }
   .wordmark { font-family: var(--font-head); font-weight: 700; font-size: var(--landing-title-size);
               line-height: 1.08; letter-spacing: .2px; margin: 0;
               background: var(--wordmark-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }

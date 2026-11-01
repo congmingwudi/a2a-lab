@@ -221,8 +221,10 @@ def test_landing_title_reuses_the_shared_lab_mark():
     )
     assert landing_mark
     for expected in (
-        "width: var(--landing-title-size)",
-        "height: var(--landing-title-size)",
+        "width: calc(var(--landing-title-size) * .7)",
+        "height: calc(var(--landing-title-size) * .7)",
+        "margin-top: calc(var(--landing-title-size) * .03)",
+        "align-self: flex-start",
     ):
         assert expected in landing_mark.group(1)
 
