@@ -1,5 +1,15 @@
 # WS28 B4 proposal — OpenAI- and Anthropic-inspired console themes
 
+## D100 settlement
+
+The operator settled D100 after the Claude Opus critique with two original public names:
+**Canvas** for the OpenAI-site-inspired direction and **Parchment** for the
+Anthropic-site-inspired direction. Implementation also includes the reproduced Skyline
+light-token specificity correction, one versioned `themes.css` asset, explicit non-semantic
+primary colors, the generalized four-theme forced-alias behavior, measurable contrast, and
+the complete repository delivery record. This settlement supersedes the vendor-name and
+two-stylesheet details in the original proposal below.
+
 ## Request
 
 Add two more choices to the console's existing Theme selector, one inspired by the current

@@ -91,7 +91,7 @@ def test_shell_asks_browsers_to_revalidate(tmp_path, monkeypatch):
         assert r.headers.get("cache-control") == "no-cache", path
 
 
-def test_skyline_theme_is_available_from_every_public_shell(tmp_path, monkeypatch):
+def test_optional_themes_are_available_from_every_public_shell(tmp_path, monkeypatch):
     """Default stays unmarked while the compatibility alias forces Skyline.
 
     Like /guide, the data-free shell must load before browser JavaScript can
@@ -104,23 +104,42 @@ def test_skyline_theme_is_available_from_every_public_shell(tmp_path, monkeypatc
     themed = client.get("/design/axs")
     assert themed.status_code == 200
     assert '<html lang="en" data-design="skyline" data-design-forced="skyline">' in themed.text
-    assert 'href="/static/skyline-theme.css?v=1"' in themed.text
+    assert 'href="/static/themes.css?v=1"' in themed.text
 
     for path in ("/", "/guide"):
         normal = client.get(path)
         assert normal.status_code == 200
         assert '<html lang="en">' in normal.text
         assert 'data-design-forced="skyline"' not in normal.text
-        assert 'href="/static/skyline-theme.css?v=1"' in normal.text
+        assert 'href="/static/themes.css?v=1"' in normal.text
 
     assert client.get("/api/traces").status_code == 401
 
 
-def test_skyline_theme_is_scoped_accessible_and_keeps_semantic_colors():
-    css = Path("src/console/static/skyline-theme.css").read_text()
-    assert 'html[data-design="skyline"]' in css
-    assert 'html[data-design="skyline"] main.side-closed' in css
+def test_optional_themes_are_scoped_accessible_and_keep_semantic_colors():
+    css = Path("src/console/static/themes.css").read_text()
+    for design in ("skyline", "canvas", "parchment"):
+        assert f'html[data-design="{design}"][data-theme="light"]' in css
+        assert f'html[data-design="{design}"][data-theme="dark"]' in css
     assert "prefers-reduced-motion: reduce" in css
+
+    # Every concrete selector, including selectors nested in @media, must be
+    # rooted in one of the opt-in design markers. At-rules themselves are the
+    # only allowed unscoped block headers.
+    import re
+
+    without_comments = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    selectors = re.findall(r"(?:^|\})([^{}]+)\{", without_comments)
+    bad_selectors = []
+    for selector_group in selectors:
+        selector_group = selector_group.strip()
+        if not selector_group or selector_group.startswith("@"):
+            continue
+        for selector in selector_group.split(","):
+            selector = selector.strip()
+            if selector and not selector.startswith('html[data-design="'):
+                bad_selectors.append(selector)
+    assert bad_selectors == []
 
     semantic_tokens = (
         "--rest:",
@@ -137,22 +156,64 @@ def test_skyline_theme_is_scoped_accessible_and_keeps_semantic_colors():
     assert not [token for token in semantic_tokens if token in css]
 
 
+def test_optional_theme_token_contrast_and_distinct_primary_colors():
+    """Root surfaces remain readable and chrome does not impersonate a platform."""
+    import re
+
+    css = Path("src/console/static/themes.css").read_text()
+
+    def rgb(value):
+        value = value.lstrip("#")
+        return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+
+    def contrast(a, b):
+        def luminance(value):
+            channels = []
+            for channel in rgb(value):
+                level = channel / 255
+                channels.append(level / 12.92 if level <= 0.04045 else ((level + 0.055) / 1.055) ** 2.4)
+            return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+        high, low = sorted((luminance(a), luminance(b)), reverse=True)
+        return (high + 0.05) / (low + 0.05)
+
+    for design in ("skyline", "canvas", "parchment"):
+        for mode in ("light", "dark"):
+            pattern = rf'html\[data-design="{design}"\]\[data-theme="{mode}"\]\s*\{{(.*?)\}}'
+            block = re.search(pattern, css, flags=re.S)
+            assert block, (design, mode)
+            tokens = dict(re.findall(r"--([\w-]+):\s*(#[0-9a-fA-F]{6})", block.group(1)))
+            for surface in ("bg", "card", "card2"):
+                assert contrast(tokens["fg"], tokens[surface]) >= 4.5, (design, mode, surface)
+                assert contrast(tokens["muted"], tokens[surface]) >= 4.5, (design, mode, surface)
+            platform_colors = {
+                "light": ("#2f2f2f", "#bd5a30"),
+                "dark": ("#ececec", "#e07a4f"),
+            }
+            assert tokens["primary"].lower() not in platform_colors[mode]
+
+
 def test_theme_controls_bootstrap_and_experiment_heading_identity():
     html = Path("src/console/static/index.html").read_text()
 
     assert '<select id="designTheme"' in html
     assert '<option value="default">Default</option>' in html
     assert '<option value="skyline">Skyline</option>' in html
+    assert '<option value="canvas">Canvas</option>' in html
+    assert '<option value="parchment">Parchment</option>' in html
     assert 'aria-label="Color mode"' in html
     assert 'aria-label="Theme"' not in html
 
-    # Both pre-paint and runtime paths allow-list Skyline. Garbage storage
-    # values therefore leave the default design marker absent.
-    assert 'savedDesign === "skyline"' in html
+    # Pre-paint and runtime paths share the same literal allow-list contract.
+    # Garbage storage values therefore leave the default marker absent.
+    assert html.count('["default", "skyline", "canvas", "parchment"]') == 2
+    assert 'DESIGNS.includes(savedDesign)' in html
+    assert 'DESIGNS.includes(design)' in html
     assert 'forcedDesign === "skyline"' in html
     assert 'localStorage.getItem("a2a-design-v1")' in html
-    assert 'localStorage.setItem(DESIGN_KEY, "default")' in html
+    assert 'localStorage.setItem(DESIGN_KEY, normalized)' in html
     assert 'window.location.assign("/")' in html
+    assert 'normalized !== "skyline"' in html
 
     assert 'LangGraph|Claude|Agentforce' in html
     assert '"LangGraph": "langgraph"' in html

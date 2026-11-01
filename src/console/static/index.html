@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A Interop Lab Console</title>
 <!-- Apply both saved appearance axes before first paint. Only allow known values. -->
-<script>(() => { try { var root = document.documentElement; var savedTheme = localStorage.getItem("a2a-theme-v2"); var savedDesign = localStorage.getItem("a2a-design-v1"); var forcedDesign = root.getAttribute("data-design-forced"); root.setAttribute("data-theme", savedTheme === "dark" ? "dark" : "light"); if (forcedDesign === "skyline" || savedDesign === "skyline") root.setAttribute("data-design", "skyline"); else root.removeAttribute("data-design"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); } })();</script>
-<!-- Bump the version on every skyline-theme.css change so deployed browsers refetch it. -->
-<link rel="stylesheet" href="/static/skyline-theme.css?v=1">
+<script>(() => { try { var root = document.documentElement; var DESIGNS = ["default", "skyline", "canvas", "parchment"]; var savedTheme = localStorage.getItem("a2a-theme-v2"); var savedDesign = localStorage.getItem("a2a-design-v1"); var forcedDesign = root.getAttribute("data-design-forced"); var design = forcedDesign === "skyline" ? "skyline" : (DESIGNS.includes(savedDesign) ? savedDesign : "default"); root.setAttribute("data-theme", savedTheme === "dark" ? "dark" : "light"); if (design === "default") root.removeAttribute("data-design"); else root.setAttribute("data-design", design); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); } })();</script>
+<!-- Bump the version on every themes.css change so deployed browsers refetch it. -->
+<link rel="stylesheet" href="/static/themes.css?v=1">
 <style>
   /* Design system aligned with labs.agentforce.com: their dark palette
      (#0b0b0b / #161616 / #292929), the labs hero — deep-navy radial
@@ -1463,6 +1463,8 @@
     <select id="designTheme" onchange="setDesignTheme(this.value)">
       <option value="default">Default</option>
       <option value="skyline">Skyline</option>
+      <option value="canvas">Canvas</option>
+      <option value="parchment">Parchment</option>
     </select>
   </label>
   <div class="theme-switch" role="group" aria-label="Color mode">
@@ -10485,24 +10487,28 @@ async function connectStream() {
 }
 
 // ---------------------------------------------------------------------------
-// Design theme (Default/Skyline) and color mode are independent persisted axes.
+// Design theme and color mode are independent persisted axes. Canvas is an
+// original OpenAI-site-inspired study; Parchment is an original
+// Anthropic-site-inspired study. Neither uses vendor assets or brand fonts.
 // `/design/axs` carries a server-forced Skyline marker for that document only;
-// it never overwrites the saved preference, and choosing Default exits to `/`.
+// it wins for that document; choosing any other design saves it and exits to `/`.
 // ---------------------------------------------------------------------------
 const DESIGN_KEY = "a2a-design-v1";
+const DESIGNS = Object.freeze(["default", "skyline", "canvas", "parchment"]);
 const forcedDesign = document.documentElement.getAttribute("data-design-forced");
+const normalizeDesign = design => DESIGNS.includes(design) ? design : "default";
 const applyDesignTheme = design => {
-  const skyline = forcedDesign === "skyline" || design === "skyline";
-  document.documentElement.toggleAttribute("data-design", skyline);
-  if (skyline) document.documentElement.setAttribute("data-design", "skyline");
+  const applied = forcedDesign === "skyline" ? "skyline" : normalizeDesign(design);
+  if (applied === "default") document.documentElement.removeAttribute("data-design");
+  else document.documentElement.setAttribute("data-design", applied);
   const select = document.getElementById("designTheme");
-  if (select) select.value = skyline ? "skyline" : "default";
+  if (select) select.value = applied;
 };
 window.setDesignTheme = design => {
-  const normalized = design === "skyline" ? "skyline" : "default";
+  const normalized = normalizeDesign(design);
   if (forcedDesign === "skyline") {
-    if (normalized === "default") {
-      try { localStorage.setItem(DESIGN_KEY, "default"); } catch { /* private mode */ }
+    if (normalized !== "skyline") {
+      try { localStorage.setItem(DESIGN_KEY, normalized); } catch { /* private mode */ }
       window.location.assign("/");
     } else applyDesignTheme("skyline");
     return;
@@ -10513,7 +10519,7 @@ window.setDesignTheme = design => {
 (() => {
   let saved = null;
   try { saved = localStorage.getItem(DESIGN_KEY); } catch { /* ignore */ }
-  applyDesignTheme(saved === "skyline" ? "skyline" : "default");
+  applyDesignTheme(normalizeDesign(saved));
 })();
 
 // Color mode (light default, mirrored dark) — persisted in localStorage; the

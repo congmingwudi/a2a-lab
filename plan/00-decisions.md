@@ -4382,3 +4382,41 @@ renderer, while target rows and protocol-cell headings share platform metadata. 
 display/configuration only: flows, targets, protocols and hosting are unchanged. Local validation
 requires a console restart; any hosted publication requires a full image rebuild because both
 `config/` and `src/` are baked into the console image. No deployment-map change is required.
+
+## 2026-10-31 — D100: add Canvas and Parchment as optional console themes
+
+**Context.** The operator asked to extend D98's Default/Skyline comparison with designs inspired
+by the current OpenAI and Anthropic public sites. Codex inspected both live sites and proposed
+two isolated skins. An actual Claude Opus headless critique found that Skyline's light root-token
+selector was less specific than the base light-mode selector, so its intended palette was partly
+masked. The critique also found that vendor names would be ambiguous beside the lab's OpenAI and
+Claude platform identities and required generic four-theme handling for D98's `/design/axs`
+compatibility alias. D100 follows D97's inspiration-without-imitation boundary, D98's persisted
+theme architecture, and D99's semantic platform-identity ownership.
+
+**Decision.** Add **Canvas**, an OpenAI-site-inspired sparse monochrome treatment, and
+**Parchment**, an Anthropic-site-inspired warm editorial treatment, as original A2A Lab theme
+names. Use high-level cues only: proportion, neutral palette, surface geometry, type character
+and restrained motion. Do not ship vendor logos, wordmarks, imagery, prose, proprietary fonts,
+exact component copies or exact Anthropic palette/coral values. Combine all optional skins in one
+versioned `themes.css`, fully scoped to `data-design`, while the base stylesheet continues to own
+protocol and platform colors. Canvas uses neutral black/white chrome with a periwinkle focus/bar
+accent; Parchment uses deliberately shifted paper/ink neutrals with a forest primary accent, so
+neither primary control impersonates the OpenAI or Claude platform chip.
+
+Make the design allow-list `default`, `skyline`, `canvas`, `parchment` in both the pre-paint and
+runtime paths. Missing or invalid storage falls back to Default; light/dark remains a separate
+persisted axis. `/design/axs` still forces Skyline for that document and shows Skyline in the
+selector even if another preference is stored. Selecting any non-Skyline design there stores the
+choice and returns to `/`. Raise every optional theme's light and dark root-token blocks above the
+base light selector's specificity, correcting the inherited Skyline cascade defect as part of
+this batch. Require readable neutral tokens, visible focus, reduced-motion behavior, responsive
+layout, and rendered browser evidence in both modes.
+
+**Consequences.** Default remains unchanged and semantic protocol/platform identities retain
+their established colors in every design. All three optional skins add one render-blocking CSS
+request, not one request per theme. Canvas and Parchment are design-study labels, not platform
+filters or vendor endorsements. Mermaid continues to choose its renderer palette from the
+independent light/dark axis and is visually checked on Parchment dark. Publishing these `src/`
+and `plan/` changes requires a full console image rebuild; no component topology, Dockerfile
+`COPY`, deployment-map or runtime API change is needed.
