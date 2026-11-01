@@ -1,4 +1,4 @@
-**Verdict: REQUEST CHANGES**
+**Verdict: PASS**
 
 ## Round 1 — Claude Opus headless critique
 
@@ -80,3 +80,21 @@ Claude confirmed the shipped CSS itself had zero unscoped selectors across 197 r
 all six optional-theme computed token sets matched the handoff, invalid storage and forced-alias
 behavior passed, contrast/boundaries passed by calculation, one 39 KB stylesheet served, and
 desktop/narrow layouts had no horizontal overflow.
+
+## Round 2 — Claude Opus headless cross-review
+
+Both Round 1 blockers are fixed, all five suggestions are addressed, and response commit
+`d0f143a` introduces no regressions. Claude edited no repository files and deleted its temporary
+`/tmp` probes after use.
+
+- Focused console tests: **96 passed**.
+- Full suite: **781 passed, 3 skipped, 6 deselected**.
+- Ruff check and commit-range diff check: passed.
+- The corrected parser caught Claude's unscoped first-rule mutations in all six real media blocks;
+  the real stylesheet has zero unscoped selectors across 193 non-at-rule headers.
+- Browser checks confirmed `3px 10px` live-pill padding in both new themes/modes, readable zoomed
+  Mermaid evidence, visible original Parchment mark detail, serif Architecture hierarchy,
+  parsed platform-chip values, and enforced ≥3:1 boundary/focus contrast.
+
+Non-blocking: publishing still requires a full console rebuild; `themes.css?v=1` remains correct
+because this new combined asset has never been deployed.

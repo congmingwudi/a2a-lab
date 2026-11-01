@@ -3667,13 +3667,13 @@ D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` a
    `AWS Strands → Agentforce` title.
 10. ⏳ Add configuration-drift, escaping, accessibility and shared-renderer regressions; capture
     Default/Skyline browser evidence and hand the completed D99 batch to Claude for cross-review.
-11. ⏳ Add Canvas under D100: an original sparse monochrome theme inspired by the OpenAI site's
+11. ✅ Add Canvas under D100: an original sparse monochrome theme inspired by the OpenAI site's
     high-level spacing, surface and typography principles, without vendor assets or brand fonts.
-12. ⏳ Add Parchment under D100: an original shifted warm-paper and editorial theme inspired by
+12. ✅ Add Parchment under D100: an original shifted warm-paper and editorial theme inspired by
     the Anthropic site's high-level design principles, without exact brand colors or components.
-13. ⏳ Consolidate optional skins into one scoped `themes.css`, generalize the persisted
+13. ✅ Consolidate optional skins into one scoped `themes.css`, generalize the persisted
     four-theme allow-list and `/design/axs` precedence, and correct Skyline's light-token CSS
     specificity defect found by the Claude Opus critique.
-14. ⏳ Add allow-list, scoping, semantic-color, contrast and forced-alias regressions; capture
+14. ✅ Add allow-list, scoping, semantic-color, contrast and forced-alias regressions; capture
     Canvas/Parchment light/dark desktop and narrow evidence plus computed Skyline tokens, then
     hand the completed D100 batch to Claude for cross-review.

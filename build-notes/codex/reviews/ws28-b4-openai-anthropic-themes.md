@@ -123,4 +123,4 @@ Dockerfile change is required because the existing image already copies `src/` a
 | S3 Architecture main heading did not use the selective serif hierarchy | fixed | Added `.arch-title h2` to the Parchment heading group. Browser computed the intended Georgia/Charter/system-serif stack. |
 | S4 platform colors were duplicated in the contrast test | fixed | The test now parses `--chip-openai` and `--chip-claude` from the base dark/light token blocks in `index.html` before comparing theme primaries. |
 | S5 boundary/focus contrast was calculated but not enforced | fixed | Added 3:1 assertions for Canvas/Parchment `--border-hi` and focus tokens against `--card`. Skyline is intentionally excluded because this batch corrects its cascade, not its established lower-contrast border system. |
-| S6 mark WS28 items complete after PASS | deferred to post-PASS handoff | Items 11–14 remain pending until Claude's round-two verdict, then will be marked complete before deploy handoff. |
+| S6 mark WS28 items complete after PASS | fixed | Claude round two returned PASS; WS28 items 11–14 are now complete before the deploy handoff. |
