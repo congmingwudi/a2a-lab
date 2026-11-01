@@ -387,10 +387,13 @@ html[data-design="skyline"] .kicker::before {
   font-size: 13px;
 }
 
+html[data-design="skyline"] .landing-title {
+  --landing-title-size: clamp(40px, 6vw, 70px);
+}
+
 html[data-design="skyline"] .wordmark {
   max-width: 800px;
   margin-bottom: 14px;
-  font-size: clamp(40px, 6vw, 70px);
   line-height: 1;
   letter-spacing: -2px;
 }
@@ -667,8 +670,11 @@ html[data-design="skyline"] .flow h3 {
     padding: 50px 22px 38px;
   }
 
+  html[data-design="skyline"] .landing-title {
+    --landing-title-size: clamp(38px, 12vw, 56px);
+  }
+
   html[data-design="skyline"] .wordmark {
-    font-size: clamp(38px, 12vw, 56px);
     letter-spacing: -1.4px;
   }
 
@@ -1072,6 +1078,14 @@ html[data-design="parchment"] .kicker {
   background: var(--card);
 }
 
+html[data-design="canvas"] .landing-title {
+  --landing-title-size: clamp(44px, 7vw, 82px);
+}
+
+html[data-design="parchment"] .landing-title {
+  --landing-title-size: clamp(45px, 6.7vw, 78px);
+}
+
 html[data-design="canvas"] .wordmark,
 html[data-design="parchment"] .wordmark {
   max-width: 990px;
@@ -1079,14 +1093,12 @@ html[data-design="parchment"] .wordmark {
   color: var(--fg-hi);
   background: none;
   -webkit-text-fill-color: currentColor;
-  font-size: clamp(44px, 7vw, 82px);
   line-height: .98;
   letter-spacing: -3px;
 }
 
 html[data-design="parchment"] .wordmark {
   max-width: 1080px;
-  font-size: clamp(45px, 6.7vw, 78px);
   font-weight: 500;
   line-height: 1.02;
   letter-spacing: -2.7px;
@@ -1402,9 +1414,13 @@ html[data-design="parchment"] .archsvg text[fill="#8fc0e8"] {
     padding: 54px 22px 40px;
   }
 
+  html[data-design="canvas"] .landing-title,
+  html[data-design="parchment"] .landing-title {
+    --landing-title-size: clamp(40px, 12vw, 60px);
+  }
+
   html[data-design="canvas"] .wordmark,
   html[data-design="parchment"] .wordmark {
-    font-size: clamp(40px, 12vw, 60px);
     letter-spacing: -1.8px;
   }
 

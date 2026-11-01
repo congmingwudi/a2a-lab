@@ -221,10 +221,35 @@ def test_landing_title_reuses_the_shared_lab_mark():
     )
     assert landing_mark
     for expected in (
-        "width: clamp(30px, 4.4vw, 46px)",
-        "height: clamp(30px, 4.4vw, 46px)",
+        "width: var(--landing-title-size)",
+        "height: var(--landing-title-size)",
     ):
         assert expected in landing_mark.group(1)
+
+    assert "font-size: var(--landing-title-size)" in html
+
+
+def test_every_design_sizes_the_landing_mark_and_title_from_one_token():
+    html = Path("src/console/static/index.html").read_text()
+    css = Path("src/console/static/themes.css").read_text()
+
+    assert "--landing-title-size: clamp(30px, 4.4vw, 46px)" in html
+    for design, size in (
+        ("skyline", "clamp(40px, 6vw, 70px)"),
+        ("canvas", "clamp(44px, 7vw, 82px)"),
+        ("parchment", "clamp(45px, 6.7vw, 78px)"),
+    ):
+        rule = re.search(
+            rf'html\[data-design="{design}"\] \.landing-title\s*\{{(.*?)\}}',
+            css,
+            flags=re.S,
+        )
+        assert rule
+        assert f"--landing-title-size: {size}" in rule.group(1)
+
+    # Theme CSS may choose the shared size token, but never redraw or
+    # independently resize the lab mark itself.
+    assert ".brandmark" not in css
 
 
 def test_landing_intro_uses_a_responsive_logo_platform_list():
