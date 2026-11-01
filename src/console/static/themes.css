@@ -917,6 +917,16 @@ html[data-design="parchment"] .brandmark {
     var(--card2);
   box-shadow: inset 0 0 0 6px color-mix(in srgb, var(--card) 55%, transparent);
   transform: rotate(-7deg);
+  position: relative;
+}
+
+html[data-design="parchment"] .brandmark::after {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border: 1px solid var(--primary);
+  border-radius: 48% 52% 45% 55%;
+  background: color-mix(in srgb, var(--primary) 24%, transparent);
 }
 
 html[data-design="canvas"] header h1,
@@ -948,6 +958,11 @@ html[data-design="parchment"] .gear-btn {
   background: var(--card);
   color: var(--fg);
   box-shadow: none;
+}
+
+html[data-design="canvas"] header .live,
+html[data-design="parchment"] header .live {
+  padding: 3px 10px;
 }
 
 html[data-design="canvas"] .design-theme select,
@@ -1387,6 +1402,7 @@ html[data-design="parchment"] table th {
 
 html[data-design="parchment"] .detail-head h2,
 html[data-design="parchment"] .tabbar h2,
+html[data-design="parchment"] .arch-title h2,
 html[data-design="parchment"] .flow h2,
 html[data-design="parchment"] .flow h3 {
   font-family: var(--font-head);

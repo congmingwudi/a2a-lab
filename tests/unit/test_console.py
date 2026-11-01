@@ -3,6 +3,7 @@ import yaml
 
 import importlib
 import json
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,21 @@ def make_app(trace_dir, monkeypatch, registry=None):
 
     importlib.reload(console_app)
     return console_app.create_console_app(registry)
+
+
+def unscoped_theme_selectors(css: str) -> list[str]:
+    without_comments = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    selectors = re.findall(r"([^{};]+)\{", without_comments)
+    bad_selectors = []
+    for selector_group in selectors:
+        selector_group = selector_group.strip()
+        if not selector_group or selector_group.startswith("@"):
+            continue
+        for selector in selector_group.split(","):
+            selector = selector.strip()
+            if selector and not selector.startswith('html[data-design="'):
+                bad_selectors.append(selector)
+    return bad_selectors
 
 
 class FakeClient(RemoteAgentClient):
@@ -126,20 +142,7 @@ def test_optional_themes_are_scoped_accessible_and_keep_semantic_colors():
     # Every concrete selector, including selectors nested in @media, must be
     # rooted in one of the opt-in design markers. At-rules themselves are the
     # only allowed unscoped block headers.
-    import re
-
-    without_comments = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    selectors = re.findall(r"(?:^|\})([^{}]+)\{", without_comments)
-    bad_selectors = []
-    for selector_group in selectors:
-        selector_group = selector_group.strip()
-        if not selector_group or selector_group.startswith("@"):
-            continue
-        for selector in selector_group.split(","):
-            selector = selector.strip()
-            if selector and not selector.startswith('html[data-design="'):
-                bad_selectors.append(selector)
-    assert bad_selectors == []
+    assert unscoped_theme_selectors(css) == []
 
     semantic_tokens = (
         "--rest:",
@@ -156,11 +159,15 @@ def test_optional_themes_are_scoped_accessible_and_keep_semantic_colors():
     assert not [token for token in semantic_tokens if token in css]
 
 
+def test_optional_theme_scope_check_catches_first_rule_inside_media():
+    mutated = '@media (max-width: 1px) { body { color: red; } }'
+    assert unscoped_theme_selectors(mutated) == ["body"]
+
+
 def test_optional_theme_token_contrast_and_distinct_primary_colors():
     """Root surfaces remain readable and chrome does not impersonate a platform."""
-    import re
-
     css = Path("src/console/static/themes.css").read_text()
+    html = Path("src/console/static/index.html").read_text()
 
     def rgb(value):
         value = value.lstrip("#")
@@ -177,6 +184,14 @@ def test_optional_theme_token_contrast_and_distinct_primary_colors():
         high, low = sorted((luminance(a), luminance(b)), reverse=True)
         return (high + 0.05) / (low + 0.05)
 
+    base_dark = re.search(r":root\s*\{(.*?)\}", html, flags=re.S)
+    base_light = re.search(r':root\[data-theme="light"\]\s*\{(.*?)\}', html, flags=re.S)
+    assert base_dark and base_light
+    platform_colors = {}
+    for mode, block in (("dark", base_dark), ("light", base_light)):
+        values = dict(re.findall(r"--([\w-]+):\s*(#[0-9a-fA-F]{6})", block.group(1)))
+        platform_colors[mode] = (values["chip-openai"].lower(), values["chip-claude"].lower())
+
     for design in ("skyline", "canvas", "parchment"):
         for mode in ("light", "dark"):
             pattern = rf'html\[data-design="{design}"\]\[data-theme="{mode}"\]\s*\{{(.*?)\}}'
@@ -186,11 +201,14 @@ def test_optional_theme_token_contrast_and_distinct_primary_colors():
             for surface in ("bg", "card", "card2"):
                 assert contrast(tokens["fg"], tokens[surface]) >= 4.5, (design, mode, surface)
                 assert contrast(tokens["muted"], tokens[surface]) >= 4.5, (design, mode, surface)
-            platform_colors = {
-                "light": ("#2f2f2f", "#bd5a30"),
-                "dark": ("#ececec", "#e07a4f"),
-            }
             assert tokens["primary"].lower() not in platform_colors[mode]
+            if design in ("canvas", "parchment"):
+                focus_token = {
+                    "canvas": "canvas-focus",
+                    "parchment": "parchment-focus",
+                }[design]
+                assert contrast(tokens["border-hi"], tokens["card"]) >= 3.0, (design, mode)
+                assert contrast(tokens[focus_token], tokens["card"]) >= 3.0, (design, mode)
 
 
 def test_theme_controls_bootstrap_and_experiment_heading_identity():

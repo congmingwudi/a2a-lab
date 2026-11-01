@@ -52,6 +52,8 @@ headless Chromium at 1440×1000 and 390×844. The ad hoc harness was removed aft
 - `build-notes/codex/screenshots/ws28-b4/parchment-light-narrow.png`
 - `build-notes/codex/screenshots/ws28-b4/canvas-light-experiment.png`
 - `build-notes/codex/screenshots/ws28-b4/parchment-dark-architecture.png`
+- `build-notes/codex/screenshots/ws28-b4/parchment-dark-mermaid-l2.png`
+- `build-notes/codex/screenshots/ws28-b4/parchment-dark-mermaid-l2-zoom.png`
 
 Computed root evidence (all with no horizontal overflow):
 
@@ -87,6 +89,8 @@ Additional browser assertions passed:
   because it would reconcile the entire 285-item Jira board and D100 settlement did not explicitly
   authorize that broad external mutation. Jira therefore remains unchanged pending operator
   approval; no workaround was attempted.
+- Round-one response rerun: console **96 passed**; full suite **781 passed, 3 skipped,
+  6 deselected** in 92.24s; focused Ruff and `git diff --check` passed.
 
 ## Local review
 
@@ -107,3 +111,16 @@ Do not use `--skip-build`; it would publish the prior shell and stylesheet. Afte
 the four selector values, light/dark independence, one experiment Details view, Architecture in
 Parchment dark, `/design/axs` precedence, and `/static/themes.css?v=1`. No deployment-map or
 Dockerfile change is required because the existing image already copies `src/` and `plan/`.
+
+## Round 2 response
+
+| finding | fixed / disputed / deferred | what changed |
+|---|---|---|
+| R1-B1 scope parser skipped the first nested media rule | fixed | Added a mutation regression that failed against the old parser when an unscoped `body` selector was the first rule inside `@media`. The parser now examines every semicolon-free rule header, explicitly skips at-rule headers, and the mutation plus the real 1,500-line stylesheet pass. |
+| R1-B2 live pill text touched its border | fixed | Added theme-scoped `padding: 3px 10px` for Canvas/Parchment `header .live`; recaptured Parchment light. Browser computed padding is exactly `3px 10px`. |
+| S1 Mermaid legibility evidence was too small | fixed | Added the L2 diagram element capture plus a 2,500px zoomed crop where node and edge copy is readable. This is evidence-only browser zoom, not shipped CSS. |
+| S2 Parchment brandmark looked empty | fixed | Added a theme-owned irregular inner ring with the forest primary tint; the recaptured header shows the detail without using a vendor glyph. |
+| S3 Architecture main heading did not use the selective serif hierarchy | fixed | Added `.arch-title h2` to the Parchment heading group. Browser computed the intended Georgia/Charter/system-serif stack. |
+| S4 platform colors were duplicated in the contrast test | fixed | The test now parses `--chip-openai` and `--chip-claude` from the base dark/light token blocks in `index.html` before comparing theme primaries. |
+| S5 boundary/focus contrast was calculated but not enforced | fixed | Added 3:1 assertions for Canvas/Parchment `--border-hi` and focus tokens against `--card`. Skyline is intentionally excluded because this batch corrects its cascade, not its established lower-contrast border system. |
+| S6 mark WS28 items complete after PASS | deferred to post-PASS handoff | Items 11–14 remain pending until Claude's round-two verdict, then will be marked complete before deploy handoff. |

@@ -53,3 +53,30 @@ no preview routes. The following findings must be resolved before implementation
 `src/console/app.py`, `tests/unit/test_console.py`, `AGENTS.md`, `CLAUDE.md`,
 `plan/16-joint-agent-workflow.md`, `plan/07-workstreams.md`, `plan/00-decisions.md`,
 `deploy/console/Dockerfile`, and prior WS28 review files.
+
+**Verdict: REQUEST CHANGES**
+
+## Round 1 — Claude Opus headless cross-review
+
+Claude reran the full suite (**780 passed, 3 skipped, 6 deselected**), Ruff, diff checks, the
+account-identifier test, Jira dry run, its own CSS parser/contrast calculation and Playwright
+checks against localhost. Four of the five proposal blockers were fixed. Two findings block PASS:
+
+1. **The scoping test skips the first rule inside each `@media` block.** Its regex only accepts a
+   header preceded by start-of-file or `}`, while the first nested rule follows `{`. Claude
+   injected an unscoped `body` rule in that position and the test stayed green. Match every rule
+   header, skip at-rule headers explicitly, and add a mutation-style regression for the first
+   nested selector.
+2. **Canvas/Parchment live-status pills lack padding.** The new border and pill radius wrap the
+   base `.live` element, which has no padding, so “sign in for live” / “connecting…” touches the
+   edge in all four desktop captures. Add padding comparable to Skyline and recapture a header.
+
+Non-blocking suggestions: add a readable full-screen/cropped Parchment Mermaid capture; strengthen
+the Parchment brandmark's inner detail; consistently apply selective serif hierarchy to the
+Architecture heading; derive platform colors in the test instead of duplicating their hex values;
+and enforce 3:1 input-boundary/focus contrast. After PASS, mark WS28 items 11–14 complete.
+
+Claude confirmed the shipped CSS itself had zero unscoped selectors across 197 rule headers,
+all six optional-theme computed token sets matched the handoff, invalid storage and forced-alias
+behavior passed, contrast/boundaries passed by calculation, one 39 KB stylesheet served, and
+desktop/narrow layouts had no horizontal overflow.
