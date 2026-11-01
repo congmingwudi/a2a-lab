@@ -1,0 +1,25 @@
+{
+  "batch": "ws28-b6-landing-exchange-mark",
+  "title": "Place the A2A Exchange Mark on the landing title",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": null,
+  "station": "critique",
+  "holder": "claude",
+  "round": 0,
+  "verdict": null,
+  "adr": null,
+  "files": {
+    "plan": "build-notes/codex/landing-exchange-mark-plan.md",
+    "notes": {},
+    "verdicts": {}
+  },
+  "history": [
+    {
+      "ts": "2026-11-01T18:27:50+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/landing-exchange-mark-plan.md"
+    }
+  ]
+}
