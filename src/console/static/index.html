@@ -127,8 +127,6 @@
                           list-style: none; display: flex; align-items: center; gap: 8px;
                           position: sticky; top: 0; background: var(--sidebar); z-index: 1; }
   details.acc > summary::-webkit-details-marker { display: none; }
-  details.acc > summary::before { content: "▸"; font-size: 10px; transition: transform .15s ease; }
-  details.acc[open] > summary::before { transform: rotate(90deg); }
   details.acc > summary:hover { color: var(--fg); }
   details.acc > summary .count { margin-left: auto; font: 600 10.5px var(--font-mono); color: var(--muted);
                                  background: var(--card2); border: 1px solid var(--border);
@@ -151,7 +149,6 @@
   .nav-group { display: flex; align-items: center; gap: 7px; padding: 9px 18px 3px; cursor: pointer;
                font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .4px; }
   .nav-group:hover { color: var(--fg); }
-  .nav-group .caret { width: 10px; font-size: 10px; flex: none; }
   .nav-group .gtitle { flex: 1; }
   .nav-group .gcount { font: 600 10px var(--font-mono); background: var(--card2);
                        border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
@@ -2944,13 +2941,12 @@ function renderScenarios() {
     el.innerHTML = groups.map(g => {
       if (g.upcoming) return `
       <div class="nav-group upcoming" title="Roadmap workstream ${esc(g.upcoming)} — plan/07-workstreams.md">
-        <span class="caret"></span><span class="gtitle">${withLogos(g.title)}</span>
+        <span class="gtitle">${withLogos(g.title)}</span>
       </div>
       <div class="nav-group-empty">coming soon · ${esc(g.upcoming)}</div>`;
       const open = openGroups.has(g.id);
       return `
       <div class="nav-group ${open ? "open" : ""}" onclick="toggleGroup('${esc(g.id)}')">
-        <span class="caret">${open ? "▾" : "▸"}</span>
         <span class="gtitle">${withLogos(g.title)}</span>
         <span class="gcount">${g.scenarios.length}</span>
       </div>

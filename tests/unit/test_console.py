@@ -292,6 +292,24 @@ def test_landing_intro_uses_a_responsive_logo_platform_list():
         assert expected in list_rule.group(1)
 
 
+def test_control_panel_uses_category_icons_without_disclosure_bullets():
+    html = Path("src/console/static/index.html").read_text()
+    css = Path("src/console/static/themes.css").read_text()
+
+    assert "details.acc > summary::before" not in html
+    assert "details.acc[open] > summary::before" not in html
+    assert 'details.acc > summary::before' not in css
+    assert ".nav-group .caret" not in html
+
+    scenario_nav = re.search(
+        r"function renderScenarios\(\)\s*\{(.*?)\n\}\n\nfunction renderTargets",
+        html,
+        flags=re.S,
+    )
+    assert scenario_nav
+    assert 'class="caret"' not in scenario_nav.group(1)
+
+
 def test_optional_theme_scope_check_catches_first_rule_inside_media():
     mutated = '@media (max-width: 1px) { body { color: red; } }'
     assert unscoped_theme_selectors(mutated) == ["body"]

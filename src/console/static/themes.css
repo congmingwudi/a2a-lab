@@ -245,15 +245,6 @@ html[data-design="skyline"][data-theme="dark"] details.acc > summary:hover {
   color: var(--skyline-cyan);
 }
 
-html[data-design="skyline"] details.acc > summary::before {
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  background: var(--card2);
-}
-
 html[data-design="skyline"] details.acc > summary .sicon {
   width: 17px;
   height: 17px;
