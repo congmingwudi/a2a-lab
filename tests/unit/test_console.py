@@ -216,6 +216,16 @@ def test_landing_title_reuses_the_shared_lab_mark():
     for expected in ("display: flex", "align-items: center", "gap: 12px"):
         assert expected in wrapper.group(1)
 
+    landing_mark = re.search(
+        r"\.landing-title \.landing-brandmark\s*\{(.*?)\}", html, flags=re.S
+    )
+    assert landing_mark
+    for expected in (
+        "width: clamp(30px, 4.4vw, 46px)",
+        "height: clamp(30px, 4.4vw, 46px)",
+    ):
+        assert expected in landing_mark.group(1)
+
 
 def test_landing_intro_uses_a_responsive_logo_platform_list():
     html = Path("src/console/static/index.html").read_text()
