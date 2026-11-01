@@ -1,0 +1,25 @@
+{
+  "batch": "ws28-b4-openai-anthropic-themes",
+  "title": "Add OpenAI- and Anthropic-inspired console themes",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": null,
+  "station": "critique",
+  "holder": "claude",
+  "round": 0,
+  "verdict": null,
+  "adr": null,
+  "files": {
+    "plan": "build-notes/codex/openai-anthropic-themes-plan.md",
+    "notes": {},
+    "verdicts": {}
+  },
+  "history": [
+    {
+      "ts": "2026-11-01T00:02:45+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/openai-anthropic-themes-plan.md"
+    }
+  ]
+}
