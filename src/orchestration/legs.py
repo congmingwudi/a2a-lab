@@ -39,8 +39,9 @@ class Leg:
     platform: str  # for the delegation rider + display
     question: str  # role-specific instruction, appended to the shared task
 
-    def prompt(self, task: str) -> str:
-        return f"{self.question}\n\nSITUATION:\n{task}\n\n{ANSWER_SHAPE}"
+    def prompt(self, task: str, *, memory_instruction: str = "") -> str:
+        prompt = f"{self.question}\n\nSITUATION:\n{task}\n\n{ANSWER_SHAPE}"
+        return f"{prompt}\n\n{memory_instruction}" if memory_instruction else prompt
 
 
 # Per-leg target overrides, read LAZILY.

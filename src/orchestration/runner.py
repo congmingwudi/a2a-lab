@@ -41,6 +41,7 @@ from orchestration.legs import Leg, legs_for
 
 if TYPE_CHECKING:
     from orchestration.gate import GateResult
+    from orchestration.memory import MemoryEvidence, MemoryRun
 
 # Per-leg wall clock. A fan-out is only as fast as its slowest leg, so one
 # wedged platform must not hold the turn open indefinitely — it becomes an
@@ -205,6 +206,7 @@ class FanOutResult:
     # ungated default. Kept here rather than beside the result so render()
     # cannot forget it: a gated run must never read like an ungated one.
     gate: "GateResult | None" = None
+    memory: "MemoryEvidence | None" = None
 
     @property
     def ok_count(self) -> int:
@@ -261,7 +263,26 @@ class FanOutResult:
             coverage += f"\n[dispatch: {self.dispatch_summary}]"
         if self.gate is not None:
             coverage += f"\n{self.gate.render()}"
-        return f"{sections}\n\n{coverage}"
+        memory_lines = ""
+        if self.memory is not None:
+            status = self.memory.render()
+            if status:
+                coverage += f"\n{status}"
+            if self.memory.mode == "recall" and self.memory.context and self.memory.reader in (
+                "coordinator",
+                "both",
+            ):
+                from orchestration.memory import recall_block
+
+                memory_lines = (
+                    "\n\n"
+                    + recall_block(self.memory.context)
+                    + "\nIn the final brief, add a short 'Memory used' section. Cite exact "
+                    "observation_id values when present in the Data 360 context; otherwise say "
+                    "'provenance unavailable'. Do not claim an observation was used unless it "
+                    "materially informed the brief."
+                )
+        return f"{sections}{memory_lines}\n\n{coverage}"
 
 
 class AsyncLifecycleUnsupported(Exception):
@@ -454,6 +475,7 @@ async def _run_leg(
     inbound_depth: int,
     dispatch_mode: str = "sync",
     timeout_s: float | None = None,
+    memory_instruction: str = "",
 ) -> LegResult:
     start = time.perf_counter()
     client = None
@@ -472,7 +494,7 @@ async def _run_leg(
         if want_async:
             ran_mode = "async" if _async_capable(client) else "async→sync"
         message, meta = delegation.delegate(
-            leg.prompt(task),
+            leg.prompt(task, memory_instruction=memory_instruction),
             caller=caller,
             platform=caller_platform,
             inbound_depth=inbound_depth,
@@ -612,6 +634,8 @@ async def dispatch(
     roles: set[str] | None = None,
     dispatch_mode: str = "sync",
     gate: str = "none",
+    memory_run: "MemoryRun | None" = None,
+    memory_client=None,
 ) -> FanOutResult:
     """Run every leg of `scenario` concurrently and collect the results.
 
@@ -642,6 +666,27 @@ async def dispatch(
     trace_id = trace_id or new_trace_id()
     start = time.perf_counter()
 
+    from orchestration.memory import (
+        CaseMemory,
+        MemoryEvidence,
+        MemoryRun,
+        candidate_prompt,
+        parse_candidate,
+        recall_block,
+    )
+
+    memory_run = memory_run or MemoryRun()
+    case_memory = CaseMemory(memory_client) if memory_run.mode != "off" else None
+    memory_evidence = MemoryEvidence()
+    if memory_run.mode == "recall" and case_memory is not None:
+        memory_evidence = await case_memory.read(trace_id, memory_run)
+
+    memory_instruction = ""
+    if memory_run.mode == "seed":
+        memory_instruction = candidate_prompt()
+    elif memory_run.specialists_read and memory_evidence.context:
+        memory_instruction = recall_block(memory_evidence.context)
+
     gate_result: GateResult | None = None
     if gate == "jev":
         # The one opt-in change to "always run every leg": the gate's own
@@ -668,6 +713,7 @@ async def dispatch(
                 trace_id=trace_id,
                 inbound_depth=inbound_depth,
                 dispatch_mode=dispatch_mode,
+                memory_instruction=memory_instruction,
             )
             for leg in legs
         ),
@@ -680,10 +726,31 @@ async def dispatch(
         else:
             results.append(LegResult(leg, False, error=f"{type(item).__name__}: {item}"[:160]))
 
+    if memory_run.mode == "seed" and case_memory is not None:
+        candidates = []
+        parse_errors = []
+        for result in results:
+            if not result.ok:
+                continue
+            visible, candidate, error = parse_candidate(
+                result.text,
+                role=result.leg.role,
+                source=f"{result.leg.business_unit} ({result.leg.target})",
+                trace_id=trace_id,
+            )
+            result.text = visible
+            if candidate is not None:
+                candidates.append(candidate)
+            if error:
+                parse_errors.append(f"{result.leg.role}: {error}")
+        memory_evidence = await case_memory.seed(trace_id, memory_run, candidates)
+        memory_evidence.errors[:0] = parse_errors
+
     return FanOutResult(
         task=task,
         trace_id=trace_id,
         results=results,
         total_ms=int((time.perf_counter() - start) * 1000),
         gate=gate_result,
+        memory=memory_evidence,
     )

@@ -306,6 +306,7 @@ flowchart LR
   MAPEX -->|"POST /memory/turn"| DNS
   BRX -->|"JWT-bearer → a360 token<br/>memory ECA (D83)"| MEM["Data 360 tenant<br/>Agentic Memory /api/v1/agentic/*"]
   T1 -.->|"memory seam, per-run toggle (D91)<br/>claude faces only"| MEM
+  CMA["Console Fargate task<br/>CMA host-side fan-out"] -.->|"case seed/recall (D102)<br/>verified user + case conversation"| MEM
 ```
 
 **What you are looking at.** The one path that starts *inside* Salesforce.
@@ -336,6 +337,14 @@ memory ECA identity the bridge holds (the faces secret carries it since
 2026-10-17). It is dormant: only a run whose experiment **Memory** toggle is on
 sends `metadata["memory"]`, so the dashed edge carries traffic only for those
 runs, each call an `agentic-memory` hop like the bridge's.
+
+**The CMA host reaches the tenant too (D102).** The host-side custom-tool
+variant of `supplier-disruption-cma` executes inside the console task. Its
+optional two-run case-memory arm therefore loads the memory ECA identity from
+`a2alab/runtime/console`, not from faces: seed writes one validated specialist
+observation per leg, and a later recall reads the case conversation for the
+verified signed-in user. Profile-memory extraction stays off for these
+operational registrations, and the off arm makes no memory call.
 
 **What is still manual here, deliberately:** TLS and DNS. The cutover moved
 `bridge-lab.agenticthings.com` from the Cloudflare tunnel to the ALB. It is a
@@ -1083,7 +1092,7 @@ flowchart LR
 | — | `deploy/fanout/provision_gcp_federation.py` | AWS→GCP: pool, provider, mapping, condition, impersonation | GCP |
 | — | `deploy/agentcore/gcp_federation.sh strands` | AWS→GCP: binds the Strands **AgentCore runtime's** execution role (read off the live runtime) into the existing `a2alab-aws` pool as one more `principalSet` member — the native-direct half of the Strands → Google ADK cell (WS5). No new pool: same trust-with-an-account, one more bound role, same as the bridge/console federation | GCP |
 | `src/platforms/foundry/core.py` | `deploy/foundry/provision_foundry.py`, `provision_leg_agent.py` | Foundry agents + RemoteA2A connection to the shim + inbound A2A | Azure |
-| `src/console/` + `src/platforms/guide/` | `deploy/console/deploy_console.sh` | ECR image + task def + ECS service `a2alab-console` on cluster `a2alab`, target group + **host-header rule on the bridge's existing ALB** (no second load balancer), roles `a2alab-console-task` / `-exec`, secret `a2alab/runtime/console`. Deployed 2026-07-28; `console-lab` DNS cut over to the ALB the same day (see L5.5), the tunnel kept only for local dev | AWS |
+| `src/console/` + `src/platforms/guide/` | `deploy/console/deploy_console.sh` | ECR image + task def + ECS service `a2alab-console` on cluster `a2alab`, target group + **host-header rule on the bridge's existing ALB** (no second load balancer), roles `a2alab-console-task` / `-exec`, secret `a2alab/runtime/console`. D102 adds the memory ECA identity/key to that secret because the CMA host-side supplier-memory arm executes here and calls the Data 360 tenant directly; off mode makes no memory call. Deployed 2026-07-28; `console-lab` DNS cut over to the ALB the same day (see L5.5), the tunnel kept only for local dev | AWS → Salesforce Data 360 |
 | `src/console/app.py` `/api/track` + `lab.usage_events` | (part of `deploy/console/deploy_console.sh`; table via `scripts/pg_migrate.py`) | WS18/D62 usage analytics: the console's own `POST /api/track` proxy writes anonymous rows to Aurora `lab.usage_events` (as `lab_writer`) and **forwards** each event to the external AWS logging service below. Ships in the console image; no separate deploy. Needs `A2ALAB_LOGGING_API_URL`/`_KEY` in the console secret | AWS |
 | `src/orchestration/gate.py` + `src/platforms/jev/` | (part of `deploy/console/deploy_console.sh`) | WS26/D82 Jev unit gate for `supplier-disruption-cma` (the *Unit gate* radio): the console calls TypeSafe's hosted `POST /v1/systemone` (`api.typesafe.ai`) once per gated run, before any leg dispatches — a new **outbound** dependency, not a new deployed component. Needs `TYPESAFE_API_KEY` in the console secret; without it the gate fails open, visibly. Not in the remote fan-out Lambda (`deploy/fanout/build_zip.sh` does not bundle `src/platforms`; the runner imports the gate lazily). Full rebuild — `src/` and `config/` are baked by `COPY` | AWS → TypeSafe |
 | — (external, not this repo) | operator's existing `aws-logging-service` (custom Lambda + API Gateway, us-west-2) | The Slack log sink the Claude/Codex hooks already post to; `/api/track` forwards to it fire-and-forget for the operator's cross-project notifications. An outbound **edge**, not a component this repo deploys (D62) | AWS |

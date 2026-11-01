@@ -279,3 +279,29 @@ diagrams:
 
           M --> AGG["coding_logs_source.py<br/>summable fixed-edge histograms<br/>aggregates only, one row per day"]
           AGG --> I["Five insight families:<br/>edit-acceptance · tool mix + MCP + latency<br/>request latency · reliability · prompt cadence"]
+
+  - id: supplier-disruption-case-memory
+    title: "Supplier disruption: Data 360 case memory"
+    caption: >
+      The console-hosted CMA run writes one bounded observation per specialist to a
+      case-scoped Data 360 conversation. A later run can recall that episodic context
+      for the coordinator, specialists, or both; profile-memory extraction remains off.
+    insights: [orchestration-topology]
+    readme: false
+    mermaid: |
+      flowchart LR
+          subgraph RUN1["Seed run"]
+              L["Logistics · ADK"]
+              C["Commercial · Foundry"]
+              O["Customer Ops · OpenAI"]
+          end
+          HOST["Console Fargate task<br/>CMA custom-tool host"]
+          MEM[("Data 360 Agentic Memory<br/>opaque owner + case conversation")]
+          RUN2["Later supplier-disruption run"]
+
+          L -->|"bounded observation"| HOST
+          C -->|"bounded observation"| HOST
+          O -->|"bounded observation"| HOST
+          HOST -->|"a2a_lab_memory · seed"| MEM
+          MEM -->|"recall: coordinator / specialists / both"| HOST
+          HOST --> RUN2

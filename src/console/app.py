@@ -2565,6 +2565,12 @@ def create_console_app(registry: Registry | None = None):
         body = await request.json()
         message = (body.get("message") or "").strip() or DEFAULT_QUESTION
         via_bridge = bool(body.get("via_bridge"))
+        # Resolve the verified human before any early-return scenario branch.
+        # The CMA fan-out returns before the ordinary AgentRequest path below,
+        # so doing this only there would leave D102 memory with no trust source.
+        lab_user = request.scope.get("state", {}).get("lab_user")
+        authz = request.headers.get("authorization", "")
+        user_token = authz[len("Bearer ") :] if authz.startswith("Bearer ") else None
         # D28: which Agentforce tool the entry agent should use, echoed back
         # so the UI can badge the turn. Only meaningful on toggle scenarios.
         chosen_channel: str | None = None
@@ -2637,9 +2643,47 @@ def create_console_app(registry: Registry | None = None):
                     if spec.get("gate_toggle") and variant == "tool" and body.get("gate") == "jev"
                     else "none"
                 )
+                from orchestration.memory import MemoryRun
+
+                memory_mode = str(body.get("memory_mode") or "off").lower()
+                memory_reader = str(body.get("memory_reader") or "coordinator").lower()
+                memory_case = str(body.get("memory_case") or "").strip()
+                if not spec.get("fanout_memory_toggle"):
+                    memory_mode = "off"
+                if memory_mode not in ("off", "seed", "recall"):
+                    raise HTTPException(status_code=400, detail="invalid memory_mode")
+                if memory_reader not in ("coordinator", "specialists", "both"):
+                    raise HTTPException(status_code=400, detail="invalid memory_reader")
+                if memory_mode != "off":
+                    if variant != "tool":
+                        raise HTTPException(
+                            status_code=409,
+                            detail="supplier memory is available on the host-side tool topology only",
+                        )
+                    if not lab_user or lab_user.get("role") == "machine" or not lab_user.get("sub"):
+                        raise HTTPException(
+                            status_code=401,
+                            detail="supplier memory requires a signed-in human lab user",
+                        )
+                    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,63}", memory_case):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="memory_case must be 1-64 letters, digits, spaces, '.', '_' or '-'",
+                        )
+                memory_run = MemoryRun(
+                    mode=memory_mode,
+                    reader=memory_reader,
+                    owner_id=(f"a2alab-{lab_user['sub']}" if memory_mode != "off" else None),
+                    case_key=(memory_case if memory_mode != "off" else None),
+                )
                 trace_id = body.get("trace_id") or new_trace_id()
                 try:
-                    orch = CmaOrchestrator(variant=variant, dispatch_mode=dispatch_mode, gate=gate)
+                    orch = CmaOrchestrator(
+                        variant=variant,
+                        dispatch_mode=dispatch_mode,
+                        gate=gate,
+                        memory_run=memory_run,
+                    )
                 except OrchestratorNotProvisioned as exc:
                     # Same class as the jira_sync gap: a console feature reaching
                     # for .a2alab/ state the hosted container doesn't carry. The
@@ -2688,6 +2732,18 @@ def create_console_app(registry: Registry | None = None):
                     "variant": variant,
                     "dispatch_mode": result.get("dispatch_mode", dispatch_mode),
                     "gate": gate,
+                    "memory": (
+                        {
+                            "mode": fan.memory.mode,
+                            "reader": fan.memory.reader,
+                            "context_chars": len(fan.memory.context),
+                            "candidate_count": len(fan.memory.candidates),
+                            "error_count": len(fan.memory.errors),
+                            "errors": fan.memory.errors,
+                        }
+                        if fan is not None and fan.memory is not None
+                        else {"mode": memory_mode}
+                    ),
                 }
             if spec.get("mode") == "async":
                 # Fire-and-return: the research session runs for minutes in
@@ -2819,14 +2875,12 @@ def create_console_app(registry: Registry | None = None):
         # request on both channels — user_context (display/log, visible in
         # wire records) and user_token (the JWT, the verifiable channel the
         # seams forward; the F2 redactor keeps it out of the traces).
-        lab_user = request.scope.get("state", {}).get("lab_user")
         if lab_user:
             from interop import identity
 
             req.metadata["user_context"] = identity.user_context(lab_user)
-            authz = request.headers.get("authorization", "")
-            if authz.startswith("Bearer "):
-                req.metadata["user_token"] = authz[len("Bearer ") :]
+            if user_token:
+                req.metadata["user_token"] = user_token
         # WS11: the ADK orchestrator reads its per-run dispatch mode off the
         # inbound A2A task metadata (the Agentforce path already injected a
         # routing block into the message above instead, so skip it there).

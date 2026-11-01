@@ -209,6 +209,34 @@ in-turn fan-out. Prototyping it headlessly is feasible; it would need a Flow tha
 calls the bridge's `submit`, loops on a poll callout with a Pause, and writes the
 brief to a record on completion.
 
+## Data 360 case memory — first on the CMA host (D102)
+
+The Claude host-side tool topology has an optional two-run case-memory arm.
+**Off** is the exact WS8 control. **Seed** asks each of the existing ADK,
+Foundry and OpenAI specialists to nominate one bounded reusable observation;
+the console host validates, redacts and source-labels valid candidates, then
+writes one Data 360 session per specialist inside an opaque case conversation.
+**Recall** reads that conversation later and gives its bounded summary to the
+coordinator, specialists, or both.
+
+This cannot be same-turn feedback: Data 360 availability and summarization are
+asynchronous, so immediate reuse would be a host cache wearing a memory label.
+The owner is derived from the signed-in lab user's verified JWT before the
+console's early fan-out branch. The browser chooses only a display case key;
+owner + scenario + case are hashed server-side. These operational registrations
+keep profile extraction off, and case reads do not merge the operator's saved
+profile facts/preferences.
+
+The first placement is intentionally narrow. A CMA custom tool runs in the
+console Fargate task, so that task holds the memory ECA identity and performs
+the reads/writes. Remote MCP, ADK-primary and Agentforce-primary put the loop in
+different runtimes; those are follow-up arms, not hidden behavior in this one.
+Before calling source attribution proven, run
+`scripts/supplier_memory_probe.py --owner <a2alab-owner> --apply`: it writes an
+exact id/source through Logistics and reads through the Coordinator. If the
+summary drops them, the experiment reports “provenance unavailable” and never
+joins a host cache back onto the Data 360 result.
+
 ## Tests
 
 - `tests/unit/test_af_channel.py` — the `[A2A-LAB ROUTING]` `fanout-dispatch`

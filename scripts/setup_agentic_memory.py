@@ -93,6 +93,26 @@ AGENTS = {
         label="A2ALab Memory Claude",
         description="A2A lab: Claude research agent behind the generic memory seam (plan/18 Phase 3).",
     ),
+    "supply-logistics": Agent(
+        name="A2ALab_Memory_Supply_Logistics",
+        label="A2ALab Memory Supply Logistics",
+        description="A2A lab supplier-disruption episodic memory: ADK Logistics (D102).",
+    ),
+    "supply-commercial": Agent(
+        name="A2ALab_Memory_Supply_Commercial",
+        label="A2ALab Memory Supply Commercial",
+        description="A2A lab supplier-disruption episodic memory: Foundry Commercial (D102).",
+    ),
+    "supply-customer-ops": Agent(
+        name="A2ALab_Memory_Supply_CustomerOps",
+        label="A2ALab Memory Supply Customer Ops",
+        description="A2A lab supplier-disruption episodic memory: OpenAI Customer Ops (D102).",
+    ),
+    "supply-coordinator": Agent(
+        name="A2ALab_Memory_Supply_Coordinator",
+        label="A2ALab Memory Supply Coordinator",
+        description="A2A lab supplier-disruption episodic memory: Claude coordinator (D102).",
+    ),
     # Phase 2b (D84): the two native arms, sibling agents of the concierge rather
     # than versions of it (D92), each registered under its own API name so a
     # native write that reaches the tenant is attributable to its arm.

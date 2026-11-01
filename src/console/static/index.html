@@ -1790,6 +1790,9 @@ let viaBridges = {};      // key -> bool (protocol cells: route via the lab brid
 let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
 let memoryModes = {};     // key -> "off" | "on" (WS27/D91 per-run Agentic Memory radio)
+let fanoutMemoryModes = {};   // key -> "off" | "seed" | "recall" (D102)
+let fanoutMemoryReaders = {}; // key -> "coordinator" | "specialists" | "both"
+let fanoutMemoryCases = {};   // key -> display label; server derives opaque id from JWT owner
 let fanoutGates = {};     // key -> "none" | "jev" (WS26/D82 System-One gate radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
@@ -4349,7 +4352,9 @@ function afChannelRowHtml(key) {
 // Fan-out topology: where the business-unit tools execute (D41).
 window.setFanoutVariant = v => {
   if (!view || view.type !== "experiment") return;
-  fanoutVariants[expKey(view.kind, view.name)] = v;
+  const key = expKey(view.kind, view.name);
+  fanoutVariants[key] = v;
+  if (v !== "tool") fanoutMemoryModes[key] = "off";
   renderMain(true);
 };
 
@@ -4459,6 +4464,67 @@ function memoryRowHtml(key) {
       onchange="setMemoryMode('on')"> Data 360 Agentic Memory</label>${qhelp(MEMORY_HELP.on)}
     <span class="chan-more">Recall across sessions, keyed to you —
       <a onclick="setTab('details')">full explanation in Details</a>.</span>
+  </div>`;
+}
+
+window.setFanoutMemoryMode = m => {
+  if (!view || view.type !== "experiment") return;
+  fanoutMemoryModes[expKey(view.kind, view.name)] = m;
+  renderMain(true);
+};
+window.setFanoutMemoryReader = m => {
+  if (!view || view.type !== "experiment") return;
+  fanoutMemoryReaders[expKey(view.kind, view.name)] = m;
+  renderMain(true);
+};
+window.setFanoutMemoryCase = value => {
+  if (!view || view.type !== "experiment") return;
+  fanoutMemoryCases[expKey(view.kind, view.name)] = value;
+};
+
+function fanoutMemoryRowHtml(key) {
+  const mode = fanoutMemoryModes[key] || "off";
+  const reader = fanoutMemoryReaders[key] || "coordinator";
+  const caseKey = fanoutMemoryCases[key] || "rotterdam-1";
+  const disabled = (fanoutVariants[key] || "tool") !== "tool";
+  return `<div class="chan-row">
+    <span class="chan-label">Case memory</span>
+    <label><input type="radio" name="fanoutMemoryMode" ${mode === "off" ? "checked" : ""}
+      onchange="setFanoutMemoryMode('off')"> off</label>
+    <label><input type="radio" name="fanoutMemoryMode" ${mode === "seed" ? "checked" : ""}
+      ${disabled ? "disabled" : ""} onchange="setFanoutMemoryMode('seed')"> seed</label>
+    <label><input type="radio" name="fanoutMemoryMode" ${mode === "recall" ? "checked" : ""}
+      ${disabled ? "disabled" : ""} onchange="setFanoutMemoryMode('recall')"> recall</label>
+    ${mode === "recall" ? `<label>readers <select aria-label="Case-memory readers"
+      onchange="setFanoutMemoryReader(this.value)">
+      ${["coordinator", "specialists", "both"].map(v => `<option ${reader === v ? "selected" : ""}>${v}</option>`).join("")}
+      </select></label>` : ""}
+    ${mode !== "off" ? `<label>case <input aria-label="Case-memory key" maxlength="64"
+      pattern="[A-Za-z0-9][A-Za-z0-9._ -]{0,63}" value="${esc(caseKey)}"
+      oninput="setFanoutMemoryCase(this.value)"></label>` : ""}
+    <span class="chan-more">Seed, wait for Data 360, then recall. Host-side tool only (D102).</span>
+  </div>`;
+}
+
+function fanoutMemoryDetailHtml(s) {
+  if (!s || !s.fanout_memory_toggle) return "";
+  return `<div class="flow">
+    <h6>Case memory — specialist observations across runs (WS27, D102)</h6>
+    <p class="desc-note"><b>Off</b> is the exact WS8 control. <b>Seed</b> asks each ADK, Foundry and OpenAI
+      specialist for one bounded reusable observation; the console host redacts and writes valid candidates
+      to one case conversation in Data 360. <b>Recall</b> reads it for the signed-in user and selected case,
+      then gives it to the coordinator, specialists, or both.</p>
+    <ul class="steps">
+      <li><b>Two runs.</b> Availability and summarization are asynchronous. Seed never claims recall.</li>
+      <li><b>Isolation.</b> The server derives the owner from the verified lab JWT and hashes owner,
+        scenario and case key. The browser cannot choose an owner or tenant id.</li>
+      <li><b>Episodic, not profile memory.</b> Profile extraction stays off and reads omit owner-level
+        facts/preferences, so a transient strike does not become a fact about you.</li>
+      <li><b>Evidence.</b> Tenant calls are <code>agentic-memory</code> trace hops. A live go/no-go decides
+        whether source ids survive summarization; otherwise the result says provenance unavailable.</li>
+      <li><b>Placement.</b> This first arm is host-side CMA because the custom tool executes in the console
+        Fargate task. Remote MCP, ADK-primary and Agentforce-primary are follow-ups.</li>
+    </ul>
   </div>`;
 }
 
@@ -9545,6 +9611,8 @@ function chatTurnsHtml(chat) {
 // WS27/D91: what memory did on one turn, as the wrapper reported it.
 function memoryBadgeHtml(m) {
   if (!m) return `<span class="badge" title="Memory was asked for, but the target reported nothing back — it is not behind the memory seam (an older image, or a platform with no registered memory agent).">memory: no report</span>`;
+  if (m.mode === "seed") return `<span class="badge claude" title="${esc(`Seeded ${m.candidate_count || 0} specialist observation(s) into Data 360; ${m.error_count || 0} error(s). This run does not claim recall — availability is asynchronous.`)}">memory: seeded ${m.candidate_count || 0}</span>`;
+  if (m.mode === "recall") return `<span class="badge claude" title="${esc(`Data 360 case recall for ${m.reader || "coordinator"}: ${m.context_chars || 0} context characters; ${m.error_count || 0} error(s).`)}">${m.context_chars > 0 ? "memory: recalled" : "memory: nothing yet"}</span>`;
   if (!m.ok) return `<span class="badge" title="${esc(`Memory was asked for and failed open — the agent answered without it. ${m.error || ""}`)}">memory: unavailable</span>`;
   const recalled = m.context_chars > 0;
   return `<span class="badge claude" title="${esc(`Data 360 Agentic Memory, owner ${m.owner_id}, conversation ${m.conversation_id}${m.session_id ? `, session ${m.session_id}` : ""}. Read ${m.read_ms} ms (${m.context_chars} chars of context), ingest ${m.ingest_ms} ms (your message and the reply).`)}">${recalled ? "memory: recalled" : "memory: nothing yet"}</span>`;
@@ -9670,6 +9738,12 @@ async function sendTurn(kind, name, message, overrides) {
       toggles.memory = (overrides && overrides.memory) || memoryModes[key] || "off";
       body.memory = toggles.memory === "on";
     }
+    if (spec && spec.fanout_memory_toggle) {
+      toggles.memory_mode = (overrides && overrides.memory_mode) || fanoutMemoryModes[key] || "off";
+      body.memory_mode = toggles.memory_mode;
+      body.memory_reader = fanoutMemoryReaders[key] || "coordinator";
+      body.memory_case = fanoutMemoryCases[key] || "rotterdam-1";
+    }
   } else {
     body.target = name;
     body.via_bridge = !!viaBridges[key];
@@ -9718,7 +9792,9 @@ async function sendTurn(kind, name, message, overrides) {
       latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null,
       af_route: result.af_route || null, af_topology: result.af_topology || null,
       dispatch_mode: result.dispatch_mode || null, variant: result.variant || toggles.variant || null,
-      memory: result.memory || false, memory_result: result.memory_result || null,
+      memory: !!(result.memory && (typeof result.memory !== "object" || result.memory.mode !== "off")),
+      memory_result: (result.memory && typeof result.memory === "object")
+        ? result.memory : (result.memory_result || null),
       // WS23: carry the Agentforce session id (and the flag saying it IS one) so
       // an Agentforce-primary turn can deep-link to its Session Trace. A Claude
       // orchestrator that merely consults AF has session_platform null → no link.
@@ -10099,6 +10175,7 @@ function detailsTabHtml() {
       ${(s.agents || []).map(agentRow).join("")}
     </div>` : ""}
     ${fanoutControlsDetailHtml(s)}
+    ${fanoutMemoryDetailHtml(s)}
     ${memoryDetailHtml(s)}
     ${componentsHtml(s.components)}
     ${riderSectionHtml()}`;
@@ -10346,6 +10423,7 @@ function renderMain(force) {
           ${view.kind === "scenario" && exp && exp.gate_toggle
             ? fanoutGateRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.memory_toggle ? memoryRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set

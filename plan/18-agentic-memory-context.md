@@ -653,8 +653,15 @@ the cross-platform recall test is meaningful.
 2. **Recall across platforms:** session 1 on Agentforce, session 2 on each other
   platform (and the reverse), same `owner_id`. Pass/fail per ordered pair, as a
    matrix.
-3. **Handover inside one run:** the supplier-disruption fan-out (D61), where
-  each business-unit leg reads the same owner's context.
+3. **Handover across two runs (D102):** the host-side CMA
+  `supplier-disruption-cma` arm keeps an exact off control. Seed asks each
+  specialist for one bounded observation and writes separate sessions into a
+  case conversation; after Data 360 availability, recall gives that case
+  summary to the coordinator, specialists, or both. The owner comes only from
+  the verified lab JWT and the browser supplies no owner/conversation id.
+  Automatic profile extraction stays off and case reads exclude owner-level
+  saved memories. `scripts/supplier_memory_probe.py` is the provenance
+  go/no-go: exact ids are required only if Data 360 preserves them.
 4. **Measure:** GetContext latency (normal vs `mode=fast`) from us-east-1 to the
   eu-central-1 tenant; ingest-to-available lag; extraction lag; integration LOC
    per mode. Results → `plan/03-results.md`, findings → `plan/02-matrix.md`,

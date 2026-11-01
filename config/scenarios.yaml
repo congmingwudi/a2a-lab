@@ -1513,6 +1513,10 @@ scenarios:
     # under "mcp" the model is the router. Skips are named in the hand-off; a
     # Jev failure fails open to every unit.
     gate_toggle: true
+    # D102: a two-run Data 360 case-memory arm on the HOST-SIDE tool only.
+    # Off is the exact WS8 control; seed asks each specialist for one bounded
+    # candidate; recall reads the case conversation for selected readers.
+    fanout_memory_toggle: true
     via_bridge: false
     status: live
     requires_mode: hosted

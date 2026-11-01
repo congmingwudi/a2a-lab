@@ -141,6 +141,8 @@ class CmaOrchestrator:
         variant: str = "tool",
         dispatch_mode: str = "sync",
         gate: str = "none",
+        memory_run=None,
+        memory_client=None,
     ):
         if variant not in ("tool", "mcp"):
             raise ValueError(f"unknown variant '{variant}' — known: tool, mcp")
@@ -153,6 +155,12 @@ class CmaOrchestrator:
             # the gate would replace. Gating it too would put two routers in one
             # run and make the comparison meaningless (WS26/D82).
             raise ValueError("the Jev gate applies to the host-side 'tool' variant only")
+        from orchestration.memory import MemoryRun
+
+        self._memory_run = memory_run or MemoryRun()
+        if variant != "tool" and self._memory_run.mode != "off":
+            raise ValueError("supplier memory applies to the host-side 'tool' variant only")
+        self._memory_client = memory_client
         self._client = client
         self._variant = variant
         # Experiment B (plan/17-jev-system-one.md): a System-One gate in front
@@ -204,6 +212,8 @@ class CmaOrchestrator:
                 trace_id=trace_id,
                 dispatch_mode=self._dispatch_mode,
                 gate=self._gate,
+                memory_run=self._memory_run,
+                memory_client=self._memory_client,
             )
             result_text = self.fanout.render()
 
@@ -354,4 +364,5 @@ class CmaOrchestrator:
             "wall_ms": int((time.perf_counter() - start) * 1000),
             "fanout": self.fanout,
             "call_path": self.call_path,
+            "memory": self.fanout.memory if self.fanout is not None else None,
         }

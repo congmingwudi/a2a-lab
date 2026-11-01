@@ -64,6 +64,23 @@ def owner_conversation(owner_id: str) -> str:
     return f"a2alab-o-{hashlib.sha256(owner_id.encode()).hexdigest()[:24]}"
 
 
+def case_conversation(owner_id: str, scenario: str, case_key: str) -> str:
+    """One opaque episodic conversation for an owner's named experiment case.
+
+    The tenant still receives the verified owner separately. Hashing all three
+    inputs prevents a browser-selected case label (or username) from becoming a
+    tenant identifier and keeps equal case labels isolated by owner/scenario.
+    """
+    if not owner_id or not scenario or not case_key.strip():
+        raise ValueError("owner_id, scenario and a non-empty case_key are required")
+    digest = hashlib.sha256(f"{owner_id}\0{scenario}\0{case_key.strip()}".encode()).hexdigest()
+    return f"a2alab-c-{digest[:24]}"
+
+
+def _conversation_id(owner_id: str, conversation_id: str | None) -> str:
+    return conversation_id or owner_conversation(owner_id)
+
+
 # Order matters: tokens and card numbers before phone numbers, so a long digit
 # run is not half-matched as a phone. Ported from the demo kit's
 # AgentMemoryClient.REDACTIONS: what extraction never needs to learn.
@@ -246,7 +263,13 @@ class MemoryClient:
     # ------------------------------------------------------------ verbs
 
     async def start_conversation(
-        self, trace_id: str, *, agent_id: str, owner_id: str, session_id: str | None = None
+        self,
+        trace_id: str,
+        *,
+        agent_id: str,
+        owner_id: str,
+        session_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> str:
         """The owner's conversation (if new) + this chat's session + both
         participants: the SDK's lifecycle, minus its one-id-for-both (D94).
@@ -254,7 +277,7 @@ class MemoryClient:
         409 is success at every step, so an owner's second chat and a retried
         first turn are both harmless. Returns the session id.
         """
-        cid = owner_conversation(owner_id)
+        cid = _conversation_id(owner_id, conversation_id)
         sid = session_id or f"a2alab-{uuid.uuid4().hex[:12]}"
         h = self._post_headers(owner_id, agent_id)
         now = _now()
@@ -287,6 +310,7 @@ class MemoryClient:
         session_id: str,
         user_message: str | None = None,
         agent_response: str | None = None,
+        conversation_id: str | None = None,
     ) -> None:
         """One turn's Message entries; either side may be absent.
 
@@ -310,13 +334,21 @@ class MemoryClient:
                                 "interactionId": turn, "content": text})  # fmt: skip
         if not entries:
             return
+        cid = _conversation_id(owner_id, conversation_id)
         await self._call(trace_id, agent_id, "POST",
-                         f"/api/v1/agentic/conversations/{owner_conversation(owner_id)}/entries",
+                         f"/api/v1/agentic/conversations/{cid}/entries",
                          headers=self._post_headers(owner_id, agent_id),
                          json_body={"sessionId": session_id, "conversationOwnerId": owner_id,
                                     "entries": entries})  # fmt: skip
 
-    async def get_context(self, trace_id: str, *, agent_id: str, owner_id: str) -> dict:
+    async def get_context(
+        self,
+        trace_id: str,
+        *,
+        agent_id: str,
+        owner_id: str,
+        conversation_id: str | None = None,
+    ) -> dict:
         # ctx-agent-id is what the read authorizes on: without it every read
         # 403s with an empty body, the agent_id param notwithstanding. The SDK
         # omits it; the product's QA fit tests (a360-quality/jarlsberg-fit-tests,
@@ -329,13 +361,20 @@ class MemoryClient:
         _, body = await self._call(
             trace_id, agent_id, "GET", "/api/v1/agentic/context", ref_key="contextId",
             headers={"ctx-agent-id": agent_id, "ctx-dataspace-ds_name": DATA_SPACE},
-            params={"conversation_id": owner_conversation(owner_id), "owner_id": owner_id,
+            params={"conversation_id": _conversation_id(owner_id, conversation_id),
+                    "owner_id": owner_id,
                     "agent_id": agent_id, "owner_type": OWNER_TYPE},
         )  # fmt: skip
         return body if isinstance(body, dict) else {}
 
     async def close_session(
-        self, trace_id: str, *, agent_id: str, owner_id: str, session_id: str
+        self,
+        trace_id: str,
+        *,
+        agent_id: str,
+        owner_id: str,
+        session_id: str,
+        conversation_id: str | None = None,
     ) -> None:
         """Close the session — the trigger for extraction (2026-10-27: facts
         landed within 6 min of a close; owners never closed had none). A closed
@@ -343,7 +382,7 @@ class MemoryClient:
         end-of-chat signal closes after every turn."""
         await self._call(
             trace_id, agent_id, "POST",
-            f"/api/v1/agentic/conversations/{owner_conversation(owner_id)}"
+            f"/api/v1/agentic/conversations/{_conversation_id(owner_id, conversation_id)}"
             f"/sessions/{session_id}/close",
             headers=self._post_headers(owner_id, agent_id), json_body={},
         )  # fmt: skip
@@ -417,6 +456,8 @@ async def open_and_read(
     session_id: str | None = None,
     start: bool | None = None,
     read: bool = True,
+    conversation_id: str | None = None,
+    include_saved_memories: bool = True,
 ) -> tuple[str | None, str, list[str]]:
     """The read half of a turn, fail-open: (session_id, context text, errors).
 
@@ -432,16 +473,20 @@ async def open_and_read(
     sid = session_id
     try:
         if not sid if start is None else start:
-            sid = await mem.start_conversation(trace_id, session_id=sid, **ids)
+            sid = await mem.start_conversation(
+                trace_id, session_id=sid, conversation_id=conversation_id, **ids
+            )
     except MemoryCallError as exc:
         errors.append(str(exc))
     context = ""
     if sid and read:
         try:
-            context = render_context(await mem.get_context(trace_id, **ids))
+            context = render_context(
+                await mem.get_context(trace_id, conversation_id=conversation_id, **ids)
+            )
         except MemoryCallError as exc:
             errors.append(str(exc))
-    if read:
+    if read and include_saved_memories:
         # Owner-keyed, so it needs no session — it answers even when opening one failed.
         saved, saved_errors = await saved_memories(mem, trace_id, **ids)
         errors += saved_errors
@@ -458,6 +503,7 @@ async def write_turn(
     session_id: str,
     user_message: str | None = None,
     agent_response: str | None = None,
+    conversation_id: str | None = None,
 ) -> list[str]:
     """The write half of a turn, fail-open: the errors, if any.
 
@@ -470,9 +516,10 @@ async def write_turn(
     ids = {"agent_id": agent_id, "owner_id": owner_id, "session_id": session_id}
     try:
         await mem.ingest(trace_id, user_message=user_message,
-                         agent_response=agent_response, **ids)  # fmt: skip
+                         agent_response=agent_response,
+                         conversation_id=conversation_id, **ids)  # fmt: skip
         if user_message or agent_response:
-            await mem.close_session(trace_id, **ids)
+            await mem.close_session(trace_id, conversation_id=conversation_id, **ids)
     except MemoryCallError as exc:
         return [str(exc)]
     return []

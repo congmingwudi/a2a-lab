@@ -80,6 +80,10 @@ keys = [
     # identity) and was missed on the first run: both landed in plaintext on
     # the task definition, which is exactly what this secret exists to prevent.
     "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+    # D102: host-side CMA executes in THIS console task. Its supplier-memory
+    # seed/recall calls therefore need the dedicated memory ECA identity here,
+    # not in the faces task.
+    "SF_CLIENT_ID_MEMORY",
     # WS19/M10: the a2a_lab_tab_embed ECA consumer key (JWT `iss`) that mints the
     # Tableau Next frontdoor URL for the owner-only inline dashboard. The frontdoor
     # is minted with a JWT-BEARER assertion (client-credentials can't reach
@@ -146,6 +150,12 @@ if os.environ.get("A2ALAB_TAB_EMBED_JWT_KEY"):
     payload["A2ALAB_TAB_EMBED_JWT_KEY"] = os.environ["A2ALAB_TAB_EMBED_JWT_KEY"]
 elif _embed_key.exists():
     payload["A2ALAB_TAB_EMBED_JWT_KEY"] = _embed_key.read_text()
+
+# D102: the memory ECA's RS256 key. The run-as user is a non-secret env value;
+# this signing key is a local PEM and must be relocated into the runtime secret.
+_memory_key = key_dir / "memory_jwt_private.pem"
+if _memory_key.exists():
+    payload["A2ALAB_MEMORY_JWT_KEY"] = _memory_key.read_text()
 print(json.dumps(payload))
 PY
 )
@@ -291,7 +301,7 @@ SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            # like the other SF_CLIENT_ID*; the signing key (…JWT_KEY) is caught
            # by the KEY-name rule; the run-as username is not secret-shaped and
            # rides plain env so the code can read it.
-           "SF_CLIENT_ID_TAB_EMBED",
+           "SF_CLIENT_ID_TAB_EMBED", "SF_CLIENT_ID_MEMORY",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
 

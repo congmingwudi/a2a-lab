@@ -4454,3 +4454,43 @@ remote asset, font, script or vendor mark. This is a presentation-only change: e
 identity, protocols, runtime behavior and hosting are unchanged. Publishing requires the normal
 full console image rebuild because `src/` and `plan/` are baked into that image. No Details-pane,
 Dockerfile `COPY`, architecture diagram or deployment-map change is required.
+
+## 2026-11-01 — D102: supplier-disruption memory is a two-run, case-scoped Data 360 experiment hosted by the console
+
+**Context.** WS27 proved cross-session and cross-agent recall through Data 360, while WS8 built
+the same supplier-disruption fan-out under three controllers. The next question is whether the
+three specialist agents can save useful observations and whether later specialists or the
+coordinator actually use them. Codex proposed a seed/recall arm; Claude's D79 critique found four
+required corrections: host-side CMA executes in the console task rather than faces, a case
+conversation does not itself prevent owner-profile extraction, provenance ids are not known to
+survive Data 360 summarization, and the current fan-out branch returns before verified identity
+is threaded into an ordinary request.
+
+**Decision.** Build the first arm only on `supplier-disruption-cma`'s host-side tool topology.
+An off run remains the byte-for-byte control. A seed run asks each ADK, Foundry and OpenAI
+specialist for one bounded reusable observation; the console host validates, redacts,
+source-labels and ingests valid candidates into separate sessions of one case conversation. A
+recall run reads that conversation after Data 360 availability/extraction and gives the bounded
+context to the coordinator, specialists, or both. Same-turn feedback is forbidden because it
+would measure a lab cache rather than Data 360.
+
+The owner is derived only from the signed-in lab user's verified token before the console's
+fan-out branch. The browser supplies a display case key, never an owner or conversation id; the
+server hashes owner, scenario and case key into the tenant conversation id. Automatic
+profile-memory extraction stays off for the four operational registrations, and case reads omit
+the existing owner-level saved-facts/preferences merge. This is episodic case context, not a
+claim that a conversation id scopes profile memory.
+
+Before citation UI is enabled, a live go/no-go writes a source-labelled observation through one
+registration and reads it through another. If the exact id/source survives Data 360, utilization
+requires a valid cited id. If it does not, the honest metric is “recalled content used,
+provenance unavailable”; no host cache may be joined back and called Data 360 attribution.
+Memory remains fail-open for the business turn and fail-closed in evidence: empty, late or
+refused context is reported as such.
+
+**Consequences.** The console gains the memory ECA credential and a direct outbound Data 360
+dependency, so its deploy script, deployment map, diagrams and Details copy change in the same
+batch and publishing requires a full console rebuild. The remote-MCP, ADK-primary and
+Agentforce-primary controllers remain follow-up arms because their memory loops and credential
+boundaries live in different runtimes. Live results update `plan/03-results.md` and the memory
+findings in `plan/02-matrix.md`, including a negative or mixed outcome.

@@ -452,6 +452,25 @@ def test_d99_platform_identity_contract_and_shared_renderers():
     assert 'class="title-icons${lead ? " lead" : ""}"' in html
     assert ".tabbar h2 > .title-icons.lead" in html
     assert ".title-icons:first-child" not in html
+
+
+def test_d102_supplier_memory_controls_are_scoped_and_accessible():
+    scenarios = yaml.safe_load(Path("config/scenarios.yaml").read_text())["scenarios"]
+    html = Path("src/console/static/index.html").read_text()
+    assert scenarios["supplier-disruption-cma"]["fanout_memory_toggle"] is True
+    assert not scenarios["supplier-disruption-adk"].get("fanout_memory_toggle")
+    assert not scenarios["supplier-disruption-agentforce"].get("fanout_memory_toggle")
+    assert 'name="fanoutMemoryMode"' in html
+    assert 'aria-label="Case-memory readers"' in html
+    assert 'aria-label="Case-memory key"' in html
+    assert 'maxlength="64"' in html
+    assert 'exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key)' in html
+    assert "This run does not claim recall" in html
+    assert "fanoutMemoryDetailHtml(s)" in html
+    deploy = Path("deploy/console/deploy_console.sh").read_text()
+    assert '"SF_CLIENT_ID_MEMORY"' in deploy
+    assert 'payload["A2ALAB_MEMORY_JWT_KEY"]' in deploy
+    assert 'memory_jwt_private.pem' in deploy
     assert 'const seen = new Set();' in html
     assert 'if (!mark || seen.has(mark)) return "";' in html
     assert "PLATFORM_MARK[a.platform]" in html
@@ -1020,6 +1039,82 @@ def _viewer_headers(monkeypatch, tmp_path):
     users = {"vic": {"name": "Vic", "role": "viewer"}}
     token = identity.issue_token("vic", users=users)
     return {"authorization": f"Bearer {token}"}
+
+
+def test_supplier_memory_owner_comes_from_verified_user_before_fanout(
+    tmp_path, monkeypatch
+):
+    """D102's CMA branch returns early, so identity must be resolved before it."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    captured = {}
+
+    from orchestration.memory import MemoryEvidence
+    import orchestration.cma as cma
+
+    class FakeOrchestrator:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+        async def run(self, message, trace_id):
+            memory = MemoryEvidence(mode=captured["memory_run"].mode, reader="coordinator")
+            fan = SimpleNamespace(
+                ok_count=3,
+                results=[1, 2, 3],
+                dispatch_summary="",
+                gate=None,
+                memory=memory,
+            )
+            return {
+                "brief": "brief",
+                "trace_id": trace_id,
+                "wall_ms": 1,
+                "fanout": fan,
+                "dispatch_mode": "sync",
+            }
+
+    monkeypatch.setattr(cma, "CmaOrchestrator", FakeOrchestrator)
+    body = {
+        "scenario": "supplier-disruption-cma",
+        "message": "strike",
+        "variant": "tool",
+        "memory_mode": "seed",
+        "memory_reader": "coordinator",
+        "memory_case": "rotterdam-1",
+        "owner_id": "attacker-chosen",
+    }
+    response = TestClient(app).post(
+        "/api/run", json=body, headers=_operator_headers(monkeypatch, tmp_path)
+    )
+    assert response.status_code == 200, response.text
+    run = captured["memory_run"]
+    assert run.owner_id == "a2alab-ryan"
+    assert run.case_key == "rotterdam-1"
+    assert response.json()["memory"]["mode"] == "seed"
+
+
+def test_supplier_memory_rejects_untrusted_shape_before_agent_work(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    headers = _operator_headers(monkeypatch, tmp_path)
+    client = TestClient(app)
+    base = {
+        "scenario": "supplier-disruption-cma",
+        "message": "strike",
+        "variant": "tool",
+        "memory_mode": "seed",
+        "memory_case": "bad/slash",
+    }
+    assert client.post("/api/run", json=base, headers=headers).status_code == 400
+    assert client.post(
+        "/api/run", json={**base, "memory_case": "case", "variant": "mcp"}, headers=headers
+    ).status_code == 409
+    assert client.post(
+        "/api/run", json={**base, "memory_case": "case", "memory_reader": "everyone"},
+        headers=headers,
+    ).status_code == 400
 
 
 def test_viewer_403_on_operator_surfaces(tmp_path, monkeypatch):

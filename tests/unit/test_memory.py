@@ -14,6 +14,7 @@ from interop import memory as memory_mod
 from interop.memory import (
     MemoryCallError,
     MemoryClient,
+    case_conversation,
     entry_id,
     owner_conversation,
     redact,
@@ -117,6 +118,48 @@ def test_owner_conversation_is_per_owner_never_per_agent():
     assert owner_conversation("persona-ana") == owner_conversation("persona-ana")
     assert owner_conversation("persona-ana") != owner_conversation("persona-bo")
     assert "persona" not in owner_conversation("persona-ana")  # hashed, not the username
+
+
+def test_case_conversation_is_opaque_and_separated():
+    cid = case_conversation("persona-ana", "supplier-disruption", "Rotterdam day one")
+    assert cid == case_conversation("persona-ana", "supplier-disruption", "Rotterdam day one")
+    assert cid != case_conversation("persona-bo", "supplier-disruption", "Rotterdam day one")
+    assert cid != case_conversation("persona-ana", "another-scenario", "Rotterdam day one")
+    assert "persona" not in cid and "Rotterdam" not in cid
+
+
+async def test_explicit_case_conversation_threads_every_runtime_call():
+    fake = FakeTenant()
+    mem = fake.client()
+    cid = case_conversation("persona-ana", "supplier-disruption", "case-7")
+    sid = await mem.start_conversation("t1", conversation_id=cid, **IDS)
+    await mem.ingest(
+        "t1", session_id=sid, conversation_id=cid, agent_response="candidate", **IDS
+    )
+    await mem.get_context("t1", conversation_id=cid, **IDS)
+    await mem.close_session("t1", session_id=sid, conversation_id=cid, **IDS)
+    tenant = [r for r in fake.calls if r.url.host == "tenant.example"]
+    assert fake.bodies("/conversations")[0]["conversationId"] == cid
+    assert any(r.url.path == f"/api/v1/agentic/conversations/{cid}/entries" for r in tenant)
+    context = next(r for r in tenant if r.url.path == "/api/v1/agentic/context")
+    assert context.url.params["conversation_id"] == cid
+    assert tenant[-1].url.path == f"/api/v1/agentic/conversations/{cid}/sessions/{sid}/close"
+
+
+async def test_case_read_can_exclude_owner_profile_memories(monkeypatch):
+    monkeypatch.setenv(memory_mod.SHARED_AGENTS_ENV, IDS["agent_id"])
+    fake = FakeTenant(context={"summary": "case-only observation"})
+    fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["unrelated owner fact"]
+    _, context, errors = await memory_mod.open_and_read(
+        fake.client(),
+        "t1",
+        conversation_id="a2alab-c-example",
+        include_saved_memories=False,
+        **IDS,
+    )
+    assert context == "- summary: case-only observation"
+    assert not errors
+    assert not any(r.url.path == "/api/v1/agentic/memory" for r in fake.calls)
 
 
 async def test_ingest_sends_only_the_sides_it_has_and_caches_the_token():
