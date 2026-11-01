@@ -373,6 +373,13 @@
               margin: 0 0 14px; letter-spacing: .2px; }
   .hero-body { color: var(--hero-body); font-size: 15.5px; line-height: 1.7; margin: 0 0 22px;
                text-wrap: pretty; }
+  .hero-platforms { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+                    gap: 12px 28px; margin: -4px 0 26px; padding: 0; list-style: none; }
+  .hero-platforms li { display: flex; align-items: center; min-width: 0; gap: 10px;
+                       color: var(--hero-body); font-family: var(--font-head); font-size: 13.5px;
+                       font-weight: 600; line-height: 1.4; }
+  .hero-platforms .plogo { width: 20px; height: 20px; margin: 0; flex: none; }
+  .hero-platforms .plogo.awslogo { width: 32px; }
   /* The lab's own claim about itself, so it is the first thing a visitor reads
      rather than something the Lab Guide has to be asked for. Set apart from the
      body copy — a left rule and slightly larger type — because it is the
@@ -9154,6 +9161,21 @@ function landingMarkHtml() {
   return mark.outerHTML;
 }
 
+const LANDING_AGENT_PLATFORMS = [
+  ["salesforce", "Salesforce Agentforce"],
+  ["anthropic", "Claude"],
+  ["openai", "OpenAI"],
+  ["gcloud", "Google Gemini on Vertex AI Agent Engine"],
+  ["microsoft", "Microsoft Foundry"],
+  ["aws", "AWS Strands on Bedrock AgentCore"],
+  ["langgraph", "LangGraph on Heroku"],
+];
+
+function landingPlatformListHtml() {
+  return `<ul class="hero-platforms" aria-label="Agent platforms">${LANDING_AGENT_PLATFORMS
+    .map(([logo, label]) => `<li>${logoSvg(logo)}<span>${esc(label)}</span></li>`).join("")}</ul>`;
+}
+
 function landingHtml() {
   const live = scenarios.filter(s => s.status === "live");
   return `
@@ -9163,13 +9185,12 @@ function landingHtml() {
         <div class="kicker">Agent interoperability · experiments</div>
         <div class="landing-title">${landingMarkHtml()}<h1 class="wordmark">A2A Interop Lab</h1></div>
         <p class="hero-sub">Watch agent platforms talk to each other — on the wire.</p>
-        <p class="hero-body">Agent platforms across the hyperscalers — Salesforce Agentforce,
-          Claude, OpenAI, Google Gemini on Vertex AI Agent Engine, Microsoft Foundry, AWS Strands on
-          Bedrock AgentCore, and the open-source LangGraph framework on Heroku — answer the same
-          questions by consulting each other mid-conversation, cross-platform and cross-cloud. Each
+        <p class="hero-body">Agent platforms across the hyperscalers answer the same questions by
+          consulting each other mid-conversation, cross-platform and cross-cloud. Each
           direction runs over REST, MCP, and the A2A protocol — the same scenario, protocols
           compared side by side, with every hop's raw wire payload recorded so you can see exactly
           what each protocol puts on the wire.</p>
+        ${landingPlatformListHtml()}
         <p class="hero-ethos">The lab's ethos is <b>honest status</b>: it calls out what works
           natively, what works via a bridge or shim it hosts, and what is blocked or beta. Every
           claim travels with a source — an ADR id, a trace id, a measured number — so a reader

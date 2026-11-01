@@ -217,6 +217,40 @@ def test_landing_title_reuses_the_shared_lab_mark():
         assert expected in wrapper.group(1)
 
 
+def test_landing_intro_uses_a_responsive_logo_platform_list():
+    html = Path("src/console/static/index.html").read_text()
+
+    removed_inline_list = (
+        "— Salesforce Agentforce,\n"
+        "          Claude, OpenAI, Google Gemini on Vertex AI Agent Engine"
+    )
+    assert removed_inline_list not in html
+    assert "Agent platforms across the hyperscalers answer the same questions by" in html
+    assert '${landingPlatformListHtml()}' in html
+    assert '<ul class="hero-platforms" aria-label="Agent platforms">' in html
+
+    expected_platforms = (
+        '["salesforce", "Salesforce Agentforce"]',
+        '["anthropic", "Claude"]',
+        '["openai", "OpenAI"]',
+        '["gcloud", "Google Gemini on Vertex AI Agent Engine"]',
+        '["microsoft", "Microsoft Foundry"]',
+        '["aws", "AWS Strands on Bedrock AgentCore"]',
+        '["langgraph", "LangGraph on Heroku"]',
+    )
+    for platform in expected_platforms:
+        assert platform in html
+
+    list_rule = re.search(r"\.hero-platforms\s*\{(.*?)\}", html, flags=re.S)
+    assert list_rule
+    for expected in (
+        "display: grid",
+        "repeat(auto-fit, minmax(230px, 1fr))",
+        "list-style: none",
+    ):
+        assert expected in list_rule.group(1)
+
+
 def test_optional_theme_scope_check_catches_first_rule_inside_media():
     mutated = '@media (max-width: 1px) { body { color: red; } }'
     assert unscoped_theme_selectors(mutated) == ["body"]
