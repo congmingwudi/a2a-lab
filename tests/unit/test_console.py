@@ -202,6 +202,21 @@ def test_shared_lab_mark_is_fixed_accessible_and_not_theme_overridden():
     assert mark_selectors == []
 
 
+def test_landing_title_reuses_the_shared_lab_mark():
+    html = Path("src/console/static/index.html").read_text()
+
+    assert 'function landingMarkHtml()' in html
+    assert 'document.querySelector("header .brandmark")' in html
+    assert 'mark.classList.add("landing-brandmark")' in html
+    assert '<div class="landing-title">${landingMarkHtml()}<h1 class="wordmark">' in html
+    assert html.count('<h1 class="wordmark">A2A Interop Lab</h1>') == 1
+
+    wrapper = re.search(r"\.landing-title\s*\{(.*?)\}", html, flags=re.S)
+    assert wrapper
+    for expected in ("display: flex", "align-items: center", "gap: 12px"):
+        assert expected in wrapper.group(1)
+
+
 def test_optional_theme_scope_check_catches_first_rule_inside_media():
     mutated = '@media (max-width: 1px) { body { color: red; } }'
     assert unscoped_theme_selectors(mutated) == ["body"]

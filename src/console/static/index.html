@@ -365,8 +365,9 @@
   .hero-inner { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; }
   .kicker { font: 600 11px var(--font-mono); letter-spacing: 1.6px; text-transform: uppercase;
             color: var(--hero-sub); margin-bottom: 14px; }
+  .landing-title { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; }
   .wordmark { font-family: var(--font-head); font-weight: 700; font-size: clamp(30px, 4.4vw, 46px);
-              line-height: 1.08; letter-spacing: .2px; margin: 0 0 12px;
+              line-height: 1.08; letter-spacing: .2px; margin: 0;
               background: var(--wordmark-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .hero-sub { font-family: var(--font-head); color: var(--hero-sub); font-size: 16px; font-weight: 600;
               margin: 0 0 14px; letter-spacing: .2px; }
@@ -9145,6 +9146,14 @@ function landingWhatsDoneHtml() {
     </section>`;
 }
 
+function landingMarkHtml() {
+  const headerMark = document.querySelector("header .brandmark");
+  if (!headerMark) return "";
+  const mark = headerMark.cloneNode(true);
+  mark.classList.add("landing-brandmark");
+  return mark.outerHTML;
+}
+
 function landingHtml() {
   const live = scenarios.filter(s => s.status === "live");
   return `
@@ -9152,7 +9161,7 @@ function landingHtml() {
     <section class="hero" style="max-width:none">
       <div class="hero-inner">
         <div class="kicker">Agent interoperability · experiments</div>
-        <h1 class="wordmark">A2A Interop Lab</h1>
+        <div class="landing-title">${landingMarkHtml()}<h1 class="wordmark">A2A Interop Lab</h1></div>
         <p class="hero-sub">Watch agent platforms talk to each other — on the wire.</p>
         <p class="hero-body">Agent platforms across the hyperscalers — Salesforce Agentforce,
           Claude, OpenAI, Google Gemini on Vertex AI Agent Engine, Microsoft Foundry, AWS Strands on
