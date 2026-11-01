@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+  <defs>
+    <linearGradient id="sheet-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef5f8"/>
+      <stop offset="1" stop-color="#e8e3f2"/>
+    </linearGradient>
+    <linearGradient id="a2a-field" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#09decb"/>
+      <stop offset="0.3" stop-color="#3fc7d8"/>
+      <stop offset="0.55" stop-color="#7db9e8"/>
+      <stop offset="0.78" stop-color="#a8a2ec"/>
+      <stop offset="1" stop-color="#c99df0"/>
+    </linearGradient>
+    <filter id="sheet-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#142033" flood-opacity="0.13"/>
+    </filter>
+    <symbol id="a2a-mark" viewBox="0 0 20 20">
+      <rect width="20" height="20" rx="6" fill="url(#a2a-field)"/>
+      <g fill="none" stroke="#0b1f33" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7.5 7.35h5"/>
+        <path d="m11.1 5.95 1.4 1.4-1.4 1.4"/>
+        <path d="M12.5 12.65h-5"/>
+        <path d="m8.9 11.25-1.4 1.4 1.4 1.4"/>
+      </g>
+      <circle cx="3.8" cy="10" r="2.2" fill="#0b1f33"/>
+      <circle cx="16.2" cy="10" r="2.2" fill="#0b1f33"/>
+    </symbol>
+  </defs>
+
+  <rect width="1200" height="720" fill="url(#sheet-bg)"/>
+  <text x="64" y="66" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="30" font-weight="700" fill="#101820">A2A Exchange Mark</text>
+  <text x="64" y="96" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="16" fill="#53606d">Proposed shared identity · two agents · bidirectional exchange · fixed 20px header footprint</text>
+
+  <g filter="url(#sheet-shadow)">
+    <rect x="64" y="132" width="350" height="350" rx="28" fill="#ffffff"/>
+  </g>
+  <use href="#a2a-mark" x="119" y="174" width="240" height="240"/>
+  <text x="239" y="446" text-anchor="middle"
+        font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#65717e">12× detail view</text>
+
+  <text x="462" y="152" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="13" font-weight="700" letter-spacing="1.5" fill="#66717c">ACTUAL HEADER SIZE — LIGHT / DARK</text>
+
+  <!-- Default -->
+  <g>
+    <rect x="462" y="172" width="318" height="92" rx="14" fill="#ffffff" stroke="#d8dde2"/>
+    <use href="#a2a-mark" x="482" y="208" width="20" height="20"/>
+    <text x="514" y="223" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="600" fill="#20252a">A2A Interop Lab</text>
+    <text x="482" y="193" font-family="Inter, sans-serif" font-size="11" font-weight="700" letter-spacing="1" fill="#6e7780">DEFAULT · LIGHT</text>
+  </g>
+  <g>
+    <rect x="798" y="172" width="318" height="92" rx="14" fill="#15181c" stroke="#343941"/>
+    <use href="#a2a-mark" x="818" y="208" width="20" height="20"/>
+    <text x="850" y="223" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="600" fill="#f2f4f6">A2A Interop Lab</text>
+    <text x="818" y="193" font-family="Inter, sans-serif" font-size="11" font-weight="700" letter-spacing="1" fill="#9aa3ad">DEFAULT · DARK</text>
+  </g>
+
+  <!-- Skyline -->
+  <g>
+    <rect x="462" y="280" width="318" height="92" rx="18" fill="#f8fbfd" stroke="#cbdde6"/>
+    <use href="#a2a-mark" x="482" y="316" width="20" height="20"/>
+    <text x="514" y="331" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="650" fill="#102331">A2A Interop Lab</text>
+    <text x="482" y="301" font-family="Inter, sans-serif" font-size="11" font-weight="700" letter-spacing="1" fill="#55717f">SKYLINE · LIGHT</text>
+  </g>
+  <g>
+    <rect x="798" y="280" width="318" height="92" rx="18" fill="#09131d" stroke="#244054"/>
+    <use href="#a2a-mark" x="818" y="316" width="20" height="20"/>
+    <text x="850" y="331" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="650" fill="#edf8ff">A2A Interop Lab</text>
+    <text x="818" y="301" font-family="Inter, sans-serif" font-size="11" font-weight="700" letter-spacing="1" fill="#83aabe">SKYLINE · DARK</text>
+  </g>
+
+  <!-- Canvas -->
+  <g>
+    <rect x="462" y="388" width="318" height="92" rx="24" fill="#ffffff" stroke="#c9c9c9"/>
+    <use href="#a2a-mark" x="482" y="424" width="20" height="20"/>
+    <text x="514" y="439" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="600" fill="#080808">A2A Interop Lab</text>
+    <text x="482" y="409" font-family="Inter, sans-serif" font-size="11" font-weight="700" letter-spacing="1" fill="#666666">CANVAS · LIGHT</text>
+  </g>
+  <g>
+    <rect x="798" y="388" width="318" height="92" rx="24" fill="#0a0a0a" stroke="#3c3c3c"/>
+    <use href="#a2a-mark" x="818" y="424" width="20" height="20"/>
+    <text x="850" y="439" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="600" fill="#f5f5f5">A2A Interop Lab</text>
+    <text x="818" y="409" font-family="Inter, sans-serif" font-size="11" font-weight="700" letter-spacing="1" fill="#a8a8a8">CANVAS · DARK</text>
+  </g>
+
+  <!-- Parchment -->
+  <g>
+    <rect x="462" y="496" width="318" height="92" rx="12" fill="#f4f0e7" stroke="#cfc5b2"/>
+    <use href="#a2a-mark" x="482" y="532" width="20" height="20"/>
+    <text x="514" y="547" font-family="Georgia, Charter, serif" font-size="16" font-weight="700" fill="#211d18">A2A Interop Lab</text>
+    <text x="482" y="517" font-family="Inter, sans-serif" font-size="11" font-weight="700" letter-spacing="1" fill="#786e61">PARCHMENT · LIGHT</text>
+  </g>
+  <g>
+    <rect x="798" y="496" width="318" height="92" rx="12" fill="#211e1a" stroke="#514a41"/>
+    <use href="#a2a-mark" x="818" y="532" width="20" height="20"/>
+    <text x="850" y="547" font-family="Georgia, Charter, serif" font-size="16" font-weight="700" fill="#f1eadc">A2A Interop Lab</text>
+    <text x="818" y="517" font-family="Inter, sans-serif" font-size="11" font-weight="700" letter-spacing="1" fill="#aaa092">PARCHMENT · DARK</text>
+  </g>
+
+  <rect x="64" y="620" width="1052" height="48" rx="12" fill="#ffffff" fill-opacity="0.68" stroke="#ffffff"/>
+  <circle cx="88" cy="644" r="4" fill="#0b1f33"/>
+  <text x="104" y="649" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="14" fill="#42505d">Fixed identity colors and geometry. Theme-specific spacing and surrounding chrome remain unchanged.</text>
+</svg>
