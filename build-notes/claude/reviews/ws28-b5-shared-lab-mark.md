@@ -1,4 +1,4 @@
-**Verdict: REQUEST CHANGES**
+**Verdict: PASS**
 
 ## Round 1 — Claude Opus headless critique
 
@@ -80,3 +80,58 @@ reachable. That predates this batch and should be logged separately, not added t
 the D98–D100 ADRs, and WS28 items 1–14.
 
 Claude Opus edited no repository files. The review ran headlessly through Claude Code 2.1.316.
+
+## Round 1 — Claude Opus headless cross-review
+
+D101 is fully implemented in `7b4a56e`. Every proposal blocker and should-fix item is resolved,
+and nothing blocks handing the batch to the operator for optional deployment. Commit `fdeee3d`
+contains only the Codex notes and handoff state.
+
+### Evidence rerun
+
+| Gate | Result |
+|---|---|
+| `uv run pytest -q` | **782 passed**, 3 skipped, 6 deselected |
+| `uv run pytest -q tests/unit/test_console.py` | **97 passed** |
+| Focused shared-mark / optional-theme tests | **5 passed** |
+| `uv run ruff check src tests scripts` | passed |
+| Commit-range `git diff --check` | passed |
+| Jira dry run | WS28 has 17 items; D101 stories A2A-380–382 exist |
+
+Whole-repository Ruff also found two pre-existing errors in the Codex eval harness, outside this
+batch. Ruff format drift in `test_console.py` is likewise present before B5; the new B5 test is
+clean.
+
+Claude independently calculated navy-on-gradient contrast as **9.80, 8.24, 7.93, 7.19 and
+7.60:1**. Each chevron tip clears the nearest node edge by 1.60 units including half the stroke,
+its arms are 1.98 units long, the message lines are 3.8 units apart, and both chevrons and nodes
+remain distinct at 20px and 1×.
+
+### Findings resolved
+
+1. Fixed ink and geometry: every stroke/fill is `#0b1f33`; strokes are 1.5 units with round caps
+   and joins; two radius-2.2 nodes and opposing open chevrons implement the settled symbol.
+2. Cache version: the link is `themes.css?v=2`, with version-pattern shell tests.
+3. Delivery record: D101 cites D97, D98, D100 and D79; WS28 items 15–17 and Jira stories
+   A2A-380–382 exist.
+4. SVG/CSS ownership: the SVG has no definitions or IDs; the exact field gradient lives only in
+   base CSS; width and height attributes provide correct pre-style sizing.
+5. Theme isolation: `themes.css` contains zero `brandmark` selectors, including media blocks and
+   pseudo-elements. Skyline's surrounding `header .brand` spacing remains intact.
+6. Stable verification: the test uses `data-part="agent"` and `data-part="message"`; browser
+   evidence compares computed geometry, transform, gradient and SVG hash rather than pixels.
+7. Accessibility: `aria-hidden="true"` and `focusable="false"` avoid a duplicate accessible name.
+
+The `index.html` diff in `7b4a56e` contains exactly the three B5-owned hunks. Unrelated diagram
+and Details edits remain unstaged. The implementation commit contains only batch-owned paths.
+
+### Non-blocking notes
+
+- The original narrow evidence had correct computed Skyline styling but a stale selector label;
+  Codex subsequently recaptured it with the selector visibly set to Skyline.
+- The existing keyboard-unreachable `.brand` home `div` predates D101 and remains a separate
+  follow-up.
+- Publication requires `deploy/console/deploy_console.sh` without `--skip-build`.
+
+Claude Opus edited no repository files and deployed nothing. The cross-review ran headlessly
+through Claude Code 2.1.316.
