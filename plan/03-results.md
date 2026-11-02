@@ -1877,3 +1877,42 @@ try.
 - **Neither the bullet-point preference nor any native write reaches Data 360.** No session-2 reply used
   bullets, and every GetContext read is empty. The reading above stands: native memory is per agent and per
   Salesforce user, within Agentforce only.
+
+## 2026-11-02 — WS27 supplier-disruption case memory: Seed passes, Recall unavailable (D102)
+
+The D102 implementation passed Claude's second headless review and was deployed
+with a full console image rebuild. The public health check returned 200. All
+four supplier-memory registrations were ACTIVE, automatic profile extraction
+read back off, and the dedicated memory ECA completed its core and Data 360
+token exchanges for every exact agent API name.
+
+Hosted controls passed. An unsigned memory run returned 401, an invalid case
+key returned 400, and the memory-Off run completed in 69,792 ms with state
+`off`, no memory errors and 3/3 business-unit coverage (trace
+`e57ebf20e4b2412881a60379e32399c7`).
+
+The fresh case `ws27-live-20261102` then ran in Seed mode. It completed in
+84,780 ms with two nominated and two written observations, no memory errors,
+and 2/3 business-unit coverage because the independent Logistics leg failed
+(trace `148ef9a05157498b956f10c3ba0f3efb`). The archived memory hops prove that
+Data 360 returned 201/202 for both conversation creates, session creates,
+participant additions, entry writes and session closes. The two accepted ids
+were `obs-9cde147377477c8b` from Commercial and `obs-206673de01c4caa6` from
+Customer Operations.
+
+Recall was not promoted to a pass. The unique provenance probe polled for seven
+minutes and the hosted case polled for ten; GetContext stayed successfully
+empty through the Coordinator and both writer registrations. Raw conversation
+reads with `scope=all` subsequently returned 404 through Logistics,
+Commercial, Customer Operations and Coordinator, despite the archived write
+acknowledgements. The provenance result is therefore **undetermined**, not
+NO-GO: there was no context in which the exact id/source could survive or be
+lost. The coordinator/specialists/both Recall arms and different-case/owner
+controls were deliberately not run because the runbook requires observed
+non-empty context first.
+
+The measured boundary is precise: console identity, four-agent preflight,
+candidate extraction, Data 360 write calls and honest evidence all work;
+conversation persistence/GetContext materialization does not currently expose
+the accepted entries. WS27 items 39, 40 and 43 remain open on that external
+read boundary.

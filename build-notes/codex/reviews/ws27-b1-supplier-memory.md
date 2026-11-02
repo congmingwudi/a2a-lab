@@ -102,3 +102,39 @@ Local browser evidence (no business turn sent):
 | N4 forged provenance/end markers | fixed | Candidate fields strip reserved observation-id and A2A-LAB control labels before ids are derived or content is stored; tests cover both forged label forms. |
 | N5 incomplete candidate block leaks to coordinator | fixed | A suffix containing START without END is stripped from visible text and reported as `candidate incomplete`; regression covered. |
 | N6 desktop/narrow evidence absent | fixed | Captured 1440×1000 and 390×844 screenshots from the local console without sending a turn. Browser evidence confirms the row, readers and case input are visible at both widths. |
+
+## Deployment and live evidence — 2026-11-01/02
+
+- Claude's second headless review returned **PASS** after independently running
+  the full suite (**804 passed, 3 skipped, 6 deselected**). Review commit:
+  `0c40c3d`.
+- The console received a full image rebuild and deployment. The public health
+  check returned HTTP 200 after the service stabilized.
+- All four D102 registrations are ACTIVE. Automatic Memory Extraction read
+  back `False` on every registration, and the memory ECA completed both its
+  core-token and Data 360 token exchanges for every exact agent API name.
+- Hosted isolation passed: unsigned memory runs returned 401 and an invalid
+  case key returned 400. The memory-Off control completed successfully under
+  trace `e57ebf20e4b2412881a60379e32399c7`, with memory state `off` and 3/3
+  business-unit coverage.
+- A hosted Seed run for case `ws27-live-20261102` completed under trace
+  `148ef9a05157498b956f10c3ba0f3efb`. Two of two nominated observations were
+  written with no memory errors; the independent Logistics business leg
+  failed, so the business result correctly reported 2/3 coverage.
+- The archived trace proves that Data 360 returned 201/202 for both
+  conversation creates, both session creates, both participant additions,
+  both entry writes, and both session closes. The accepted observations were
+  `obs-9cde147377477c8b` (Commercial) and `obs-206673de01c4caa6` (Customer
+  Operations).
+- Retrieval did **not** become available. The unique provenance probe polled
+  for seven minutes and the hosted case polled for ten minutes; GetContext
+  remained a successful empty response through Coordinator and each writer
+  registration. A subsequent raw `scope=all` conversation read returned 404
+  through all relevant registrations, despite the archived 201/202 writes.
+  Therefore provenance is **undetermined**, not NO-GO, and the Recall arms and
+  negative controls were not run: there was no observed context to consume.
+
+This is the same accepted-write/missing-read signature previously documented
+for WS27 tenant incidents. The application build, identity, deployment,
+controls and Seed path are complete; end-to-end Recall remains blocked at the
+Data 360 conversation/GetContext materialization boundary.

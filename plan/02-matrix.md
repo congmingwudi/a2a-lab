@@ -240,3 +240,12 @@ interop.
   frozen Lambda could not). Honest status unchanged: `via-bridge` on the
   Salesforce leg (Agentforce outbound is REST-only), `native` on the Heroku leg —
   the transport got more robust, the platform's protocol standing did not change.
+- **An accepted Agentic Memory write is not evidence of recall availability**
+  (WS27/D102, measured 2026-11-02). The hosted supplier-disruption Seed run
+  received 201/202 for conversation, session, participant, entry and close
+  calls, but GetContext stayed empty for 7–10 minutes and later raw
+  conversation reads returned 404. The lab therefore reports Seed as accepted
+  and Recall as unavailable; provenance remains undetermined until a non-empty
+  cross-agent read exists. A successful mutation response proves the API
+  boundary accepted the event, not that downstream conversation persistence or
+  context materialization can serve it.
