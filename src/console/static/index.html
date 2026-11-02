@@ -4455,6 +4455,14 @@ const MEMORY_HELP = {
   off: "no memory: the run is exactly the experiment without WS27 — the agent sees only your message (the control).",
   on: "memory on: before the agent answers, the lab reads what Data 360 Agentic Memory already knows about YOU (the signed-in lab user) and puts it in front of your message; after it answers, both your message and its reply are written back, so a later session can recall them. Fails open: a memory outage answers without memory and the turn says why (D91).",
 };
+const CASE_MEMORY_HELP = {
+  section: "Case memory lets one supplier-disruption run save reusable specialist observations in Data 360 and a later run reuse them. It is case-scoped operational context, not profile memory about you.",
+  off: "off: the exact control. This run neither reads nor writes case memory, so its result can be compared directly with Seed and Recall.",
+  seed: "seed: each successful specialist nominates one bounded observation after its normal answer. The console validates and writes those observations to Data 360 for this case; this run does not read them back or claim recall.",
+  recall: "recall: read observations previously saved for this signed-in user and case, then give the available context to the selected readers. If Data 360 has not materialized context yet, the run continues and reports memory as empty or unavailable.",
+  readers: "readers controls where recalled context is used: coordinator only during final synthesis, specialists before their individual analyses, or both stages.",
+  case: "case is the label that joins Seed and Recall runs. Use the same exact key to revisit a case; a different key creates an isolated case. The server combines it with the verified signed-in user and scenario, so it cannot select another person's memory.",
+};
 window.setMemoryMode = m => {
   if (!view || view.type !== "experiment") return;
   memoryModes[expKey(view.kind, view.name)] = m;
@@ -4496,20 +4504,20 @@ function fanoutMemoryRowHtml(key) {
   const caseKey = fanoutMemoryCases[key] || "rotterdam-1";
   const disabled = (fanoutVariants[key] || "tool") !== "tool";
   return `<div class="chan-row">
-    <span class="chan-label">Case memory</span>
+    <span class="chan-label">Case memory</span>${qhelp(CASE_MEMORY_HELP.section)}
     <label><input type="radio" name="fanoutMemoryMode" ${mode === "off" ? "checked" : ""}
-      onchange="setFanoutMemoryMode('off')"> off</label>
+      onchange="setFanoutMemoryMode('off')"> off</label>${qhelp(CASE_MEMORY_HELP.off)}
     <label><input type="radio" name="fanoutMemoryMode" ${mode === "seed" ? "checked" : ""}
-      ${disabled ? "disabled" : ""} onchange="setFanoutMemoryMode('seed')"> seed</label>
+      ${disabled ? "disabled" : ""} onchange="setFanoutMemoryMode('seed')"> seed</label>${qhelp(CASE_MEMORY_HELP.seed)}
     <label><input type="radio" name="fanoutMemoryMode" ${mode === "recall" ? "checked" : ""}
-      ${disabled ? "disabled" : ""} onchange="setFanoutMemoryMode('recall')"> recall</label>
+      ${disabled ? "disabled" : ""} onchange="setFanoutMemoryMode('recall')"> recall</label>${qhelp(CASE_MEMORY_HELP.recall)}
     ${mode === "recall" ? `<label>readers <select aria-label="Case-memory readers"
       onchange="setFanoutMemoryReader(this.value)">
       ${["coordinator", "specialists", "both"].map(v => `<option ${reader === v ? "selected" : ""}>${v}</option>`).join("")}
-      </select></label>` : ""}
+      </select></label>${qhelp(CASE_MEMORY_HELP.readers)}` : ""}
     ${mode !== "off" ? `<label>case <input aria-label="Case-memory key" maxlength="64"
       pattern="[A-Za-z0-9][A-Za-z0-9._ -]{0,63}" value="${esc(caseKey)}"
-      oninput="setFanoutMemoryCase(this.value)"></label>` : ""}
+      oninput="setFanoutMemoryCase(this.value)"></label>${qhelp(CASE_MEMORY_HELP.case)}` : ""}
     <span class="chan-more">Seed, wait for Data 360, then recall. Host-side tool only (D102).</span>
   </div>`;
 }

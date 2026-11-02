@@ -3694,3 +3694,5 @@ D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` a
     `plan/07-workstreams.md` section, using the shared dynamic renderer rather than per-Details markup.
 19. ✅ Extend decision chips to all known `D<n>` ids, including three-digit decisions such as D102;
     add source-parser, public-route and Supplier Disruption Details regressions under D103.
+20. ✅ Add keyboard-focusable hover help to every Case memory run setting: section purpose,
+    Off/Seed/Recall behavior, recall-reader placement and signed-in-user case-key isolation.

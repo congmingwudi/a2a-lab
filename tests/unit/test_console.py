@@ -477,6 +477,11 @@ def test_d102_supplier_memory_controls_are_scoped_and_accessible():
     assert 'aria-label="Case-memory readers"' in html
     assert 'aria-label="Case-memory key"' in html
     assert 'maxlength="64"' in html
+    assert "const CASE_MEMORY_HELP = {" in html
+    for setting in ("section", "off", "seed", "recall", "readers", "case"):
+        assert f"qhelp(CASE_MEMORY_HELP.{setting})" in html
+    assert "Use the same exact key to revisit a case" in html
+    assert "coordinator only during final synthesis" in html
     assert 'exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key)' in html
     assert "This run does not claim recall" in html
     assert "fanoutMemoryDetailHtml(s)" in html
