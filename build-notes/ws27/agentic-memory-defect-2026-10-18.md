@@ -7,6 +7,31 @@ lab's memory seam are D83, D86, D90, D91 and D92 in `plan/00-decisions.md`.
 The org id, tenant host and user ids are deliberately left out of this repo. Fill
 them in from `.env` / the CDP token exchange when filing.
 
+## Update 2026-11-02 — reproduced across the D102 supplier-memory agents
+
+The intermittent non-persistence signature reproduced in the deployed
+supplier-disruption experiment with four newly registered agents whose
+automatic profile extraction is off. Hosted trace
+`148ef9a05157498b956f10c3ba0f3efb` records two concurrent candidate writes to
+the same case conversation through separate agent registrations (Commercial
+and Customer Operations). For both, the service returned 201 for conversation
+and session creation, then 202 for participant addition, entry addition and
+session close.
+
+Neither accepted observation became readable. GetContext remained 200 + empty
+for ten minutes through Coordinator and both writer registrations; raw
+`GET /conversations/{cid}?scope=all` returned 404 through all four D102
+registrations afterward. A separate unique-case provenance probe showed the
+same empty GetContext result for seven minutes. The application therefore
+reports Seed as accepted, Recall as unavailable and provenance as
+undetermined. Exact timings and observation ids are in `plan/03-results.md`
+(2026-11-02).
+
+This reproduction rules out one-agent registration state and one specific
+conversation caller as sufficient causes. It also shows that closing sessions
+does not guarantee conversation persistence, even though close remains the
+required trigger for profile-memory extraction when that feature is enabled.
+
 ## Update 2026-10-28 — GetContext withdrawn; non-persistence is intermittent
 
 **GetContext is not a defect, so withdraw it.** It returns a `CONVERSATION_SUMMARY` `userContext` when it
