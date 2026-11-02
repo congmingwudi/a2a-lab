@@ -418,10 +418,12 @@ flowchart TB
     TR["bridge task role"]
     LR["lambda roles"]
     AR["AgentCore runtime roles"]
+    CT["console task role<br/>supplier-memory host (D102)"]
   end
   SM --> TR
   SM --> LR
   SM --> AR
+  SM --> CT
 
   subgraph SFID["Salesforce — one External Client App PER caller"]
     E1["a2a_lab_claude"]
@@ -443,6 +445,7 @@ flowchart TB
   TR --> E1
   LR --> E3
   SM --> E4
+  CT -->|"case preflight + seed/recall"| E5
 
   subgraph FED["Federation — direction matters"]
     G2A["GCP to AWS:<br/>AWS trusts accounts.google.com<br/>ONE role"]

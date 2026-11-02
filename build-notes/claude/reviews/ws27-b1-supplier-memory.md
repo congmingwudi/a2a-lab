@@ -142,3 +142,167 @@ alone cannot validate the proposed responsive control surface.
    this proposal.
 
 No implementation files or proposal text were changed during this critique.
+
+## Round 1 — Claude Opus headless cross-review
+
+Reviewed implementation commit `63a712b` against the settled scope (D102,
+`plan/00-decisions.md`), Codex's notes
+(`build-notes/codex/reviews/ws27-b1-supplier-memory.md`) and the round-0
+critique above. **Verdict: REQUEST CHANGES** — three of the four critique
+corrections hold. D102's own "fail-closed in evidence" clause does not, the
+provenance instrument can produce a false NO-GO, and the architecture
+definition of done is incomplete.
+
+### Critique corrections — status
+
+| # | Correction | Status |
+|---|---|---|
+| 1 | Console task, not faces; memory identity in `a2alab/runtime/console`; hosted per-`aid` mint preflight before a billable fan-out | **Partial.** `deploy/console/deploy_console.sh` adds `SF_CLIENT_ID_MEMORY` to the secret and the PEM as `A2ALAB_MEMORY_JWT_KEY`, matching `interop.memory.KEY_ENV`. `SF_MEMORY_RUNAS_USER`/`SF_MY_DOMAIN` reach plain env through the `os.environ` scan. Faces dropped. **The hosted preflight was not built** — see F3. |
+| 2 | Profile extraction off and a case read without the owner-level merge | **Met.** `open_and_read(..., include_saved_memories=False)`; `CaseMemory.read` uses it; test `test_recall_routes_case_summary_only_to_selected_readers` asserts no `list_memories`. Extraction-off is a runbook readback, honestly labelled as not runtime-enforceable. |
+| 3 | Provenance go/no-go before citation; utilization defined under both outcomes | **Design met, instrument defective** — see F2. D102 defines both outcomes, and the coordinator prompt falls back to "provenance unavailable". |
+| 4 | Verified identity before the early CMA branch; owner never from JSON; deploy/diagram/Details files | **Identity met.** `src/console/app.py` resolves `lab_user` before the scenario branch, rejects missing/machine/sub-less users (L2663) and derives `a2alab-<sub>` the same way as `memory_adapter.owner_of`. `test_supplier_memory_owner_comes_from_verified_user_before_fanout` proves a body `owner_id` is ignored. **Diagram half incomplete** — see F4. |
+
+### Blocking findings
+
+**F1 — Seed and recall evidence are not fail-closed (D102: "empty, late or
+refused context is reported as such").**
+- `CaseMemory.seed` builds its evidence from the *parsed* candidates before any
+  write (`src/orchestration/memory.py:193`). `MemoryEvidence.render` reports
+  `seeded {len(candidates)}` (`:105`). The console returns
+  `candidate_count = len(fan.memory.candidates)` (`src/console/app.py:2740`), and
+  the badge prints `memory: seeded N` in the success colour
+  (`src/console/static/index.html`, HEAD L9614).
+- Recall: a refused read and an empty conversation render the same
+  `no memory available` (`memory.py:110`) and the same badge `memory: nothing yet`
+  (HEAD L9615). The error count only appears in a tooltip.
+- **Reproduced** with a scratch client whose ingest and context calls raise
+  `MemoryCallError` (`/tmp/ws27-review/repro.py`, outside the repo):
+  ```
+  SEED  : [memory: seeded 3 observation(s); errors=3; ...] | candidate_count(badge)= 3
+  RECALL: [memory: no memory available; readers=coordinator; errors=1] | context_chars= 0
+  ```
+- This matters most in exactly the failure the batch adds: a console secret
+  missing the memory key turns every Seed run into three billable specialist
+  calls that report "seeded 3".
+- **Fix:** count *written* observations (candidates whose `one()` returned no
+  errors) separately from nominated ones. Render and badge `seeded k/n`, and show
+  `memory: unavailable` (non-success colour) when every write or the read errored.
+  Distinguish `refused` from `empty` in both `render()` and the badge. Add unit
+  tests for all-writes-refused, partial-write and refused-read.
+
+**F2 — The provenance probe can return a false NO-GO.**
+- `scripts/supplier_memory_probe.py` defaults `--case` to the constant
+  `d102-provenance-probe` (L114). It mints a fresh `observation_id` each run and
+  returns NO-GO (exit 1) on the **first** non-empty context (L89–102).
+- On any second run, the case conversation already holds the previous run's
+  summary. The first poll is therefore non-empty, lacks the new id, and reports
+  NO-GO without waiting for the new entry. The runbook command (notes, step 3)
+  uses the default case.
+- This script decides D102's citation policy, so a false NO-GO silently
+  downgrades the metric.
+- **Fix:** default the case key to a per-run unique value (e.g. include the
+  observation id), and/or keep polling until the id appears or the timeout
+  passes. Report NO-GO only after a context that post-dates the write.
+  Print the case key so a rerun is deliberate.
+
+**F3 — Critique #1's hosted preflight is absent.**
+- The runbook's step 2 (`setup_jwt_eca.py verify memory --agent-id`) runs on the
+  operator's machine with the operator's `.env` and `.a2alab` key. It proves the
+  ECA and `aid` registration. It does not prove that the **console task's**
+  secret and key mint, which is what the critique asked for.
+- Step 4 ("confirm the runtime secret contains…") is a config readback, not a
+  mint. The first hosted mint attempt is a billable Seed run, and F1 then
+  misreports its outcome.
+- **Fix (either):**
+  - (a) in seed/recall mode, `dispatch()` mints the case agents' tokens before
+    the legs run and records a refusal up front in the evidence; the business
+    turn stays fail-open; or
+  - (b) an operator-gated console route or CLI mode that mints for all four
+    `aid`s inside the task, listed in the runbook before step 5.
+
+**F4 — Architecture definition of done (CLAUDE.md: diagrams and console copy
+change with the component) is incomplete, and the notes overclaim it.**
+- The notes say "Identity diagram/README … describe the console→Data 360 edge".
+  At HEAD neither does:
+  - `config/diagrams.yaml` `identity-and-secrets` (`readme: true`) still shows
+    `SCON` reaching only `a2a_lab_tab_embed` (HEAD L41).
+  - `README.md` is not in `63a712b`.
+  - `plan/09-deployment-map.md` L4 shows `E5 a2a_lab_memory` with no console
+    caller (HEAD L431).
+- The new `supplier-disruption-case-memory` diagram is attached to insight
+  `orchestration-topology`, but `plan/08-insights.md` was not regenerated, so the
+  committed generated export is stale against the committed source.
+- **Coordination note:** the operator's uncommitted worktree edits are rewriting
+  these same diagrams. They add bridge/faces→`a2a_lab_memory` edges, but no
+  console edge. The fix should land on top of those edits, not over them.
+
+### Non-blocking (fix while there)
+
+- **N1.** `test_d102_supplier_memory_controls_are_scoped_and_accessible` was
+  inserted in the middle of `test_d99_platform_identity_contract_and_shared_renderers`
+  (`tests/unit/test_console.py:457`). The d99 test's trailing asserts (HEAD
+  L474–485: `seen` Set, `PLATFORM_MARK`, `WARM_LOGO`, label blocks, Strands
+  titles) now belong to the D102 test. Nothing is lost, but the d99 contract is
+  split and a D102 failure masks it. Move them back.
+- **N2.** No test covers the 401 path (unsigned / shared-token / `role:
+  machine`), although the notes claim it. No test covers the F1 failure cases.
+- **N3.** `CaseMemory(memory_client)` constructs a new `MemoryClient`, and with it
+  an `httpx.AsyncClient`, for every non-off dispatch and never closes it
+  (`src/orchestration/runner.py:679`, `memory.py:164`). Each run leaks a client
+  and re-mints 2 tokens per `aid`. Share a client (as `memory_adapter._shared`
+  does) or `aclose()` in a `finally`.
+- **N4.** Model-authored candidate text can contain a forged
+  `[observation_id=…; source=…]` prefix or a literal `[END A2A-LAB CASE MEMORY]`.
+  Under a GO outcome a cited id *is* the utilization metric, so `parse_candidate`
+  should strip or escape bracketed label patterns from the four fields.
+- **N5.** A seed reply with `START` but no `END` returns "candidate missing" and
+  leaves the partial block in the text forwarded to the coordinator.
+- **N6.** Browser desktop/narrow accessibility screenshots were deferred to
+  "deployment". They need no deploy: `scripts/run_console.sh` serves the new
+  controls locally against the hosted lab. Item 41 correctly stays ⏳.
+
+### Verified as correct
+
+- **Off is a true control:** the prompt is unchanged with an empty instruction,
+  `MemoryEvidence()` renders `""`, and no memory call is made (test asserts).
+- **Recall never writes**, so there is no same-turn feedback.
+- **Seed strips candidate blocks** before coordinator synthesis.
+- **Remote MCP refuses memory at three layers:** UI reset, console 409, and the
+  `CmaOrchestrator` ValueError, plus the CLI guard.
+- **The fan-out Lambda bundle is unaffected** by the now-unconditional
+  `orchestration.memory` import in `dispatch()`: `deploy/fanout/build_zip.sh`
+  copies all of `src/orchestration` and `src/interop`, and bundles httpx.
+- **Case conversation id is opaque** and hashes owner, scenario and case;
+  `case_conversation` is tested for separation.
+- **Honesty:** WS27 items 37–43 are all ⏳, and no `plan/02`/`plan/03` claims
+  were added. That is consistent with nothing being registered, deployed or
+  measured.
+
+### Evidence run (this session)
+
+1. `uv run pytest -q` (environment as-is; no SOCKS proxy issue this session):
+   **799 passed, 3 skipped, 6 deselected** in 94.16 s. This matches Codex's
+   final count.
+2. `uv run ruff check src tests scripts`: clean. `git diff --check
+   63a712b^ 63a712b`: clean.
+3. Scratch reproduction of F1 (`/tmp/ws27-review/repro.py`, outside the repo),
+   output quoted above.
+4. Honesty checks were targeted, not full skill runs:
+   - an architecture-sweep–style grep for the console memory identity across
+     `plan/`, `config/diagrams.yaml` and `index.html` (F4);
+   - a workstream-honesty read of items 37–43 against the build evidence
+     (consistent);
+   - a matrix check: no `plan/02` change, which is consistent.
+
+   The full `workstream-honesty` workflow was not run; it is known to stall on
+   `parse_plan()` output.
+5. **Incident, disclosed:** `uv run python scripts/export_insights.py --help`
+   ignores `--help` and regenerated `plan/08-insights.md`. That file is
+   user-owned and was already dirty. No snapshot existed. I restored it by
+   regenerating from the current worktree sources minus the D102 diagram entry,
+   and the only diff against the accidental export was that block. The prior
+   dirty copy did not contain it (counted before the export). It is the closest
+   reconstruction, not a byte-verified restore. The operator should eyeball
+   `git diff plan/08-insights.md`, and Codex should not stage it.
+
+No implementation code, plan, deploy or tenant state was changed by this review.

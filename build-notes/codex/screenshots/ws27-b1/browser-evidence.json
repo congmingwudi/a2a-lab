@@ -1,0 +1,22 @@
+{
+  "supplier-memory-desktop.png": {
+    "rowVisible": true,
+    "keyVisible": true,
+    "readersVisible": true,
+    "rowWidth": 1394,
+    "viewport": [
+      1440,
+      1000
+    ]
+  },
+  "supplier-memory-narrow.png": {
+    "rowVisible": true,
+    "keyVisible": true,
+    "readersVisible": true,
+    "rowWidth": 362,
+    "viewport": [
+      390,
+      844
+    ]
+  }
+}

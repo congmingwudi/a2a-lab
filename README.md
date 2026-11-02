@@ -638,6 +638,7 @@ flowchart LR
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
+    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEMD102["Data 360 Agentic Memory<br/>case conversation"]
 ```
 
 Runtime configs carry only the secret's **ARN**; `interop.secret_env` resolves

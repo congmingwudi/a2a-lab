@@ -2735,9 +2735,11 @@ def create_console_app(registry: Registry | None = None):
                     "memory": (
                         {
                             "mode": fan.memory.mode,
+                            "state": fan.memory.state,
                             "reader": fan.memory.reader,
                             "context_chars": len(fan.memory.context),
-                            "candidate_count": len(fan.memory.candidates),
+                            "candidate_count": len(fan.memory.written),
+                            "nominated_count": fan.memory.expected_count,
                             "error_count": len(fan.memory.errors),
                             "errors": fan.memory.errors,
                         }

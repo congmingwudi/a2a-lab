@@ -678,7 +678,14 @@ async def dispatch(
     memory_run = memory_run or MemoryRun()
     case_memory = CaseMemory(memory_client) if memory_run.mode != "off" else None
     memory_evidence = MemoryEvidence()
-    if memory_run.mode == "recall" and case_memory is not None:
+    preflight_errors = await case_memory.preflight() if case_memory is not None else []
+    if preflight_errors:
+        memory_evidence = MemoryEvidence(
+            mode=memory_run.mode,
+            reader=memory_run.reader,
+            errors=preflight_errors,
+        )
+    elif memory_run.mode == "recall" and case_memory is not None:
         memory_evidence = await case_memory.read(trace_id, memory_run)
 
     memory_instruction = ""
@@ -743,8 +750,19 @@ async def dispatch(
                 candidates.append(candidate)
             if error:
                 parse_errors.append(f"{result.leg.role}: {error}")
-        memory_evidence = await case_memory.seed(trace_id, memory_run, candidates)
-        memory_evidence.errors[:0] = parse_errors
+        expected_count = sum(1 for result in results if result.ok)
+        if preflight_errors:
+            memory_evidence.candidates = candidates
+            memory_evidence.expected_count = expected_count
+            memory_evidence.errors.extend(parse_errors)
+        else:
+            memory_evidence = await case_memory.seed(
+                trace_id,
+                memory_run,
+                candidates,
+                expected_count=expected_count,
+            )
+            memory_evidence.errors[:0] = parse_errors
 
     return FanOutResult(
         task=task,

@@ -155,6 +155,15 @@ class MemoryClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    async def preflight_agent(self, agent_id: str) -> None:
+        """Prove this runtime can mint a Data 360 token for ``agent_id``.
+
+        Supplier memory calls this inside the hosted console task before the
+        three paid specialist legs, so a missing task secret or unregistered
+        aid is visible before the business run starts (D102).
+        """
+        await self._token(agent_id)
+
     # ------------------------------------------------------------ auth
 
     async def _token(self, agent_id: str) -> _Token:

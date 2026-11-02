@@ -453,24 +453,6 @@ def test_d99_platform_identity_contract_and_shared_renderers():
     assert ".tabbar h2 > .title-icons.lead" in html
     assert ".title-icons:first-child" not in html
 
-
-def test_d102_supplier_memory_controls_are_scoped_and_accessible():
-    scenarios = yaml.safe_load(Path("config/scenarios.yaml").read_text())["scenarios"]
-    html = Path("src/console/static/index.html").read_text()
-    assert scenarios["supplier-disruption-cma"]["fanout_memory_toggle"] is True
-    assert not scenarios["supplier-disruption-adk"].get("fanout_memory_toggle")
-    assert not scenarios["supplier-disruption-agentforce"].get("fanout_memory_toggle")
-    assert 'name="fanoutMemoryMode"' in html
-    assert 'aria-label="Case-memory readers"' in html
-    assert 'aria-label="Case-memory key"' in html
-    assert 'maxlength="64"' in html
-    assert 'exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key)' in html
-    assert "This run does not claim recall" in html
-    assert "fanoutMemoryDetailHtml(s)" in html
-    deploy = Path("deploy/console/deploy_console.sh").read_text()
-    assert '"SF_CLIENT_ID_MEMORY"' in deploy
-    assert 'payload["A2ALAB_MEMORY_JWT_KEY"]' in deploy
-    assert 'memory_jwt_private.pem' in deploy
     assert 'const seen = new Set();' in html
     assert 'if (!mark || seen.has(mark)) return "";' in html
     assert "PLATFORM_MARK[a.platform]" in html
@@ -485,6 +467,26 @@ def test_d102_supplier_memory_controls_are_scoped_and_accessible():
     assert scenarios["agentforce-to-strands"]["title"] == "Agentforce → AWS Strands (AWS)"
 
 
+def test_d102_supplier_memory_controls_are_scoped_and_accessible():
+    scenarios = yaml.safe_load(Path("config/scenarios.yaml").read_text())["scenarios"]
+    html = Path("src/console/static/index.html").read_text()
+    assert scenarios["supplier-disruption-cma"]["fanout_memory_toggle"] is True
+    assert not scenarios["supplier-disruption-adk"].get("fanout_memory_toggle")
+    assert not scenarios["supplier-disruption-agentforce"].get("fanout_memory_toggle")
+    assert 'name="fanoutMemoryMode"' in html
+    assert 'aria-label="Case-memory readers"' in html
+    assert 'aria-label="Case-memory key"' in html
+    assert 'maxlength="64"' in html
+    assert 'exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key)' in html
+    assert "This run does not claim recall" in html
+    assert "fanoutMemoryDetailHtml(s)" in html
+    assert 'm.state === "unavailable"' in html
+    assert "memory: seeded ${written}/${nominated}" in html
+    assert '"memory: empty"' in html
+    deploy = Path("deploy/console/deploy_console.sh").read_text()
+    assert '"SF_CLIENT_ID_MEMORY"' in deploy
+    assert 'payload["A2ALAB_MEMORY_JWT_KEY"]' in deploy
+    assert 'memory_jwt_private.pem' in deploy
 def test_targets_listed(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
@@ -1115,6 +1117,26 @@ def test_supplier_memory_rejects_untrusted_shape_before_agent_work(tmp_path, mon
         "/api/run", json={**base, "memory_case": "case", "memory_reader": "everyone"},
         headers=headers,
     ).status_code == 400
+
+
+def test_supplier_memory_rejects_unsigned_and_machine_callers_before_agent_work(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    body = {
+        "scenario": "supplier-disruption-cma",
+        "message": "strike",
+        "variant": "tool",
+        "memory_mode": "seed",
+        "memory_case": "case",
+    }
+    client = TestClient(app)
+    assert client.post("/api/run", json=body).status_code in (401, 403)
+    assert client.post(
+        "/api/run", json=body, headers=_machine_headers(monkeypatch, tmp_path)
+    ).status_code == 403
 
 
 def test_viewer_403_on_operator_surfaces(tmp_path, monkeypatch):

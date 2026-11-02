@@ -453,6 +453,7 @@ flowchart LR
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
+    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEMD102["Data 360 Agentic Memory<br/>case conversation"]
 ```
 
 **One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
@@ -615,6 +616,7 @@ flowchart LR
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
+    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEMD102["Data 360 Agentic Memory<br/>case conversation"]
 ```
 
 **One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
@@ -845,6 +847,27 @@ flowchart TB
     L2 -.-> OBS
     L3 -.-> OBS
     C -.-> OBS
+```
+
+**Supplier disruption: Data 360 case memory** — The console-hosted CMA run writes one bounded observation per specialist to a case-scoped Data 360 conversation. A later run can recall that episodic context for the coordinator, specialists, or both; profile-memory extraction remains off.
+
+```mermaid
+flowchart LR
+    subgraph RUN1["Seed run"]
+        L["Logistics · ADK"]
+        C["Commercial · Foundry"]
+        O["Customer Ops · OpenAI"]
+    end
+    HOST["Console Fargate task<br/>CMA custom-tool host"]
+    MEM[("Data 360 Agentic Memory<br/>opaque owner + case conversation")]
+    RUN2["Later supplier-disruption run"]
+
+    L -->|"bounded observation"| HOST
+    C -->|"bounded observation"| HOST
+    O -->|"bounded observation"| HOST
+    HOST -->|"a2a_lab_memory · seed"| MEM
+    MEM -->|"recall: coordinator / specialists / both"| HOST
+    HOST --> RUN2
 ```
 
 ### "Agentic" is a property of the tool inventory, not the prompt — and moving a tool off the host buys autonomy at the price of a request budget

@@ -40,6 +40,8 @@ most reusable, decision-relevant observation from this execution. Do not put
 secrets, contact details, or unsupported facts in it. The block is excluded
 from the 60-word business answer."""
 
+_shared_client: MemoryClient | None = None
+
 
 @dataclass(frozen=True)
 class MemoryRun:
@@ -97,21 +99,49 @@ class MemoryEvidence:
     reader: str | None = None
     context: str = ""
     candidates: list[Candidate] = field(default_factory=list)
+    written: list[Candidate] = field(default_factory=list)
+    expected_count: int = 0
     errors: list[str] = field(default_factory=list)
+
+    @property
+    def state(self) -> str:
+        if self.mode == "off":
+            return "off"
+        if self.mode == "seed":
+            if self.errors and not self.written:
+                return "unavailable"
+            if len(self.written) < self.expected_count or self.errors:
+                return "partial"
+            return "seeded"
+        if self.context:
+            return "recalled"
+        return "unavailable" if self.errors else "empty"
 
     def render(self) -> str:
         if self.mode == "off":
             return ""
         if self.mode == "seed":
             return (
-                f"[memory: seeded {len(self.candidates)} observation(s); "
+                f"[memory: {self.state}; seeded {len(self.written)}/{self.expected_count} "
+                "observation(s); "
                 f"errors={len(self.errors)}; recall waits for Data 360 availability]"
             )
-        state = "no memory available" if not self.context else f"recalled {len(self.context)} chars"
+        state = (
+            "memory unavailable"
+            if self.state == "unavailable"
+            else "no memory available"
+            if self.state == "empty"
+            else f"recalled {len(self.context)} chars"
+        )
         return f"[memory: {state}; readers={self.reader}; errors={len(self.errors)}]"
 
 
 _BLOCK = re.compile(re.escape(START) + r"\s*(.*?)\s*" + re.escape(END), re.DOTALL)
+_RESERVED_LABEL = re.compile(
+    r"\[(?:/?A2A-LAB(?: MEMORY CANDIDATE| CASE MEMORY)|END A2A-LAB CASE MEMORY|"
+    r"observation_id\s*=)[^\]]*\]",
+    re.IGNORECASE,
+)
 
 
 def candidate_prompt() -> str:
@@ -132,7 +162,9 @@ def parse_candidate(text: str, *, role: str, source: str, trace_id: str) -> tupl
     """Strip one candidate block and return visible answer, candidate, error."""
     match = _BLOCK.search(text or "")
     if not match:
-        return text, None, "candidate missing"
+        start = (text or "").find(START)
+        visible = (text or "")[:start].strip() if start >= 0 else text
+        return visible, None, "candidate incomplete" if start >= 0 else "candidate missing"
     visible = (text[: match.start()] + text[match.end() :]).strip()
     try:
         raw = json.loads(match.group(1))
@@ -146,7 +178,10 @@ def parse_candidate(text: str, *, role: str, source: str, trace_id: str) -> tupl
             return visible, None, f"candidate missing string '{key}'"
         if len(value.strip()) > MAX_FIELD:
             return visible, None, f"candidate '{key}' exceeds {MAX_FIELD} chars"
-        values[key] = redact(value.strip())
+        cleaned = _RESERVED_LABEL.sub("", redact(value.strip())).strip()
+        if not cleaned:
+            return visible, None, f"candidate '{key}' contains only reserved labels"
+        values[key] = cleaned
     digest = hashlib.sha256(
         f"{trace_id}\0{role}\0{values['observation']}".encode()
     ).hexdigest()[:16]
@@ -161,8 +196,30 @@ def parse_candidate(text: str, *, role: str, source: str, trace_id: str) -> tupl
 
 class CaseMemory:
     def __init__(self, client: Any | None = None, *, budget_s: float | None = None):
-        self.client = client or MemoryClient(source="supplier-memory")
+        global _shared_client
+        if client is None:
+            if _shared_client is None:
+                _shared_client = MemoryClient(source="supplier-memory")
+            client = _shared_client
+        self.client = client
         self.budget_s = budget_s or float(os.environ.get("A2ALAB_MEMORY_BUDGET_S", "8"))
+
+    async def preflight(self) -> list[str]:
+        """Mint for every D102 aid in this runtime before specialist spend."""
+
+        async def one(role: str, agent_id: str) -> str | None:
+            try:
+                await asyncio.wait_for(
+                    self.client.preflight_agent(agent_id), timeout=self.budget_s
+                )
+            except asyncio.TimeoutError:
+                return f"{role}: memory preflight over its {self.budget_s:g}s budget"
+            except Exception as exc:
+                return f"{role}: {type(exc).__name__}: {exc}"
+            return None
+
+        results = await asyncio.gather(*(one(role, aid) for role, aid in AGENT_IDS.items()))
+        return [error for error in results if error]
 
     async def read(self, trace_id: str, run: MemoryRun) -> MemoryEvidence:
         evidence = MemoryEvidence(mode=run.mode, reader=run.reader)
@@ -189,8 +246,20 @@ class CaseMemory:
         evidence.errors.extend(errors)
         return evidence
 
-    async def seed(self, trace_id: str, run: MemoryRun, candidates: list[Candidate]) -> MemoryEvidence:
-        evidence = MemoryEvidence(mode=run.mode, reader=run.reader, candidates=candidates)
+    async def seed(
+        self,
+        trace_id: str,
+        run: MemoryRun,
+        candidates: list[Candidate],
+        *,
+        expected_count: int,
+    ) -> MemoryEvidence:
+        evidence = MemoryEvidence(
+            mode=run.mode,
+            reader=run.reader,
+            candidates=candidates,
+            expected_count=expected_count,
+        )
 
         async def one(candidate: Candidate) -> list[str]:
             agent_id = AGENT_IDS[candidate.role]
@@ -220,4 +289,6 @@ class CaseMemory:
                 evidence.errors.append(f"{candidate.role}: {type(result).__name__}: {result}")
             else:
                 evidence.errors.extend(f"{candidate.role}: {error}" for error in result)
+                if not result:
+                    evidence.written.append(candidate)
         return evidence

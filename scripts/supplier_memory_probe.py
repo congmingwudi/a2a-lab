@@ -3,9 +3,10 @@
 
 Dry-run by default. With --apply, write one unique source-labelled observation
 through the Logistics registration, close its session, then poll GetContext
-through the Coordinator registration. Exit 0 only when the exact observation
-id and source survive the cross-agent Data 360 read; exit 1 when context becomes
-available without them, and 2 on invalid input/timeout.
+through the Coordinator registration. Each default run gets a fresh case and
+keeps polling until its exact id/source appears or the deadline expires. Exit 0
+on exact survival, 1 when context arrived without provenance by the deadline,
+and 2 on invalid input/no-context timeout.
 """
 
 from __future__ import annotations
@@ -29,12 +30,14 @@ from orchestration.memory import AGENT_IDS, SCENARIO, CaseMemory, MemoryRun  # n
 async def run(args) -> int:
     trace_id = new_trace_id()
     observation_id = f"obs-probe-{uuid.uuid4().hex[:12]}"
+    case_key = args.case or f"d102-provenance-{observation_id}"
     source = "Logistics provenance probe"
     run_spec = MemoryRun(
-        mode="seed", owner_id=args.owner, case_key=args.case, reader="coordinator"
+        mode="seed", owner_id=args.owner, case_key=case_key, reader="coordinator"
     )
-    cid = case_conversation(args.owner, SCENARIO, args.case)
+    cid = case_conversation(args.owner, SCENARIO, case_key)
     print(f"trace          {trace_id}")
+    print(f"case           {case_key}")
     print(f"conversation   {cid}")
     print(f"observation    {observation_id}")
     print(f"write agent    {AGENT_IDS['exposure']}")
@@ -97,12 +100,14 @@ async def run(args) -> int:
             if id_ok and source_ok:
                 print("GO — exact provenance survived the cross-agent Data 360 read")
                 return 0
-            print("NO-GO — content is available but exact provenance did not survive")
-            print(last[:1000])
-            return 1
+            print("provenance not present yet; continuing until the deadline")
         else:
             print(f"attempt {attempt}: no context yet")
         await asyncio.sleep(args.interval)
+    if last:
+        print("NO-GO — context arrived but exact provenance did not survive")
+        print(last[:1000])
+        return 1
     print("TIMEOUT — no non-empty context became available", file=sys.stderr)
     return 2
 
@@ -111,7 +116,10 @@ def main() -> int:
     load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--owner", required=True, help="controlled a2alab-* probe owner")
-    parser.add_argument("--case", default="d102-provenance-probe")
+    parser.add_argument(
+        "--case",
+        help="explicit case key; defaults to a unique key derived from this run's observation id",
+    )
     parser.add_argument("--timeout", type=float, default=420.0)
     parser.add_argument("--interval", type=float, default=15.0)
     parser.add_argument("--apply", action="store_true")
