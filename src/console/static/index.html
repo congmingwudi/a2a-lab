@@ -232,9 +232,9 @@
      slate rim keeps the edge intentional on dark surfaces */
   .badge.agentcore, .badge.aws { background: var(--chip-aws); color: #eef2f7;
                                  border: 1px solid #52627a; }
-  /* Decision chips — ADR refs (D27, D28, …) in any visible UI text become
-     clickable chips; the popover renders that decision's markdown from the
-     ADR log (GET /api/decisions ← plan/00-decisions.md). */
+  /* Reference chips — ADR refs (D27, D102, …) and workstreams (WS11, WS27, …)
+     in visible UI text become clickable chips; popovers render the exact
+     source section from plan/00-decisions.md or plan/07-workstreams.md. */
   .dchip { display: inline-block; padding: 0 8px; border-radius: 999px;
            font: 600 11px/17px var(--font-mono); color: var(--hero-link);
            background: color-mix(in srgb, var(--hero-link) 10%, transparent);
@@ -1976,7 +1976,7 @@ window.labSignIn = async () => {
 // Adding a panel? Add its loader here and nowhere else.
 const SIGNED_IN_LOADERS = [
   loadLaunchers,       // scenarios + targets (the experiment nav)
-  loadDecisions,       // the D-chip corpus
+  loadDecisions,       // the D<n> + WS<n> reference-chip corpora
   refreshTraces,       // trace list, now that /api/traces answers
   loadObs,             // observability summary + sessions
   loadInsights,
@@ -2180,14 +2180,15 @@ function pretty(payload) {
 }
 
 // ---------------------------------------------------------------------------
-// Decision chips — ADR refs (D27, D28, …) mean nothing to a visitor, so any
-// D-number in visible text becomes a chip whose popover renders the actual
-// decision from plan/00-decisions.md. A MutationObserver linkifies every
-// render path (innerHTML swaps, SSE updates) without touching the templates.
+// Reference chips — ADR refs and workstream ids mean nothing to a visitor, so
+// D<n> and WS<n> in visible text become chips whose popover renders the exact
+// source section. A MutationObserver linkifies every render path (innerHTML
+// swaps, SSE updates) without touching the templates.
 // ---------------------------------------------------------------------------
 let decisionLog = {};   // "D28" -> {id, title, date, markdown}
+let workstreamLog = {}; // "WS27" -> {id, title, markdown}
 
-const D_REF_RE = /\b(D\d{1,2})\b/;
+const SOURCE_REF_RE = /\b(?:D\d+|WS\d+)\b/;
 
 // Doc refs (plan/*.md, README.md) get the same treatment as D-refs: a chip
 // whose popover renders the file via /api/docs — so the Lab Guide's cited
@@ -2208,7 +2209,7 @@ const DOC_PATH_SRC = "(?:plan|docs)\\/[\\w.-]+\\.md|build-notes\\/[\\w.-]+\\/[\\
 // A chip that 404s is worse than plain text — it invites a click and fails.
 const DOC_START = "(?<![\\w/-])";
 const DOC_REF_RE = new RegExp(DOC_START + "(" + DOC_PATH_SRC + ")\\b");
-const REF_SPLIT_RE = new RegExp("(\\bD\\d{1,2}\\b|" + DOC_START + "(?:" + DOC_PATH_SRC + ")\\b)");
+const REF_SPLIT_RE = new RegExp("(\\b(?:D\\d+|WS\\d+)\\b|" + DOC_START + "(?:" + DOC_PATH_SRC + ")\\b)");
 
 // Prose writes a file reference as `plan/03-results.md` — inline code — and the
 // text walker below deliberately refuses to touch anything inside <code>, so
@@ -2232,12 +2233,12 @@ function linkifyCodeDocRefs(root) {
 }
 
 function linkifyDecisions(root) {
-  if (!root || !Object.keys(decisionLog).length) return;
+  if (!root || (!Object.keys(decisionLog).length && !Object.keys(workstreamLog).length)) return;
   if (root.nodeType !== 1 && root.nodeType !== 11) return;
   linkifyCodeDocRefs(root);
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      if (!D_REF_RE.test(node.nodeValue) && !DOC_REF_RE.test(node.nodeValue))
+      if (!SOURCE_REF_RE.test(node.nodeValue) && !DOC_REF_RE.test(node.nodeValue))
         return NodeFilter.FILTER_REJECT;
       const p = node.parentElement;
       if (!p || p.closest("pre, code, script, style, textarea, .dchip, .dpopover"))
@@ -2249,14 +2250,15 @@ function linkifyDecisions(root) {
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     const parts = node.nodeValue.split(REF_SPLIT_RE);
-    // Only known decision ids / whitelisted doc paths become chips.
-    if (!parts.some(p => decisionLog[p] || DOC_REF_RE.test(p || ""))) continue;
+    // Only known decision/workstream ids and whitelisted doc paths become chips.
+    if (!parts.some(p => decisionLog[p] || workstreamLog[p] || DOC_REF_RE.test(p || ""))) continue;
     const frag = document.createDocumentFragment();
     for (const part of parts) {
-      if (decisionLog[part]) {
+      if (decisionLog[part] || workstreamLog[part]) {
+        const ref = decisionLog[part] || workstreamLog[part];
         const b = document.createElement("button");
         b.type = "button"; b.className = "dchip"; b.textContent = part;
-        b.title = decisionLog[part].title;
+        b.title = ref.title;
         frag.appendChild(b);
       } else if (part && DOC_REF_RE.test(part)) {
         const b = document.createElement("button");
@@ -2274,9 +2276,9 @@ function closeDecisionPopover() {
 }
 
 function openDecisionPopover(chip) {
-  const d = decisionLog[chip.textContent];
-  if (!d) return;
-  showPopover(chip, d.id, d.markdown);
+  const ref = decisionLog[chip.textContent] || workstreamLog[chip.textContent];
+  if (!ref) return;
+  showPopover(chip, ref.id, ref.markdown);
 }
 
 // Insight file-ref chips (plan/03-results.md, …) — same popover, but the
@@ -2340,8 +2342,14 @@ new MutationObserver(muts => {
 
 async function loadDecisions() {
   try {
-    const r = await fetch(apiUrl("/api/decisions"));
-    decisionLog = (await r.json()).decisions || {};
+    const [decisionsResponse, workstreamsResponse] = await Promise.all([
+      fetch(apiUrl("/api/decisions")),
+      fetch(apiUrl("/api/workstreams")),
+    ]);
+    decisionLog = decisionsResponse.ok ? (await decisionsResponse.json()).decisions || {} : {};
+    workstreamLog = workstreamsResponse.ok
+      ? (await workstreamsResponse.json()).workstreams || {}
+      : {};
     linkifyDecisions(document.body);  // content rendered before the fetch resolved
   } catch { /* chips just don't activate */ }
 }

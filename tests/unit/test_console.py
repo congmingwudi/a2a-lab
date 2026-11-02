@@ -971,6 +971,36 @@ def test_decisions_missing_file_empty(tmp_path, monkeypatch):
     assert console_app.load_decisions(tmp_path / "nope.md") == {}
 
 
+def test_workstreams_parsed_and_served_for_reference_chips(tmp_path, monkeypatch):
+    """Details WS refs open the exact plan section, not the whole workstream file."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    workstreams = TestClient(app).get("/api/workstreams").json()["workstreams"]
+
+    assert "WS11" in workstreams and "WS27" in workstreams
+    assert workstreams["WS27"]["id"] == "WS27"
+    assert "Data 360 Agentic Memory" in workstreams["WS27"]["title"]
+    assert "D102" in workstreams["WS27"]["markdown"]
+    assert "## WS28" not in workstreams["WS27"]["markdown"]
+
+
+def test_workstreams_missing_file_empty(tmp_path):
+    import console.app as console_app
+
+    assert console_app.load_workstreams(tmp_path / "nope.md") == {}
+
+
+def test_details_reference_chips_cover_workstreams_and_three_digit_decisions():
+    html = Path("src/console/static/index.html").read_text()
+
+    assert "let workstreamLog = {};" in html
+    assert 'fetch(apiUrl("/api/workstreams"))' in html
+    assert "const SOURCE_REF_RE = /\\b(?:D\\d+|WS\\d+)\\b/;" in html
+    assert "decisionLog[part] || workstreamLog[part]" in html
+    # The reported Details example exercises both paths: WS11/WS27 and D102.
+    assert "(WS27, D102)" in html
+    assert "how each leg is called (WS11)" in html
+
+
 def test_run_af_route_direct_block(tmp_path, monkeypatch):
     """The reverse-direction sibling of D28's channel radio: on an
     af_route_toggle scenario, af_route=direct appends the outbound-route
@@ -1168,6 +1198,7 @@ def test_viewer_allowed_surfaces(tmp_path, monkeypatch):
         "/api/obs/summary",
         "/api/obs/sessions",
         "/api/decisions",
+        "/api/workstreams",
         "/api/scenarios",
         "/api/config",
         "/api/traces",  # dummy demo data only — the wire record IS the exhibit
@@ -1498,7 +1529,13 @@ def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
     monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
     app = make_app(tmp_path, monkeypatch)
     client = TestClient(app)
-    for path in ("/api/scenarios", "/api/targets", "/api/decisions", "/api/users"):
+    for path in (
+        "/api/scenarios",
+        "/api/targets",
+        "/api/decisions",
+        "/api/workstreams",
+        "/api/users",
+    ):
         assert client.get(path).status_code == 200, path
     assert client.get("/api/docs/plan/02-matrix.md").status_code == 200
     assert client.get("/api/docs/docs/lab-guide-mcp.md").status_code == 200

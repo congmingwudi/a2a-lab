@@ -59,8 +59,10 @@ SSE_KEEPALIVE_S = 15.0
 SCENARIOS_PATH = Path("config/scenarios.yaml")
 AGENTS_PATH = Path("config/agents.yaml")
 DECISIONS_PATH = Path("plan/00-decisions.md")
+WORKSTREAMS_PATH = Path("plan/07-workstreams.md")
 
 _DECISION_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — (D\d+)( \(revised\))?: (.+)$")
+_WORKSTREAM_HEADING = re.compile(r"^## (WS\d+) — (.+)$")
 
 
 def load_decisions(path: str | Path = DECISIONS_PATH) -> dict[str, dict]:
@@ -104,6 +106,44 @@ def load_decisions(path: str | Path = DECISIONS_PATH) -> dict[str, dict]:
             body.append(line)
     flush()
     return decisions
+
+
+def load_workstreams(path: str | Path = WORKSTREAMS_PATH) -> dict[str, dict]:
+    """Parse exact plan sections for WS-reference chip popovers.
+
+    The Project view summarizes this source into epic/story rows; Details
+    chips need the full section so scope, status and evidence remain together.
+    """
+    p = Path(path)
+    if not p.exists():
+        return {}
+    workstreams: dict[str, dict] = {}
+    current: dict | None = None
+    body: list[str] = []
+
+    def flush():
+        if current is None:
+            return
+        workstreams[current["id"]] = {
+            **current,
+            "markdown": f"### {current['id']} — {current['title']}\n\n"
+            + "\n".join(body).strip(),
+        }
+
+    for line in p.read_text(encoding="utf-8").splitlines():
+        match = _WORKSTREAM_HEADING.match(line)
+        if match:
+            flush()
+            wid, title = match.groups()
+            current = {"id": wid, "title": title}
+            body = []
+        elif line.startswith("## "):
+            flush()
+            current = None
+        elif current is not None:
+            body.append(line)
+    flush()
+    return workstreams
 
 
 def load_scenarios(path: str | Path = SCENARIOS_PATH) -> dict[str, dict]:
@@ -1901,6 +1941,11 @@ def create_console_app(registry: Registry | None = None):
         """The ADR log parsed per decision id — the UI renders D-refs as
         chips whose popover shows the decision's markdown."""
         return {"decisions": load_decisions()}
+
+    @app.get("/api/workstreams")
+    async def workstreams():
+        """The workstream plan parsed per WS id for reference-chip popovers."""
+        return {"workstreams": load_workstreams()}
 
     @app.get("/api/users")
     async def users():
@@ -4948,6 +4993,7 @@ and console never present a combined dollar total across tools (WS12/D44).
             "/api/scenarios",
             "/api/targets",
             "/api/decisions",
+            "/api/workstreams",
         ),
         # /static/: repo assets the public shell renders — component
         # screenshots and the vendored mermaid bundle. Not a policy softening

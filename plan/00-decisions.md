@@ -4494,3 +4494,24 @@ batch and publishing requires a full console rebuild. The remote-MCP, ADK-primar
 Agentforce-primary controllers remain follow-up arms because their memory loops and credential
 boundaries live in different runtimes. Live results update `plan/03-results.md` and the memory
 findings in `plan/02-matrix.md`, including a negative or mixed outcome.
+
+## 2026-11-02 — D103: every decision and workstream reference in console prose opens its exact source section
+
+**Context.** Experiment Details explain implementation choices with compact references such as
+WS11, WS27 and D102. Decision chips already made most one- and two-digit ADR references
+explorable, but the shared matcher did not recognize three-digit decisions and had no workstream
+corpus. The codes therefore looked like unexplained internal notation precisely where the reader
+needed their context.
+
+**Decision.** Treat both `D<n>` and `WS<n>` as reader-facing references everywhere the shared
+console text renderer runs. Decisions resolve to their exact section in `plan/00-decisions.md`;
+workstreams resolve to their exact section in `plan/07-workstreams.md`. Both render in the same
+accessible chip and popover pattern as document references. Only ids present in the parsed source
+become chips, so ordinary text cannot create a dead navigation target.
+
+**Consequences.** The console exposes the repository-authored workstream corpus through a public,
+read-only `/api/workstreams` endpoint beside `/api/decisions`; both are documentation-class data
+already visible through the public repo and Lab Guide. The MutationObserver continues to cover
+static and dynamically rendered Details panes without template-specific markup. Three-digit ADRs
+such as D102 and workstreams such as WS11/WS27 now open their meaning in place, and regression
+tests pin parsing, auth exposure and the Supplier Disruption example.

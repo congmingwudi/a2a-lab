@@ -3690,3 +3690,7 @@ D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` a
     and add accessibility, fixed-geometry, stable-part and all-selector regression coverage.
 17. ✅ Capture actual-size Default/Skyline/Canvas/Parchment light/dark and narrow browser evidence,
     then hand the completed shared-mark batch to Claude Opus for cross-review.
+18. ✅ Make every known `WS<n>` reference in console prose a clickable chip that opens the exact
+    `plan/07-workstreams.md` section, using the shared dynamic renderer rather than per-Details markup.
+19. ✅ Extend decision chips to all known `D<n>` ids, including three-digit decisions such as D102;
+    add source-parser, public-route and Supplier Disruption Details regressions under D103.
