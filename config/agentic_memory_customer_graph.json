@@ -1,0 +1,206 @@
+{
+  "name": "A2ALab_Memory_Customer360",
+  "label": "A2A Lab Memory Customer 360",
+  "type": "REALTIME",
+  "description": "Unified demo-customer profile context for cross-agent Agentic Memory experiments.",
+  "dataspaceName": "default",
+  "primaryObjectName": "UnifiedssotIndividualAm01__dlm",
+  "isRealTimeToggleEnabled": true,
+  "isRecordCachingDisabled": true,
+  "cacheDurationInDays": 0,
+  "maxRecordsCached": 0,
+  "sessionEnd": 30,
+  "sessionEndTimeUnit": "MINUTES",
+  "sourceObject": {
+    "name": "UnifiedssotIndividualAm01__dlm",
+    "label": "A2A Lab Unified Individual",
+    "type": "derived",
+    "jsonPath": "$",
+    "path": [],
+    "fields": [
+      {
+        "sourceFieldName": "ssot__Id__c",
+        "isKeyColumn": true,
+        "isProjected": true,
+        "usageTag": "NONE"
+      },
+      {
+        "sourceFieldName": "ssot__FirstName__c",
+        "isKeyColumn": false,
+        "isProjected": true,
+        "usageTag": "NONE"
+      },
+      {
+        "sourceFieldName": "ssot__LastName__c",
+        "isKeyColumn": false,
+        "isProjected": true,
+        "usageTag": "NONE"
+      },
+      {
+        "sourceFieldName": "ssot__PersonName__c",
+        "isKeyColumn": false,
+        "isProjected": true,
+        "usageTag": "NONE"
+      },
+      {
+        "sourceFieldName": "ssot__TitleName__c",
+        "isKeyColumn": false,
+        "isProjected": true,
+        "usageTag": "NONE"
+      }
+    ],
+    "recencyCriteria": [],
+    "relatedObjects": [
+      {
+        "name": "UnifiedLinkssotIndividualAm01__dlm",
+        "label": "A2A Lab Individual Identity Link",
+        "type": "derived",
+        "path": [
+          {
+            "fieldName": "UnifiedRecordId__c",
+            "parentFieldName": "ssot__Id__c"
+          }
+        ],
+        "fields": [
+          {
+            "sourceFieldName": "SourceRecordId__c",
+            "isKeyColumn": true,
+            "isProjected": true,
+            "usageTag": "NONE",
+            "keyQualifierName": "KQ_SourceRecordId__c"
+          },
+          {
+            "sourceFieldName": "KQ_SourceRecordId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "KEY_QUALIFIER"
+          },
+          {
+            "sourceFieldName": "UnifiedRecordId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "NONE"
+          },
+          {
+            "sourceFieldName": "ssot__DataSourceId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "NONE"
+          },
+          {
+            "sourceFieldName": "ssot__DataSourceObjectId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "NONE"
+          }
+        ],
+        "recencyCriteria": [],
+        "relatedObjects": [
+          {
+            "name": "ssot__Individual__dlm",
+            "label": "Source Individual",
+            "type": "standard",
+            "path": [
+              {
+                "fieldName": "ssot__Id__c",
+                "parentFieldName": "SourceRecordId__c"
+              }
+            ],
+            "fields": [
+              {
+                "sourceFieldName": "ssot__Id__c",
+                "isKeyColumn": true,
+                "isProjected": true,
+                "usageTag": "NONE",
+                "keyQualifierName": "KQ_Id__c"
+              },
+              {
+                "sourceFieldName": "KQ_Id__c",
+                "isKeyColumn": false,
+                "isProjected": true,
+                "usageTag": "KEY_QUALIFIER"
+              },
+              {
+                "sourceFieldName": "ssot__FirstName__c",
+                "isKeyColumn": false,
+                "isProjected": true,
+                "usageTag": "NONE"
+              },
+              {
+                "sourceFieldName": "ssot__LastName__c",
+                "isKeyColumn": false,
+                "isProjected": true,
+                "usageTag": "NONE"
+              },
+              {
+                "sourceFieldName": "ssot__TitleName__c",
+                "isKeyColumn": false,
+                "isProjected": true,
+                "usageTag": "NONE"
+              }
+            ],
+            "recencyCriteria": [],
+            "relatedObjects": [
+              {
+                "name": "ssot__ContactPointEmail__dlm",
+                "label": "Contact Point Email",
+                "type": "standard",
+                "path": [
+                  {
+                    "fieldName": "ssot__PartyId__c",
+                    "parentFieldName": "ssot__Id__c"
+                  }
+                ],
+                "fields": [
+                  {
+                    "sourceFieldName": "ssot__Id__c",
+                    "isKeyColumn": true,
+                    "isProjected": true,
+                    "usageTag": "NONE",
+                    "keyQualifierName": "KQ_Id__c"
+                  },
+                  {
+                    "sourceFieldName": "KQ_Id__c",
+                    "isKeyColumn": false,
+                    "isProjected": true,
+                    "usageTag": "KEY_QUALIFIER"
+                  },
+                  {
+                    "sourceFieldName": "ssot__PartyId__c",
+                    "isKeyColumn": false,
+                    "isProjected": true,
+                    "usageTag": "NONE",
+                    "keyQualifierName": "KQ_PartyId__c"
+                  },
+                  {
+                    "sourceFieldName": "KQ_PartyId__c",
+                    "isKeyColumn": false,
+                    "isProjected": true,
+                    "usageTag": "KEY_QUALIFIER"
+                  },
+                  {
+                    "sourceFieldName": "ssot__EmailAddress__c",
+                    "isKeyColumn": false,
+                    "isProjected": true,
+                    "usageTag": "NONE"
+                  }
+                ],
+                "recencyCriteria": [],
+                "topKFilterCriteria": {
+                  "limit": 10,
+                  "orderCriteria": [
+                    {
+                      "fieldApiName": "ssot__Id__c",
+                      "sortOrder": "DESC"
+                    }
+                  ]
+                },
+                "relatedObjects": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

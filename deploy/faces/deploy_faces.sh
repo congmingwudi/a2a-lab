@@ -88,8 +88,21 @@ keys = [
     # user, the same identity the bridge's /memory/turn holds (D86). JWT-bearer,
     # so no secret exists; the signing key rides as PEM text (below).
     "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER",
+    # Verified lab subject -> org-specific Data 360 customer profile id (xid).
+    "A2ALAB_MEMORY_OWNER_MAP",
+    # Selectable demo-customer key -> unified profile id. Keys are public-safe;
+    # ids remain in this runtime secret and never go to the browser.
+    "A2ALAB_MEMORY_CUSTOMER_MAP",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
+for map_key in ("A2ALAB_MEMORY_OWNER_MAP", "A2ALAB_MEMORY_CUSTOMER_MAP"):
+    if map_key in payload:
+        owner_map = json.loads(payload[map_key])
+        if not isinstance(owner_map, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and k and v
+            for k, v in owner_map.items()
+        ):
+            raise SystemExit(f"{map_key} must be a non-empty-string JSON object")
 _mem_key = pathlib.Path(os.environ.get("A2ALAB_JWT_DIR", ".a2alab")) / "memory_jwt_private.pem"
 if _mem_key.exists():  # the same file deploy_bridge.sh reads
     payload["A2ALAB_MEMORY_JWT_KEY"] = _mem_key.read_text()

@@ -62,8 +62,8 @@ class Memory:
         self.context = context
         self.calls = []
 
-    async def preflight_agent(self, agent_id):
-        self.calls.append(("preflight", {"agent_id": agent_id}))
+    async def preflight_agent(self, agent_id, owner_id):
+        self.calls.append(("preflight", {"agent_id": agent_id, "owner_id": owner_id}))
 
     async def start_conversation(self, trace_id, **kw):
         self.calls.append(("start", kw))
@@ -87,8 +87,8 @@ class FailingMemory(Memory):
         self.fail_preflight = fail_preflight
         self.fail_read = fail_read
 
-    async def preflight_agent(self, agent_id):
-        await super().preflight_agent(agent_id)
+    async def preflight_agent(self, agent_id, owner_id):
+        await super().preflight_agent(agent_id, owner_id)
         if self.fail_preflight:
             raise MemoryCallError("mint refused")
 

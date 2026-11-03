@@ -41,11 +41,155 @@ groups:
   - id: cross-cloud
     title: "Cross-hyperscalers"
   # The first 1:many group. Every group above is a PAIR — which is the shape
-  # the lab explored first and, until WS8, the only shape it had.
+  # the lab explored first and, until WS8, the only shape it had. The Agent
+  # Memory story follows it as a separate continuity category.
   - id: fan-out
     title: "Fan-out orchestration (1:many)"
+  - id: agent-memory
+    title: "Agent Memory — customer continuity"
 
 scenarios:
+  customer-memory-claude:
+    group: agent-memory
+    title: "Customer memory — teach Claude"
+    summary: >-
+      Tell Claude a durable customer constraint or preference, save it under
+      the selected customer's unified Data 360 profile, ready for another agent.
+    description: |-
+      THE STORY. The first half of the cross-agent continuity experiment. Select Maya or
+      Jordan, then teach Claude a durable fact or preference. Claude reads that
+      customer's governed context and writes the completed turn back for later
+      agents without calling CRM. Start here, then open the OpenAI sibling
+      experiment with the same customer and use its recall-and-act prompt.
+
+      MEMORY SCOPE. Data 360 supplies a common customer-centered substrate, not one
+      unrestricted memory bucket. The data space and Unified Individual form the shared
+      identity spine, so Maya and Jordan remain separate across agents, sessions, and channels.
+      Semantic facts and preferences belong to that customer profile, not to Claude or OpenAI.
+      Both platforms use the shared A2ALab_Memory_Case registration, so the saved-memory path is
+      customer profile × category. Claude and OpenAI remain execution/provenance participants,
+      while episodic conversation/session access and Data 360 governance still apply. A custom
+      Case real-time data graph is a future enhancement and is not attached in this experiment.
+    target: claude-rest
+    via_bridge: false
+    status: live
+    memory_toggle: true
+    memory_customer_selector: true
+    default_memory_customer: maya
+    tags: [data-360, agentic-memory, identity-resolution, claude, managed-agents]
+    question: >-
+      Remember this for future conversations: I already tried increasing the
+      supplier API timeout, so do not recommend that again. I prefer concise
+      checklists, and any rollout must finish within 90 days. Confirm exactly
+      what you will remember; do not call Agentforce in this teaching turn.
+    seed_prompts:
+      - label: "1 · Teach Claude"
+        text: >-
+          Remember this for future conversations: I already tried increasing
+          the supplier API timeout, so do not recommend that again. I prefer
+          concise checklists, and any rollout must finish within 90 days.
+          Confirm exactly what you will remember; do not call Agentforce in this teaching turn.
+      - label: "Correction"
+        text: >-
+          Update what you know about me: the rollout window is now 60 days,
+          not 90. Keep my concise-checklist preference. Tell me what changed.
+    prompt_suffix: >-
+      This is the memory-teaching half of the demonstration. Do not call
+      Agentforce or any CRM tool. State the durable customer details you learned
+      under a "Stored for future agents" heading; do not claim they were already
+      remembered unless they were present in the memory block.
+    flow:
+      - source: remote-caller
+        target: claude-researcher
+        protocol: rest
+        detail: The console sends the signed customer turn to the Claude face.
+      - source: claude-researcher
+        target: data-360-agentic-memory
+        protocol: rest
+        detail: >-
+          The face exchanges a governed token with the selected customer's
+          unified Individual id as xid, reads context before inference, and closes the written
+          conversation turn afterward so profile extraction can run.
+    agents:
+      - title: Claude customer-memory agent
+        target: claude-a2a
+        caption: Writes through shared A2ALab_Memory_Case; Claude remains execution provenance.
+
+  customer-memory-openai:
+    group: agent-memory
+    title: "Customer memory — OpenAI recalls"
+    summary: >-
+      A different agent platform recalls the selected customer's earlier Claude
+      interaction and turns a remembered next step into an Agentforce CRM action.
+    description: |-
+      THE STORY. The second half of the experiment. Select the same customer used in Teach
+      Claude. OpenAI uses the same shared memory-service registration and its governed token carries
+      the same unified customer xid, so its face reads the same
+      owner conversation before answering. The prompt requires visible source
+      attribution so memory and live CRM context cannot blur together.
+
+      MEMORY SCOPE. Data 360 supplies a common customer-centered substrate, not one
+      unrestricted memory bucket. The data space and Unified Individual form the shared
+      identity spine, so Maya and Jordan remain separate across agents, sessions, and channels.
+      Semantic facts and preferences belong to that customer profile, not to Claude or OpenAI.
+      Both platforms use the shared A2ALab_Memory_Case registration, so the saved-memory path is
+      customer profile × category. Claude and OpenAI remain execution/provenance participants,
+      while episodic conversation/session access and Data 360 governance still apply. A custom
+      Case real-time data graph is a future enhancement and is not attached in this experiment.
+    target: openai-rest
+    via_bridge: false
+    status: live
+    memory_toggle: true
+    memory_customer_selector: true
+    default_memory_customer: maya
+    tags: [data-360, agentic-memory, openai, cross-agent, agentforce]
+    question: >-
+      Recall my rollout constraints and preferences. Then ask Agentforce to
+      create a CRM Case for Acme Corp documenting the supplier API symptoms,
+      endpoints, tested timeout change, business impact, owners, and runbook
+      link. Show separate "From memory" and "Action performed by Agentforce"
+      sections, including the created Case number.
+    seed_prompts:
+      - label: "2 · Recall in OpenAI"
+        text: >-
+          Recall my rollout constraints and preferences. Then ask Agentforce
+          to create a CRM Case for Acme Corp documenting the supplier API
+          symptoms, endpoints, tested timeout change, business impact, owners,
+          and runbook link. Show separate "From memory" and "Action performed
+          by Agentforce" sections, including the created Case number.
+      - label: "Negative control"
+        text: >-
+          Before answering, state whether you have any remembered rollout
+          constraints for me. Do not infer or invent them. Then ask Agentforce
+          for current CRM context and label it separately.
+    prompt_suffix: >-
+      Use the Salesforce Agentforce agent through ask_agentforce to perform the
+      requested CRM Case creation, not merely recommend it. Attribute remembered
+      context and the action result in separate sections; if memory is empty or
+      the action fails, say so explicitly rather than inventing either result.
+    flow:
+      - source: remote-caller
+        target: openai-researcher
+        protocol: rest
+        detail: The console sends the signed customer turn to the OpenAI face.
+      - source: openai-researcher
+        target: data-360-agentic-memory
+        protocol: rest
+        detail: >-
+          OpenAI uses the shared A2ALab_Memory_Case registration and the selected customer's unified
+          xid to retrieve context written during the Claude interaction.
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: OpenAI asks Agentforce to create the follow-up Case and returns its Case number.
+    agents:
+      - title: OpenAI customer-memory agent
+        target: openai-a2a
+        caption: Reads through shared A2ALab_Memory_Case; OpenAI remains execution provenance.
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: Performs the CRM Case creation selected from the remembered next step.
+
   claude-aws-to-agentforce:
     af_channel_toggle: true
     group: claude-agentforce

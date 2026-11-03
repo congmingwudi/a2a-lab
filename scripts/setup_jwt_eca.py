@@ -431,12 +431,15 @@ def mint_core_token(p: Preset) -> dict:
 CDP_SCOPES = ("cdp_ingest_api", "cdp_profile_api", "cdp_query_api")
 
 
-def exchange_cdp(core: dict, agent_id: str | None = None) -> dict:
+def exchange_cdp(
+    core: dict, agent_id: str | None = None, external_id: str | None = None
+) -> dict:
     """Leg 2: core token → Data 360 tenant token at /services/a360/token.
 
-    Same body the agentic-context SDK sends. `aid` is optional, and a360 rejects
-    an UNREGISTERED agent id with access_denied — so it is only passed once the
-    agent is registered (plan/18 Phase 1).
+    ``xid`` is the governed end-user identity (Individual ID for an external
+    customer, Salesforce User ID for an employee). ``aid`` is optional, and
+    a360 rejects an UNREGISTERED agent id with access_denied — so it is only
+    passed once the agent is registered (plan/18 Phase 1).
     """
     import httpx
 
@@ -450,6 +453,8 @@ def exchange_cdp(core: dict, agent_id: str | None = None) -> dict:
     }
     if agent_id:
         body["aid"] = agent_id
+    if external_id:
+        body["xid"] = external_id
     r = httpx.post(f"{core['instance_url']}/services/a360/token", data=body, timeout=20)
     cdp = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     if r.status_code != 200 or not cdp.get("access_token"):
@@ -463,7 +468,7 @@ def cmd_verify(p: Preset, args) -> None:
         print(f"leg 1 ok: JWT-bearer → core token, scope = {core.get('scope', '')!r}")
         if not p.cdp_exchange:
             return
-        cdp = exchange_cdp(core, args.agent_id)
+        cdp = exchange_cdp(core, args.agent_id, args.external_id)
     except CredentialError as e:
         sys.exit(str(e))
     # The tenant host is an environment identifier: report its shape, not its value.
@@ -483,6 +488,10 @@ def main() -> None:
             sp.add_argument("--validate", action="store_true", help="check-only deploy")
         if verb == "verify":
             sp.add_argument("--agent-id", help="also bind a registered AgentApiName (aid)")
+            sp.add_argument(
+                "--external-id",
+                help="also bind the governed Individual/User identity (xid)",
+            )
     args = ap.parse_args()
     {"show": cmd_show, "create": cmd_create, "verify": cmd_verify}[args.verb](
         PRESETS[args.preset], args

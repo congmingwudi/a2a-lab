@@ -11,7 +11,7 @@ Auth is the two-leg exchange the memory ECA was built for (plan/18 Phase 0,
 `scripts/setup_jwt_eca.py` preset `memory`): an RS256 JWT-bearer grant as the
 run-as user yields a core token, and `/services/a360/token` swaps it — bound to
 the calling agent's API name (`aid`) — for a tenant token plus the tenant host.
-Tokens are cached per agent until shortly before expiry.
+Tokens are cached per governed person + agent pair until shortly before expiry.
 
 Every call is a trace Hop with the raw request and response bodies, target
 `agentic-memory`: memory is new wire, and the lab records wire (CLAUDE.md).
@@ -149,25 +149,28 @@ class MemoryClient:
 
     def __init__(self, http: httpx.AsyncClient | None = None, *, source: str = "bridge"):
         self._http = http or httpx.AsyncClient(timeout=30)
-        self._tokens: dict[str, _Token] = {}
+        self._tokens: dict[tuple[str, str], _Token] = {}
         self.source = source
 
     async def aclose(self) -> None:
         await self._http.aclose()
 
-    async def preflight_agent(self, agent_id: str) -> None:
+    async def preflight_agent(self, agent_id: str, owner_id: str) -> None:
         """Prove this runtime can mint a Data 360 token for ``agent_id``.
 
         Supplier memory calls this inside the hosted console task before the
         three paid specialist legs, so a missing task secret or unregistered
         aid is visible before the business run starts (D102).
         """
-        await self._token(agent_id)
+        await self._token(agent_id, owner_id)
 
     # ------------------------------------------------------------ auth
 
-    async def _token(self, agent_id: str) -> _Token:
-        cached = self._tokens.get(agent_id)
+    async def _token(self, agent_id: str, owner_id: str) -> _Token:
+        if not owner_id:
+            raise MemoryCallError("a governed memory token requires a non-empty owner xid")
+        cache_key = (owner_id, agent_id)
+        cached = self._tokens.get(cache_key)
         if cached and cached.expires_at > time.time() + 60:
             return cached
         import jwt as pyjwt
@@ -208,6 +211,9 @@ class MemoryClient:
                 "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
                 # a360 refuses an UNREGISTERED aid with access_denied (plan/18)
                 "aid": agent_id,
+                # Governed reads fail closed unless the token is bound to the
+                # external Individual ID (or Salesforce User ID for employees).
+                "xid": owner_id,
             },
         )
         cdp = r.json() if r.status_code == 200 else {}
@@ -221,7 +227,7 @@ class MemoryClient:
             base_url=host if host.startswith("https://") else f"https://{host}",
             expires_at=time.time() + int(cdp.get("expires_in") or 3600),
         )
-        self._tokens[agent_id] = tok
+        self._tokens[cache_key] = tok
         return tok
 
     # ------------------------------------------------------------ wire
@@ -233,14 +239,20 @@ class MemoryClient:
         method: str,
         path: str,
         *,
+        owner_id: str,
         headers: dict[str, str],
         json_body: dict | None = None,
         params: dict | None = None,
         ok: tuple[int, ...] = (200, 201, 202),
         ref_key: str | None = None,
     ) -> tuple[int, Any]:
-        tok = await self._token(agent_id)
+        tok = await self._token(agent_id, owner_id)
         detail = f"{method} {path}"
+        # Saved facts/preferences are read once per category per sharing agent.
+        # Put both dimensions in the hop label so the trace does not present
+        # four semantically distinct reads as anonymous duplicates.
+        if path == "/api/v1/agentic/memory" and params:
+            detail += f" · {params.get('category', 'unknown')} · {agent_id}"
         with Hop(
             trace_id,
             source=self.source,
@@ -291,11 +303,13 @@ class MemoryClient:
         h = self._post_headers(owner_id, agent_id)
         now = _now()
         base = "/api/v1/agentic/conversations"
-        await self._call(trace_id, agent_id, "POST", base, headers=h, ok=(200, 201, 202, 409),
+        await self._call(trace_id, agent_id, "POST", base, owner_id=owner_id,
+                         headers=h, ok=(200, 201, 202, 409),
                          json_body={"conversationId": cid, "conversationOwnerId": owner_id,
                                     "ownerType": OWNER_TYPE, "name": cid,
                                     "channel": {"type": "web", "id": "a2alab"}})  # fmt: skip
-        await self._call(trace_id, agent_id, "POST", f"{base}/{cid}/sessions", headers=h,
+        await self._call(trace_id, agent_id, "POST", f"{base}/{cid}/sessions",
+                         owner_id=owner_id, headers=h,
                          ok=(200, 201, 202, 409),
                          json_body={"sessionId": sid, "conversationOwnerId": owner_id,
                                     "ownerType": OWNER_TYPE,
@@ -304,6 +318,7 @@ class MemoryClient:
                                                       "startTime": now, "orgId": "default"}]})  # fmt: skip
         await self._call(trace_id, agent_id, "POST",
                          f"{base}/{cid}/sessions/{sid}/participants", headers=h,
+                         owner_id=owner_id,
                          ok=(200, 201, 202, 409),
                          json_body={"participants": [{"id": f"{agent_id}-participant",
                                                       "type": "agent", "role": "participant",
@@ -346,6 +361,7 @@ class MemoryClient:
         cid = _conversation_id(owner_id, conversation_id)
         await self._call(trace_id, agent_id, "POST",
                          f"/api/v1/agentic/conversations/{cid}/entries",
+                         owner_id=owner_id,
                          headers=self._post_headers(owner_id, agent_id),
                          json_body={"sessionId": session_id, "conversationOwnerId": owner_id,
                                     "entries": entries})  # fmt: skip
@@ -368,7 +384,8 @@ class MemoryClient:
         # It reads the OWNER's conversation — the summary of every earlier chat
         # (D94); asked about a conversation with no history it is 200 + empty.
         _, body = await self._call(
-            trace_id, agent_id, "GET", "/api/v1/agentic/context", ref_key="contextId",
+            trace_id, agent_id, "GET", "/api/v1/agentic/context", owner_id=owner_id,
+            ref_key="contextId",
             headers={"ctx-agent-id": agent_id, "ctx-dataspace-ds_name": DATA_SPACE},
             params={"conversation_id": _conversation_id(owner_id, conversation_id),
                     "owner_id": owner_id,
@@ -393,18 +410,20 @@ class MemoryClient:
             trace_id, agent_id, "POST",
             f"/api/v1/agentic/conversations/{_conversation_id(owner_id, conversation_id)}"
             f"/sessions/{session_id}/close",
+            owner_id=owner_id,
             headers=self._post_headers(owner_id, agent_id), json_body={},
         )  # fmt: skip
 
     async def list_memories(
         self, trace_id: str, *, agent_id: str, owner_id: str, category: str
     ) -> list[str]:
-        """Extracted memories of one category, as stored under ONE agent — the
-        store is per agent, so a shared read asks each agent (`saved_memories`).
-        GetContext carries facts only inside the conversation summary, which is
-        rebuilt on a schedule; these are listed within minutes of a close."""
+        """Read one customer-scoped semantic-memory category.
+
+        ``agent_id`` identifies the registered memory service used for this
+        governed request; it is not a platform-specific storage partition.
+        """
         _, body = await self._call(
-            trace_id, agent_id, "GET", "/api/v1/agentic/memory",
+            trace_id, agent_id, "GET", "/api/v1/agentic/memory", owner_id=owner_id,
             headers={"agent_id": agent_id},
             params={"profile_id": owner_id, "profile_type": OWNER_TYPE, "category": category},
         )  # fmt: skip
@@ -413,29 +432,14 @@ class MemoryClient:
 
 
 SAVED_CATEGORIES = {"sys_PROFILE_FACT": "saved fact", "sys_PROFILE_PREFERENCES": "saved preference"}
-SHARED_AGENTS_ENV = "A2ALAB_MEMORY_SHARED_AGENTS"  # comma-separated registration names
-SHARED_AGENTS = ("A2ALab_Memory_Concierge", "A2ALab_Memory_Claude")  # the explicit-seam agents
 MAX_SAVED = 20
-
-
-def shared_agents(agent_id: str) -> list[str]:
-    """The calling agent first, then every other agent whose memories it shares."""
-    names = os.environ.get(SHARED_AGENTS_ENV)
-    others = [n.strip() for n in names.split(",")] if names else list(SHARED_AGENTS)
-    return list(dict.fromkeys([agent_id, *(n for n in others if n)]))
 
 
 async def saved_memories(
     mem: MemoryClient, trace_id: str, *, agent_id: str, owner_id: str
 ) -> tuple[str, list[str]]:
-    """Every shared agent's saved facts and preferences as prompt lines, fail-open.
-
-    The cross-agent half of recall: GetContext serves the conversation summary
-    for the conversation you pass, but facts are stored per agent (plan/18,
-    after the governed-mcp-demo-kit's `memoryContextFor`). One refused agent
-    costs only its own lines.
-    """
-    asks = [(a, c) for a in shared_agents(agent_id) for c in SAVED_CATEGORIES]
+    """Customer facts/preferences from one shared memory service, fail-open."""
+    asks = [(agent_id, category) for category in SAVED_CATEGORIES]
     results = await asyncio.gather(
         *(mem.list_memories(trace_id, agent_id=a, owner_id=owner_id, category=c) for a, c in asks),
         return_exceptions=True,

@@ -204,13 +204,14 @@ class CaseMemory:
         self.client = client
         self.budget_s = budget_s or float(os.environ.get("A2ALAB_MEMORY_BUDGET_S", "8"))
 
-    async def preflight(self) -> list[str]:
+    async def preflight(self, run: MemoryRun) -> list[str]:
         """Mint for every D102 aid in this runtime before specialist spend."""
 
         async def one(role: str, agent_id: str) -> str | None:
             try:
                 await asyncio.wait_for(
-                    self.client.preflight_agent(agent_id), timeout=self.budget_s
+                    self.client.preflight_agent(agent_id, run.owner_id or ""),
+                    timeout=self.budget_s,
                 )
             except asyncio.TimeoutError:
                 return f"{role}: memory preflight over its {self.budget_s:g}s budget"

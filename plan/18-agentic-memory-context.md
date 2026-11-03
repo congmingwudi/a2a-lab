@@ -1,6 +1,34 @@
 # 18 — Data 360 Agentic Memory and Context: one memory, every platform
 
-**Status: Phase 0 + Phase 1 DONE (2026-10-12): the memory ECA is deployed and verified; the `default` agentic setup is ACTIVE and `A2ALab_Memory_Concierge` is registered (ACTIVE). Phase 2 (D83) is DEPLOYED (2026-10-13): bridge task definition :13, `A2ALabMemoryTurn` (6/6 tests, 100% coverage) and concierge v1 active. The tenant smoke passed (2026-10-13), and **first recall across sessions passed (2026-10-14)**. The reply side was measured on 2026-10-15: replies never reach memory natively. D87's idempotent entry ids are live; its reply path is not: `last_reply` turned out to be voice barge-in state, so concierge v2 failed every turn and v1 is active again, and the reply moves out of band (D89). Phase 0b (D86, 2026-10-14) moves the memory ECA off the admin onto a dedicated API-only integration user: built, with the production steps pending. Agentforce also has NATIVE memory actions (`manageUserMemory` and friends), so Phase 2b (D84) runs both routes as an experiment, including a Data Cloud One companion-org arm.** This
+**Status: Phase 0 + Phase 1 DONE (2026-10-12): the memory ECA is deployed and verified; the `default` agentic setup is ACTIVE and `A2ALab_Memory_Concierge` is registered (ACTIVE). Phase 2 (D83) is DEPLOYED (2026-10-13): bridge task definition :13, `A2ALabMemoryTurn` (6/6 tests, 100% coverage) and concierge v1 active. The tenant smoke passed (2026-10-13), and **first recall across sessions passed (2026-10-14)**. The reply side was measured on 2026-10-15: replies never reach memory natively. D87's idempotent entry ids are live; its reply path is not: `last_reply` turned out to be voice barge-in state, so concierge v2 failed every turn and v1 is active again, and the reply moves out of band (D89). Phase 0b (D86, 2026-10-14) moves the memory ECA off the admin onto a dedicated API-only integration user: built, with the production steps pending. Agentforce also has NATIVE memory actions (`manageUserMemory` and friends), so Phase 2b (D84) runs both routes as an experiment, including a Data Cloud One companion-org arm.**
+**D104 addendum (2026-11-02): customer-profile continuity is now built in the existing A2A Lab org.**
+`Contact_Home` materializes Individual + Contact Point Email, identity ruleset `AM01` produces
+`UnifiedssotIndividualAm01__dlm`, and `A2ALab_Memory_Customer360` is ready but not attached to the
+memory configuration. D105 replaces the platform registrations with shared
+`A2ALab_Memory_Case`; extraction is on only for that service identity, and governed GetContext
+uses Maya's unified id from either platform. The console experiment pair
+and seeded teach/recall prompts are deployed. The measured Claude → OpenAI run recalled all
+three planted details after 45 seconds, while Jordan's control stayed empty (`plan/03-results.md`).
+The org lacks the custom real-time data graph capability required for an additional GetContext
+source. The existing standard graph remains a direct-query artifact; use DC1 or enable RTDG in
+this org for the future Case enrichment.
+
+The deployed demo now separates memory from action cleanly. **Teach Claude** stores the selected
+customer's facts/preferences without calling Agentforce. **OpenAI recalls** reads those memories
+through the shared registration, labels the recalled contribution, and—only when the
+current prompt explicitly requests the write—delegates one Case creation to the OpenAI-paired
+Agentforce agent. That terminal action is `A2ALabCreateFollowUpCase`; it was published in Agentforce
+v3 and passed live exact-Account, Case-number, unknown-Account, and no-callback acceptance. Recalled
+memory can motivate the requested action but cannot authorize it by itself.
+
+D105 corrects the original D104 scope model: semantic facts/preferences belong to the Individual,
+not to the model platform. Both faces use one registered memory-service identity, so saved reads
+are `customer profile × category`. Episodic conversation/session participation and standard Data
+360 governance still apply. The Details and trace UI render
+`Maya → shared case memory → facts/preferences`; Claude and OpenAI appear separately as execution
+provenance rather than storage partitions.
+
+This
 doc is the setup path and the experiment design. Decisions get ADRs in
 `plan/00-decisions.md` as they settle, and a `## WS27` delivery record in
 `plan/07-workstreams.md` once a build starts.
@@ -56,7 +84,8 @@ provenance and don't vendor their content.
 | The feature is provisioned in the org           | Standard sObjects `DataAgenticContext` (key `1lc`) and `DataAgenticContextAgent` (key `1lW`) exist; both createable/deletable; 0 rows each | Nothing registered yet; first registration also creates the agentic setup                                                                                       |
 | The UI "Agent Config" exists but stayed hidden until setup | Tabs `standard-Agents` ("Agent Config") and `standard-DataAgenticContextAgent` ("Data Agentic Context Agents", the raw object tab) exist. "Agent Config" became usable once the `default` setup went ACTIVE (Phase 1) | App Launcher → **"Agent Config"** (Agentforce Studio → Agent Configuration). The object tab errors (Phase 1); registration needs neither |
 | One data space                                  | `DataSpace`: `default` only                                                                                                                | Every lab agent lands in `default`; no data-space choice to make                                                                                                |
-| No Identity Resolution rulesets                 | `GET /ssot/identity-resolutions` → 0                                                                                                       | The **Profile DMO** field won't appear at registration ("Data 360 handles this"). Note the Profile DMO choice is per data space and **cannot be changed later** |
+| Identity Resolution (updated D104/D105)         | Ruleset `AM01` succeeded over 146 Individual profiles and produced `UnifiedssotIndividualAm01__dlm`                                      | Shared `A2ALab_Memory_Case` registers this profile DMO; `xid` is its unified key, never a synthetic lab user id |
+| Customer graph (deferred by D105)               | `A2ALab_Memory_Customer360` is a standard graph rooted on the unified profile                                                             | Keep it out of Agentic Memory configuration. Additional GetContext sources are documented as real-time data graphs; future Case enrichment waits for RTDG support |
 | Data 360 tenant region                          | eu-central-1 tenant (D70)                                                                                                                  | GetContext latency from us-east-1 agents includes a transatlantic hop. Record it, don't hide it                                                                 |
 
 
@@ -698,9 +727,10 @@ each platform pair. That's where cross-platform recall actually lives.
 1. ~~Connect API paths~~ — captured (Phase 1). Still open: does `POST
   /ssot/agentic/agent`create the data space's setup itself, or 4xx until` POST /ssot/agentic/setups` has run?
 2. ~~Raw sObject insert~~ — moot; the Connect API is the path.
-3. **Owner identity:** `employee` + Salesforce User Id per console persona, or
-  `individual` + Contact/Individual id? With zero IR rulesets, how does Data 360
-   unify the same person across agents?
+3. ~~Owner identity~~ — D104 settles the external-customer arm on `individual` + the
+   unified profile DMO id. The verified console persona maps to that org-specific id in
+   deployment configuration; the a360 exchange carries it as mandatory `xid`. Employee-native
+   arms remain keyed by their Salesforce User id and are a different experiment (D95/D96).
 4. **Is profile memory shared across agents by default**, or does `agent_id`
   scope extraction/recall? This decides whether Phase 4.2 can pass at all.
    *Partly answered:* the Edit Agent dialog says "all configured agents have

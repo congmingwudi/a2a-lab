@@ -1,0 +1,15 @@
+# Safe, display-only demo customer personas for D104 memory experiments.
+# Org-specific unified profile ids live only in A2ALAB_MEMORY_CUSTOMER_MAP.
+customers:
+  maya:
+    name: Maya Chen
+    title: VP, Supply Chain
+    company: Acme Corp
+    email: maya.chen@a2alab.example.invalid
+    story: "Claude learns Maya's rollout constraints; OpenAI recalls them and asks Agentforce to act."
+  jordan:
+    name: Jordan Alvarez
+    title: Director, Customer Operations
+    company: Acme Corp
+    email: jordan.alvarez@a2alab.example.invalid
+    story: "Isolation control: Jordan must not inherit Maya's remembered constraints."

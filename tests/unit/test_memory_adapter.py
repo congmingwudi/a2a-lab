@@ -17,12 +17,18 @@ USERS = {
     "ana": {"name": "Ana the Analyst", "role": "viewer"},
     "bridge-bot": {"name": "Bridge", "role": "machine"},
 }
-AGENT = "A2ALab_Memory_Claude"
+AGENT = "A2ALab_Memory_Case"
+ANA_XID = "unified-profile-ana"
+VIC_XID = "unified-profile-vic"
+MAYA_XID = "unified-profile-maya"
 
 
 @pytest.fixture(autouse=True)
 def keypair_dir(tmp_path, monkeypatch):
     monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    monkeypatch.setenv(ma.OWNER_MAP_ENV, '{"ana":"unified-profile-ana",'
+                                        '"vic":"unified-profile-vic"}')
+    monkeypatch.setenv(ma.CUSTOMER_MAP_ENV, '{"maya":"unified-profile-maya"}')
 
 
 class FakeMemory:
@@ -84,12 +90,27 @@ def _adapter(fake: FakeMemory, **kw) -> tuple[MemoryAdapter, Inner]:
 
 
 def test_owner_is_the_verified_user_and_never_a_machine_or_a_claim():
-    assert owner_of(_req("ana")) == "a2alab-ana"
+    assert owner_of(_req("ana")) == ANA_XID
     assert owner_of(_req("bridge-bot")) is None
     assert owner_of(_req(None)) is None
     forged = AgentRequest(message="x", metadata={"user_token": "eyJ.not.valid",
                                                  "user_context": {"sub": "ana"}})  # fmt: skip
     assert owner_of(forged) is None
+
+
+def test_owner_mapping_is_required_and_must_be_valid_json(monkeypatch):
+    monkeypatch.delenv(ma.OWNER_MAP_ENV)
+    assert owner_of(_req("ana")) is None
+    monkeypatch.setenv(ma.OWNER_MAP_ENV, "not-json")
+    assert owner_of(_req("ana")) is None
+
+
+def test_selected_customer_uses_the_customer_profile_map():
+    req = _req("ana")
+    req.metadata["memory_customer"] = "maya"
+    assert owner_of(req) == MAYA_XID
+    req.metadata["memory_customer"] = "not-configured"
+    assert owner_of(req) is None
 
 
 async def test_a_run_that_does_not_ask_for_memory_is_the_inner_agents():
@@ -114,7 +135,7 @@ async def test_asked_for_without_a_verified_user_answers_and_says_why():
     assert fake.calls == []
     assert inner.seen[0].message == "Book me a flight"
     mem = resp.metadata["memory"]
-    assert mem["ok"] is False and mem["owner_id"] is None and "verified" in mem["error"]
+    assert mem["ok"] is False and mem["owner_id"] is None and "profile" in mem["error"]
 
 
 async def test_a_turn_reads_before_and_ingests_both_sides_after():
@@ -129,12 +150,14 @@ async def test_a_turn_reads_before_and_ingests_both_sides_after():
     # the ORIGINAL user text, not the memory-augmented prompt, plus the reply (D89)
     assert ingest["user_message"] == "Book me a flight"
     assert ingest["agent_response"] == "Noted, aisle it is."
-    assert ingest["owner_id"] == "a2alab-ana" and ingest["agent_id"] == AGENT
+    assert ingest["owner_id"] == ANA_XID and ingest["agent_id"] == AGENT
     mem = resp.metadata["memory"]
-    assert mem["ok"] is True and mem["owner_id"] == "a2alab-ana"
+    assert mem["ok"] is True and mem["owner_id"] == ANA_XID
     assert mem["session_id"] == fake.calls[0][1]["session_id"]
-    assert mem["conversation_id"] == owner_conversation("a2alab-ana")  # the owner's, D94
+    assert mem["conversation_id"] == owner_conversation(ANA_XID)  # the owner's, D94
     assert mem["context_chars"] > 0
+    assert mem["recalled"] is True and mem["stored"] is True and mem["read_ok"] is True
+    assert "prefers aisle seats" in mem["context_preview"]
 
 
 async def test_the_memory_session_follows_the_lab_session_and_is_started_once():
@@ -194,6 +217,8 @@ async def test_a_refused_read_still_answers_and_still_ingests():
     assert inner.seen[0].message == "Book me a flight"
     assert [c[0] for c in fake.calls] == ["start", "context", "ingest", "close"]
     assert resp.metadata["memory"]["ok"] is False
+    assert resp.metadata["memory"]["read_ok"] is False
+    assert resp.metadata["memory"]["stored"] is True
     assert "403" in resp.metadata["memory"]["error"]
 
 
@@ -227,8 +252,11 @@ def test_with_memory_wraps_only_platforms_with_a_memory_agent():
     inner = Inner()
     wrapped = with_memory(inner, "claude")
     assert isinstance(wrapped, MemoryAdapter) and wrapped.agent_id == AGENT
+    openai = with_memory(inner, "openai")
+    assert isinstance(openai, MemoryAdapter)
+    assert openai.agent_id == AGENT
     # no registration, no wrapper
-    assert with_memory(inner, "openai") is inner
+    assert with_memory(inner, "adk") is inner
 
 
 def test_the_memory_agent_names_match_the_registration_script():
@@ -238,11 +266,40 @@ def test_the_memory_agent_names_match_the_registration_script():
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
     import setup_agentic_memory
 
-    for platform, name in ma.MEMORY_AGENTS.items():
-        assert setup_agentic_memory.AGENTS[platform].name == name
+    assert set(ma.MEMORY_AGENTS.values()) == {AGENT}
+    assert setup_agentic_memory.AGENTS["case-memory"].name == AGENT
+
+
+def test_registration_delete_is_dry_run_by_default_and_verifies_apply(monkeypatch):
+    import sys
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import setup_agentic_memory as setup
+
+    old_name = setup.AGENTS["legacy-claude"].name
+    live = {old_name, setup.AGENTS["case-memory"].name}
+    calls = []
+    monkeypatch.setattr(setup, "agents", lambda: [{"name": name} for name in live])
+
+    def fake_api(method, path, body=None, base=setup.API):
+        calls.append((method, path, body, base))
+        live.discard(path.rsplit("/", 1)[-1])
+        return {}
+
+    monkeypatch.setattr(setup, "api", fake_api)
+    setup.cmd_delete(SimpleNamespace(agents=["legacy-claude"], apply=False))
+    assert calls == [] and old_name in live
+
+    setup.cmd_delete(SimpleNamespace(agents=["legacy-claude"], apply=True))
+    assert calls == [("DELETE", f"/agent/{old_name}", {}, setup.API)]
+    assert old_name not in live
 
 
 def test_wrapped_adapters_share_one_client(monkeypatch):
     monkeypatch.setattr(ma, "_shared", None)
+    shared = FakeMemory()
+    monkeypatch.setattr(ma, "MemoryClient", lambda **_kw: shared)
     a, b = with_memory(Inner(), "claude"), with_memory(Inner(), "claude")
-    assert a._client() is b._client()
+    assert a._client() is b._client() is shared

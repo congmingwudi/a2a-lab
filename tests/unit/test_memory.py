@@ -105,6 +105,7 @@ async def test_start_conversation_opens_a_session_in_the_owners_conversation():
     assert post.headers["agent_id"] == "A2ALab_Memory_Concierge"
     # the exchange is bound to the calling agent: a360 refuses an unregistered aid
     assert fake.exchanges[0]["aid"] == "A2ALab_Memory_Concierge"
+    assert fake.exchanges[0]["xid"] == "persona-ana"
 
 
 async def test_existing_conversation_409_is_success():
@@ -146,8 +147,7 @@ async def test_explicit_case_conversation_threads_every_runtime_call():
     assert tenant[-1].url.path == f"/api/v1/agentic/conversations/{cid}/sessions/{sid}/close"
 
 
-async def test_case_read_can_exclude_owner_profile_memories(monkeypatch):
-    monkeypatch.setenv(memory_mod.SHARED_AGENTS_ENV, IDS["agent_id"])
+async def test_case_read_can_exclude_owner_profile_memories():
     fake = FakeTenant(context={"summary": "case-only observation"})
     fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["unrelated owner fact"]
     _, context, errors = await memory_mod.open_and_read(
@@ -173,6 +173,14 @@ async def test_ingest_sends_only_the_sides_it_has_and_caches_the_token():
     assert entry["participantId"] == "persona-ana-participant"
     assert entry["timestamp"].endswith("Z") and len(entry["timestamp"]) == 24
     assert len(fake.exchanges) == 1
+
+
+async def test_tokens_are_cached_per_owner_and_agent():
+    fake = FakeTenant()
+    mem = fake.client()
+    await mem.get_context("t1", **IDS)
+    await mem.get_context("t2", agent_id=IDS["agent_id"], owner_id="persona-bo")
+    assert [e["xid"] for e in fake.exchanges] == ["persona-ana", "persona-bo"]
 
 
 async def test_ingest_ids_are_content_derived_and_the_reply_comes_first():
@@ -249,7 +257,7 @@ async def test_close_session_closes_the_chats_session_in_the_owners_conversation
     )  # fmt: skip
 
 
-async def test_list_memories_reads_one_agents_store_by_owner():
+async def test_list_memories_reads_one_shared_service_by_owner(isolated_traces):
     fake = FakeTenant()
     fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["Keeps bees.", "  "]
     got = await fake.client().list_memories("t1", category="sys_PROFILE_FACT", **IDS)
@@ -258,23 +266,31 @@ async def test_list_memories_reads_one_agents_store_by_owner():
     assert req.headers["agent_id"] == IDS["agent_id"]
     assert dict(req.url.params) == {"profile_id": "persona-ana", "profile_type": "individual",
                                     "category": "sys_PROFILE_FACT"}  # fmt: skip
+    hops = [json.loads(line) for f in isolated_traces.glob("*.jsonl")
+            for line in f.read_text().splitlines()]  # fmt: skip
+    (hop,) = [h for h in hops if h["trace_id"] == "t1"]
+    assert hop["transport_detail"] == (
+        "GET /api/v1/agentic/memory · sys_PROFILE_FACT · A2ALab_Memory_Concierge"
+    )
 
 
-async def test_saved_memories_merge_every_shared_agent_and_fail_open(monkeypatch):
-    monkeypatch.setenv(memory_mod.SHARED_AGENTS_ENV, "A2ALab_Memory_Claude, Gone_Agent")
+async def test_saved_memories_read_shared_service_categories_and_fail_open():
     fake = FakeTenant()
-    fake.memories[("A2ALab_Memory_Concierge", "sys_PROFILE_FACT")] = ["Keeps bees."]
-    fake.memories[("A2ALab_Memory_Claude", "sys_PROFILE_FACT")] = ["keeps bees.", "Has a dog."]
-    fake.memories[("A2ALab_Memory_Claude", "sys_PROFILE_PREFERENCES")] = ["Answers in Portuguese."]
-    fake.refuse_memory.add("Gone_Agent")
+    fake.memories[("A2ALab_Memory_Concierge", "sys_PROFILE_FACT")] = [
+        "Keeps bees.", "Has a dog."
+    ]
+    fake.memories[("A2ALab_Memory_Concierge", "sys_PROFILE_PREFERENCES")] = [
+        "Answers in Portuguese."
+    ]
     text, errors = await memory_mod.saved_memories(fake.client(), "t1", **IDS)
-    # the calling agent's lines first, a case-insensitive duplicate dropped
     assert text.splitlines() == [
         "- saved fact: Keeps bees.",
         "- saved fact: Has a dog.",
         "- saved preference: Answers in Portuguese.",
     ]
-    assert len(errors) == 2 and all("HTTP 500" in e for e in errors)  # one per category
+    assert errors == []
+    reads = [r for r in fake.calls if r.url.path == "/api/v1/agentic/memory"]
+    assert len(reads) == 2
 
 
 def test_render_context_labels_string_leaves():
@@ -346,15 +362,18 @@ def test_memory_turn_first_turn_starts_reads_then_ingests(bridge):
 
 def test_memory_turn_context_carries_saved_memories(bridge):
     client, fake = bridge
-    fake.saved[("A2ALab_Memory_Claude", "sys_PROFILE_FACT")] = ["Training for Porto."]
+    fake.saved[(IDS["agent_id"], "sys_PROFILE_FACT")] = [
+        "Training for Porto."
+    ]
     data = client.post(
         "/memory/turn", json={**IDS, "conversation_id": "c-1", "user_message": "hi"}
     ).json()
     assert data["context"] == "- summary: likes aisle seats\n- saved fact: Training for Porto."
-    # the store is per agent: every shared agent is asked, by owner
+    # One shared memory service is asked once per semantic category.
     assert {(k["agent_id"], k["owner_id"]) for k in fake.listed} == {
-        ("A2ALab_Memory_Concierge", "persona-ana"), ("A2ALab_Memory_Claude", "persona-ana")
+        ("A2ALab_Memory_Concierge", "persona-ana"),
     }  # fmt: skip
+    assert {k["category"] for k in fake.listed} == set(memory_mod.SAVED_CATEGORIES)
 
 
 def test_memory_turn_reuses_the_conversation(bridge):

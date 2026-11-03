@@ -678,7 +678,7 @@ async def dispatch(
     memory_run = memory_run or MemoryRun()
     case_memory = CaseMemory(memory_client) if memory_run.mode != "off" else None
     memory_evidence = MemoryEvidence()
-    preflight_errors = await case_memory.preflight() if case_memory is not None else []
+    preflight_errors = await case_memory.preflight(memory_run) if case_memory is not None else []
     if preflight_errors:
         memory_evidence = MemoryEvidence(
             mode=memory_run.mode,

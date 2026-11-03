@@ -1916,3 +1916,127 @@ candidate extraction, Data 360 write calls and honest evidence all work;
 conversation persistence/GetContext materialization does not currently expose
 the accepted entries. WS27 items 39, 40 and 43 remain open on that external
 read boundary.
+
+## 2026-11-02 — WS27 customer continuity passes Claude → OpenAI (D104)
+
+The new customer arm uses an actual unified profile rather than `a2alab-<user>`.
+Ryan resolves to demo Contact Maya Chen's `UnifiedssotIndividualAm01__dlm` id;
+Ana resolves to Jordan Alvarez as the isolation control. Both a360 exchanges
+carry the platform registration as `aid` and the unified customer key as `xid`.
+
+After full faces and console rebuilds, the hosted **Teach Claude** run succeeded
+(trace `3faf462162814e8bbc1fa8068270e7df`). Its first GetContext was correctly
+empty (`context_chars=0`, 4,223 ms); the turn then ingested and closed in 605 ms.
+The input taught three durable details: increasing the supplier API timeout was
+already tried, concise checklists are preferred, and rollout must complete in
+90 days. Claude separately labelled the Agentforce CRM contribution.
+
+After 45 seconds, the hosted **OpenAI recalls** run passed (trace
+`cc08cb64a08746819fed51cae957903c`). OpenAI used its own registration but
+Maya's same owner conversation. GetContext returned 281 rendered context
+characters in 1,472 ms, and the response's explicit “From memory” section
+recalled all three taught details. Its separate “From Agentforce” section
+reported the fresh CRM answer. Ingest/close took 615 ms.
+
+The Jordan negative control also passed (trace
+`f0a90c0703974d1fac5771f8c62c239c`): a distinct unified owner and conversation
+returned `context_chars=0` in 3,736 ms, and OpenAI stated that it had no
+remembered rollout constraints before presenting the Agentforce answer. This
+proves customer isolation as well as positive cross-agent continuity.
+
+The org's `A2ALab_Memory_Customer360` graph is ready, but the org has no
+sub-second/streaming permission-set licence. These runs prove governed profile
+identity, Data 360 memory persistence, and cross-platform recall; they do not
+claim source-key fast-mode graph serving. DC1 remains the licensed comparison.
+
+## 2026-11-02 — WS27 customer-memory recall can perform a terminal CRM action (D104)
+
+The approved `A2ALab_Research_Assistant_OpenAI` Agent Spec added one bounded
+write action: `create_follow_up_case`. The Apex implementation resolves one
+exact Account in user mode, performs one user-mode insert, returns safe errors,
+and exposes the generated Case number. A queue-routing automation immediately
+changes ownership of new Cases, so the first live run inserted Case `00001627`
+but its user-mode reread could not see the queued record and returned a false
+failure. The fix marks the successful `SaveResult` immediately and uses a
+scoped `without sharing` reader for only the generated Case number of those
+exact inserted ids; no other Case data is exposed.
+
+The focused Apex suite passed 3/3, including 251-request bulk invocation, with
+75% coverage on `A2ALabCreateFollowUpCase`. Live draft acceptance then created
+exactly one High-priority New Case on Acme Corp and returned `00001880` in both
+the action trace and direct agent response. The published v3 negative test
+returned “No Case was created” for a nonexistent exact Account. A delegated
+request then created `00001881`; its trace contains only
+`create_follow_up_case`, proving the terminal action did not call OpenAI back.
+
+The story boundary is intentional: Claude's teaching prompt stores Maya's
+facts/preferences without Agentforce. A later OpenAI turn reads Maya through a
+different memory registration, attributes the recalled context, and only then
+uses Agentforce when the current user explicitly asks to carry out the CRM
+next step. Memory informs the decision; it does not authorize the write.
+
+After the faces and console full rebuild, the revised two-turn hosted story also
+passed. **Teach Claude** as Maya (trace `6733d71013594f63a9d79394069142e1`)
+read 6,589 characters of existing governed context, stored the completed turn,
+and had no Agentforce target in its trace. **OpenAI recalls** (trace
+`e927eeddb48f403cb7c207269e6ff6bf`) used the OpenAI registration with Maya's
+same unified customer, read 6,967 context characters, and separately invoked
+Agentforce. The visible response attributed the recalled constraints and
+reported the action result as Case `00002134`; trace metadata marked both
+`recalled=true` and `stored=true`.
+
+## 2026-11-03 — WS27 shared case-memory identity replaces platform partitions (D105)
+
+Official governance and Memory API documentation corrected the lab's earlier
+interpretation: curated profile facts/preferences belong to the customer and
+are filtered by category; they are not inherently separate Claude and OpenAI
+stores. The org readiness classifier returned `harmonize: ready`, then
+`A2ALab_Memory_Case` registered ACTIVE over
+`UnifiedssotIndividualAm01__dlm` with no custom context graph. Automatic
+extraction is on for the shared registration and off for the superseded
+Claude/OpenAI registrations.
+
+After full faces and console rebuilds, **Teach Claude** passed under the shared
+identity (trace `7066fb9c530144bb9e4c026b6e09be5a`). Its only saved-memory
+reads were `sys_PROFILE_FACT` and `sys_PROFILE_PREFERENCES`, both through
+`A2ALab_Memory_Case`; wrapper evidence reported recalled/stored/ok true, and
+the trace contained no Agentforce target.
+
+**OpenAI recalls** then passed through the same registration (trace
+`3c87d2977f03482eba133298e003e509`). It made the same two category reads,
+reported recalled/stored/ok true, attributed Maya's constraints under “From
+memory,” and separately invoked Agentforce to create Case `00002136`. This is
+the intended hierarchy: customer → shared case memory → facts/preferences;
+Claude and OpenAI remain execution provenance.
+
+No custom graph participates in these results. Salesforce documents additional
+GetContext sources as real-time data graphs, so the existing standard
+`A2ALab_Memory_Customer360` graph is not attached as a substitute. A Case RTDG
+remains a future enhancement after the org receives that capability.
+
+## 2026-11-03 — WS27 Agent Configuration opens inside the A2A Lab app
+
+The `A2A_Lab` CustomApplication now includes Salesforce's `standard-Agents`
+navigation item after the targeted check-only deployment and one-component
+production deployment both succeeded. The customer-memory Details component
+uses the custom app developer name in its route:
+`/lightning/app/c__A2A_Lab/n/standard-Agents`. This selects the A2A Lab app and
+its Agent Configuration tab together instead of opening the same nav item in
+whichever Lightning app the operator used most recently.
+
+## 2026-11-03 — WS27 Agent Configuration cleanup
+
+The live Agent Configuration registry was reconciled against current runtime
+references. Eight completed or superseded experiment registrations were
+deleted, including all conversations and memories stored beneath them:
+`A2ALab_Memory_{Customer_Claude,Customer_OpenAI,Claude,Native_Flag,
+Native_Action,Employee_Flag,Employee_Action,Concierge}`. Their definitions
+remain in `scripts/setup_agentic_memory.py`, so they can be registered again as
+empty configurations if another experiment needs them.
+
+An independent post-delete Connect API listing returned exactly five ACTIVE
+registrations: shared customer `A2ALab_Memory_Case` plus the Logistics,
+Commercial, Customer Ops and Coordinator Supplier Disruption registrations.
+The cleanup added a dry-run-by-default `delete` verb whose applied path sends
+the endpoint's required empty JSON body and re-lists the registry before
+reporting success.

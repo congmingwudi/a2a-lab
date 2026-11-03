@@ -57,6 +57,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 # error anywhere.
 SSE_KEEPALIVE_S = 15.0
 SCENARIOS_PATH = Path("config/scenarios.yaml")
+MEMORY_CUSTOMERS_PATH = Path("config/memory_customers.yaml")
 AGENTS_PATH = Path("config/agents.yaml")
 DECISIONS_PATH = Path("plan/00-decisions.md")
 WORKSTREAMS_PATH = Path("plan/07-workstreams.md")
@@ -162,6 +163,21 @@ def load_groups(path: str | Path = SCENARIOS_PATH) -> list[dict]:
         return []
     raw = yaml.safe_load(p.read_text()) or {}
     return raw.get("groups") or []
+
+
+def load_memory_customers(path: str | Path = MEMORY_CUSTOMERS_PATH) -> dict[str, dict]:
+    """Public-safe demo persona metadata; unified profile ids stay in runtime secrets."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    raw = yaml.safe_load(p.read_text()) or {}
+    customers = raw.get("customers") or {}
+    public_fields = {"name", "title", "company", "email", "story"}
+    return {
+        key: {field: value for field, value in item.items() if field in public_fields}
+        for key, item in customers.items()
+        if isinstance(key, str) and isinstance(item, dict)
+    }
 
 
 def load_agents(path: str | Path = AGENTS_PATH) -> dict[str, list[dict]]:
@@ -827,6 +843,23 @@ def components_for(tags: set[str]) -> list[dict]:
     — url None renders as not-yet-available."""
     comps: list[dict] = []
     ld = _lightning_domain()
+    if "agentic-memory" in tags:
+        comps.append(
+            {
+                "title": "Data 360 Agentic Memory — Agent Configuration",
+                "kind": "data-360",
+                "note": "Open the Data 360 Agentic Memory configuration used by this "
+                "experiment, including the shared A2ALab_Memory_Case registration.",
+                # Agent Config is the supported configuration UI. The similarly
+                # named raw DataAgenticContextAgent object tab is not this page.
+                # Scope the nav item to the A2A Lab custom app. Salesforce's
+                # appDeveloperName is c__A2A_Lab (custom-app namespace +
+                # metadata developer name), so the opened tab stays visibly
+                # inside the lab rather than inheriting the user's last app.
+                "url": f"{ld}/lightning/app/c__A2A_Lab/n/standard-Agents" if ld else None,
+                **_shots(),
+            }
+        )
     # Keyed on managed-agents alone: the AgentCore-hosted Claude scenarios
     # carry `claude` too but run the sdk backend, not the managed platform.
     if "managed-agents" in tags:
@@ -2337,6 +2370,7 @@ def create_console_app(registry: Registry | None = None):
             # tab's memory only (not persisted, not server-side) — the server
             # just sets the cap, like guide_history_limit above.
             "experiment_history_limit": int(os.environ.get("A2ALAB_EXPERIMENT_CHAT_HISTORY", "3")),
+            "memory_customers": load_memory_customers(),
             "remapped": {
                 name: reg.resolve_name(name)
                 for name in reg.targets
@@ -2882,6 +2916,12 @@ def create_console_app(registry: Registry | None = None):
                 message += af_channel.topology_block(chosen_topology)
             if spec.get("memory_toggle"):
                 chosen_memory = body.get("memory") is True
+                if spec.get("memory_customer_selector"):
+                    customer_key = str(
+                        body.get("memory_customer") or spec.get("default_memory_customer") or ""
+                    )
+                    if customer_key not in load_memory_customers():
+                        raise HTTPException(status_code=400, detail="invalid memory_customer")
             if spec.get("dispatch_mode_toggle"):
                 # WS11: how the fan-out dispatches each leg — sync (blocking) vs
                 # async (A2A fire-then-poll). The CMA fan-out consumes this in
@@ -2936,6 +2976,8 @@ def create_console_app(registry: Registry | None = None):
             req.metadata["dispatch_mode"] = chosen_dispatch
         if chosen_memory:
             req.metadata["memory"] = True
+            if scenario_name and spec.get("memory_customer_selector"):
+                req.metadata["memory_customer"] = customer_key
         # WS11: the ADK orchestrator MUST be driven fire-then-poll, never with a
         # blocking ask(). A blocking message:send runs the whole
         # SequentialAgent[ParallelAgent→synthesiser] graph inline on Agent Engine

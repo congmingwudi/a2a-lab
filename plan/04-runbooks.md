@@ -98,7 +98,8 @@ available. Raw `sf` CLI equivalents are noted as fallback.
    permission set (`externalCredentialPrincipalAccesses`).
 7. **The actions are declared in the Agent Script** (D14/D15): the
    authoring bundle's `customer_account_status` subagent carries both
-   `get_account_summary` (Apex `A2ALabGetAccountSummary`) and
+   `get_account_summary` (Apex `A2ALabGetAccountSummary`),
+   `create_follow_up_case` (Apex `A2ALabCreateFollowUpCase`, OpenAI-paired agent only), and
    `ask_external_researcher` (Apex `A2ALabInvokeRemoteAgent`) — publish +
    activate the bundle (step 3) and they're live; no Agent Builder step.
 
@@ -529,6 +530,16 @@ uv run python scripts/identity_preflight.py                   # a2a_lab_memory m
 deploy/bridge/deploy_bridge.sh --skip-build    # config only: the secret carries the new run-as
 uv run python scripts/setup_agentic_memory.py ungrant --apply # drop PersonalizationUser off the admin
 uv run python scripts/env_sync.py push
+```
+
+Registration removal is dry-run by default and is destructive only with
+`--apply`. Deleting a registration also permanently deletes every conversation
+and memory stored under it; the alias remains in `AGENTS`, so `register <alias>
+--apply` can recreate an empty registration later:
+
+```sh
+uv run python scripts/setup_agentic_memory.py delete <alias> [more aliases...]
+uv run python scripts/setup_agentic_memory.py delete <alias> [more aliases...] --apply
 ```
 
 Until the bridge is redeployed it keeps minting as the admin. Nothing revokes

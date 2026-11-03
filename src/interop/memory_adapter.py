@@ -41,30 +41,43 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
+import json
 import os
 import time
 from collections import OrderedDict
 from typing import Any
 
 from interop.adapter import AgentAdapter
-from interop.memory import MemoryClient, open_and_read, owner_conversation, write_turn
+from interop.memory import MemoryClient, open_and_read, owner_conversation, redact, write_turn
 from interop.models import AgentRequest, AgentResponse
 
-# platform -> the AgentApiName its hosted agent is registered under in the
-# `default` data space. Not an environment identifier: the same name in every
-# org, like A2ALab_Memory_Concierge. Kept in step with setup_agentic_memory.AGENTS.
-MEMORY_AGENTS = {"claude": "A2ALab_Memory_Claude"}
+# Both platforms use one domain-level memory-service identity. Claude and
+# OpenAI remain distinct execution/provenance participants, but curated profile
+# facts/preferences belong to the customer and are not platform partitions.
+# Kept in step with setup_agentic_memory.AGENTS["case-memory"].
+CASE_MEMORY_AGENT = "A2ALab_Memory_Case"
+MEMORY_AGENTS = {
+    "claude": CASE_MEMORY_AGENT,
+    "openai": CASE_MEMORY_AGENT,
+}
 REQUEST_FLAG = "memory"  # metadata key: True asks for memory on THIS turn
 BUDGET_ENV = "A2ALAB_MEMORY_BUDGET_S"
+OWNER_MAP_ENV = "A2ALAB_MEMORY_OWNER_MAP"
+CUSTOMER_MAP_ENV = "A2ALAB_MEMORY_CUSTOMER_MAP"
 DEFAULT_BUDGET_S = 8.0
-OWNER_PREFIX = "a2alab-"  # tenant-wide owner ids: keep the lab's users in their own namespace
 _MAX_SESSIONS = 1024
 
 _shared: MemoryClient | None = None
 
 
 def owner_of(req: AgentRequest) -> str | None:
-    """The memory owner for a request: the verified, non-machine lab user, or None."""
+    """Return the verified persona's Data 360 profile identifier.
+
+    Agentic Memory's ``xid`` is the end customer represented by the profile
+    DMO, not a lab login name. The mapping is deployment configuration because
+    profile identifiers are org-specific. Missing, malformed, or incomplete
+    configuration fails closed so two users can never collapse into one owner.
+    """
     from interop import identity
 
     token = (req.metadata or {}).get("user_token")
@@ -73,7 +86,17 @@ def owner_of(req: AgentRequest) -> str | None:
     claims = identity.verify_token(token)
     if not claims or claims.get("role") == "machine" or not claims.get("sub"):
         return None
-    return f"{OWNER_PREFIX}{claims['sub']}"
+    customer_key = (req.metadata or {}).get("memory_customer")
+    map_env = CUSTOMER_MAP_ENV if isinstance(customer_key, str) and customer_key else OWNER_MAP_ENV
+    lookup_key = customer_key if map_env == CUSTOMER_MAP_ENV else str(claims["sub"])
+    try:
+        owner_map = json.loads(os.environ.get(map_env, "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(owner_map, dict):
+        return None
+    owner = owner_map.get(lookup_key)
+    return owner.strip() if isinstance(owner, str) and owner.strip() else None
 
 
 def _derived_session(agent_id: str, owner_id: str, session_id: str) -> str:
@@ -154,7 +177,8 @@ class MemoryAdapter:
             resp = await self.inner.handle(req)
             meta = dict(resp.metadata or {})
             meta["memory"] = {"agent_id": self.agent_id, "owner_id": None, "ok": False,
-                              "error": "no verified lab user on the request — sign in"}  # fmt: skip
+                              "error": ("no Data 360 customer profile is mapped to this "
+                                        "verified lab user")}
             return dataclasses.replace(resp, metadata=meta)
         mem = self._client()
         trace_id = req.trace_id or ""
@@ -165,14 +189,14 @@ class MemoryAdapter:
             _derived_session(self.agent_id, owner, req.session_id) if req.session_id else None
         )
         t0 = time.perf_counter()
-        opened, errors = await self._bounded(
+        opened, read_errors = await self._bounded(
             open_and_read(mem, trace_id, session_id=sid, start=not known, **ids), "read"
         )
         context = ""
         if opened is not None:
-            sid, context, errors = opened
+            sid, context, read_errors = opened
         read_ms = int((time.perf_counter() - t0) * 1000)
-        if sid and req.session_id and not errors:
+        if sid and req.session_id and not read_errors:
             self._remember((owner, req.session_id), sid)
 
         sent = (
@@ -183,6 +207,7 @@ class MemoryAdapter:
         resp = await self.inner.handle(sent)
 
         t1 = time.perf_counter()
+        write_errors: list[str] = []
         if sid:
             written, overrun = await self._bounded(
                 write_turn(
@@ -195,13 +220,15 @@ class MemoryAdapter:
                 ),  # fmt: skip
                 "ingest",
             )
-            errors += overrun or written or []
+            write_errors += overrun or written or []
         ingest_ms = int((time.perf_counter() - t1) * 1000)
         # A first turn with no session: the inner agent minted one, and the next
         # turn arrives carrying it — follow it to the session just opened.
-        if sid and not req.session_id and resp.session_id and not errors:
+        if sid and not req.session_id and resp.session_id and not (read_errors or write_errors):
             self._remember((owner, resp.session_id), sid)
 
+        errors = [*read_errors, *write_errors]
+        customer_key = (req.metadata or {}).get("memory_customer")
         meta = dict(resp.metadata or {})
         meta["memory"] = {
             "agent_id": self.agent_id,
@@ -209,8 +236,13 @@ class MemoryAdapter:
             "conversation_id": owner_conversation(owner),
             "session_id": sid,
             "context_chars": len(context),
+            "context_preview": redact(context)[:360] if context else "",
+            "recalled": bool(context),
+            "read_ok": not read_errors,
             "read_ms": read_ms,
             "ingest_ms": ingest_ms,
+            "stored": bool(sid) and not write_errors,
+            "customer_key": customer_key if isinstance(customer_key, str) else None,
             "ok": not errors,
             **({"error": "; ".join(errors)} if errors else {}),
         }

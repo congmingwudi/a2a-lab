@@ -492,6 +492,18 @@ def test_d102_supplier_memory_controls_are_scoped_and_accessible():
     assert '"SF_CLIENT_ID_MEMORY"' in deploy
     assert 'payload["A2ALAB_MEMORY_JWT_KEY"]' in deploy
     assert 'memory_jwt_private.pem' in deploy
+
+
+def test_customer_memory_owner_map_is_secret_backed_and_validated_at_deploy():
+    deploy = Path("deploy/faces/deploy_faces.sh").read_text()
+    assert '"A2ALAB_MEMORY_OWNER_MAP"' in deploy
+    assert '"A2ALAB_MEMORY_CUSTOMER_MAP"' in deploy
+    assert "json.loads(payload[map_key])" in deploy
+    example = Path(".env.example").read_text()
+    assert "#A2ALAB_MEMORY_OWNER_MAP='{" in example
+    assert "#A2ALAB_MEMORY_CUSTOMER_MAP='{" in example
+
+
 def test_targets_listed(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
@@ -589,15 +601,108 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "langgraph-agentforce",
         "cross-cloud",
         "fan-out",
+        "agent-memory",
     ]
     # Every PAIR group reads first — claude/openai/adk/foundry, then
     # strands-agentforce (WS5) and langgraph-agentforce (WS4, Heroku) — then
-    # cross-cloud (Cross-hyperscalers) and fan-out, the first 1:many group, so
-    # the nav stays "all the pairs, then the fan-out". No upcoming placeholders.
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 8)
+    # cross-cloud (Cross-hyperscalers), fan-out as the first 1:many group, then
+    # Agent Memory as a separate continuity category. No upcoming placeholders.
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 9)
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
+
+
+def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    scenarios = {
+        s["name"]: s for s in TestClient(app).get("/api/scenarios").json()["scenarios"]
+    }
+    claude = scenarios["customer-memory-claude"]
+    openai = scenarios["customer-memory-openai"]
+    assert claude["group"] == openai["group"] == "agent-memory"
+    assert claude["target"] == "claude-rest" and openai["target"] == "openai-rest"
+    assert claude["memory_toggle"] is openai["memory_toggle"] is True
+    assert claude["memory_customer_selector"] is openai["memory_customer_selector"] is True
+    assert claude["default_memory_customer"] == openai["default_memory_customer"] == "maya"
+    assert claude["seed_prompts"] and openai["seed_prompts"]
+    assert "do not call Agentforce" in claude["question"]
+    assert "create a CRM Case" in openai["question"]
+    html = Path("src/console/static/index.html").read_text()
+    assert "seedPromptsHtml(exp)" in html and "useSeedPrompt" in html
+    assert 'aria-label="Customer persona"' in html
+    assert "Data 360 memory supplied to this agent" in html
+    assert "memory-evidence-lines" in html
+    assert "memory-evidence-line" in html
+    assert '.split("\\n")' in html
+    assert "memory: stored" in html and "memory: recalled" in html
+    for scenario in (claude, openai):
+        assert "common customer-centered substrate" in scenario["description"]
+        assert "customer profile × category" in scenario["description"]
+        assert "A2ALab_Memory_Case" in scenario["description"]
+    assert "Shared customer memory, platform provenance" in html
+    assert "provenance, not storage partitions" in html
+    assert "function memoryHopScope(h, personaLabel)" in html
+    assert "function memoryScopeMapHtml(hops, personaLabel, participants)" in html
+    assert "memory-hop-path" in html
+    assert "Unified Individual · shared identity spine" in html
+    assert '["Claude", "OpenAI"]' in html
+    assert "Shared case memory" in html
+    assert "real-time</i> data graphs" in html
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv(
+        "CLAUDE_AGENT_CONSOLE_URL",
+        "https://platform.claude.com/workspaces/a2alab/agents/customer-memory",
+    )
+    signed_in = TestClient(make_app(tmp_path / "signed-traces", monkeypatch, FakeRegistry())).get(
+        "/api/scenarios", headers={"X-Lab-Token": "sekrit"}
+    ).json()
+    signed_names = {s["name"]: s for s in signed_in["scenarios"]}
+    for name in ("customer-memory-claude", "customer-memory-openai"):
+        memory_components = [
+            c for c in signed_names[name]["components"] if c["kind"] == "data-360"
+        ]
+        assert len(memory_components) == 1
+        assert memory_components[0]["url"] == (
+            "https://example.lightning.force.com/lightning/app/"
+            "c__A2A_Lab/n/standard-Agents"
+        )
+
+    claude_components = [
+        c for c in signed_names["customer-memory-claude"]["components"]
+        if c["kind"] == "claude"
+    ]
+    assert len(claude_components) == 1
+    assert claude_components[0]["url"] == (
+        "https://platform.claude.com/workspaces/a2alab/agents/customer-memory"
+    )
+
+    app_metadata = Path(
+        "salesforce/force-app/main/default/applications/A2A_Lab.app-meta.xml"
+    ).read_text()
+    assert "<navType>Standard</navType>" in app_metadata
+    assert "<tabs>A2A_Lab_Traffic</tabs>" in app_metadata
+    assert "<tabs>standard-Agents</tabs>" in app_metadata
+
+    # The Details explanation is also in a Lab Guide-readable source, not only
+    # frontend HTML: config/scenarios.yaml is an on-demand guide document.
+    from platforms.guide import corpus
+
+    assert "config/scenarios.yaml" in corpus.TOOL_DOCS
+    guide_source = corpus.read_doc(
+        "config/scenarios.yaml"
+    )
+    assert "customer profile × category" in guide_source
+    assert "A2ALab_Memory_Case" in guide_source
+
+
+def test_config_exposes_safe_customer_personas_without_profile_ids(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    customers = TestClient(app).get("/api/config").json()["memory_customers"]
+    assert customers["maya"]["name"] == "Maya Chen"
+    assert customers["jordan"]["name"] == "Jordan Alvarez"
+    assert all("id" not in field.lower() for customer in customers.values() for field in customer)
 
 
 def test_scenarios_include_adk_pair(tmp_path, monkeypatch):
@@ -753,6 +858,33 @@ def test_run_memory_toggle_is_per_run(tmp_path, monkeypatch):
     ).json()
     assert not other.get("memory")
     assert all(r.metadata.get("memory") is not True for r in registry.fake_client.requests[2:])
+
+
+def test_customer_memory_run_selects_an_allowlisted_persona(tmp_path, monkeypatch):
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    response = client.post(
+        "/api/run",
+        json={
+            "scenario": "customer-memory-claude",
+            "message": "remember this",
+            "memory": True,
+            "memory_customer": "jordan",
+        },
+    )
+    assert response.status_code == 200
+    assert registry.fake_client.requests[-1].metadata["memory_customer"] == "jordan"
+    rejected = client.post(
+        "/api/run",
+        json={
+            "scenario": "customer-memory-claude",
+            "message": "remember this",
+            "memory": True,
+            "memory_customer": "unknown",
+        },
+    )
+    assert rejected.status_code == 400
 
 
 def test_run_scenario_requires_mode_gate(tmp_path, monkeypatch):

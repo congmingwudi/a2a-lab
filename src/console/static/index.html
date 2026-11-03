@@ -555,6 +555,12 @@
                          padding: 1px 5px; border-radius: 5px; font-size: 12px; }
   .turn.agent .md pre { margin: 6px 0 8px; }
   .turn.agent .md pre code { background: none; border: none; padding: 0; }
+  .memory-evidence { margin-top: 9px; padding: 8px 10px; border-left: 3px solid var(--primary);
+    background: color-mix(in srgb, var(--primary) 7%, var(--card2)); border-radius: 6px;
+    color: var(--muted); font-size: 11.5px; white-space: normal; }
+  .memory-evidence b { display: block; color: var(--text); margin-bottom: 5px; }
+  .memory-evidence-lines { display: grid; gap: 3px; }
+  .memory-evidence-line { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
   /* D28 Agentforce-channel radio — which tool the entry agent consults
      Agentforce with: the GA Agent API (default) or the hosted A2A shim */
   .chan-row { display: flex; align-items: center; gap: 14px; padding: 8px 16px; flex-wrap: wrap;
@@ -624,6 +630,26 @@
   .flow text.alabel { fill: var(--muted); font-size: 10px; }
   .flow .pbox { fill: var(--card2); stroke: var(--border); rx: 7; }
   .flow .lifeline { stroke: var(--border); stroke-dasharray: 3 4; }
+  .memory-scope-map { display: grid; grid-template-columns: minmax(150px, .8fr) 24px minmax(260px, 2fr);
+    align-items: center; gap: 10px; margin: 12px 16px 14px; padding: 12px;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card2); }
+  .memory-scope-root, .memory-scope-agent, .memory-scope-leaf { border: 1px solid var(--border-hi);
+    border-radius: 8px; background: var(--bg); padding: 7px 9px; font-size: 11.5px; }
+  .memory-scope-root b, .memory-scope-agent b { display: block; color: var(--fg); }
+  .memory-scope-root span, .memory-scope-agent span { color: var(--muted); font-size: 10.5px; }
+  .memory-scope-arrow { color: var(--muted); text-align: center; font-family: var(--font-mono); }
+  .memory-scope-branches { display: grid; gap: 8px; }
+  .memory-scope-branch { display: grid; grid-template-columns: minmax(130px, 1fr) 20px minmax(150px, 1fr);
+    align-items: center; gap: 7px; }
+  .memory-scope-leaves { display: flex; flex-wrap: wrap; gap: 5px; }
+  .memory-scope-leaf { padding: 4px 7px; font-family: var(--font-mono); }
+  .memory-scope-participants { grid-column: 1 / -1; color: var(--muted); font-size: 10.5px;
+                               padding-top: 2px; }
+  .memory-scope-participants b { color: var(--fg); }
+  .memory-hop-path { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px;
+    margin-left: 7px; color: var(--muted); font: 10.5px var(--font-mono); }
+  .memory-hop-path .memory-node { border: 1px solid var(--border); border-radius: 999px;
+    padding: 1px 6px; background: var(--card2); color: var(--fg); }
 
   /* Alternating canvas (D57): a .flow sitting inside the gray .tabpanel canvas
      is WHITE, so a section reads as a distinct thing ON the canvas rather than
@@ -761,6 +787,13 @@
   pre { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 0;
         overflow-x: auto; white-space: pre-wrap; word-break: break-word;
         font-size: 12px; max-height: 420px; overflow-y: auto; }
+
+  @media (max-width: 760px) {
+    .memory-scope-map { grid-template-columns: 1fr; }
+    .memory-scope-arrow { transform: rotate(90deg); }
+    .memory-scope-branch { grid-template-columns: 1fr; }
+    .memory-scope-branch > .memory-scope-arrow { transform: rotate(90deg); }
+  }
 
   /* Observability (M11.3) */
   .obs-plat { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px;
@@ -1790,6 +1823,7 @@ let viaBridges = {};      // key -> bool (protocol cells: route via the lab brid
 let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
 let memoryModes = {};     // key -> "off" | "on" (WS27/D91 per-run Agentic Memory radio)
+let selectedMemoryCustomer = "maya"; // shared across the teach → recall story
 let fanoutMemoryModes = {};   // key -> "off" | "seed" | "recall" (D102)
 let fanoutMemoryReaders = {}; // key -> "coordinator" | "specialists" | "both"
 let fanoutMemoryCases = {};   // key -> display label; server derives opaque id from JWT owner
@@ -2373,11 +2407,70 @@ function participantsOf(t) {
   return seen;
 }
 
-function describeTrace(t) {
+function memoryHopScope(h, personaLabel) {
+  if (!h || h.target !== "agentic-memory"
+      || !String(h.transport_detail || "").includes("/api/v1/agentic/memory")) return null;
+  let raw = h.request_payload_raw;
+  if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = {}; } }
+  const params = raw && typeof raw === "object" ? (raw.params || {}) : {};
+  const detail = String(h.transport_detail || "").split(" · ");
+  const agentApi = detail[2] || "registered agent";
+  const service = agentApi === "A2ALab_Memory_Case" ? "Shared case memory"
+    : agentApi.includes("Claude") ? "Legacy Claude memory registration"
+    : agentApi.includes("OpenAI") ? "Legacy OpenAI memory registration" : agentApi;
+  const rawCategory = params.category || detail[1] || "memory";
+  const category = rawCategory === "sys_PROFILE_FACT" ? "facts"
+    : rawCategory === "sys_PROFILE_PREFERENCES" ? "preferences" : rawCategory;
+  return { persona: personaLabel || "customer profile", service, agentApi, category };
+}
+
+function memoryHopPathHtml(h, personaLabel) {
+  const scope = memoryHopScope(h, personaLabel);
+  if (!scope) return "";
+  return `<span class="memory-hop-path" title="This is one scoped semantic-memory read, not a retry">
+    <span class="memory-node">${esc(scope.persona)}</span><span>→</span>
+    <span class="memory-node">${esc(scope.service)}</span><span>→</span>
+    <span class="memory-node">${esc(scope.category)}</span></span>`;
+}
+
+function memoryScopeMapHtml(hops, personaLabel, participants) {
+  const scopes = (hops || []).map(h => memoryHopScope(h, personaLabel)).filter(Boolean);
+  const services = new Map();
+  for (const scope of scopes) {
+    if (!services.has(scope.service)) services.set(scope.service, new Set());
+    services.get(scope.service).add(scope.category);
+  }
+  if (!services.size) services.set("Shared case memory", new Set(["facts", "preferences"]));
+  const persona = scopes[0]?.persona || personaLabel || "Customer / Unified Individual";
+  return `<div class="memory-scope-map" role="img"
+    aria-label="Memory hierarchy: ${esc(persona)}, then shared case memory, then facts and preferences; Claude and OpenAI are execution participants">
+    <div class="memory-scope-root"><b>${esc(persona)}</b><span>Unified Individual · shared identity spine</span></div>
+    <div class="memory-scope-arrow">→</div>
+    <div class="memory-scope-branches">${[...services.entries()].map(([service, categories]) => `
+      <div class="memory-scope-branch">
+        <div class="memory-scope-agent"><b>${esc(service)}</b><span>registered memory-service identity</span></div>
+        <div class="memory-scope-arrow">→</div>
+        <div class="memory-scope-leaves">${[...categories].map(category =>
+          `<span class="memory-scope-leaf">${esc(category)}</span>`).join("")}</div>
+      </div>`).join("")}</div>
+    <div class="memory-scope-participants"><b>Execution participants:</b>
+      ${(participants || ["Claude", "OpenAI"]).map(esc).join(" · ")} — provenance, not storage partitions</div>
+  </div>`;
+}
+
+function describeTrace(t, memoryPersona) {
   const hops = t.hops;
   const protos = new Set(hops.map(h => h.protocol));
   const tgts = new Set(hops.map(h => h.target));
   const parts = [];
+
+  const memoryReads = hops.map(h => memoryHopScope(h, memoryPersona)).filter(Boolean);
+  if (memoryReads.length) {
+    const dimensions = [...new Set(memoryReads.map(m => `${m.service} → ${m.category}`))];
+    parts.push(`<b>Memory reads:</b> ${esc(memoryReads[0].persona)} owns the semantic memory;
+      ${dimensions.map(esc).join(", ")} are category reads through one memory-service identity, not
+      Claude/OpenAI storage partitions or duplicate retries.`);
+  }
 
   // Entry over the Agent API = an Agentforce-first scenario: the later
   // agentforce-api hops are the way IN, not Claude calling back (Path B).
@@ -2693,7 +2786,7 @@ const GHOST_TIP = "This leg runs inside the remote platform's runtime. The lab r
   + "at its own seams, and this platform's interior telemetry is ephemeral — see the "
   + "Observability coverage panel.";
 
-function traceSectionHtml(t, title, flow) {
+function traceSectionHtml(t, title, flow, memoryPersona) {
   if (!t || !t.hops.length) {
     return `<div class="flow"><h3>${esc(title)}</h3>
       <div class="desc"><span class="stat">No hops yet — run a turn and the call path streams in live.</span></div></div>`;
@@ -2703,7 +2796,8 @@ function traceSectionHtml(t, title, flow) {
     <div class="flow">
       <h3>${esc(title)} <span style="text-transform:none;letter-spacing:0"> · trace ${esc(t.trace_id.slice(0, 12))}…${
         t._legs ? ` + ${t._legs} platform-initiated leg${t._legs === 1 ? "" : "s"} (correlated by time — Apex mints its own trace id)` : ""}</span></h3>
-      <div class="desc">${describeTrace(t)}</div>
+      <div class="desc">${describeTrace(t, memoryPersona)}</div>
+      ${memoryScopeMapHtml(hops, memoryPersona)}
       <div class="svgwrap">${renderDiagram({ ...t, hops })}</div>
     </div>` + hops.map((h, i) => {
       if (h._ghost) return `
@@ -2724,7 +2818,8 @@ function traceSectionHtml(t, title, flow) {
         <div class="hop-head" onclick="toggle('${key}', ${i})">
           <span class="badge ${h.protocol}">${h.protocol}</span>
           <span class="route">${esc(h.source)} → <b>${esc(h.target)}</b>
-            <span class="td"> · ${esc(h.transport_detail || "")}</span></span>
+            <span class="td"> · ${esc(h.transport_detail || "")}</span>
+            ${memoryHopPathHtml(h, memoryPersona)}</span>
           ${h._leg ? `<span class="badge internal" title="Hop from the Salesforce-initiated leg — Apex minted its own trace id ${esc(h._leg)}">leg ${esc(h._leg.slice(0, 8))}…</span>` : ""}
           ${h.status === "error" ? `<span class="err">ERROR</span>` : ""}
           ${h.status === "pending" ? `<span class="badge a2a" title="Expected: Agent Engine's task store is eventually consistent, so this tasks/get returned not-found — either in the window right after submit, or flapping between later polls even after an earlier read succeeded. Not a fault: a read proves the endpoint serves tasks, so the runner rides these through until the task appears and the leg completes (WS11).">waiting for task</span>` : ""}
@@ -3197,7 +3292,7 @@ const BRIEF_META = {
   observability: {
     label: "Observability analysis",
     blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
-         + "experiment telemetry across all six platforms.",
+         + "experiment telemetry across all seven platforms (Agentforce, Claude, OpenAI, ADK, Foundry, Strands, LangGraph).",
     emptyHint: "The analyst is a PAUSED deployment, so it only runs when you hit Analyze in the sidebar.",
     diagram: () => OBS_ANALYST_DIAGRAM,
     details: `### What writes this brief
@@ -4478,8 +4573,43 @@ function memoryRowHtml(key) {
       onchange="setMemoryMode('off')"> off</label>${qhelp(MEMORY_HELP.off)}
     <label><input type="radio" name="memoryMode" value="on" ${m === "on" ? "checked" : ""}
       onchange="setMemoryMode('on')"> Data 360 Agentic Memory</label>${qhelp(MEMORY_HELP.on)}
-    <span class="chan-more">Recall across sessions, keyed to you —
+    <span class="chan-more">Recall across sessions and agent platforms, keyed to the demo customer —
       <a onclick="setTab('details')">full explanation in Details</a>.</span>
+  </div>`;
+}
+
+function memoryCustomer() {
+  const customers = (labConfig && labConfig.memory_customers) || {};
+  return customers[selectedMemoryCustomer] || Object.values(customers)[0] || null;
+}
+
+window.setMemoryCustomer = key => {
+  const customers = (labConfig && labConfig.memory_customers) || {};
+  if (!customers[key] || key === selectedMemoryCustomer) return;
+  selectedMemoryCustomer = key;
+  // A visible chat session belongs to one customer. Archive/reset on a persona
+  // switch so transcript continuity can never imply cross-customer memory.
+  resetChat();
+};
+
+function memoryCustomerRowHtml(exp) {
+  if (!exp || !exp.memory_customer_selector) return "";
+  const customers = (labConfig && labConfig.memory_customers) || {};
+  const keys = Object.keys(customers);
+  if (!keys.length) return `<div class="chan-row"><span class="chan-label">Customer context</span>
+    <span class="hint">No demo customers are configured.</span></div>`;
+  if (!customers[selectedMemoryCustomer]) {
+    selectedMemoryCustomer = exp.default_memory_customer || keys[0];
+  }
+  const c = customers[selectedMemoryCustomer];
+  return `<div class="chan-row" aria-label="Customer memory context">
+    <span class="chan-label">Customer context</span>
+    <label>Running as <select aria-label="Customer persona" onchange="setMemoryCustomer(this.value)">
+      ${keys.map(k => `<option value="${esc(k)}" ${k === selectedMemoryCustomer ? "selected" : ""}>${esc(customers[k].name || k)}</option>`).join("")}
+    </select></label>
+    <span class="badge agentforce">${esc(c.name)}</span>
+    <span>${esc([c.title, c.company].filter(Boolean).join(" · "))}</span>
+    <span class="chan-more">Unified Data 360 profile · ${esc(c.email || "")}</span>
   </div>`;
 }
 
@@ -4548,23 +4678,35 @@ function fanoutMemoryDetailHtml(s) {
 // it is stored, what bounds it).
 function memoryDetailHtml(s) {
   if (!s || !s.memory_toggle) return "";
+  const customer = memoryCustomer();
+  const persona = customer && customer.name ? customer.name : "Customer / Unified Individual";
   return `<div class="flow">
       <h6>Memory — Data 360 Agentic Memory for this run (WS27, D91)</h6>
-      <p class="desc-note">With <b>Memory</b> on, the Claude face wraps the turn in the lab's generic memory seam
+      <p class="desc-note">With <b>Memory</b> on, the Claude or OpenAI face wraps the turn in the lab's generic memory seam
         (<code>src/interop/memory_adapter.py</code>, the "REST at the lab seam" mode in
         <code>plan/18-agentic-memory-context.md</code> Phase 3). Off, the wrapper is dormant and the run is
         byte-for-byte the experiment without it — the toggle is per run, never a lab-wide setting.</p>
+      ${memoryScopeMapHtml([], persona, ["Claude", "OpenAI"])}
       <ul class="steps">
-        <li><b>Whose memory.</b> The owner is the <i>signed-in lab user</i>, taken from the verified lab JWT the
-          console already sends (WS6 U2), as <code>a2alab-&lt;user&gt;</code>. Never a name the caller types, and
-          never a machine identity, so no run can read another user's memory. Signed out, a memory run answers
-          without memory and says so.</li>
+        <li><b>Whose memory.</b> The verified lab JWT identifies the demo persona, then deployment configuration
+          maps that persona to a real unified Data 360 Individual id. That profile id becomes the governed
+          <code>xid</code>; it is never browser-supplied, never the integration user, and never a synthetic run
+          owner. A persona without a mapping answers without memory and says why.</li>
+        <li><b>Shared customer memory, platform provenance.</b> Facts and preferences attach to the selected
+          Individual, not to Claude or OpenAI. Both platforms use one registered memory-service identity,
+          <code>A2ALab_Memory_Case</code>, so the semantic path is
+          <code>customer profile × category</code>. Claude and OpenAI stay visible as execution participants in
+          the ordinary trace; they are provenance, not storage partitions. Episodic conversation/session access
+          and standard Data 360 security still govern every read.</li>
         <li><b>Before the answer.</b> Each owner has <i>one</i> memory conversation, and each lab session is a
           session inside it (D94). The seam opens (or resumes) this session, then makes two reads from the Data 360
           tenant as the memory integration user (D86), through the <code>a2a_lab_memory</code> ECA, under the
-          registered agent <code>A2ALab_Memory_Claude</code>. GetContext returns the summary of the owner's earlier
-          chats. The Memory API returns the facts and preferences extracted so far, under every agent that shares
-          memory (D93). Whatever comes back is placed in front of your message.</li>
+          shared <code>A2ALab_Memory_Case</code> registration. GetContext returns the customer's relevant earlier
+          context. The seam then makes two governed saved-memory reads—facts and preferences—through that same
+          service identity and places the authorized results in front of the message.</li>
+        <li><b>Structured Case context is deferred.</b> No custom data graph is attached to this registration.
+          Salesforce documents additional GetContext sources as <i>real-time</i> data graphs; the future Case
+          enrichment waits for that org capability rather than substituting a standard graph.</li>
         <li><b>After the answer.</b> Your message and the agent's reply are both ingested, with tokens, passwords
           and contact details redacted first (D94). The reply is the side no Agentforce hook can supply (D89). Then
           the session is closed, because the close is what makes Data 360 extract memory from the entries (D93).</li>
@@ -5507,6 +5649,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
     ST["AWS Strands<br/>AWS/Bedrock meters + AgentCore access log (D67)"]
     LG["LangGraph<br/>LangSmith runs API — per-turn run tree (D77)"]
     CD["Coding agents<br/>CloudWatch OTLP metrics (WS9)"]
+    CDL["Coding agents — behaviour<br/>CloudWatch OTLP log group /a2alab/coding-agents/otlp (WS16/D59)"]
   end
 
   SCHED["EventBridge Scheduler<br/>rate(6 hours)"]
@@ -9489,6 +9632,29 @@ function expDefaultPrompt(exp) {
   return (exp && exp.question) || defaultQuestion || "";
 }
 
+// Agent-memory experiments are intentionally two-step. Prompt chips make the
+// teach → recall sequence reproducible without hiding the exact words sent.
+function seedPromptsHtml(exp) {
+  const prompts = (exp && exp.seed_prompts) || [];
+  if (!prompts.length) return "";
+  return `<div class="chan-row" aria-label="Seeded experiment prompts">
+    <span class="chan-label">Try a prompt</span>
+    ${prompts.map((p, i) => `<button class="ghost" onclick="useSeedPrompt(${i})"
+      title="Load this prompt into the composer; you can edit it before sending">${esc(p.label || `Prompt ${i + 1}`)}</button>`).join("")}
+  </div>`;
+}
+
+window.useSeedPrompt = index => {
+  if (!view || view.type !== "experiment") return;
+  const exp = currentExperiment();
+  const prompt = ((exp && exp.seed_prompts) || [])[index];
+  if (!prompt || !prompt.text) return;
+  const key = expKey(view.kind, view.name);
+  drafts[key] = prompt.text;
+  const input = document.getElementById("chatInput");
+  if (input) { input.value = prompt.text; input.focus(); }
+};
+
 // How many past chats per experiment the Run tab keeps this session
 // (A2ALAB_EXPERIMENT_CHAT_HISTORY server env, default 3).
 function chatHistoryLimit() {
@@ -9568,6 +9734,7 @@ window.loadPastChat = id => {
     if (tg.dispatch_mode) dispatchModes[key] = tg.dispatch_mode;
     if (tg.gate) fanoutGates[key] = tg.gate;
     if (tg.memory) memoryModes[key] = tg.memory;
+    if (tg.memory_customer) selectedMemoryCustomer = tg.memory_customer;
   }
   chatHistoryOpen[key] = false;
   renderMain(true);
@@ -9610,7 +9777,7 @@ function chatTurnsHtml(chat) {
       return `<div class="turn agent running">agents are talking…</div>`;
     }
     const err = !!turn.error;
-    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text, { hardBreaks: true })}</div>`}
+    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text, { hardBreaks: true })}</div>${memoryEvidenceHtml(turn.memory_result)}`}
       <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}${
         turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}${
         turn.af_route === "direct" ? ` · <span class="badge a2a" title="This turn's external-research leg went straight from Apex to Vertex AI Agent Engine's native A2A endpoint — no lab bridge, untraced by design">direct a2a</span>` : ""}${
@@ -9639,9 +9806,33 @@ function memoryBadgeHtml(m) {
     const label = failed ? "memory: unavailable" : (m.context_chars > 0 ? "memory: recalled" : "memory: empty");
     return `<span class="badge${failed ? "" : " claude"}" title="${esc(`Data 360 case recall ${m.state || "unknown"} for ${m.reader || "coordinator"}: ${m.context_chars || 0} context characters; ${m.error_count || 0} error(s).`)}">${label}</span>`;
   }
-  if (!m.ok) return `<span class="badge" title="${esc(`Memory was asked for and failed open — the agent answered without it. ${m.error || ""}`)}">memory: unavailable</span>`;
-  const recalled = m.context_chars > 0;
-  return `<span class="badge claude" title="${esc(`Data 360 Agentic Memory, owner ${m.owner_id}, conversation ${m.conversation_id}${m.session_id ? `, session ${m.session_id}` : ""}. Read ${m.read_ms} ms (${m.context_chars} chars of context), ingest ${m.ingest_ms} ms (your message and the reply).`)}">${recalled ? "memory: recalled" : "memory: nothing yet"}</span>`;
+  const title = esc(`Data 360 Agentic Memory, conversation ${m.conversation_id || "unknown"}${m.session_id ? `, session ${m.session_id}` : ""}. Read ${m.read_ms} ms (${m.context_chars || 0} chars), ingest ${m.ingest_ms} ms.`);
+  const recalled = m.recalled != null ? m.recalled : m.context_chars > 0;
+  const stored = m.stored != null ? m.stored : !!m.ok;
+  const chips = [];
+  if (!m.read_ok && m.read_ok != null) chips.push(`<span class="badge" title="${esc(m.error || "Memory read failed open")}">memory: read unavailable</span>`);
+  else if (recalled) chips.push(`<span class="badge claude" title="${title}">memory: recalled</span>`);
+  else chips.push(`<span class="badge" title="${title}">memory: empty</span>`);
+  if (stored) chips.push(`<span class="badge claude" title="${title}">memory: stored</span>`);
+  else chips.push(`<span class="badge" title="${esc(m.error || "Memory write failed")}">memory: not stored</span>`);
+  return chips.join(" ");
+}
+
+function memoryEvidenceHtml(m) {
+  if (!m || !m.context_preview) return "";
+  // Data 360 returns each memory leaf as a compact path/value string. Preserve
+  // its existing line boundaries, then separate category headers and ISO
+  // timestamps from their values so the evidence reads as rows, not a blob.
+  const lines = String(m.context_preview)
+    .replace(/\r\n?/g, "\n")
+    .replace(/([^\n])(?=(?:CONVERSATION_SUMMARY|SYS_PROFILE_[A-Z_]+)\[\d+\]\{)/g, "$1\n")
+    .replace(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z),/g, "$1\n")
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+  return `<div class="memory-evidence"><b>Data 360 memory supplied to this agent</b><div class="memory-evidence-lines">${lines
+    .map(line => `<div class="memory-evidence-line">${esc(line)}</div>`)
+    .join("")}</div></div>`;
 }
 
 // Is the experiment that owns this turn the one currently on screen? Runs are
@@ -9763,6 +9954,10 @@ async function sendTurn(kind, name, message, overrides) {
     if (spec && spec.memory_toggle) {
       toggles.memory = (overrides && overrides.memory) || memoryModes[key] || "off";
       body.memory = toggles.memory === "on";
+      if (spec.memory_customer_selector) {
+        body.memory_customer = selectedMemoryCustomer || spec.default_memory_customer;
+        toggles.memory_customer = body.memory_customer;
+      }
     }
     if (spec && spec.fanout_memory_toggle) {
       toggles.memory_mode = (overrides && overrides.memory_mode) || fanoutMemoryModes[key] || "off";
@@ -10229,7 +10424,7 @@ function renderMain(force) {
     if (t) {
       el.innerHTML = `
         <div class="detail-head">${backBtnHtml()}<div class="tid">trace ${t.trace_id}</div></div>
-        ${traceSectionHtml(t, "Call path")}`;
+        ${traceSectionHtml(t, "Call path", null, null)}`;
     } else if (traceFetchMisses.has(selected)) {
       // Confirmed absent from BOTH stores (windowless lookup 404'd) — a real
       // "not found", not just outside the recent trace list.
@@ -10439,6 +10634,8 @@ function renderMain(force) {
               title="Start a new chat — the current one is kept in this session's history">New chat</button>
           </div>
           ${chatHistoryOpen[key] ? pastChatsHtml(key) : ""}
+          ${view.kind === "scenario" && exp ? memoryCustomerRowHtml(exp) : ""}
+          ${view.kind === "scenario" && exp ? seedPromptsHtml(exp) : ""}
           ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_route_toggle ? afRouteRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_topology_toggle ? afTopologyRowHtml(key) : ""}
@@ -10490,6 +10687,10 @@ function renderMain(force) {
     // are excluded entirely: their /api/run acks immediately while hops
     // stream for minutes, so "post-run" never means "path complete".
     const selTurn = chat.turns.find(turn => turn.trace_id === selected);
+    const memoryCustomerKey = selTurn && selTurn.toggles && selTurn.toggles.memory_customer;
+    const memoryPersona = memoryCustomerKey
+      ? (((labConfig && labConfig.memory_customers) || {})[memoryCustomerKey]?.name || memoryCustomerKey)
+      : (exp && exp.memory_customer_selector ? (memoryCustomer()?.name || selectedMemoryCustomer) : null);
     const ghostFlow = !chat.running && exp
       ? (view.kind === "scenario"
           ? (exp.mode !== "async"
@@ -10498,7 +10699,7 @@ function renderMain(force) {
           : cellFlow(exp, selTurn && selTurn.via_bridge))
       : null;
     document.getElementById("traceArea").innerHTML = owned || chat.running
-      ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn", ghostFlow)
+      ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn", ghostFlow, memoryPersona)
       : `<div class="flow"><h3>Call path</h3><div class="desc"><span class="stat">Send a turn — its live
           call path and raw wire traces appear here. Click any of your past turns to revisit its path.</span></div></div>`;
   } else {

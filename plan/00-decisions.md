@@ -4515,3 +4515,86 @@ already visible through the public repo and Lab Guide. The MutationObserver cont
 static and dynamically rendered Details panes without template-specific markup. Three-digit ADRs
 such as D102 and workstreams such as WS11/WS27 now open their meaning in place, and regression
 tests pin parsing, auth exposure and the Supplier Disruption example.
+
+## 2026-11-02 — D104: demonstrate Agentic Memory as customer continuity across Claude and OpenAI
+
+**Context.** The first WS27 experiments used synthetic lab-user owner ids and the supplier arm
+used case-scoped operational observations. Both exercise storage plumbing, but neither shows the
+product's primary value: facts and preferences about one real customer surviving a handoff to a
+different agent. Governed Data 360 reads now fail closed unless the a360 token carries `xid`, and
+the registration's profile DMO defines what that identifier means. The A2A Lab org also had no
+materialized Individual profiles, identity-resolution ruleset, or customer graph.
+
+**Decision.** Add a dedicated **Agent Memory — customer continuity** experiment pair. In the
+first experiment Claude learns a durable constraint/preference for demo Contact Maya Chen without
+calling Agentforce: the point of that turn is an unambiguous Data 360 memory write. In the second,
+OpenAI uses a separate registered agent but the same unified Individual `xid`, recalls Maya's
+context, and—only when the current prompt explicitly authorizes it—asks Agentforce to perform the
+remembered next step by creating a CRM Case. Seeded prompt chips make teach, correction, recall,
+action, and negative-control runs repeatable; the response visibly separates “From memory” from
+“Action performed by Agentforce.”
+
+Create the minimal customer data foundation in the existing org: CRM Contact stream, Individual
+and Contact Point Email mappings, exact-normalized-email ruleset `AM01`, and real-time-declared
+graph `A2ALab_Memory_Customer360` rooted on `UnifiedssotIndividualAm01__dlm`. Register dedicated
+Claude and OpenAI memory agents against that profile DMO and graph and enable extraction only for
+those demo agents. Runtime identity remains the verified lab JWT, but an environment-only map
+resolves its subject to the org-specific unified profile id; no source file contains that id and
+there is no synthetic fallback. Bind every a360 exchange to both `aid` and mandatory `xid`.
+
+**Consequences.** Governed GetContext now succeeds through both registrations for the same Maya
+profile. The org can build and batch-serve the graph, but it has no sub-second/streaming license,
+so the experiment must not claim source-key fast-mode behavior; DC1 remains the planned licensed
+comparison environment. Publishing requires a full faces and console rebuild because source and
+scenario config are image-baked, and the faces secret must include `A2ALAB_MEMORY_OWNER_MAP`.
+Automatic extraction consumes the product's memory-generation entitlement for these two agents.
+The OpenAI-paired Agentforce twin owns the terminal CRM write through the bulkified
+`A2ALabCreateFollowUpCase` Apex action; memory remains context, never write authorization.
+
+**Scope clarification.** “Shared customer memory” does not mean one flat, unrestricted bucket.
+The data space and Unified Individual are the common identity spine: semantic facts/preferences
+are linked to Maya or Jordan and can support continuity across agents, sessions and channels.
+Episodic summaries remain conversation- and agent-scoped, and agent-level governance still limits
+each registered agent to its authorized view. The saved-memory API consequently reads a logical
+`customer profile × registered agent × category` partition. The lab's generic seam makes that
+structure explicit: it reads the registered Claude and OpenAI fact/preference partitions and
+merges the authorized results into the calling agent's prompt. This is application-level context
+assembly over the shared customer identity, not evidence of a physically flat universal store.
+Experiment Details and trace rendering teach that model directly as
+`Maya → Claude/OpenAI → facts/preferences`; each saved-memory GET is labelled by registered agent
+and category, so the independent authorized reads no longer resemble duplicate retries.
+
+**Implementation evidence.** The Case action, permission set, and Agent Script were deployed,
+published, and activated as version 3 on 2026-11-02. A live draft run created Case `00001880` and
+returned its number; the published version rejected an unknown exact Account without DML and a
+delegated request created Case `00001881` with no `ask_external_researcher` function step.
+
+## 2026-11-03 — D105: customer facts/preferences use one shared memory-service identity, not platform partitions
+
+**Context.** D104 initially treated the Claude and OpenAI registrations as semantic-memory
+partitions and made the adapter read both. The official governance contract says otherwise:
+curated facts and preferences are scoped to the customer and available to agents serving that
+customer. The Memory API keys reads by `profile_id`, `profile_type`, and `category`; its
+`agent_id` header is optional. The old hierarchy was therefore an application artifact, not the
+product's customer-memory model.
+
+**Decision.** Register `A2ALab_Memory_Case` as the shared customer/case memory-service identity
+over `UnifiedssotIndividualAm01__dlm`. Both Claude and OpenAI use it for GetContext, ingestion,
+and the two semantic category reads (`sys_PROFILE_FACT`, `sys_PROFILE_PREFERENCES`). Keep Claude
+and OpenAI as execution/provenance participants in the normal trace, not storage branches. Leave
+the two D104 platform-specific registrations in place for historical trace inspection but disable
+their automatic extraction.
+
+Do not attach `A2ALab_Memory_Customer360` or another standard graph to the shared registration.
+Salesforce documents additional GetContext context sources as **real-time data graphs**. The
+standard graph remains useful for direct batch/query experiments, but it is not substituted into
+the Agentic Memory configuration. A custom Case RTDG is deferred until the org receives that
+capability; built-in Individual/conversation memory is sufficient for the current demonstration.
+
+**Consequences.** The semantic hierarchy is now
+`customer profile → shared case memory → facts/preferences`. Multiple Memory API GETs represent
+categories, not model platforms or retries. Both platforms share one conversation participant
+identity at the memory boundary, so platform-specific memory governance is intentionally traded
+for cross-platform continuity; the execution trace still shows which model read or wrote the
+turn. A future Case RTDG can add authoritative structured CRM context without changing this
+memory identity.
