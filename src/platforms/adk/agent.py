@@ -36,6 +36,7 @@ from platforms.adk.core import (
     adk_model,
     make_ask_agentforce,
     make_ask_agentforce_a2a,
+    make_ask_agentforce_a2a_native,
     make_ask_foundry_agent,
     real_search_enabled,
     research_instruction,
@@ -60,6 +61,7 @@ def build_llm_agent(
     tools = [
         make_ask_agentforce(inbound_depth, trace_id, user_context, user_token),
         make_ask_agentforce_a2a(inbound_depth, trace_id, user_context, user_token),
+        make_ask_agentforce_a2a_native(inbound_depth, trace_id, user_context, user_token),
         make_ask_foundry_agent(inbound_depth, trace_id, user_context, user_token),
     ]
     if real_search_enabled():

@@ -3738,3 +3738,6 @@ the shim and bridge as comparison arms. Inbound first, on `A2ALab_Research_Assis
 11. ⏳ Outbound: make D27 hold on native outbound (no `metadata["delegation"]` on the wire) before any face is registered.
 12. ⏳ Outbound: a lab OAuth 2.0 client-credentials token endpoint the Agentforce Registry accepts, with its `plan/09-deployment-map.md` row.
 13. ⏳ Outbound: register a warm, Haiku-tier face in the Registry and wire a `connected_subagent` into the orchestrator (30 s remote-poll budget).
+15. ✅ Make the native endpoint the third Agentforce channel (`a2a-native`) on all five channel-toggle scenarios (D109). The `ask_agentforce_a2a_native` tool is in every backend, with D25 twin routing and the D27 guard; the console radio, flow step, routing exhibit and Details pane are updated.
+16. ✅ Add the A2A client's Task fallback: a WORKING task from a blocking `SendMessage` is polled through `tasks/get` within the client timeout instead of being read as an empty answer (D109).
+17. ⏳ Ship the `a2a_lab_af_a2a` pair to the faces, AgentCore and ADK runtimes with full rebuilds, register the A2A tools on the managed agent, and record one measured run per scenario on the native channel.

@@ -4821,3 +4821,47 @@ an original content refusal from its normalized retry, so a successful memory ba
 wire event that required adaptation. The implementation/cross-review batch is
 `ws27-b2-customer-memory-clear`; its plan, critique and probe evidence live under `build-notes/`.
 
+## 2026-11-03 — D109: the native A2A pilot becomes the third Agentforce channel on every toggle scenario
+
+**Context.** D106 added `agentforce-a2a-native` as a matrix cell, and the first inbound run
+(WS29 item 9) answered over A2A 1.0 from the pilot's own server. The D28 channel radio,
+however, still offered only two routes to Agentforce: the GA Agent API, and A2A through the
+lab's shim. On a toggle scenario the A2A half therefore always ended at a component we built.
+The operator asked for the native endpoint on every experiment that calls Agentforce, as a
+peer of the other two channels rather than as a separate pilot experiment.
+
+**Decision.** `a2a-native` becomes the third `af_channel` value. Its tool,
+`ask_agentforce_a2a_native`, now exists in every self-hosted backend:
+- Claude SDK, OpenAI Agents SDK, Strands, and ADK all have it.
+- Claude managed has it as a host-side custom tool. The shim's `ask_agentforce_a2a` was added
+  there at the same time; before that, the a2a-shim pick on the managed face had no tool to call.
+
+All five tools share one body, `af_channel.consult_native`:
+- It enforces the D27 guard and rider.
+- It routes to each platform's own twin (D25). The pilot's bot id is the Agent API agent id, so
+  `SF_AGENT_ID`/`SF_OPENAI_`/`SF_ADK_`/`SF_STRANDS_AGENT_ID` are reused. Strands gets its own twin
+  here, which the shim's map still lacks.
+- It authenticates with one client-credentials OrgJWT from `a2a_lab_af_a2a`.
+
+The console injects the channel's routing block exactly as it does for the shim. The radio label
+names the channel without the word "pilot". The pilot status is stated in the scenario's Details
+pane, which is where the caveat travels with the numbers.
+
+**The Task fallback is now client behavior, not a native-only special case.** The pilot answers a
+turn under 5 s with a Message and returns a WORKING Task otherwise. `A2AClient.ask()` used to read
+that Task's empty artifacts as "completed with no answer". It now polls `tasks/get` within its own
+timeout before deciding. Twin turns routinely run 10–27 s, so without this the channel would have
+failed on exactly the turns it exists to measure. WS29 item 14 covers measuring it live.
+
+**Consequences.**
+- The ECA pair `SF_AF_A2A_CLIENT_ID`/`_SECRET` now ships to the runtimes that hold an
+  Agentforce tool: the faces runtime secret, the three AgentCore runtime secrets, and the ADK
+  Agent Engine env. Each needs a **full rebuild**, because `src/` changed.
+- The managed agent's tool list needs one `setup_managed_agent.py --update` to register the two
+  A2A tools.
+- The shim and native rows on the same scenario are now the measurement D106 asked for: the same
+  A2A client and twin, with and without the lab's translation layer.
+- The native endpoint has no API Gateway in front of it. Its budget is the calling tool's own
+  timeout (34 s on OpenAI/Strands; `AF_A2A_NATIVE_TIMEOUT_S`, default 60 s, elsewhere), not 29 s.
+- Pilot terms still apply (plan/07-workstreams.md WS29). The endpoint is enabled per org and may
+  change before GA, so a failure on this channel is a finding about the pilot first.

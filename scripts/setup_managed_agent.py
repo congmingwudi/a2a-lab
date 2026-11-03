@@ -52,6 +52,40 @@ AGENT_TOOLS = [
             "required": ["question"],
         },
     },
+    # The D28 channel radio: the same agent over the A2A protocol, through the
+    # lab's hosted shim or straight at Agentforce's own inbound A2A server
+    # (the D106 pilot). Host-side like ask_agentforce; the console's routing
+    # block decides which one a run uses.
+    *(
+        {
+            "type": "custom",
+            "name": name,
+            "description": description,
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "The question for Agentforce"}
+                },
+                "required": ["question"],
+            },
+        }
+        for name, description in (
+            (
+                "ask_agentforce_a2a",
+                "Ask the Salesforce Agentforce agent a question over the A2A protocol "
+                "(via the lab's hosted shim). Use ONLY when the request's "
+                "[A2A-LAB ROUTING] block selects the a2a-shim channel; otherwise "
+                "prefer ask_agentforce.",
+            ),
+            (
+                "ask_agentforce_a2a_native",
+                "Ask the Salesforce Agentforce agent a question over the A2A protocol, "
+                "directly at Agentforce's own A2A endpoint (no lab shim). Use ONLY when "
+                "the request's [A2A-LAB ROUTING] block selects the a2a-native channel; "
+                "otherwise prefer ask_agentforce.",
+            ),
+        )
+    ),
 ]
 
 

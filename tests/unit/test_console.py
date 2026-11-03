@@ -877,6 +877,7 @@ def test_config_reports_delegation(tmp_path, monkeypatch):
     # D28: the channel-routing sibling exhibit
     assert "A2A-LAB ROUTING" in data["af_channel"]["routing_block"]
     assert data["af_channel"]["tools"]["a2a-shim"] == "ask_agentforce_a2a"
+    assert "a2a-native" in data["af_channel"]["routing_blocks"]
 
 
 def test_run_af_channel_routing_block(tmp_path, monkeypatch):
@@ -911,6 +912,14 @@ def test_run_af_channel_routing_block(tmp_path, monkeypatch):
     ).json()
     assert data.get("af_channel") is None
     assert "[A2A-LAB ROUTING]" not in registry.fake_client.requests[2].message
+    # D106: the native channel injects its own block, naming its own tool
+    data = client.post(
+        "/api/run",
+        json={"scenario": "claude-to-agentforce", "message": "hi", "af_channel": "a2a-native"},
+    ).json()
+    assert data["af_channel"] == "a2a-native"
+    msg = registry.fake_client.requests[3].message
+    assert "agentforce-channel: a2a-native" in msg and "ask_agentforce_a2a_native" in msg
 
 
 def test_run_memory_toggle_is_per_run(tmp_path, monkeypatch):

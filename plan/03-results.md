@@ -2066,3 +2066,27 @@ same two-sentence protocol question.
   `salesforce-cc` needed `requires_response_body` (an async client cannot
   `.read()` inside an auth flow), and a bare `SF_MY_DOMAIN` host now gets
   `https://`.
+
+## 2026-11-03 — D109: the a2a-native channel seam, one consult per paired twin
+
+`af_channel.consult_native` called from the operator laptop, once per platform's own
+twin (D25): the same seam the five backends' `ask_agentforce_a2a_native` tools use.
+Each call ran through the D27 rider, minted one client-credentials token, and sent one
+`SendMessage`. The question was one sentence on what the agent can help a customer with.
+
+| Calling platform → twin | latency | envelope |
+|---|---|---|
+| claude → `SF_AGENT_ID` | 7.1 s | 1.0 `Message` (sync) |
+| openai → `SF_OPENAI_AGENT_ID` | 6.0 s | 1.0 `Message` (sync) |
+| adk → `SF_ADK_AGENT_ID` | 9.0 s | 1.0 `Message` (sync) |
+| strands → `SF_STRANDS_AGENT_ID` | 5.1 s | 1.0 `Message` (sync) |
+
+- **Each twin answered as itself.** The ADK twin introduced itself as the ADK-paired
+  assistant, so the per-platform routing reaches distinct agents rather than collapsing
+  onto one.
+- **No Task above 5 s.** Every turn ran past 5 s, and each still came back as a
+  synchronous `Message` with no `GetTask` hop. The pilot guide's "a Message within 5 s,
+  otherwise a Task" did not apply to a blocking `SendMessage` at 9 s. The client's new
+  Task fallback (D109) is in place, but the live path stays unexercised (WS29 item 14).
+- **Not yet measured:** the console scenarios end to end on the `a2a-native` channel.
+  These wait on the hosted runtimes shipping the ECA pair (WS29 item 17).

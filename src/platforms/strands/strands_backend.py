@@ -160,6 +160,45 @@ def _build_agentforce_a2a_tool(
     return ask_agentforce_a2a
 
 
+def _build_agentforce_a2a_native_tool(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
+    """The third channel (D106/WS29): same Agentforce twin, over A2A straight
+    at Agentforce's own inbound A2A server — no lab shim in the path."""
+    from strands import tool
+
+    @tool(name="ask_agentforce_a2a_native")
+    def ask_agentforce_a2a_native(question: str) -> str:
+        """Ask the Salesforce Agentforce agent a question over the A2A protocol, directly at Agentforce's own A2A endpoint (no lab shim). Use ONLY when the request's [A2A-LAB ROUTING] block selects the a2a-native channel; otherwise prefer ask_agentforce."""  # noqa: E501
+        from interop import af_channel
+
+        timeout = float(
+            os.environ.get("STRANDS_AGENTFORCE_TOOL_TIMEOUT_S", DEFAULT_AGENTFORCE_TOOL_TIMEOUT_S)
+        )
+        try:
+            return _run_async(
+                asyncio.wait_for(
+                    af_channel.consult_native(
+                        question,
+                        caller="strands-sdk-agent",
+                        platform="strands",
+                        inbound_depth=inbound_depth,
+                        trace_id=trace_id,
+                        user_context=user_context,
+                        user_token=user_token,
+                    ),
+                    timeout,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"Native Agentforce A2A call failed: {type(exc).__name__}: {exc}"
+
+    return ask_agentforce_a2a_native
+
+
 # ---- cross-hyperscaler: Strands (AWS) -> Google ADK (Vertex) ----------------
 # Two routes to the SAME Agent Engine agent, the operator picks per run — the
 # cross-cloud twin of the ask_agentforce / ask_agentforce_a2a channel pair.
@@ -347,6 +386,7 @@ class StrandsSdkBackend:
         tools = [
             _build_agentforce_tool(inbound_depth, trace_id, user_context, user_token),
             _build_agentforce_a2a_tool(inbound_depth, trace_id, user_context, user_token),
+            _build_agentforce_a2a_native_tool(inbound_depth, trace_id, user_context, user_token),
             # Cross-hyperscaler: the same ADK agent by two routes (native-direct
             # federation vs the payload-capturing bridge), operator-selected.
             _build_google_adk_tool(inbound_depth, trace_id, user_context, user_token),

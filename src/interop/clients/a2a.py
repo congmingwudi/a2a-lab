@@ -16,6 +16,7 @@ Two shapes, both first-class (WS11):
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -69,6 +70,9 @@ TERMINAL_STATES = frozenset(
         TaskState.TASK_STATE_REJECTED,
     }
 )
+
+# ask()'s Task fallback cadence (seconds between tasks/get reads).
+POLL_INTERVAL_S = 2.0
 
 # Stalled: the task is alive but needs something from outside before it moves.
 INTERRUPTED_STATES = frozenset(
@@ -404,6 +408,25 @@ class A2AClient(RemoteAgentClient):
         poll after the task has been read once), so only a genuinely
         submit-only endpoint — one that never serves the task at all — records a
         red error."""
+        task = await self._get_task(task_id, trace_id, expect_transient=expect_transient)
+        texts: list[str] = []
+        for artifact in task.artifacts:
+            texts.extend(_texts_from_parts(artifact.parts))
+        detail = ""
+        if task.status.state == TaskState.TASK_STATE_FAILED:
+            detail = "\n".join(_texts_from_parts(task.status.message.parts)) or "task failed"
+        return TaskSnapshot(
+            task_id=task.id,
+            state=TaskState.Name(task.status.state),
+            text="\n".join(texts),
+            done=task.status.state in TERMINAL_STATES,
+            interrupted=task.status.state in INTERRUPTED_STATES,
+            detail=detail,
+        )
+
+    async def _get_task(self, task_id: str, trace_id: str | None, *, expect_transient: bool):
+        """One recorded `tasks/get`, returning the raw Task (poll() and ask()'s
+        Task fallback both build on it)."""
         trace_id = trace_id or new_trace_id()
         with Hop(
             trace_id,
@@ -420,27 +443,36 @@ class A2AClient(RemoteAgentClient):
         ) as hop:
             async with self._connected() as client:
                 task = await client.get_task(GetTaskRequest(id=task_id))
-
-            state = TaskState.Name(task.status.state)
             texts: list[str] = []
             for artifact in task.artifacts:
                 texts.extend(_texts_from_parts(artifact.parts))
-            detail = ""
-            if task.status.state == TaskState.TASK_STATE_FAILED:
-                detail = "\n".join(_texts_from_parts(task.status.message.parts)) or "task failed"
             hop.response_payload = {
                 "taskId": task.id,
-                "state": state,
+                "state": TaskState.Name(task.status.state),
                 "artifacts": texts,
             }
-            return TaskSnapshot(
-                task_id=task.id,
-                state=state,
-                text="\n".join(texts),
-                done=task.status.state in TERMINAL_STATES,
-                interrupted=task.status.state in INTERRUPTED_STATES,
-                detail=detail,
-            )
+            return task
+
+    async def _await_task(self, task, trace_id: str, start: float):
+        """ask()'s Task fallback: a blocking SendMessage may still come back with
+        a task that is not finished. The Agentforce A2A pilot (D106) answers
+        within 5 s with a Message and otherwise hands back a WORKING task to poll
+        for up to 120 s; without this, ask() read that task's empty artifacts as
+        "completed with no answer". Polls `tasks/get` inside the client's own
+        timeout budget; a task still unfinished at the deadline is returned as
+        is and fails loudly below."""
+        deadline = start + self.timeout
+        while (
+            task.status.state not in TERMINAL_STATES
+            and task.status.state not in INTERRUPTED_STATES
+            and time.perf_counter() < deadline
+        ):
+            await asyncio.sleep(POLL_INTERVAL_S)
+            try:
+                task = await self._get_task(task.id, trace_id, expect_transient=True)
+            except (TaskNotFoundError, VersionNotSupportedError, MethodNotFoundError):
+                continue  # eventually-consistent task store (WS11): ride it out
+        return task
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         req.trace_id = req.trace_id or new_trace_id()
@@ -506,7 +538,15 @@ class A2AClient(RemoteAgentClient):
                 finally:
                     await client.close()
 
+            if task is not None and task.status.state not in TERMINAL_STATES | INTERRUPTED_STATES:
+                task = await self._await_task(task, req.trace_id, start)
+
             if task is not None:
+                if task.status.state not in TERMINAL_STATES | INTERRUPTED_STATES:
+                    raise RuntimeError(
+                        f"A2A task on {self.target_name} did not finish within "
+                        f"{self.timeout:.0f}s (state {TaskState.Name(task.status.state)})"
+                    )
                 texts: list[str] = []
                 for artifact in task.artifacts:
                     texts.extend(_texts_from_parts(artifact.parts))

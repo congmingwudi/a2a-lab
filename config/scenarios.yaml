@@ -266,7 +266,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           proxies inbound A2A to the GA Agent API. Honest status: via-shim.
 
   agentforce-to-claude-aws:
@@ -403,7 +403,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           on :8023 generates this card and proxies inbound A2A to the GA
           Agent API. Honest status: via-shim.
 
@@ -478,7 +478,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           on :8023 generates this card and proxies inbound A2A to the GA
           Agent API. Honest status: via-shim.
       - title: Claude research agent
@@ -635,7 +635,7 @@ scenarios:
       - title: Agentforce service agent (OpenAI-paired twin)
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
           Honest status: via-shim.
 
@@ -708,7 +708,7 @@ scenarios:
       - title: Agentforce service agent (OpenAI-paired twin)
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
           Honest status: via-shim.
       - title: OpenAI research agent
@@ -803,7 +803,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
           Honest status: via-shim. (The dedicated D25 Strands-paired twin,
           A2ALab_Research_Assistant_Strands, is provisioned and active.)
@@ -1006,7 +1006,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
           Honest status: via-shim. Runs as the D25 LangGraph-paired twin
           (SF_LANGGRAPH_AGENT_ID), so the pair stays a closed two-platform system.
@@ -1200,7 +1200,7 @@ scenarios:
       - title: Agentforce service agent (ADK-paired twin)
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's
           shim proxies inbound A2A to the GA Agent API. Honest status:
           via-shim.
 

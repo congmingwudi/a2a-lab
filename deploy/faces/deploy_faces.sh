@@ -81,6 +81,9 @@ keys = [
     # identity) and was missed on the first run: both landed in plaintext on
     # the task definition, which is exactly what this secret exists to prevent.
     "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+    # D106: the a2a-native channel's client-credentials pair (a2a_lab_af_a2a).
+    # One OrgJWT reaches every twin's native A2A endpoint.
+    "SF_AF_A2A_CLIENT_ID", "SF_AF_A2A_CLIENT_SECRET",
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
@@ -259,6 +262,7 @@ for path in pathlib.Path("src").rglob("*.py"):
 
 SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+           "SF_AF_A2A_CLIENT_ID", "SF_AF_A2A_CLIENT_SECRET",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN",
            "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER"}

@@ -33,6 +33,7 @@ from platforms.claude.core import RESEARCH_SYSTEM_PROMPT
 ANSWER_TIMEOUT_S = float(os.environ.get("CLAUDE_ANSWER_TIMEOUT_S", "40"))
 AGENTFORCE_TOOL = "mcp__a2alab__ask_agentforce"
 AGENTFORCE_A2A_TOOL = "mcp__a2alab__ask_agentforce_a2a"
+AGENTFORCE_A2A_NATIVE_TOOL = "mcp__a2alab__ask_agentforce_a2a_native"
 
 # One process-lifetime client so the OAuth token survives across tool calls
 # (a per-call client would re-authenticate and leak its connection pool on
@@ -126,6 +127,32 @@ def _build_agentforce_a2a_tool(
     return ask_agentforce_a2a
 
 
+def _build_agentforce_a2a_native_tool(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
+    """The third channel (D106/WS29): same Agentforce twin, over A2A straight
+    at Agentforce's own inbound A2A server — no lab shim in the path."""
+    from interop import af_channel
+
+    @tool("ask_agentforce_a2a_native", af_channel.NATIVE_TOOL_DESCRIPTION, {"question": str})
+    async def ask_agentforce_a2a_native(args: dict) -> dict:
+        text = await af_channel.consult_native(
+            str(args["question"]),
+            caller="claude-sdk-agent",
+            platform="claude",
+            inbound_depth=inbound_depth,
+            trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
+        )
+        return {"content": [{"type": "text", "text": text}]}
+
+    return ask_agentforce_a2a_native
+
+
 class SdkBackend:
     backend_name = "sdk"
 
@@ -156,10 +183,15 @@ class SdkBackend:
                 tools=[
                     _build_agentforce_tool(depth, req.trace_id, user_ctx, user_token),
                     _build_agentforce_a2a_tool(depth, req.trace_id, user_ctx, user_token),
+                    _build_agentforce_a2a_native_tool(depth, req.trace_id, user_ctx, user_token),
                 ],
             )
             kwargs["mcp_servers"] = {"a2alab": server}
-            kwargs["allowed_tools"] = [AGENTFORCE_TOOL, AGENTFORCE_A2A_TOOL]
+            kwargs["allowed_tools"] = [
+                AGENTFORCE_TOOL,
+                AGENTFORCE_A2A_TOOL,
+                AGENTFORCE_A2A_NATIVE_TOOL,
+            ]
         if req.session_id and req.session_id in self._sessions:
             kwargs["resume"] = self._sessions[req.session_id]
         return ClaudeAgentOptions(**kwargs)

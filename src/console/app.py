@@ -2550,10 +2550,16 @@ def create_console_app(registry: Registry | None = None):
                 ],
             },
             # D28 sibling exhibit: the per-run channel routing block the
-            # console injects when the operator picks a2a-shim.
+            # console injects when the operator picks an A2A channel (the
+            # shim, or Agentforce's own inbound A2A server — D106).
             "af_channel": {
                 "tools": af_channel.CHANNEL_TOOLS,
                 "routing_block": af_channel.routing_block("a2a-shim"),
+                "routing_blocks": {
+                    ch: af_channel.routing_block(ch)
+                    for ch in af_channel.CHANNEL_TOOLS
+                    if ch != "agent-api"
+                },
             },
             # Sibling exhibit for the reverse direction: the twin's outbound
             # route (bridge = traced, direct = platform-native, untraced).
@@ -3034,9 +3040,9 @@ def create_console_app(registry: Registry | None = None):
                 if chosen_channel not in af_channel.CHANNEL_TOOLS:
                     chosen_channel = "agent-api"
                 # The routing block rides AFTER the suffix; agent-api is the
-                # tools' default bias, so only a2a-shim ever injects.
-                if chosen_channel == "a2a-shim":
-                    message += af_channel.routing_block("a2a-shim")
+                # tools' default bias, so only the two A2A channels inject.
+                if chosen_channel != "agent-api":
+                    message += af_channel.routing_block(chosen_channel)
             if spec.get("af_route_toggle"):
                 chosen_route = body.get("af_route") or "bridge"
                 if chosen_route not in af_channel.ROUTE_TOOLS:

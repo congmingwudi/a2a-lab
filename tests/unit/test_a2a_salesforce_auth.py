@@ -108,3 +108,32 @@ def test_the_flagged_welcome_part_is_not_part_of_the_answer():
         Message(),
     )
     assert _texts_from_parts(msg.parts) == ["pong"]
+
+
+async def test_a_working_task_is_polled_until_it_finishes(monkeypatch):
+    """WS29 item 14: the pilot hands back a WORKING task for a turn over 5 s.
+    ask()'s Task fallback polls tasks/get instead of reading the empty
+    artifacts as 'completed with no answer'."""
+    from a2a.types import Artifact, Part, Task, TaskState, TaskStatus
+
+    import interop.clients.a2a as a2a_mod
+
+    monkeypatch.setattr(a2a_mod, "POLL_INTERVAL_S", 0)
+    client = a2a_mod.A2AClient("https://example.invalid/a2a/x", timeout=5)
+    working = Task(id="t1", status=TaskStatus(state=TaskState.TASK_STATE_WORKING))
+    done = Task(
+        id="t1",
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
+        artifacts=[Artifact(artifact_id="a", parts=[Part(text="the answer")])],
+    )
+    reads = iter([working, done])
+
+    async def fake_get_task(task_id, trace_id, *, expect_transient):
+        return next(reads)
+
+    monkeypatch.setattr(client, "_get_task", fake_get_task)
+    import time
+
+    task = await client._await_task(working, "trace", time.perf_counter())
+    assert task.status.state == TaskState.TASK_STATE_COMPLETED
+    assert a2a_mod._texts_from_parts(task.artifacts[0].parts) == ["the answer"]

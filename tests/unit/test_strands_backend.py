@@ -106,16 +106,18 @@ async def test_answer_runs_agent_and_returns_response(
     assert isinstance(agent_kwargs["model"], FakeBedrockModel)
     assert agent_kwargs["model"].kwargs["model_id"] == "us.anthropic.claude-sonnet-4-20250514-v1:0"
     assert agent_kwargs["model"].kwargs["region_name"] == "us-east-1"
-    # Four tools: the two Agentforce channels (ask_agentforce / _a2a) and the
-    # two cross-hyperscaler Google ADK routes (ask_google_adk native-direct /
-    # ask_google_adk_bridge via the lab bridge — WS5 cross-hyperscaler cell).
-    assert len(agent_kwargs["tools"]) == 4
+    # Five tools: the three Agentforce channels (ask_agentforce / _a2a /
+    # _a2a_native, D28/D106) and the two cross-hyperscaler Google ADK routes
+    # (ask_google_adk native-direct / ask_google_adk_bridge via the lab
+    # bridge — WS5 cross-hyperscaler cell).
+    assert len(agent_kwargs["tools"]) == 5
     tool_names = {
         getattr(t, "tool_name", getattr(t, "__name__", "")) for t in agent_kwargs["tools"]
     }
     assert tool_names == {
         "ask_agentforce",
         "ask_agentforce_a2a",
+        "ask_agentforce_a2a_native",
         "ask_google_adk",
         "ask_google_adk_bridge",
     }

@@ -1822,7 +1822,7 @@ let chats = {};
 let chatArchives = {};    // key -> [{id, ts, title, chat}]  (most-recent first)
 let chatHistoryOpen = {}; // key -> bool (the past-chats picker is showing)
 let drafts = {};          // key -> composer draft (survives re-renders)
-let afChannels = {};      // key -> "agent-api" | "a2a-shim" (D28 channel radio)
+let afChannels = {};      // key -> "agent-api" | "a2a-shim" | "a2a-native" (D28 channel radio, D106)
 let afRoutes = {};        // key -> "bridge" | "direct" (Agentforce outbound route radio)
 let afTopologies = {};    // key -> "delegated" | "serial" (D61 fan-out topology radio)
 let viaBridges = {};      // key -> bool (protocol cells: route via the lab bridge)
@@ -2633,7 +2633,7 @@ function mergedTurnTrace(t) {
   // shim's envelope + proxy hops (Aurora-merged, own trace ids), and
   // rider-labeled platform callers.
   const LEG_SOURCES = new Set(["agentforce-apex", "agentforce-client",
-    "agentforce-a2a-shim", "foundry", "adk", "claude", "openai"]);
+    "agentforce-a2a-shim", "agentforce-a2a-native", "foundry", "adk", "claude", "openai"]);
   const legs = traces.filter(x =>
     x.trace_id !== t.trace_id && !owned.has(x.trace_id) &&
     (x.started || 0) >= lo && (x.started || 0) <= hi &&
@@ -2685,11 +2685,25 @@ function routeFlow(flow, afRoute) {
 // agent's A2A client to the hosted shim, then the shim's proxy to the GA
 // Agent API. Without this, shim runs render a ghost "agent → agentforce
 // api direct" leg that never happened.
+//
+// The a2a-native channel (D106, WS29) is one hop: the agent's A2A client
+// straight to Agentforce's own inbound A2A server, no lab component between.
 function channelFlow(flow, afChannel) {
-  if (afChannel !== "a2a-shim" || !flow) return flow;
+  if ((afChannel !== "a2a-shim" && afChannel !== "a2a-native") || !flow) return flow;
   const out = [];
   for (const step of flow) {
-    if (step.protocol === "agentforce-api" && String(step.target).toLowerCase() === "agentforce") {
+    if (step.protocol === "agentforce-api" && String(step.target).toLowerCase() === "agentforce"
+        && afChannel === "a2a-native") {
+      out.push({
+        source: "client", target: "agentforce", protocol: "a2a",
+        detail: "The a2a-native channel (D106): the agent's ask_agentforce_a2a_native tool sends "
+          + "an A2A 1.0 SendMessage straight to Agentforce's own inbound A2A server "
+          + "(api.salesforce.com/einstein/ai-agent/a2a/<twin>) — a client-credentials OrgJWT from "
+          + "the a2a_lab_af_a2a ECA, D27 rider on the question, each platform's own twin (D25). "
+          + "No lab shim in the path. A turn longer than 5 s comes back as a Task, which the "
+          + "client polls with GetTask. The endpoint is a Salesforce pilot (WS29).",
+      });
+    } else if (step.protocol === "agentforce-api" && String(step.target).toLowerCase() === "agentforce") {
       out.push({
         source: "client", target: "agentforce-a2a-shim", protocol: "a2a",
         detail: "The a2a-shim channel (D28): the agent's ask_agentforce_a2a tool sends an A2A "
@@ -4436,8 +4450,9 @@ const modeUnmet = s => !!(s && s.requires_mode && labConfig && labConfig.mode !=
 // ---------------------------------------------------------------------------
 // D28 Agentforce channel — on toggle scenarios the operator picks which tool
 // the entry agent consults Agentforce with: ask_agentforce (GA Agent API,
-// the default bias) or ask_agentforce_a2a (A2A via the lab's hosted shim).
-// The pick rides to /api/run; a2a-shim injects a routing block (shown below
+// the default bias), ask_agentforce_a2a (A2A via the lab's hosted shim) or
+// ask_agentforce_a2a_native (A2A at Agentforce's own inbound server, D106).
+// The pick rides to /api/run; the A2A channels inject a routing block (shown below
 // as a read-only exhibit, sibling of the D27 rider).
 // ---------------------------------------------------------------------------
 window.setAfChannel = ch => {
@@ -4452,11 +4467,14 @@ function afChannelRowHtml(key) {
   <div class="chan-row">
     <span class="chan-label">Agentforce channel</span>
     <label><input type="radio" name="afChannel" value="agent-api" ${ch === "agent-api" ? "checked" : ""}
-      onchange="setAfChannel('agent-api')"> agent-api (native)</label>
+      onchange="setAfChannel('agent-api')"> agent-api (GA REST)</label>
     <label><input type="radio" name="afChannel" value="a2a-shim" ${ch === "a2a-shim" ? "checked" : ""}
-      onchange="setAfChannel('a2a-shim')"> a2a-shim (A2A protocol)</label>
+      onchange="setAfChannel('a2a-shim')"> a2a-shim (A2A via lab shim)</label>
+    <label><input type="radio" name="afChannel" value="a2a-native" ${ch === "a2a-native" ? "checked" : ""}
+      onchange="setAfChannel('a2a-native')"> a2a-native (A2A, Agentforce's own endpoint)</label>
     <span class="chan-hint">Same conversation and agents, different intermediate protocol —
-      agent-api is the platform's GA surface; a2a-shim routes through the lab's hosted A2A shim.</span>
+      agent-api is the platform's GA surface; a2a-shim routes through the lab's hosted A2A shim;
+      a2a-native speaks A2A straight to Agentforce's own inbound A2A server.</span>
   </div>`;
 }
 
@@ -4869,6 +4887,40 @@ const AF_ASYNC_DIAGRAM = `flowchart TB
 // The full fan-out control prose, moved out of the Run tab into Details (D57).
 // Rendered only for scenarios that actually expose these radios, so a plain
 // pairwise scenario's Details is unchanged.
+// Details for the D28 channel radio, on every scenario that carries it: what
+// each of the three channels actually puts on the wire. The pilot status of the
+// native endpoint lives HERE, not in the radio label (operator's call).
+function afChannelsDetailHtml(s) {
+  if (!s || !s.af_channel_toggle) return "";
+  return `
+    <div class="flow">
+      <h3>Agentforce channels — how the agent reaches Agentforce (D28, D106)</h3>
+      <p class="desc-note">The Run tab's channel radio keeps the conversation, the agents and the
+        Agentforce twin fixed and swaps only the protocol of the consult. Each calling platform consults
+        its own paired twin on every channel (D25), and the outbound question carries the D27 rider on
+        every channel. Picking an A2A channel appends a routing block naming the tool to use.</p>
+      <ul class="steps">
+        <li><b>agent-api</b>: the GA Agent API. The tool <code>ask_agentforce</code> does OAuth, then a
+          session, then a message. This is the default and the only generally available surface.</li>
+        <li><b>a2a-shim</b>: the A2A protocol through the lab's own shim (API Gateway + Lambda on AWS).
+          The tool is <code>ask_agentforce_a2a</code>. The shim speaks A2A to the caller and the GA Agent
+          API to Agentforce, so the A2A half ends at a component we built. It also sits behind API Gateway's
+          29s ceiling (D28).</li>
+        <li><b>a2a-native</b>: the A2A protocol straight to Agentforce's own inbound A2A server at
+          <code>api.salesforce.com/einstein/ai-agent/a2a/&lt;twin&gt;</code>, with no lab component in
+          the path. The tool is <code>ask_agentforce_a2a_native</code>. The wire is A2A 1.0 with
+          <code>A2A-Version: 1.0</code> pinned, and the auth is a client-credentials OrgJWT from the
+          <code>a2a_lab_af_a2a</code> External Client App. The server answers a turn under 5s with a
+          Message; a longer turn comes back as a Task, which the client polls with
+          <code>GetTask</code> inside the tool's budget. <b>This endpoint is a Salesforce pilot</b>, not
+          GA: it is enabled per org and its shape may change before GA. The first measured run and the
+          open items are recorded under WS29 (plan/07-workstreams.md) and D106.</li>
+      </ul>
+      <p class="desc-note">The gap between the a2a-shim and a2a-native rows on the same scenario is the
+        measurement: same A2A client, same twin, with and without the lab's translation layer.</p>
+    </div>`;
+}
+
 function fanoutControlsDetailHtml(s) {
   if (!s || !(s.fanout_variant_toggle || s.dispatch_mode_toggle || s.gate_toggle)) return "";
   const topology = s.fanout_variant_toggle ? `
@@ -5168,22 +5220,28 @@ function topologyExhibitHtml(key) {
   </div>`;
 }
 
-// The exact block /api/run will append for a2a-shim — a read-only exhibit
+// The exact block /api/run will append for an A2A channel — a read-only exhibit
 // like the D27 rider (that one is per-delegation identity, this one is the
 // per-run channel routing).
 function routingSectionHtml(key) {
   const a = labConfig && labConfig.af_channel;
-  if (!a || (afChannels[key] || "agent-api") !== "a2a-shim") return "";
+  const ch = afChannels[key] || "agent-api";
+  if (!a || ch === "agent-api") return "";
+  const block = (a.routing_blocks || {})[ch] || (ch === "a2a-shim" ? a.routing_block : "");
+  if (!block) return "";
+  const via = ch === "a2a-native"
+    ? "straight at Agentforce's own inbound A2A server (D106 — a Salesforce pilot, WS29)"
+    : "via the lab's hosted shim";
   return `
   <div class="flow">
     <details open>
       <summary style="cursor:pointer; font-size:12px; color:var(--muted); padding:10px 16px">Injected for this run — Agentforce channel routing (D28)</summary>
       <div class="desc"><span class="stat">Appended to this run's outgoing message (after the scenario's
         prompt suffix): it directs the entry agent to consult Agentforce with its
-        <code>${esc((a.tools || {})["a2a-shim"] || "ask_agentforce_a2a")}</code> tool — the A2A protocol
-        via the lab's hosted shim — instead of the default GA Agent API. A design-decision exhibit,
+        <code>${esc((a.tools || {})[ch] || "ask_agentforce_a2a")}</code> tool — the A2A protocol
+        ${via} — instead of the default GA Agent API. A design-decision exhibit,
         not an editable prompt.</span></div>
-      <pre class="rider-block" aria-readonly="true">${esc(String(a.routing_block || "").trim())}</pre>
+      <pre class="rider-block" aria-readonly="true">${esc(String(block).trim())}</pre>
     </details>
   </div>`;
 }
@@ -9885,7 +9943,7 @@ function chatTurnsHtml(chat) {
     const err = !!turn.error;
     return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text, { hardBreaks: true })}</div>${memoryEvidenceHtml(turn.memory_result)}`}
       <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}${
-        turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}${
+        turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : turn.af_channel === "a2a-native" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol straight to Agentforce's own inbound A2A server (D106, pilot)">via a2a-native</span>` : ""}${
         turn.af_route === "direct" ? ` · <span class="badge a2a" title="This turn's external-research leg went straight from Apex to Vertex AI Agent Engine's native A2A endpoint — no lab bridge, untraced by design">direct a2a</span>` : ""}${
         turn.af_topology === "serial" ? ` · <span class="badge agentforce" title="This turn fanned out with the SERIAL topology (D61): three stacked Apex callouts through the bridge, one per business unit. A full three-leg run overruns the 120s Apex callout budget by design — a later leg is reported unavailable rather than omitted.">serial fan-out</span>`
         : turn.af_topology === "delegated" ? ` · <span class="badge agentforce" title="This turn fanned out with the DELEGATED topology (D61): one Apex callout to the bridge's fanout: route, which ran the three legs in parallel off-platform.">delegated fan-out</span>` : ""}${
@@ -10501,6 +10559,7 @@ function detailsTabHtml() {
         from the lab, not from a file.</span></div>
       ${(s.agents || []).map(agentRow).join("")}
     </div>` : ""}
+    ${afChannelsDetailHtml(s)}
     ${fanoutControlsDetailHtml(s)}
     ${fanoutMemoryDetailHtml(s)}
     ${memoryDetailHtml(s)}
