@@ -39,7 +39,8 @@
 
 ## Deploy and acceptance runbook
 
-This batch is built and locally validated, **not deployed**.
+This batch was built and locally validated here, then deployed from exact commit `8df42f6` under
+the operator's explicit instruction to skip round-two review. Deployment evidence follows below.
 
 1. Full faces rebuild/deploy (no `--skip-build`) because `MemoryAdapter` and `memory.py` are baked
    into that image.
@@ -76,4 +77,28 @@ This batch is built and locally validated, **not deployed**.
   old-behavior redaction assertion, as recorded in the baseline; it was not weakened.
 - Live generation probe: final supported-category lifecycle/cleanup trace
   `e3c30627c7f945a99a54b6e7535f20a3`; rendered context and saved prompt both excluded the marker.
-- No deployment was performed.
+- Round-two review was explicitly skipped by the operator; deployment evidence is below.
+
+## Deployment — 2026-11-03 operator override
+
+- Exact source: detached clean worktree at `8df42f6`; unrelated dirty-worktree changes were not in
+  either Docker build.
+- Full faces rebuild (no `--skip-build`): ECS task definition `a2alab-faces:28`, image digest
+  `sha256:9b628c2aabe2d5e31a893317c3bdc0a836b90ea4dc60e620365523620dc0a07c`, rollout `COMPLETED`,
+  ALB `/healthz` `200`.
+- Full console rebuild (no `--skip-build`): ECS task definition `a2alab-console:142`, image digest
+  `sha256:9aa51091932a35368969e89401c4fc15c819d141b1d3be5eff24020fde5ec210`, rollout `COMPLETED`,
+  ALB `/healthz` `200`.
+- Hosted operator list for Maya: `200`, `complete=true`, 22 governed semantic rows, no generation
+  yet, trace `1fc33a2849b541f18d1126c506ef049d`.
+- Hosted authorization: viewer list `403`; shared-token list `403`; bogus non-governed delete
+  rejected `400` without deletion.
+- Hosted shell contains Manage memories, normalized-retry badge, and stale-chat fork copy.
+- Hosted stale-generation smoke: trace `4b5bc448c6224150b1d432177464b997` was rejected by the face
+  before the inner Claude adapter ran. The REST face returns this as HTTP 500 and the console's
+  remote client wraps it, so the top-level console result has no `error_code`; its error text still
+  names `StaleMemoryGeneration` and instructs the operator to start a new chat. No model call or
+  memory mutation occurred.
+- A destructive Maya reset and a post-deploy URL-normalization write were deliberately not run as
+  deployment smoke. The synthetic generation lifecycle was already proven and cleaned up under
+  `a2alab-memprobe` (trace `e3c30627c7f945a99a54b6e7535f20a3`).

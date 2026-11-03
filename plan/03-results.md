@@ -2090,3 +2090,25 @@ Each call ran through the D27 rider, minted one client-credentials token, and se
   Task fallback (D109) is in place, but the live path stays unexercised (WS29 item 14).
 - **Not yet measured:** the console scenarios end to end on the `a2a-native` channel.
   These wait on the hosted runtimes shipping the ECA pair (WS29 item 17).
+
+## 2026-11-03 — WS27 D107 customer-memory management deployed by operator override
+
+The operator explicitly skipped the pending round-two Claude review and directed deployment of
+Codex implementation commit `8df42f6`. Both required images were rebuilt in a detached clean
+worktree, so unrelated working-tree changes were excluded. Faces task definition
+`a2alab-faces:28` and console task definition `a2alab-console:142` reached `COMPLETED`; both ALB
+health routes returned 200.
+
+Non-destructive hosted acceptance passed: Maya's operator-only management listing returned a
+complete 22-row response (trace `1fc33a2849b541f18d1126c506ef049d`), viewer and shared-token reads
+returned 403, and a bogus non-governed delete returned 400 without mutation. The deployed UI carries
+the manager, normalization badge and stale-chat fork copy. A deliberately stale customer-memory
+turn was refused at the face before Claude ran (trace `4b5bc448c6224150b1d432177464b997`).
+The console's remote REST client wraps the face's `StaleMemoryGeneration` HTTP 500, so that hosted
+result lacks the direct-adapter `error_code`, but the error text requires a new chat and the old
+platform session cannot execute.
+
+No destructive Maya/Jordan reset was run for smoke. The supported `sys_PROFILE_FACT` marker
+lifecycle and prompt filtering had already passed against `a2alab-memprobe`, with cleanup, under
+trace `e3c30627c7f945a99a54b6e7535f20a3`.
+
