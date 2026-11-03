@@ -225,3 +225,267 @@ called out. No new Dockerfile `COPY` is needed: `src` and `config` are already c
   `index.html` (F8). They should run at cross-review once code and plan edits exist.
 - The worktree's existing user changes were preserved. This file is the only one written, plus the
   handoff state.
+
+## Round 1 — Claude Opus headless cross-review
+
+Reviewer: Claude Code (cross-review station, round 1), 2026-11-03.
+Reviewed: implementation commit `6902685`, against D107 (`plan/00-decisions.md#L4766`), WS27 items
+58–63 (`plan/07-workstreams.md#L3660-L3665`), the settled plan, Codex's notes and my round-0 critique.
+
+**Verdict for this round: REQUEST CHANGES.** The core design is right, and most of my round-0
+findings are resolved. Specifically:
+
+- the probe-backed content-refusal diagnosis;
+- the D94 lifecycle is kept;
+- the generation marker is validated and hashed at the face;
+- the conversation id is plumbed through open/read/write/evidence;
+- the console secret path;
+- both auth gates;
+- the complete typed listing.
+
+Two defects are confirmed by execution, though:
+
+1. a caller of `write_turn` broken by the new return type;
+2. a Start-fresh failure path that returns a bare plain-text 500.
+
+Beyond those, three D107 promises are stated as shipped but are not implemented:
+
+- archived-chat protection;
+- the normalization badge;
+- a verified saga report on failure.
+
+And the custom generation category, on which every customer-memory turn now depends, has never
+been exercised against the tenant.
+
+### Round-0 findings — status
+
+| Round-0 finding | Status in `6902685` |
+|---|---|
+| F1 closed-session diagnosis | **Resolved.** The three-arm memprobe probe (`build-notes/codex/ws27-memory-403-probe.md`) is recorded. D94's per-chat session is retained. The HTML-403-only classification is at `src/interop/memory.py` (`MemoryCallError.is_html_403`). |
+| F2 console customer map | **Resolved.** `deploy/console/deploy_console.sh` adds the map to the keys and shape-checks it. A regression assert is in `tests/unit/test_console.py`. |
+| F3 browser-local generation | **Partly.** The marker is now tenant-side (good). The archived-chat half is not done; see R1-3. |
+| F4 validate and hash at the face | **Resolved.** `GENERATION_RE` + `generation_conversation` → `case_conversation`. The conversation id reaches `open_and_read`, `write_turn`, the evidence field and the session cache key (`memory_adapter.py#L200-L285`). |
+| F5 404, pagination, caps | **Mostly.** `MemoryListing.complete` and the 404 re-list/retry are in place. Management does not use `saved_memories`/`MAX_SAVED`. The failure reporting is still missing (R1-2). |
+| F6 auth gate | **Resolved.** `_is_operator` is in both handlers, plus an `_OPERATOR_ONLY` entry. Viewer and shared-token callers are tested to get 403. Machine callers are not tested (R1-6). |
+| F7 faces rebuild | **Resolved.** The notes' deploy runbook says full faces + console rebuild. |
+| F8 stale claim | **Resolved.** `config/users.yaml#L48` was rewritten. No other stale "no delete" claim remains (grep below). |
+
+### New findings
+
+#### R1-1 — MAJOR (confirmed by execution): `scripts/supplier_memory_probe.py` breaks on the new `write_turn` return type
+
+`write_turn` now returns `tuple[list[str], bool]` (`src/interop/memory.py`, `write_turn`). The batch
+updated three callers: `src/bridge/app.py#L231`, `src/interop/memory_adapter.py#L258` and
+`src/orchestration/memory.py#L273`. It missed `scripts/supplier_memory_probe.py#L61`:
+
+```python
+errors = await write_turn(...)
+if errors:
+    print("write failed: " + "; ".join(errors), file=sys.stderr)
+```
+
+A successful write now returns `([], False)`. That tuple is truthy, so every `--apply` run takes
+the failure branch. The branch then raises `TypeError: sequence item 0: expected str instance,
+list found` inside the `join`.
+
+I reproduced both facts with a throwaway test under `/tmp/claude-b2-review/`: `write_turn` on a
+successful fake returned `([], False)`, and `bool(...)` was `True`. The unit test missed it because
+`tests/unit/test_supplier_memory_probe.py#L65-L66` stubs `_write_ok` to return `[]`, the old shape.
+
+**Fix:** unpack `errors, _ = await write_turn(...)` in the script, and update the stub to return
+`([], False)` so a future signature change goes red.
+
+#### R1-2 — MAJOR (confirmed by execution): the Start-fresh saga has no failure report; D107 §3 is unmet
+
+D107 §3 says partial results "report every remaining entry, and never say 'fresh' until
+verification passes". `manage_customer_memory` (`src/console/app.py#L1970-L2050`) only meets that
+when every tenant call succeeds:
+
+- The pre-listing at `#L1987` is unwrapped. The GET route wraps the same call into a 502 with a
+  detail (`#L1966`), but this one is not wrapped.
+- A non-404 `MemoryCallError` from any delete (`#L2008`, `#L2013`, `#L2022`) propagates out of the
+  `try/finally`.
+- With a fake whose delete raises HTTP 500, my probe got **`500 text/plain` `Internal Server
+  Error`**, with no trace id, no step results and no remaining entries. By that point the new
+  marker is already written, which is the "partial" state D107 promises to explain.
+- The UI then does `await r.json()` on that body (`index.html#L4687`) and shows a JSON parse error
+  instead of the tenant error and trace id that plan §5 requires.
+
+Also, `result["ok"]` for `fresh` (`#L2047`) checks that no semantic entries remain and that a marker
+was created. It does not check `result["generation"] == marker` or `not
+result["generation_invalid"]`. D107 says success requires the new marker to be the selected valid
+generation.
+
+**Fix:**
+- Catch `MemoryCallError` per step.
+- Always return a JSON body with `trace_id`, per-step outcomes, the remaining entries and
+  `ok: false`.
+- Compare the selected generation to the marker just created.
+- Add tests for a failing delete (fresh and selective) and for the non-matching-generation case.
+
+#### R1-3 — MAJOR: archived pre-reset chats can still continue; D107's Consequences overclaims
+
+D107 Consequences (`plan/00-decisions.md#L4818-L4819`) says, in the present tense: "Archived pre-reset
+chats cannot silently continue under the current generation." Item 61 and plan §4 require the
+generation to be stamped in turn toggles, with a stale chat made read-only or forced to fork.
+
+The implementation does neither:
+
+- No generation is stamped in the turn's toggles.
+- A successful Start fresh deletes archives **in this browser only** (`index.html#L4691-L4696`).
+- Any other operator's browser, or this browser after a reload from server-side history, can reopen
+  a pre-reset chat and keep sending.
+
+Since the face scopes by the tenant marker, that turn lands in the new conversation. The inner
+platform's own session (for example the Claude managed-agent session for that lab `session_id`)
+still holds the pre-reset teaching. So the old content flows into the new namespace through the
+agent's replies, which is exactly the leak §4 was meant to stop.
+
+There is also a side defect: the archive loop matches every key containing
+`customer-memory-claude`/`customer-memory-openai`. It therefore also deletes the **other**
+customer's (e.g. Jordan's) archived chats when Maya is reset.
+
+**Fix:** either implement the stamp plus a read-only/fork guard, with a test, or amend the D107
+text and item 61 to the per-browser behaviour actually shipped. Scope the archive purge to the
+reset customer either way.
+
+#### R1-4 — MAJOR: normalization is traced but never surfaced in the console
+
+The face sets `metadata.memory.normalized` (`memory_adapter.py#L295`) and the bridge sets
+`payload["normalized"]`. However, `index.html` contains no read of `normalized`: `grep -n
+normalized src/console/static/index.html` hits only the unrelated design-theme code at
+`#L10962-L10971`.
+
+D107 §5 says "both attempts and the normalization outcome are traced **and surfaced**". Item 58 says
+"trace and badge the adaptation", and plan acceptance step 2 says "the console labels
+normalization". As shipped, a normalized write shows the same green memory badge as a
+byte-for-byte write. That is the "successful memory badge hides the wire event" outcome D107
+Consequences explicitly rules out.
+
+**Fix:** render a badge/note in the memory evidence strip when `memory.normalized` is true, and add
+an `index.html` text test.
+
+#### R1-5 — MAJOR (deploy-gating): the custom generation category is unproven, and failure is fail-closed for every customer
+
+`MemoryAdapter.handle` now issues `list_memories(category="A2ALAB_EXPERIMENT_GENERATION")` on
+**every** customer-memory turn. It suppresses memory entirely on any read error or timeout
+(`memory_adapter.py#L203-L226`), including for customers that have never been reset. The console's
+GET snapshot also lists that category, so any refusal there 502s the whole manager.
+
+No evidence shows the tenant accepts a custom category on Read/Create/Delete Memories:
+
+- The 403 probe exercised only the conversation `entries` POST.
+- The official Create Memories reference (fetched this round) documents `category` only as
+  "Partition key … such as `PROFILE_FACT`", with no statement that it is free-form.
+- The live categories this lab has ever read are the `sys_`-prefixed extraction outputs.
+- If the tenant answers 400/404/500 for an unknown or empty custom category, this deploy turns
+  memory **off** for Maya and Jordan on every turn of the live experiment. That would be a
+  regression of the shipped D105 experiment, not just a broken reset.
+
+**Required before the faces deploy:** a headless memprobe-only probe recorded under
+`build-notes/codex/`:
+
+- (a) GET the empty custom category;
+- (b) POST a marker;
+- (c) GET it back with `memoryId`/`totalCount`;
+- (d) DELETE it;
+- (e) check whether `GetContext`/`saved_memories` surfaces the marker text into the prompt.
+
+If (a) is a non-2xx, either treat an "empty category" refusal as "absent" (fail-open to D94
+semantics), or pre-seed the category by design. Either way, say so in D107.
+
+#### R1-6 — MINOR: tests promised by plan §§1–5 are missing
+
+Covered: HTML-403 retry, normalization text, typed listing, create/delete request shape, generation
+→ new conversation/session, malformed marker suppression, and the happy-path list/delete/fresh
+flow for operator vs viewer/shared token. Not covered:
+
+- no retry for a JSON 403;
+- a second write to a closed session;
+- the delete 404 → re-list/retry path (`app.py#L2013-L2026`);
+- the 409 on an incomplete listing;
+- `requested <= allowed` rejecting a non-governed id;
+- Maya/Jordan isolation;
+- requests without `memory_customer` making no generation read;
+- a machine-persona caller;
+- Run All not mutating generations.
+
+The stale `_write_ok` stub (R1-1) shows why the signature-change paths need real-shape fakes.
+
+#### R1-7 — MINOR: confirmation and copy fall short of plan §5
+
+- The delete confirmation (`index.html#L4705`) doesn't name the customer.
+- The Start-fresh confirmation (`#L4710`) doesn't state the count.
+- The panel/Details copy omits two of the four distinctions plan §5 lists: asynchronous extraction
+  (a just-finished teach may not be listed yet) and the 20-entry prompt cap vs. the complete
+  management listing. Both matter when an operator opens the manager right after a teaching turn.
+
+#### R1-8 — MINOR: edge cases in listing and normalization
+
+- `list_memories` drops blank-content entries but keeps the tenant's `totalCount`
+  (`memory.py`, `list_memories`). A single blank entry therefore marks the listing incomplete
+  forever and permanently disables Start fresh. The existing test even asserts `complete is False`
+  for that case. Count the dropped blanks, or compare against the raw `memories` length.
+- `API_PATH_RE`'s `(?<!\w)` lookbehind does not normalize `/api/v1/orders`: the `/v1` follows
+  `i`. The fix is a heuristic tuned to one synthetic pattern. That is fine as a narrow retry, but
+  record it as a limitation in D107 rather than implying general coverage.
+
+### Verified as claimed
+
+- HTML-403 classification requires status 403 and the nginx HTML shape. JSON 403s re-raise
+  (`ingest`). The retry derives new entry ids from the normalized content, so idempotency holds.
+  Normalization applies only to the tenant copy; the inner agent gets `req.message` unchanged.
+- The generation marker is server-generated (`new_generation_marker`) and fullmatched against
+  `GENERATION_RE` at the face. It is hashed via `case_conversation`, so no caller text becomes a
+  tenant id. Selecting the newest valid marker is deterministic.
+- `_derived_session` and the session-cache key both include the effective conversation, so a reset
+  can't resurrect a cached pre-reset session.
+- Profile ids never leave the server: `_safe_memory_snapshot` returns only the customer key,
+  memory ids, categories and content. Delete ids are intersected with a fresh governed listing.
+  Rendered content goes through `esc()`.
+- `deploy_console.sh` passes `bash -n` (per Codex). The new key and shape check match the faces
+  script.
+
+### Reviewer evidence
+
+- `uv run pytest -q` (proxy variables unset) → **841 passed, 3 skipped, 6 deselected, 1 failed**
+  (99.96 s). The failure is the same pre-existing
+  `tests/unit/test_diagrams.py::test_readme_diagrams_match_the_config_verbatim`, caused by the
+  operator's uncommitted `README.md`/`config/diagrams.yaml` edits. It is identical to round 0 and to
+  Codex's baseline, and was left untouched.
+- `uv run ruff check` over every changed Python file plus `scripts/supplier_memory_probe.py` → all
+  checks passed. Lint cannot see R1-1, because the bug is a type change, not syntax.
+- Execution probes (throwaway, `/tmp/claude-b2-review/test_b2_probe.py`, outside the repo) → 2
+  passed:
+  - (1) a failing delete during `fresh` returns `500 text/plain "Internal Server Error"` (R1-2);
+  - (2) `write_turn` success returns a truthy `([], False)` (R1-1).
+- Workstream-honesty equivalent: `uv run python scripts/jira_sync.py` (DRY RUN; nothing created)
+  parses items 58–63 as six **open** stories, consistent with their ⏳ state. Those states are
+  honest today. Item 61 (archived chats) and item 58 (badge) must not flip to ✅ until R1-3/R1-4 are
+  closed. The full `workstream-honesty` workflow was not run; the auto-memory records that it stalls
+  on the full `parse_plan()` output, so the dry run was done by hand as that note advises.
+- Architecture-sweep equivalent: I grepped the component and claim names (`A2ALAB_MEMORY_CUSTOMER_MAP`,
+  `Memory Management`, `/api/memory/customer`, `Start fresh`, the old "no delete" wording) across
+  `plan/`, `config/`, `index.html`, `README.md`, `docs/` and the guide corpus. Results:
+  - No component moved host or identity.
+  - The plan/09 L6 console row now names the map and the management seam, and its edge already
+    reads `AWS → Salesforce Data 360`.
+  - No diagram draws the console-side memory seam differently.
+  - No stale "no delete" claim remains.
+  - The only architecture-copy problems are the D107 overclaims in R1-3/R1-4.
+  - The full multi-agent `architecture-sweep` workflow was not run; the targeted grep covers the
+    batch's surface.
+- `matrix-honesty-sweep` and `insights-audit`: not applicable. The commit changes neither
+  `plan/02-matrix.md`, `config/targets.yaml` nor `config/insights.yaml`.
+- Official docs fetched: Memory Management guide (no category or Create detail) and the Create
+  Memories reference (`POST /api/v1/agentic/memory`; `category` documented only by the
+  `PROFILE_FACT` example), for R1-5.
+
+### Limitations
+
+- No tenant calls this round, read or write. The review station does not deploy, and R1-5's probe
+  belongs to the implementer, against memprobe. Hosted behaviour (edge filter, custom category,
+  extraction latency) is therefore unverified by me.
+- The UI was reviewed from source and text tests. I did not drive it in a browser.
+- I did not modify implementation files, stage anything, or touch the operator's unrelated dirty
+  worktree changes. This section and the handoff state are the only writes.
