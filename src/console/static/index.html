@@ -1830,7 +1830,7 @@ let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
 let memoryModes = {};     // key -> "off" | "on" (WS27/D91 per-run Agentic Memory radio)
 let selectedMemoryCustomer = "maya"; // shared across the teach → recall story
-let memoryManagers = {};   // customer -> {open, loading, memories, selected:Set, error, trace_id}
+let memoryManagers = {};   // customer -> {open, loading, memories, generation, selected:Set, error}
 let fanoutMemoryModes = {};   // key -> "off" | "seed" | "recall" (D102)
 let fanoutMemoryReaders = {}; // key -> "coordinator" | "specialists" | "both"
 let fanoutMemoryCases = {};   // key -> display label; server derives opaque id from JWT owner
@@ -4644,7 +4644,8 @@ function memoryCustomerRowHtml(exp) {
 
 function memoryManagerState(key) {
   return memoryManagers[key] || (memoryManagers[key] = {
-    open: false, loading: false, complete: true, memories: [], selected: new Set(), error: "", trace_id: "",
+    open: false, loading: false, complete: true, memories: [], generation: undefined,
+    selected: new Set(), error: "", trace_id: "",
   });
 }
 
@@ -4654,7 +4655,7 @@ function memoryManagerHtml(key, customer) {
   const rows = state.memories.length
     ? state.memories.map((m, i) => `<label><input type="checkbox" ${state.selected.has(i) ? "checked" : ""}
         onchange="toggleMemorySelection(${i}, this.checked)">
-        <span><b>${esc(m.category.includes("PREFERENCES") ? "Preference" : "Fact")}</b> · ${esc(m.content)}</span></label>`).join("")
+        <span><b>${esc(m.category.includes("PREFERENCES") ? "Preference" : "Fact")}</b> · ${esc(m.content || "(blank memory)")}</span></label>`).join("")
     : `<span class="hint">${state.loading ? "Loading…" : "No curated facts or preferences."}</span>`;
   return `<div class="memory-manager" aria-label="Manage memories for ${esc(customer.name || key)}">
     <div class="memory-manager-head"><b>Managing memories for ${esc(customer.name || key)}</b>
@@ -4666,7 +4667,7 @@ function memoryManagerHtml(key, customer) {
       <button class="ghost" onclick="startFreshMemory()" ${state.loading || !state.complete ? "disabled" : ""}>Start fresh for ${esc(customer.name || key)}</button>
       ${state.trace_id ? `<span class="hint">trace ${esc(state.trace_id)}</span>` : ""}
     </div>
-    <div class="hint">Deletion is permanent. Start fresh deletes curated facts/preferences and moves this demo to a new conversation; retained Data 360 conversation history is not erased.</div>
+    <div class="hint">Deletion is permanent. Start fresh deletes this complete management listing, not just the 20 entries capped into an agent prompt, and moves this demo to a new conversation. Automatic extraction is asynchronous, so a just-finished teaching turn may take several minutes to appear. Retained Data 360 conversation history is not erased.</div>
   </div>`;
 }
 
@@ -4686,9 +4687,12 @@ window.loadMemoryManager = async () => {
   state.loading = true; state.error = ""; renderMain(true);
   try {
     const r = await fetch(apiUrl(`/api/memory/customer/${encodeURIComponent(key)}`));
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+    const ctype = r.headers.get("content-type") || "";
+    const data = ctype.includes("json") ? await r.json() : {detail: await r.text()};
+    const detail = typeof data.detail === "object" ? data.detail.message : data.detail;
+    if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
     state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
+    state.generation = data.generation || "";
     state.complete = data.complete !== false;
     if (!state.complete) state.error = "Data 360 returned an incomplete list; reset is disabled.";
   } catch (e) { state.error = String(e.message || e); }
@@ -4696,22 +4700,26 @@ window.loadMemoryManager = async () => {
 };
 async function mutateCustomerMemory(action, memories) {
   const key = selectedMemoryCustomer, state = memoryManagerState(key);
+  const previousGeneration = state.generation;
   state.loading = true; state.error = ""; renderMain(true);
   try {
     const r = await fetch(apiUrl(`/api/memory/customer/${encodeURIComponent(key)}`), {
       method: "POST", headers: {"content-type": "application/json"},
       body: JSON.stringify({action, memories}),
     });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+    const ctype = r.headers.get("content-type") || "";
+    const data = ctype.includes("json") ? await r.json() : {detail: await r.text()};
+    const detail = typeof data.detail === "object" ? data.detail.message : data.detail;
+    if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
     state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
-    if (!data.ok) state.error = "The operation was partial; remaining memories are shown.";
-    if (action === "fresh" && data.ok) {
-      for (const chatKey of Object.keys(chatArchives)) {
-        if (chatKey.includes("customer-memory-claude") || chatKey.includes("customer-memory-openai")) {
-          delete chatArchives[chatKey];
-        }
-      }
+    state.generation = data.generation || "";
+    state.complete = data.complete !== false;
+    if (!data.ok) state.error = `The operation was partial; remaining memories are shown.${
+      (data.errors || []).length ? ` ${data.errors.join("; ")}` : ""}`;
+    if (action === "fresh" && data.generation && data.generation !== previousGeneration) {
+      // resetChat archives the old customer chat with its generation stamp.
+      // It remains inspectable, while the local guard and server precondition
+      // prevent it from continuing under the new namespace.
       resetChat();
     }
   } catch (e) { state.error = String(e.message || e); }
@@ -4719,13 +4727,15 @@ async function mutateCustomerMemory(action, memories) {
 }
 window.deleteSelectedMemories = async () => {
   const state = memoryManagerState(selectedMemoryCustomer);
+  const c = memoryCustomer();
   const memories = [...state.selected].map(i => state.memories[i]).filter(Boolean);
-  if (!memories.length || !confirm(`Permanently delete ${memories.length} selected memories?`)) return;
+  if (!memories.length || !confirm(`Permanently delete ${memories.length} selected memories for ${c?.name || selectedMemoryCustomer}?`)) return;
   await mutateCustomerMemory("delete", memories);
 };
 window.startFreshMemory = async () => {
   const c = memoryCustomer();
-  if (!confirm(`Permanently delete all curated memories for ${c?.name || selectedMemoryCustomer} and start a fresh experiment?`)) return;
+  const count = memoryManagerState(selectedMemoryCustomer).memories.length;
+  if (!confirm(`Permanently delete ${count} curated memories for ${c?.name || selectedMemoryCustomer} and start a fresh experiment?`)) return;
   await mutateCustomerMemory("fresh", []);
 };
 
@@ -9826,7 +9836,8 @@ function chatHistoryLimit() {
 }
 
 function freshChat(name) {
-  return { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false };
+  return { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false,
+    stale_memory: false };
 }
 
 // Archive the current chat into this experiment's session history (most-recent
@@ -9899,6 +9910,11 @@ window.loadPastChat = id => {
     if (tg.gate) fanoutGates[key] = tg.gate;
     if (tg.memory) memoryModes[key] = tg.memory;
     if (tg.memory_customer) selectedMemoryCustomer = tg.memory_customer;
+  }
+  const manager = memoryManagers[selectedMemoryCustomer];
+  if (manager && manager.generation !== undefined
+      && Object.prototype.hasOwnProperty.call(item.chat, "memory_generation")) {
+    item.chat.stale_memory = item.chat.memory_generation !== manager.generation;
   }
   chatHistoryOpen[key] = false;
   renderMain(true);
@@ -9979,6 +9995,7 @@ function memoryBadgeHtml(m) {
   else chips.push(`<span class="badge" title="${title}">memory: empty</span>`);
   if (stored) chips.push(`<span class="badge claude" title="${title}">memory: stored</span>`);
   else chips.push(`<span class="badge" title="${esc(m.error || "Memory write failed")}">memory: not stored</span>`);
+  if (m.normalized) chips.push(`<span class="badge agentforce" title="The tenant refused the original URL/path wire content with the known HTML 403 shape. The memory seam retried once with a readable non-URL copy; the model still answered the original text.">memory: normalized retry</span>`);
   return chips.join(" ");
 }
 
@@ -10121,6 +10138,10 @@ async function sendTurn(kind, name, message, overrides) {
       if (spec.memory_customer_selector) {
         body.memory_customer = selectedMemoryCustomer || spec.default_memory_customer;
         toggles.memory_customer = body.memory_customer;
+        if (Object.prototype.hasOwnProperty.call(chat, "memory_generation")) {
+          body.memory_generation = chat.memory_generation;
+          toggles.memory_generation = chat.memory_generation;
+        }
       }
     }
     if (spec && spec.fanout_memory_toggle) {
@@ -10173,6 +10194,12 @@ async function sendTurn(kind, name, message, overrides) {
   if (turnWindows[trace_id]) turnWindows[trace_id].end = Date.now() / 1000;
   chat.turns.pop(); // remove the running placeholder
   if (result.ok) {
+    const turnMemory = (result.memory && typeof result.memory === "object")
+      ? result.memory : (result.memory_result || null);
+    if (body.memory && turnMemory && Object.prototype.hasOwnProperty.call(turnMemory, "generation")) {
+      chat.memory_generation = turnMemory.generation || "";
+      userTurn.toggles.memory_generation = chat.memory_generation;
+    }
     chat.turns.push({ role: "agent", text: result.text || "(empty response)",
       latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null,
       af_route: result.af_route || null, af_topology: result.af_topology || null,
@@ -10201,6 +10228,7 @@ async function sendTurn(kind, name, message, overrides) {
     runState[key] = { state: "ok", note: result.latency_ms != null
       ? `PASS · ${result.latency_ms} ms` : (result.async ? "running async" : "PASS") };
   } else {
+    if (result.error_code === "stale_memory_generation") chat.stale_memory = true;
     chat.turns.push({ role: "agent", error: result.error || result.detail || "FAIL", trace_id });
     runState[key] = { state: "fail", note: result.error || result.detail || "FAIL" };
   }
@@ -10300,9 +10328,16 @@ window.runAllExperiments = async ev => {
     msg.innerHTML = `<span class="stat">${i + 1}/${runs.length}</span> · ${esc(label)}…`;
     const key = expKey("scenario", s.name);
     if (!chats[key]) chats[key] = { session: "ui-chat-" + s.name + "-" + Date.now(), turns: [], running: false };
-    const overrides = perm
-      ? { af_topology: perm.af_topology, variant: perm.variant, dispatch_mode: perm.dispatch_mode }
-      : null;
+    // Regression sweeps are always the memory-off control. They must not read
+    // customer generations or make automatic extraction/reset state move.
+    const overrides = {
+      memory: "off",
+      ...(perm ? {
+        af_topology: perm.af_topology,
+        variant: perm.variant,
+        dispatch_mode: perm.dispatch_mode,
+      } : {}),
+    };
     const ok = await sendTurn("scenario", s.name, s.question || defaultQuestion, overrides);
     if (ok) pass++;
     // Keep the REASON, not just the name. A run-all that says "1 FAIL
@@ -10767,7 +10802,8 @@ function renderMain(force) {
   // Same modeUnmet condition as the sidebar/tile chips.
   const modeBlocked = view.kind === "scenario" && modeUnmet(exp);
   const viewerRole = labUser && labUser.role === "viewer";
-  const blocked = soon || modeBlocked || viewerRole;
+  const staleMemoryChat = !!chat.stale_memory;
+  const blocked = soon || modeBlocked || viewerRole || staleMemoryChat;
   const skeletonKey = `exp:${key}:${activeTab}`;
 
   if (mainKey !== skeletonKey || force) {
@@ -10817,10 +10853,12 @@ function renderMain(force) {
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
             <span class="mono">A2ALAB_MODE=${esc(exp.requires_mode)}</span> in .env and restart the
             stack; the mode badge (top right) shows the active mode.</div>` : ""}
+          ${staleMemoryChat ? `<div class="mode-notice">Customer memory was reset after this chat began. This transcript is read-only so its old agent session cannot leak into the new memory generation. <button class="ghost" onclick="resetChat()">Fork to a new chat</button></div>` : ""}
           <div class="composer">
             <textarea id="chatInput" rows="3" ${blocked ? "disabled" : ""}
               placeholder="${soon ? "This experiment isn't runnable yet — see the Details tab."
                 : viewerRole ? "Viewer role — running experiments and clearing the trace archive are operator-only (D36, D80). Reading traces, the Details tab and the Lab Guide are all yours."
+                : staleMemoryChat ? "This pre-reset chat is read-only — fork to a new chat to continue."
                 : modeBlocked ? "Runs are refused in the wrong deployment mode — see the notice above."
                 : view.kind === "cell" && exp && exp.question
                   ? `Enter to send the default: ${esc(exp.question)}`

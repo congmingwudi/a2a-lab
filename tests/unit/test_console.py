@@ -515,24 +515,36 @@ def test_customer_memory_management_is_persona_scoped_and_operator_only(tmp_path
     class FakeManagementMemory:
         def __init__(self):
             self.items = {
-                "sys_PROFILE_FACT": [MemoryEntry("fact-1", "Keeps bees.")],
-                "sys_PROFILE_PREFERENCES": [],
-                "A2ALAB_EXPERIMENT_GENERATION": [],
+                "profile-maya": {
+                    "sys_PROFILE_FACT": [MemoryEntry("fact-1", "Keeps bees.")],
+                    "sys_PROFILE_PREFERENCES": [],
+                },
+                "profile-jordan": {
+                    "sys_PROFILE_FACT": [MemoryEntry("fact-j", "Keeps koi.")],
+                    "sys_PROFILE_PREFERENCES": [],
+                },
             }
+            self.fact_delete_attempts = 0
 
         async def list_memories(self, trace_id, **kw):
-            entries = tuple(self.items[kw["category"]])
+            entries = tuple(self.items[kw["owner_id"]][kw["category"]])
             return MemoryListing(entries, len(entries))
 
         async def create_memories(self, trace_id, **kw):
             entry = MemoryEntry("generation-new", kw["contents"][0])
-            self.items[kw["category"]].append(entry)
+            self.items[kw["owner_id"]][kw["category"]].append(entry)
             return MemoryListing((entry,), 1)
 
         async def delete_memories(self, trace_id, **kw):
+            if kw["category"] == "sys_PROFILE_FACT":
+                self.fact_delete_attempts += 1
+                if self.fact_delete_attempts == 1:
+                    from interop.memory import MemoryCallError
+                    raise MemoryCallError("already changing", status=404)
             ids = set(kw["memory_ids"])
-            self.items[kw["category"]] = [
-                entry for entry in self.items[kw["category"]] if entry.memory_id not in ids
+            self.items[kw["owner_id"]][kw["category"]] = [
+                entry for entry in self.items[kw["owner_id"]][kw["category"]]
+                if entry.memory_id not in ids
             ]
             return tuple(ids)
 
@@ -541,7 +553,9 @@ def test_customer_memory_management_is_persona_scoped_and_operator_only(tmp_path
 
     fake_memory = FakeManagementMemory()
     monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake_memory)
-    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv(
+        "A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya","jordan":"profile-jordan"}'
+    )
     monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)
@@ -558,17 +572,117 @@ def test_customer_memory_management_is_persona_scoped_and_operator_only(tmp_path
         json={"action": "delete", "memories": data["memories"]},
     )
     assert deleted.status_code == 200 and deleted.json()["ok"] is True
+    assert fake_memory.fact_delete_attempts == 2
     fresh = client.post(
         "/api/memory/customer/maya", headers=operator, json={"action": "fresh"}
     )
     assert fresh.status_code == 200 and fresh.json()["ok"] is True
     assert fresh.json()["generation"].startswith("v1:")
+    jordan = client.get("/api/memory/customer/jordan", headers=operator)
+    assert jordan.status_code == 200 and jordan.json()["memories"] == [
+        {"category": "sys_PROFILE_FACT", "memory_id": "fact-j", "content": "Keeps koi."}
+    ]
+    rejected = client.post(
+        "/api/memory/customer/maya", headers=operator,
+        json={"action": "delete", "memories": [
+            {"category": "sys_PROFILE_FACT", "memory_id": "not-governed"}
+        ]},
+    )
+    assert rejected.status_code == 400
     assert client.get(
         "/api/memory/customer/maya", headers=_viewer_headers(monkeypatch, tmp_path)
     ).status_code == 403
     assert client.get(
         "/api/memory/customer/maya", headers={"x-lab-token": "sekrit"}
     ).status_code == 403
+    assert client.get(
+        "/api/memory/customer/maya", headers=_machine_headers(monkeypatch, tmp_path)
+    ).status_code == 403
+
+
+def test_customer_memory_reset_reports_partial_delete_and_selected_generation(tmp_path, monkeypatch):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryCallError, MemoryEntry, MemoryListing
+
+    class FailingMemory:
+        def __init__(self, *, retain_marker=False):
+            self.fact = MemoryEntry("fact-1", "Keeps bees.")
+            self.marker = None
+            self.retain_marker = retain_marker
+
+        async def list_memories(self, trace_id, **kw):
+            if kw["category"] == "sys_PROFILE_FACT":
+                entries = ([self.fact] if self.fact and self.fact.memory_id else []) + (
+                    [MemoryEntry("marker-new", self.marker)] if self.marker else []
+                )
+                return MemoryListing(tuple(entries), len(entries))
+            return MemoryListing((), 0)
+
+        async def create_memories(self, trace_id, **kw):
+            if self.retain_marker:
+                self.marker = kw["contents"][0]
+            return MemoryListing((MemoryEntry("marker-new", kw["contents"][0]),), 1)
+
+        async def delete_memories(self, trace_id, **kw):
+            if kw["category"] == "sys_PROFILE_FACT":
+                raise MemoryCallError("delete refused", status=500, body={"error": "no"})
+            return tuple(kw["memory_ids"])
+
+        async def aclose(self):
+            pass
+
+    fake = FailingMemory(retain_marker=True)
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake)
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/customer/maya", headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+    assert response.status_code == 200 and response.headers["content-type"].startswith("application/json")
+    data = response.json()
+    assert data["ok"] is False and data["trace_id"] and data["errors"] == ["delete refused"]
+    assert data["memories"] == [
+        {"category": "sys_PROFILE_FACT", "memory_id": "fact-1", "content": "Keeps bees."}
+    ]
+    assert any(step["ok"] is False for step in data["steps"])
+
+    mismatch = FailingMemory(retain_marker=False)
+    mismatch.fact = None
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: mismatch)
+    response = client.post(
+        "/api/memory/customer/maya", headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+    assert response.status_code == 200 and response.json()["ok"] is False
+    assert response.json()["generation"] is None
+
+
+def test_customer_memory_reset_refuses_incomplete_listing(tmp_path, monkeypatch):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    class IncompleteMemory:
+        async def list_memories(self, trace_id, **kw):
+            if kw["category"] == "sys_PROFILE_FACT":
+                return MemoryListing((MemoryEntry("fact-1", "Known"),), 2)
+            return MemoryListing((), 0)
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: IncompleteMemory())
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    response = TestClient(app).post(
+        "/api/memory/customer/maya", headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["trace_id"]
 
 
 def test_customer_memory_panel_has_selection_reset_and_retention_copy():
@@ -577,6 +691,17 @@ def test_customer_memory_panel_has_selection_reset_and_retention_copy():
     assert "Start fresh for" in html
     assert "Deletion is permanent" in html
     assert "conversation history is not erased" in html
+    assert "Automatic extraction is asynchronous" in html
+    assert "20 entries capped into an agent prompt" in html
+    assert "memory: normalized retry" in html
+    assert "stale_memory_generation" in html
+    assert "Fork to a new chat" in html
+    assert 'body.memory_generation = chat.memory_generation' in html
+    assert 'userTurn.toggles.memory_generation = chat.memory_generation' in html
+    assert "delete ${memories.length} selected memories for" in html
+    assert "delete ${count} curated memories for" in html
+    assert 'memory: "off"' in html
+    assert "Regression sweeps are always the memory-off control" in html
 
 
 def test_targets_listed(tmp_path, monkeypatch):
@@ -617,6 +742,29 @@ def test_run_experiment(tmp_path, monkeypatch):
     req = registry.fake_client.requests[0]
     assert req.trace_id == "ui-trace-1"
     assert req.session_id == "ui-claude-rest"
+
+
+def test_customer_memory_run_forwards_the_chat_generation_precondition(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    import console.app as console_app
+
+    monkeypatch.setattr(console_app, "load_scenarios", lambda: {
+        "customer-test": {
+            "status": "live", "target": "claude-rest", "memory_toggle": True,
+            "memory_customer_selector": True, "default_memory_customer": "maya",
+        }
+    })
+    monkeypatch.setattr(console_app, "load_memory_customers", lambda: {"maya": {"name": "Maya"}})
+    response = TestClient(app).post(
+        "/api/run", headers=_operator_headers(monkeypatch, tmp_path), json={
+            "scenario": "customer-test", "message": "continue", "memory": True,
+            "memory_customer": "maya", "memory_generation": "v1:old-chat",
+        },
+    )
+    assert response.status_code == 200 and response.json()["ok"] is True
+    assert registry.fake_client.requests[-1].metadata["memory_generation"] == "v1:old-chat"
 
 
 def test_run_defaults_and_errors(tmp_path, monkeypatch):

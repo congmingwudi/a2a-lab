@@ -53,6 +53,7 @@ from interop.memory import (
     MemoryCallError,
     MemoryClient,
     MemoryListing,
+    StaleMemoryGeneration,
     generation_conversation,
     open_and_read,
     owner_conversation,
@@ -216,6 +217,18 @@ class MemoryAdapter:
                         conversation_id = generation_conversation(owner, generation)
             except MemoryCallError as exc:
                 generation_error = str(exc)
+        expected_generation = (req.metadata or {}).get("memory_generation")
+        if (
+            not generation_error
+            and isinstance(expected_generation, str)
+            and expected_generation != (generation or "")
+        ):
+            # Refuse before invoking the inner agent: its platform session may
+            # still contain pre-reset teaching, which must not leak into the
+            # newly rotated namespace through a fresh reply.
+            raise StaleMemoryGeneration(
+                "customer memory changed after this chat started; start a new chat"
+            )
         if generation_error:
             resp = await self.inner.handle(req)
             meta = dict(resp.metadata or {})

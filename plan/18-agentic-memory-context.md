@@ -30,11 +30,13 @@ provenance rather than storage partitions.
 
 **D107 addendum (2026-11-03): repeatable customer-memory experiments.** The console's named
 operators can list and permanently delete the selected profile's curated facts/preferences through
-the Memory Management API. Start fresh also writes a profile-scoped generation marker that both
-faces hash into a new experiment conversation; retained historical conversations are not erased.
+the Memory Management API. Start fresh also writes a reserved generation marker in the tenant's
+supported `sys_PROFILE_FACT` category; both prompt-rendering paths filter that control row, while
+both faces hash it into a new experiment conversation. Retained historical conversations are not erased.
 The same batch handles the tenant edge's confirmed URL/API-path content refusal with one traced,
 readable ingest-only normalization retry. The evidence and exact boundary are in
-`build-notes/codex/ws27-memory-403-probe.md`.
+`build-notes/codex/ws27-memory-403-probe.md` and
+`build-notes/codex/ws27-generation-category-probe.md`.
 
 This
 doc is the setup path and the experiment design. Decisions get ADRs in

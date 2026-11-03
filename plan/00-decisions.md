@@ -4790,11 +4790,13 @@ content 403'd, the normalized twin succeeded, and a benign post-close write succ
 2. **Start fresh has two parts.** It permanently removes the selected customer's currently listed
    curated facts/preferences and advances that customer to a new opaque experiment conversation.
    Historical conversation records remain under Data 360 retention; the UI says so and does not
-   claim erasure. A custom Memory API category holds a server-generated generation marker, making
-   the new namespace consistent across browsers and operators. Faces validate the marker and hash
-   it with owner/scenario before it can influence a tenant id. An absent marker preserves D94
-   compatibility; a malformed present marker suppresses memory rather than exposing the old
-   summary.
+   claim erasure. The tenant rejects custom and documented unprefixed categories for this API, so
+   a reserved, server-generated marker lives in the supported `sys_PROFILE_FACT` category. Faces
+   validate it, filter it from both GetContext and saved-memory prompt material, and hash it with
+   owner/scenario before it can influence a tenant id. An absent marker preserves D94
+   compatibility; a malformed reserved marker suppresses memory rather than exposing the old
+   summary. Synthetic lifecycle evidence is in
+   `build-notes/codex/ws27-generation-category-probe.md`.
 3. **Reset is a convergent saga, not an atomic claim.** The console requires a complete governed
    listing (`totalCount` must match), creates the new marker, deletes the previously listed semantic
    entries and old markers, then re-lists all categories. A 404 triggers re-list/retry. Partial

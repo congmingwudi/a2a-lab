@@ -199,9 +199,21 @@ async def test_customer_generation_changes_conversation_and_session_for_every_fa
     assert second.metadata["memory"]["session_id"] != first.metadata["memory"]["session_id"]
 
 
+async def test_stale_customer_chat_is_refused_before_the_inner_agent_runs():
+    fake = FakeMemory()
+    adapter, inner = _adapter(fake)
+    req = _req(session_id="s-old")
+    req.metadata.update({"memory_customer": "maya", "memory_generation": ""})
+    fake.generation = "v1:2026-11-03T20:00:00Z:0123456789abcdef01234567"
+    with pytest.raises(MemoryCallError, match="start a new chat"):
+        await adapter.handle(req)
+    assert inner.seen == []
+    assert [call[0] for call in fake.calls] == []
+
+
 async def test_malformed_customer_generation_suppresses_old_memory():
     fake = FakeMemory()
-    fake.generation = "caller-chosen-bad-value"
+    fake.generation = "v1:caller-chosen-bad-value"
     adapter, inner = _adapter(fake)
     req = _req(session_id="s-1")
     req.metadata["memory_customer"] = "maya"

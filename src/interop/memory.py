@@ -39,8 +39,9 @@ OWNER_TYPE = "individual"  # the SDK's default; open question 3 in plan/18
 KEY_ENV = "A2ALAB_MEMORY_JWT_KEY"  # PEM text — the hosted bridge's secret carries it
 KEY_FILE = "memory_jwt_private.pem"  # local: under A2ALAB_JWT_DIR (.a2alab)
 TARGET = "agentic-memory"
-GENERATION_CATEGORY = "A2ALAB_EXPERIMENT_GENERATION"
+GENERATION_CATEGORY = "sys_PROFILE_FACT"
 GENERATION_RE = re.compile(r"^v1:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z):([0-9a-f]{24})$")
+GENERATION_TOKEN_RE = re.compile(r"v1:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z:[0-9a-f]{24}")
 
 
 class MemoryCallError(RuntimeError):
@@ -55,6 +56,10 @@ class MemoryCallError(RuntimeError):
     def is_html_403(self) -> bool:
         text = self.body if isinstance(self.body, str) else ""
         return self.status == 403 and "<h1>403 Forbidden</h1>" in text and "<html" in text.lower()
+
+
+class StaleMemoryGeneration(MemoryCallError):
+    """A chat was created under an older customer-memory generation."""
 
 
 @dataclass(frozen=True)
@@ -111,9 +116,15 @@ def new_generation_marker() -> str:
 
 def select_generation(listing: MemoryListing) -> tuple[str | None, bool]:
     """Return newest valid marker and whether malformed markers were present."""
-    valid = [entry.content for entry in listing.entries if GENERATION_RE.fullmatch(entry.content)]
-    malformed = len(valid) != len(listing.entries)
+    candidates = [entry.content for entry in listing.entries if entry.content.startswith("v1:")]
+    valid = [content for content in candidates if GENERATION_RE.fullmatch(content)]
+    malformed = len(valid) != len(candidates)
     return (max(valid) if valid else None), malformed
+
+
+def is_generation_entry(entry: MemoryEntry) -> bool:
+    """Reserved fact rows used only as experiment-control markers."""
+    return entry.content.startswith("v1:")
 
 
 def generation_conversation(owner_id: str, marker: str) -> str:
@@ -158,7 +169,7 @@ def redact(text: str) -> str:
 
 
 URL_RE = re.compile(r"https?://([^\s/]+)(/[^\s]*)?", re.IGNORECASE)
-API_PATH_RE = re.compile(r"(?<!\w)/v(\d+)/([A-Za-z0-9_.\-/]+)")
+API_PATH_RE = re.compile(r"(?:/api)?/v(\d+)/([A-Za-z0-9_.\-/]+)")
 
 
 def normalize_ingest_content(text: str) -> str:
@@ -506,9 +517,12 @@ class MemoryClient:
             params={"profile_id": owner_id, "profile_type": OWNER_TYPE, "category": category},
         )  # fmt: skip
         memories = body.get("memories", []) if isinstance(body, dict) else []
+        # Keep blank-content rows: they still have governed memory ids and must
+        # remain selectable/deletable by the management saga. Prompt rendering
+        # filters their empty content separately.
         entries = tuple(
             MemoryEntry(str(m.get("memoryId") or ""), str(m.get("content") or "").strip())
-            for m in memories if str(m.get("content") or "").strip()
+            for m in memories if str(m.get("memoryId") or "")
         )
         return MemoryListing(entries, int(body.get("totalCount", len(entries))))
 
@@ -570,6 +584,8 @@ async def saved_memories(
         entries = got.entries if isinstance(got, MemoryListing) else got
         for item in entries:
             text = item.content if isinstance(item, MemoryEntry) else str(item)
+            if not text.strip() or text.startswith("v1:"):
+                continue
             if text.lower() not in seen and len(lines) < MAX_SAVED:
                 seen.add(text.lower())
                 lines.append(f"- {SAVED_CATEGORIES[cat]}: {text}")
@@ -674,7 +690,13 @@ def render_context(ctx: dict, limit: int = 4000) -> str:
             for item in node:
                 walk(item, path)
         elif isinstance(node, str) and node.strip():
-            lines.append(f"- {path}: {node.strip()}")
+            # The tenant's supported Memory API categories are fixed. D107's
+            # generation marker therefore lives in sys_PROFILE_FACT, but is
+            # control state, never model context. Strip exact marker tokens
+            # from GetContext as well as from saved_memories above.
+            clean = GENERATION_TOKEN_RE.sub("", node).strip(" ,;:-")
+            if clean:
+                lines.append(f"- {path}: {clean}")
 
     walk(ctx, "")
     return "\n".join(lines)[:limit]

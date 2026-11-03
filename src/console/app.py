@@ -1930,7 +1930,7 @@ def create_console_app(registry: Registry | None = None):
         mem = MemoryClient(source="console-memory-management")
         try:
             listings = {}
-            for category in (*SAVED_CATEGORIES, GENERATION_CATEGORY):
+            for category in dict.fromkeys((*SAVED_CATEGORIES, GENERATION_CATEGORY)):
                 listings[category] = await mem.list_memories(
                     trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner, category=category
                 )
@@ -1939,7 +1939,12 @@ def create_console_app(registry: Registry | None = None):
             await mem.aclose()
 
     def _safe_memory_snapshot(customer_key: str, trace_id: str, listings: dict) -> dict:
-        from interop.memory import GENERATION_CATEGORY, SAVED_CATEGORIES, select_generation
+        from interop.memory import (
+            GENERATION_CATEGORY,
+            SAVED_CATEGORIES,
+            is_generation_entry,
+            select_generation,
+        )
 
         marker, malformed = select_generation(listings[GENERATION_CATEGORY])
         return {
@@ -1952,6 +1957,7 @@ def create_console_app(registry: Registry | None = None):
                 {"category": category, "memory_id": entry.memory_id, "content": entry.content}
                 for category in SAVED_CATEGORIES
                 for entry in listings[category].entries
+                if not is_generation_entry(entry)
             ],
         }
 
@@ -1973,6 +1979,7 @@ def create_console_app(registry: Registry | None = None):
             MemoryCallError,
             MemoryClient,
             SAVED_CATEGORIES,
+            is_generation_entry,
             new_generation_marker,
         )
         from interop.memory_adapter import CASE_MEMORY_AGENT
@@ -1984,13 +1991,26 @@ def create_console_app(registry: Registry | None = None):
         if action not in {"delete", "fresh"}:
             raise HTTPException(status_code=400, detail="action must be delete or fresh")
         trace_id = new_trace_id()
-        owner, listings = await _customer_memory_snapshot(customer_key, trace_id)
+        try:
+            owner, listings = await _customer_memory_snapshot(customer_key, trace_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={"message": f"memory listing failed: {exc}", "trace_id": trace_id},
+            ) from None
         if not all(item.complete for item in listings.values()):
-            raise HTTPException(status_code=409, detail="memory listing is incomplete; reset refused")
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "memory listing is incomplete; reset refused",
+                    "trace_id": trace_id,
+                },
+            )
         allowed = {
             (category, entry.memory_id)
             for category in SAVED_CATEGORIES
             for entry in listings[category].entries
+            if not is_generation_entry(entry)
         }
         requested = {
             (str(item.get("category") or ""), str(item.get("memory_id") or ""))
@@ -2000,6 +2020,10 @@ def create_console_app(registry: Registry | None = None):
             raise HTTPException(status_code=400, detail="selection is empty or no longer governed")
 
         mem = MemoryClient(source="console-memory-management")
+        steps: list[dict] = []
+        errors: list[str] = []
+        marker: str | None = None
+        created = None
         try:
             async def delete_ids(category: str, ids: list[str]) -> None:
                 if not ids:
@@ -2023,29 +2047,69 @@ def create_console_app(registry: Registry | None = None):
                             trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
                             category=category, memory_ids=remaining
                         )
+                    ids = remaining
+                steps.append({"step": "delete", "category": category, "ids": ids, "ok": True})
 
             if action == "fresh":
                 marker = new_generation_marker()
-                created = await mem.create_memories(
-                    trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
-                    category=GENERATION_CATEGORY, contents=[marker]
+                try:
+                    created = await mem.create_memories(
+                        trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
+                        category=GENERATION_CATEGORY, contents=[marker]
+                    )
+                    steps.append({"step": "create_generation", "ok": True})
+                except MemoryCallError as exc:
+                    errors.append(str(exc))
+                    steps.append({"step": "create_generation", "ok": False, "error": str(exc)})
+                requested = allowed if created is not None else set()
+                old_marker_ids = (
+                    [
+                        entry.memory_id
+                        for entry in listings[GENERATION_CATEGORY].entries
+                        if is_generation_entry(entry)
+                    ]
+                    if created is not None else []
                 )
-                requested = allowed
-                old_marker_ids = [entry.memory_id for entry in listings[GENERATION_CATEGORY].entries]
             else:
-                created = None
                 old_marker_ids = []
             for category in SAVED_CATEGORIES:
                 ids = [memory_id for cat, memory_id in requested if cat == category]
-                await delete_ids(category, ids)
-            await delete_ids(GENERATION_CATEGORY, old_marker_ids)
+                try:
+                    await delete_ids(category, ids)
+                except MemoryCallError as exc:
+                    errors.append(str(exc))
+                    steps.append({"step": "delete", "category": category, "ids": ids,
+                                  "ok": False, "error": str(exc)})  # fmt: skip
+            try:
+                await delete_ids(GENERATION_CATEGORY, old_marker_ids)
+            except MemoryCallError as exc:
+                errors.append(str(exc))
+                steps.append({"step": "delete", "category": GENERATION_CATEGORY,
+                              "ids": old_marker_ids, "ok": False, "error": str(exc)})  # fmt: skip
         finally:
             await mem.aclose()
-        _, after = await _customer_memory_snapshot(customer_key, trace_id)
-        result = _safe_memory_snapshot(customer_key, trace_id, after)
+        try:
+            _, after = await _customer_memory_snapshot(customer_key, trace_id)
+            result = _safe_memory_snapshot(customer_key, trace_id, after)
+        except Exception as exc:
+            errors.append(f"verification listing failed: {exc}")
+            result = _safe_memory_snapshot(customer_key, trace_id, listings)
+            result["complete"] = False
         result["action"] = action
-        result["ok"] = result["complete"] and (
-            action == "delete" or (not result["memories"] and created is not None)
+        result["steps"] = steps
+        result["errors"] = errors
+        remaining_ids = {
+            (item["category"], item["memory_id"]) for item in result["memories"]
+        }
+        result["ok"] = not errors and result["complete"] and (
+            (action == "delete" and not (requested & remaining_ids))
+            or (
+                action == "fresh"
+                and not result["memories"]
+                and created is not None
+                and result["generation"] == marker
+                and not result["generation_invalid"]
+            )
         )
         return result
 
@@ -3124,6 +3188,8 @@ def create_console_app(registry: Registry | None = None):
             req.metadata["memory"] = True
             if scenario_name and spec.get("memory_customer_selector"):
                 req.metadata["memory_customer"] = customer_key
+                if isinstance(body.get("memory_generation"), str):
+                    req.metadata["memory_generation"] = body["memory_generation"]
         # WS11: the ADK orchestrator MUST be driven fire-then-poll, never with a
         # blocking ask(). A blocking message:send runs the whole
         # SequentialAgent[ParallelAgent→synthesiser] graph inline on Agent Engine
@@ -3238,6 +3304,11 @@ def create_console_app(registry: Registry | None = None):
                 "ok": False,
                 "trace_id": req.trace_id,
                 "error": f"{type(exc).__name__}: {exc}",
+                **(
+                    {"error_code": "stale_memory_generation"}
+                    if type(exc).__name__ == "StaleMemoryGeneration"
+                    else {}
+                ),
             }
 
     @app.post("/api/run/poll")

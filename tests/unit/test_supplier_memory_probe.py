@@ -63,4 +63,4 @@ async def test_probe_reports_no_go_only_at_deadline(monkeypatch):
 
 
 async def _write_ok(*args, **kwargs):
-    return []
+    return [], False

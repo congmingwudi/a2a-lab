@@ -58,7 +58,7 @@ async def run(args) -> int:
         f"[observation_id={observation_id}; source={source}; seed_trace={trace_id}] "
         "Rotterdam alternate-route capacity is the probe fact."
     )
-    errors = await write_turn(
+    errors, _normalized = await write_turn(
         mem,
         trace_id,
         agent_id=AGENT_IDS["exposure"],

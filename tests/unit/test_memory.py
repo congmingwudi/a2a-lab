@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from bridge.app import create_bridge_app
 from interop import memory as memory_mod
 from interop.memory import (
+    GENERATION_CATEGORY,
     MemoryCallError,
     MemoryClient,
     MemoryListing,
@@ -19,8 +20,12 @@ from interop.memory import (
     entry_id,
     owner_conversation,
     redact,
-    render_context,
     normalize_ingest_content,
+    new_generation_marker,
+    render_context,
+    saved_memories,
+    select_generation,
+    write_turn,
 )
 from interop.registry import Registry
 
@@ -52,6 +57,7 @@ class FakeTenant:
         self.memories: dict[tuple[str, str], list[str]] = {}
         self.refuse_memory: set[str] = set()
         self.html_403_entries = 0
+        self.json_403_entries = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
@@ -89,6 +95,9 @@ class FakeTenant:
         if path.endswith("/entries") and self.html_403_entries:
             self.html_403_entries -= 1
             return httpx.Response(403, text="<html><h1>403 Forbidden</h1></html>")
+        if path.endswith("/entries") and self.json_403_entries:
+            self.json_403_entries -= 1
+            return httpx.Response(403, json={"error": "forbidden"})
         return httpx.Response(202, json={})
 
     def client(self) -> MemoryClient:
@@ -233,13 +242,35 @@ def test_redact_keeps_ordinary_facts():
     assert redact("card 4111 1111 1111 1111") == "card [REDACTED_CARD]"
 
 
+def test_generation_control_fact_is_validated_and_never_rendered_to_the_model():
+    marker = new_generation_marker()
+    listing = MemoryListing((
+        memory_mod.MemoryEntry("fact", "Keeps bees."),
+        memory_mod.MemoryEntry("control", marker),
+    ), 2)
+    assert GENERATION_CATEGORY == "sys_PROFILE_FACT"
+    assert select_generation(listing) == (marker, False)
+    assert marker not in render_context({"userContext": f"Keeps bees. {marker}"})
+    malformed = MemoryListing((memory_mod.MemoryEntry("bad", "v1:caller-chosen"),), 1)
+    assert select_generation(malformed) == (None, True)
+
+
+async def test_generation_control_fact_is_excluded_from_saved_prompt_material():
+    marker = new_generation_marker()
+    fake = FakeTenant()
+    fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = [marker, "Keeps bees."]
+    text, errors = await saved_memories(fake.client(), "t1", **IDS)
+    assert errors == [] and "Keeps bees." in text and marker not in text
+
+
 def test_ingest_normalization_keeps_meaning_without_url_shapes():
     got = normalize_ingest_content(
-        "See https://runbooks.example.invalid/supplier-api and `/v1/orders`."
+        "See https://runbooks.example.invalid/supplier-api, `/v1/orders`, and /api/v1/inventory."
     )
     assert "https://" not in got and "/v1/" not in got
     assert "runbooks.example.invalid supplier-api" in got
     assert "API endpoint v1 orders" in got
+    assert "/api/v1/" not in got and "API endpoint v1 inventory" in got
 
 
 async def test_ingest_retries_one_html_403_with_normalized_content():
@@ -252,6 +283,16 @@ async def test_ingest_retries_one_html_403_with_normalized_content():
     first, second = fake.bodies("/entries")
     assert "https://" in first["entries"][0]["content"]
     assert "https://" not in second["entries"][0]["content"]
+
+
+async def test_ingest_does_not_retry_a_json_403():
+    fake = FakeTenant()
+    fake.json_403_entries = 1
+    with pytest.raises(MemoryCallError, match="HTTP 403"):
+        await fake.client().ingest(
+            "t1", session_id="c-1", user_message="See https://probe.example.invalid/x", **IDS
+        )
+    assert len(fake.bodies("/entries")) == 1
 
 
 async def test_get_context_uses_the_context_header_and_records_a_hop(isolated_traces):
@@ -295,13 +336,29 @@ async def test_close_session_closes_the_chats_session_in_the_owners_conversation
     )  # fmt: skip
 
 
+async def test_a_second_write_to_the_same_closed_session_is_still_accepted():
+    fake = FakeTenant()
+    first = await write_turn(
+        fake.client(), "t1", session_id="c-1", user_message="first", **IDS
+    )
+    second = await write_turn(
+        fake.client(), "t2", session_id="c-1", user_message="second", **IDS
+    )
+    assert first == second == ([], False)
+    tenant_paths = [r.url.path for r in fake.calls if r.url.host == "tenant.example"]
+    assert sum(path.endswith("/entries") for path in tenant_paths) == 2
+    assert sum(path.endswith("/close") for path in tenant_paths) == 2
+
+
 async def test_list_memories_reads_one_shared_service_by_owner(isolated_traces):
     fake = FakeTenant()
     fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["Keeps bees.", "  "]
     got = await fake.client().list_memories("t1", category="sys_PROFILE_FACT", **IDS)
     assert isinstance(got, MemoryListing)
-    assert [(entry.memory_id, entry.content) for entry in got.entries] == [("m-0", "Keeps bees.")]
-    assert got.total_count == 2 and got.complete is False
+    assert [(entry.memory_id, entry.content) for entry in got.entries] == [
+        ("m-0", "Keeps bees."), ("m-1", "")
+    ]
+    assert got.total_count == 2 and got.complete is True
     req = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/memory")
     assert req.headers["agent_id"] == IDS["agent_id"]
     assert dict(req.url.params) == {"profile_id": "persona-ana", "profile_type": "individual",

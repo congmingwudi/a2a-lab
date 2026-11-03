@@ -132,11 +132,15 @@ Files:
 - `tests/unit/test_memory_adapter.py`
 
 On successful **Start fresh**, the console writes an opaque server-generated generation marker to
-a dedicated custom Memory API category (for example `A2ALAB_EXPERIMENT_GENERATION`) for the selected
-profile. This makes the reset effective for every operator/browser without adding an Aurora state
-table or exposing profile IDs. Marker content is versioned timestamp + random nonce, contains no
-customer data, and is validated before use. If a race leaves multiple markers, choose the valid
-marker with the greatest timestamp deterministically and let the next reset delete all markers.
+the supported `sys_PROFILE_FACT` category for the selected profile. The originally proposed custom
+category and the documented unprefixed `PROFILE_FACT` category both returned tenant 403s; the live
+probe and resulting supported-category decision are recorded in
+`build-notes/codex/ws27-generation-category-probe.md`. Reserved marker rows are excluded from the
+operator's semantic-memory list and stripped from both GetContext and saved-memory prompt material.
+This makes the reset effective for every operator/browser without adding an Aurora state table or
+exposing profile IDs. Marker content is versioned timestamp + random nonce, contains no customer
+data, and is validated before use. If a race leaves multiple markers, choose the valid marker with
+the greatest timestamp deterministically and let the next reset delete all markers.
 An absent marker means the customer has never been reset and retains the legacy conversation; a
 present but malformed marker fails closed to a no-memory turn rather than exposing the legacy
 summary.
