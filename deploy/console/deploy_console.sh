@@ -84,6 +84,9 @@ keys = [
     # seed/recall calls therefore need the dedicated memory ECA identity here,
     # not in the faces task.
     "SF_CLIENT_ID_MEMORY",
+    # D107: selectable customer key -> org-specific unified profile id. The
+    # management API resolves it server-side; profile ids never reach the browser.
+    "A2ALAB_MEMORY_CUSTOMER_MAP",
     # WS19/M10: the a2a_lab_tab_embed ECA consumer key (JWT `iss`) that mints the
     # Tableau Next frontdoor URL for the owner-only inline dashboard. The frontdoor
     # is minted with a JWT-BEARER assertion (client-credentials can't reach
@@ -127,6 +130,13 @@ keys = [
     "TYPESAFE_API_KEY",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
+if "A2ALAB_MEMORY_CUSTOMER_MAP" in payload:
+    customer_map = json.loads(payload["A2ALAB_MEMORY_CUSTOMER_MAP"])
+    if not isinstance(customer_map, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) and k and v
+        for k, v in customer_map.items()
+    ):
+        raise SystemExit("A2ALAB_MEMORY_CUSTOMER_MAP must be a non-empty-string JSON object")
 
 # The lab JWT keypair. The console ISSUES tokens (/api/login), so unlike a seam
 # that only verifies it must carry the signing half. Both live in .a2alab/ —

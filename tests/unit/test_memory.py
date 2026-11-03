@@ -14,11 +14,13 @@ from interop import memory as memory_mod
 from interop.memory import (
     MemoryCallError,
     MemoryClient,
+    MemoryListing,
     case_conversation,
     entry_id,
     owner_conversation,
     redact,
     render_context,
+    normalize_ingest_content,
 )
 from interop.registry import Registry
 
@@ -49,6 +51,7 @@ class FakeTenant:
         self.conversation_status = 201
         self.memories: dict[tuple[str, str], list[str]] = {}
         self.refuse_memory: set[str] = set()
+        self.html_403_entries = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
@@ -70,8 +73,22 @@ class FakeTenant:
             key = (request.headers["agent_id"], request.url.params["category"])
             if request.headers["agent_id"] in self.refuse_memory:
                 return httpx.Response(500, json={"error": "Failed to load agent configuration"})
+            if request.method == "POST":
+                values = json.loads(request.content)["memories"]
+                return httpx.Response(200, json={"statusCode": "created", "memories": [
+                    {"memoryId": f"m-{i}", "content": item["content"]}
+                    for i, item in enumerate(values)
+                ]})
+            if request.method == "DELETE":
+                values = json.loads(request.content)["memories"]
+                return httpx.Response(200, json={"statusCode": "deleted", "memories": values})
             contents = self.memories.get(key, [])
-            return httpx.Response(200, json={"memories": [{"content": c} for c in contents]})
+            return httpx.Response(200, json={"memories": [
+                {"memoryId": f"m-{i}", "content": c} for i, c in enumerate(contents)
+            ], "totalCount": len(contents)})
+        if path.endswith("/entries") and self.html_403_entries:
+            self.html_403_entries -= 1
+            return httpx.Response(403, text="<html><h1>403 Forbidden</h1></html>")
         return httpx.Response(202, json={})
 
     def client(self) -> MemoryClient:
@@ -216,6 +233,27 @@ def test_redact_keeps_ordinary_facts():
     assert redact("card 4111 1111 1111 1111") == "card [REDACTED_CARD]"
 
 
+def test_ingest_normalization_keeps_meaning_without_url_shapes():
+    got = normalize_ingest_content(
+        "See https://runbooks.example.invalid/supplier-api and `/v1/orders`."
+    )
+    assert "https://" not in got and "/v1/" not in got
+    assert "runbooks.example.invalid supplier-api" in got
+    assert "API endpoint v1 orders" in got
+
+
+async def test_ingest_retries_one_html_403_with_normalized_content():
+    fake = FakeTenant()
+    fake.html_403_entries = 1
+    normalized = await fake.client().ingest(
+        "t1", session_id="c-1", user_message="See https://probe.example.invalid/x /v1/orders", **IDS
+    )
+    assert normalized is True
+    first, second = fake.bodies("/entries")
+    assert "https://" in first["entries"][0]["content"]
+    assert "https://" not in second["entries"][0]["content"]
+
+
 async def test_get_context_uses_the_context_header_and_records_a_hop(isolated_traces):
     fake = FakeTenant(context={"contextId": "ctx-7", "summary": "likes aisle seats"})
     ctx = await fake.client().get_context("t-ctx", **IDS)
@@ -261,7 +299,9 @@ async def test_list_memories_reads_one_shared_service_by_owner(isolated_traces):
     fake = FakeTenant()
     fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["Keeps bees.", "  "]
     got = await fake.client().list_memories("t1", category="sys_PROFILE_FACT", **IDS)
-    assert got == ["Keeps bees."]
+    assert isinstance(got, MemoryListing)
+    assert [(entry.memory_id, entry.content) for entry in got.entries] == [("m-0", "Keeps bees.")]
+    assert got.total_count == 2 and got.complete is False
     req = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/memory")
     assert req.headers["agent_id"] == IDS["agent_id"]
     assert dict(req.url.params) == {"profile_id": "persona-ana", "profile_type": "individual",
@@ -272,6 +312,21 @@ async def test_list_memories_reads_one_shared_service_by_owner(isolated_traces):
     assert hop["transport_detail"] == (
         "GET /api/v1/agentic/memory · sys_PROFILE_FACT · A2ALab_Memory_Concierge"
     )
+
+
+async def test_create_and_delete_memories_use_profile_scope():
+    fake = FakeTenant()
+    mem = fake.client()
+    created = await mem.create_memories(
+        "t1", category="A2ALAB_EXPERIMENT_GENERATION", contents=["v1:marker"], **IDS
+    )
+    deleted = await mem.delete_memories(
+        "t2", category="A2ALAB_EXPERIMENT_GENERATION", memory_ids=["m-0"], **IDS
+    )
+    assert created.entries[0].memory_id == "m-0" and deleted == ("m-0",)
+    calls = [r for r in fake.calls if r.url.path == "/api/v1/agentic/memory"]
+    assert [r.method for r in calls] == ["POST", "DELETE"]
+    assert all(r.url.params["profile_id"] == IDS["owner_id"] for r in calls)
 
 
 async def test_saved_memories_read_shared_service_categories_and_fail_open():

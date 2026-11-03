@@ -39,10 +39,38 @@ OWNER_TYPE = "individual"  # the SDK's default; open question 3 in plan/18
 KEY_ENV = "A2ALAB_MEMORY_JWT_KEY"  # PEM text — the hosted bridge's secret carries it
 KEY_FILE = "memory_jwt_private.pem"  # local: under A2ALAB_JWT_DIR (.a2alab)
 TARGET = "agentic-memory"
+GENERATION_CATEGORY = "A2ALAB_EXPERIMENT_GENERATION"
+GENERATION_RE = re.compile(r"^v1:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z):([0-9a-f]{24})$")
 
 
 class MemoryCallError(RuntimeError):
-    """A memory call refused; the message names the leg and the HTTP status."""
+    """A memory call refused; structured fields retain the wire refusal."""
+
+    def __init__(self, message: str, *, status: int | None = None, body: Any = None):
+        super().__init__(message)
+        self.status = status
+        self.body = body
+
+    @property
+    def is_html_403(self) -> bool:
+        text = self.body if isinstance(self.body, str) else ""
+        return self.status == 403 and "<h1>403 Forbidden</h1>" in text and "<html" in text.lower()
+
+
+@dataclass(frozen=True)
+class MemoryEntry:
+    memory_id: str
+    content: str
+
+
+@dataclass(frozen=True)
+class MemoryListing:
+    entries: tuple[MemoryEntry, ...]
+    total_count: int
+
+    @property
+    def complete(self) -> bool:
+        return len(self.entries) == self.total_count
 
 
 def _now(back_ms: int = 0) -> str:
@@ -75,6 +103,23 @@ def case_conversation(owner_id: str, scenario: str, case_key: str) -> str:
         raise ValueError("owner_id, scenario and a non-empty case_key are required")
     digest = hashlib.sha256(f"{owner_id}\0{scenario}\0{case_key.strip()}".encode()).hexdigest()
     return f"a2alab-c-{digest[:24]}"
+
+
+def new_generation_marker() -> str:
+    return f"v1:{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}:{uuid.uuid4().hex[:24]}"
+
+
+def select_generation(listing: MemoryListing) -> tuple[str | None, bool]:
+    """Return newest valid marker and whether malformed markers were present."""
+    valid = [entry.content for entry in listing.entries if GENERATION_RE.fullmatch(entry.content)]
+    malformed = len(valid) != len(listing.entries)
+    return (max(valid) if valid else None), malformed
+
+
+def generation_conversation(owner_id: str, marker: str) -> str:
+    if not GENERATION_RE.fullmatch(marker):
+        raise ValueError("invalid customer-memory generation marker")
+    return case_conversation(owner_id, "customer-memory", marker)
 
 
 def _conversation_id(owner_id: str, conversation_id: str | None) -> str:
@@ -110,6 +155,21 @@ def redact(text: str) -> str:
     for pattern, repl in REDACTIONS:
         text = pattern.sub(repl, text)
     return text
+
+
+URL_RE = re.compile(r"https?://([^\s/]+)(/[^\s]*)?", re.IGNORECASE)
+API_PATH_RE = re.compile(r"(?<!\w)/v(\d+)/([A-Za-z0-9_.\-/]+)")
+
+
+def normalize_ingest_content(text: str) -> str:
+    """Readable retry form for the tenant edge's URL/path content refusal (D107)."""
+
+    def url(match: re.Match[str]) -> str:
+        path = (match.group(2) or "").strip("/`).,;:")
+        return " ".join(part for part in (match.group(1), path.replace("/", " ")) if part)
+
+    text = URL_RE.sub(url, text)
+    return API_PATH_RE.sub(lambda m: f"API endpoint v{m.group(1)} {m.group(2).replace('/', ' ')}", text)
 
 
 def entry_id(session_id: str, kind: str, text: str) -> str:
@@ -275,7 +335,11 @@ class MemoryClient:
             if ref_key and isinstance(body, dict) and body.get(ref_key):
                 hop.platform_ref = str(body[ref_key])
             if r.status_code not in ok:
-                raise MemoryCallError(f"{detail} refused (HTTP {r.status_code}): {str(body)[:200]}")
+                raise MemoryCallError(
+                    f"{detail} refused (HTTP {r.status_code}): {str(body)[:200]}",
+                    status=r.status_code,
+                    body=body,
+                )
         return r.status_code, body
 
     def _post_headers(self, owner_id: str, agent_id: str) -> dict[str, str]:
@@ -335,7 +399,7 @@ class MemoryClient:
         user_message: str | None = None,
         agent_response: str | None = None,
         conversation_id: str | None = None,
-    ) -> None:
+    ) -> bool:
         """One turn's Message entries; either side may be absent.
 
         The reply goes FIRST, a millisecond earlier: beside a user message it
@@ -357,14 +421,28 @@ class MemoryClient:
                                 "timestamp": _now(back_ms), "category": "Message",
                                 "interactionId": turn, "content": text})  # fmt: skip
         if not entries:
-            return
+            return False
         cid = _conversation_id(owner_id, conversation_id)
+        body = {"sessionId": session_id, "conversationOwnerId": owner_id, "entries": entries}
+        try:
+            await self._call(trace_id, agent_id, "POST",
+                             f"/api/v1/agentic/conversations/{cid}/entries",
+                             owner_id=owner_id,
+                             headers=self._post_headers(owner_id, agent_id), json_body=body)  # fmt: skip
+            return False
+        except MemoryCallError as exc:
+            if not exc.is_html_403:
+                raise
+        normalized = []
+        for entry in entries:
+            content = normalize_ingest_content(entry["content"])
+            normalized.append({**entry, "content": content,
+                               "id": entry_id(session_id, entry["type"], content)})  # fmt: skip
         await self._call(trace_id, agent_id, "POST",
                          f"/api/v1/agentic/conversations/{cid}/entries",
-                         owner_id=owner_id,
-                         headers=self._post_headers(owner_id, agent_id),
-                         json_body={"sessionId": session_id, "conversationOwnerId": owner_id,
-                                    "entries": entries})  # fmt: skip
+                         owner_id=owner_id, headers=self._post_headers(owner_id, agent_id),
+                         json_body={**body, "entries": normalized})  # fmt: skip
+        return True
 
     async def get_context(
         self,
@@ -416,7 +494,7 @@ class MemoryClient:
 
     async def list_memories(
         self, trace_id: str, *, agent_id: str, owner_id: str, category: str
-    ) -> list[str]:
+    ) -> MemoryListing:
         """Read one customer-scoped semantic-memory category.
 
         ``agent_id`` identifies the registered memory service used for this
@@ -428,7 +506,43 @@ class MemoryClient:
             params={"profile_id": owner_id, "profile_type": OWNER_TYPE, "category": category},
         )  # fmt: skip
         memories = body.get("memories", []) if isinstance(body, dict) else []
-        return [m["content"].strip() for m in memories if str(m.get("content") or "").strip()]
+        entries = tuple(
+            MemoryEntry(str(m.get("memoryId") or ""), str(m.get("content") or "").strip())
+            for m in memories if str(m.get("content") or "").strip()
+        )
+        return MemoryListing(entries, int(body.get("totalCount", len(entries))))
+
+    async def create_memories(
+        self, trace_id: str, *, agent_id: str, owner_id: str, category: str,
+        contents: list[str],
+    ) -> MemoryListing:
+        if not contents:
+            return MemoryListing((), 0)
+        _, body = await self._call(
+            trace_id, agent_id, "POST", "/api/v1/agentic/memory", owner_id=owner_id,
+            headers={"agent_id": agent_id},
+            params={"profile_id": owner_id, "profile_type": OWNER_TYPE, "category": category},
+            json_body={"memories": [{"content": value} for value in contents]},
+        )
+        memories = body.get("memories", []) if isinstance(body, dict) else []
+        entries = tuple(MemoryEntry(str(m.get("memoryId") or ""), str(m.get("content") or ""))
+                        for m in memories)  # fmt: skip
+        return MemoryListing(entries, len(entries))
+
+    async def delete_memories(
+        self, trace_id: str, *, agent_id: str, owner_id: str, category: str,
+        memory_ids: list[str],
+    ) -> tuple[str, ...]:
+        if not memory_ids:
+            return ()
+        _, body = await self._call(
+            trace_id, agent_id, "DELETE", "/api/v1/agentic/memory", owner_id=owner_id,
+            headers={"agent_id": agent_id},
+            params={"profile_id": owner_id, "profile_type": OWNER_TYPE, "category": category},
+            json_body={"memories": [{"memoryId": value} for value in memory_ids]},
+        )
+        memories = body.get("memories", []) if isinstance(body, dict) else []
+        return tuple(str(m.get("memoryId")) for m in memories if m.get("memoryId"))
 
 
 SAVED_CATEGORIES = {"sys_PROFILE_FACT": "saved fact", "sys_PROFILE_PREFERENCES": "saved preference"}
@@ -453,7 +567,9 @@ async def saved_memories(
             continue
         if isinstance(got, BaseException):
             raise got
-        for text in got:
+        entries = got.entries if isinstance(got, MemoryListing) else got
+        for item in entries:
+            text = item.content if isinstance(item, MemoryEntry) else str(item)
             if text.lower() not in seen and len(lines) < MAX_SAVED:
                 seen.add(text.lower())
                 lines.append(f"- {SAVED_CATEGORIES[cat]}: {text}")
@@ -517,7 +633,7 @@ async def write_turn(
     user_message: str | None = None,
     agent_response: str | None = None,
     conversation_id: str | None = None,
-) -> list[str]:
+) -> tuple[list[str], bool]:
     """The write half of a turn, fail-open: the errors, if any.
 
     Independent of the read on purpose: GetContext 403'd for every
@@ -528,14 +644,14 @@ async def write_turn(
     """
     ids = {"agent_id": agent_id, "owner_id": owner_id, "session_id": session_id}
     try:
-        await mem.ingest(trace_id, user_message=user_message,
-                         agent_response=agent_response,
-                         conversation_id=conversation_id, **ids)  # fmt: skip
+        normalized = await mem.ingest(trace_id, user_message=user_message,
+                                      agent_response=agent_response,
+                                      conversation_id=conversation_id, **ids)  # fmt: skip
         if user_message or agent_response:
             await mem.close_session(trace_id, conversation_id=conversation_id, **ids)
     except MemoryCallError as exc:
-        return [str(exc)]
-    return []
+        return [str(exc)], False
+    return [], bool(normalized)
 
 
 # Response envelope, not memory: ids and a timestamp mean nothing to the model.

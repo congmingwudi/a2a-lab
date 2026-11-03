@@ -503,6 +503,81 @@ def test_customer_memory_owner_map_is_secret_backed_and_validated_at_deploy():
     assert "#A2ALAB_MEMORY_OWNER_MAP='{" in example
     assert "#A2ALAB_MEMORY_CUSTOMER_MAP='{" in example
 
+    console_deploy = Path("deploy/console/deploy_console.sh").read_text()
+    assert '"A2ALAB_MEMORY_CUSTOMER_MAP"' in console_deploy
+    assert 'json.loads(payload["A2ALAB_MEMORY_CUSTOMER_MAP"])' in console_deploy
+
+
+def test_customer_memory_management_is_persona_scoped_and_operator_only(tmp_path, monkeypatch):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    class FakeManagementMemory:
+        def __init__(self):
+            self.items = {
+                "sys_PROFILE_FACT": [MemoryEntry("fact-1", "Keeps bees.")],
+                "sys_PROFILE_PREFERENCES": [],
+                "A2ALAB_EXPERIMENT_GENERATION": [],
+            }
+
+        async def list_memories(self, trace_id, **kw):
+            entries = tuple(self.items[kw["category"]])
+            return MemoryListing(entries, len(entries))
+
+        async def create_memories(self, trace_id, **kw):
+            entry = MemoryEntry("generation-new", kw["contents"][0])
+            self.items[kw["category"]].append(entry)
+            return MemoryListing((entry,), 1)
+
+        async def delete_memories(self, trace_id, **kw):
+            ids = set(kw["memory_ids"])
+            self.items[kw["category"]] = [
+                entry for entry in self.items[kw["category"]] if entry.memory_id not in ids
+            ]
+            return tuple(ids)
+
+        async def aclose(self):
+            pass
+
+    fake_memory = FakeManagementMemory()
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake_memory)
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    operator = _operator_headers(monkeypatch, tmp_path)
+    response = client.get("/api/memory/customer/maya", headers=operator)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["customer"] == "maya" and data["complete"] is True
+    assert data["memories"] == [
+        {"category": "sys_PROFILE_FACT", "memory_id": "fact-1", "content": "Keeps bees."}
+    ]
+    deleted = client.post(
+        "/api/memory/customer/maya", headers=operator,
+        json={"action": "delete", "memories": data["memories"]},
+    )
+    assert deleted.status_code == 200 and deleted.json()["ok"] is True
+    fresh = client.post(
+        "/api/memory/customer/maya", headers=operator, json={"action": "fresh"}
+    )
+    assert fresh.status_code == 200 and fresh.json()["ok"] is True
+    assert fresh.json()["generation"].startswith("v1:")
+    assert client.get(
+        "/api/memory/customer/maya", headers=_viewer_headers(monkeypatch, tmp_path)
+    ).status_code == 403
+    assert client.get(
+        "/api/memory/customer/maya", headers={"x-lab-token": "sekrit"}
+    ).status_code == 403
+
+
+def test_customer_memory_panel_has_selection_reset_and_retention_copy():
+    html = Path("src/console/static/index.html").read_text()
+    assert "Manage memories" in html and "Delete selected" in html
+    assert "Start fresh for" in html
+    assert "Deletion is permanent" in html
+    assert "conversation history is not erased" in html
+
 
 def test_targets_listed(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())

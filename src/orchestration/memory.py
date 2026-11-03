@@ -270,7 +270,7 @@ class CaseMemory:
                 owner_id=run.owner_id or "",
                 conversation_id=run.conversation_id,
             )
-            return await write_turn(
+            errors, _ = await write_turn(
                 self.client,
                 trace_id,
                 agent_id=agent_id,
@@ -280,6 +280,7 @@ class CaseMemory:
                 user_message=f"Supplier-disruption observation nominated by {candidate.source}",
                 agent_response=candidate.stored_text(),
             )
+            return errors
 
         results = await asyncio.gather(
             *(asyncio.wait_for(one(c), timeout=self.budget_s) for c in candidates),

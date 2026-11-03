@@ -9,7 +9,7 @@ import pytest
 
 from interop import identity
 from interop import memory_adapter as ma
-from interop.memory import MemoryCallError, owner_conversation
+from interop.memory import MemoryCallError, MemoryEntry, MemoryListing, generation_conversation, owner_conversation
 from interop.memory_adapter import MemoryAdapter, owner_of, with_memory
 from interop.models import AgentRequest, AgentResponse
 
@@ -37,6 +37,7 @@ class FakeMemory:
         self.context = context if context is not None else {"summary": "prefers aisle seats"}
         self.fail_read = False
         self.read_delay_s = 0.0
+        self.generation: str | None = None
 
     async def start_conversation(self, trace_id, **kw):
         self.calls.append(("start", kw))
@@ -56,7 +57,9 @@ class FakeMemory:
         self.calls.append(("close", kw))
 
     async def list_memories(self, trace_id, **kw):
-        return []
+        if self.generation:
+            return MemoryListing((MemoryEntry("generation-1", self.generation),), 1)
+        return MemoryListing((), 0)
 
 
 class Inner:
@@ -179,6 +182,33 @@ async def test_the_memory_session_follows_the_lab_session_and_is_started_once():
     other, _ = _adapter(FakeMemory())
     again = await other.handle(_req(session_id="s-1"))
     assert again.metadata["memory"]["session_id"] == first.metadata["memory"]["session_id"]
+
+
+async def test_customer_generation_changes_conversation_and_session_for_every_face():
+    fake = FakeMemory()
+    adapter, _ = _adapter(fake)
+    req = _req(session_id="s-1")
+    req.metadata["memory_customer"] = "maya"
+    first = await adapter.handle(req)
+    fake.generation = "v1:2026-11-03T20:00:00Z:0123456789abcdef01234567"
+    second = await adapter.handle(req)
+    assert second.metadata["memory"]["conversation_id"] == generation_conversation(
+        MAYA_XID, fake.generation
+    )
+    assert second.metadata["memory"]["conversation_id"] != first.metadata["memory"]["conversation_id"]
+    assert second.metadata["memory"]["session_id"] != first.metadata["memory"]["session_id"]
+
+
+async def test_malformed_customer_generation_suppresses_old_memory():
+    fake = FakeMemory()
+    fake.generation = "caller-chosen-bad-value"
+    adapter, inner = _adapter(fake)
+    req = _req(session_id="s-1")
+    req.metadata["memory_customer"] = "maya"
+    resp = await adapter.handle(req)
+    assert fake.calls == []
+    assert inner.seen[0].message == req.message
+    assert resp.metadata["memory"]["ok"] is False
 
 
 async def test_a_first_turn_without_a_session_is_followed_by_the_reply_session():

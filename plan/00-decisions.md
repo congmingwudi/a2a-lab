@@ -4762,3 +4762,62 @@ ledger). It corrects three guide-based statements above:
   flagged extra part, which the lab client drops.
 - **Message vs Task:** short turns answer as a sync Message, so the 5 s Task fallback is
   still unexercised.
+
+## 2026-11-03 — D107: customer-memory curation is profile-scoped, and Start fresh rotates governed experiment context
+
+**Context.** The customer-memory experiment deliberately uses one shared
+`A2ALab_Memory_Case` registration and stable customer conversations (D94, D105). That makes the
+cross-session story work, but it also makes the teaching arm hard to repeat: Maya's extracted
+facts/preferences and `CONVERSATION_SUMMARY` return on the next run, so the original prompt no
+longer demonstrates a new write. Salesforce now exposes profile-scoped Memory Management APIs that
+list curated entries with `memoryId` and permanently delete selected entries. They do not delete
+episodic conversation summaries.
+
+The same investigation found a second, independent failure. A correction containing a runbook URL
+and slash-form API paths reached Claude successfully but the tenant entries POST returned a bare
+nginx HTML 403. Claude's critique disproved the first closed-session hypothesis: a fresh session
+failed too. A three-arm synthetic probe under `a2alab-memprobe` then isolated the boundary: URL/path
+content 403'd, the normalized twin succeeded, and a benign post-close write succeeded
+(`build-notes/codex/ws27-memory-403-probe.md`).
+
+**Decision.**
+
+1. **Expose governed curation, not registration deletion.** The customer-memory panes gain an
+   operator-only memory manager. It lists the selected demo customer's complete
+   `sys_PROFILE_FACT` and `sys_PROFILE_PREFERENCES` entries, permits explicit selected deletion,
+   and never exposes org-specific profile ids. Maya and Jordan remain separate. The shared agent
+   registration is never deleted to reset a demo.
+2. **Start fresh has two parts.** It permanently removes the selected customer's currently listed
+   curated facts/preferences and advances that customer to a new opaque experiment conversation.
+   Historical conversation records remain under Data 360 retention; the UI says so and does not
+   claim erasure. A custom Memory API category holds a server-generated generation marker, making
+   the new namespace consistent across browsers and operators. Faces validate the marker and hash
+   it with owner/scenario before it can influence a tenant id. An absent marker preserves D94
+   compatibility; a malformed present marker suppresses memory rather than exposing the old
+   summary.
+3. **Reset is a convergent saga, not an atomic claim.** The console requires a complete governed
+   listing (`totalCount` must match), creates the new marker, deletes the previously listed semantic
+   entries and old markers, then re-lists all categories. A 404 triggers re-list/retry. Partial
+   results keep the new marker so episodic summaries remain cut off, report every remaining entry,
+   and never say "fresh" until verification passes.
+4. **Permanent operations require a human operator.** Both list and delete routes require a
+   verified operator/master persona through `_is_operator`, with `_OPERATOR_ONLY` defence in depth.
+   Viewer, machine and shared service-token callers cannot curate customer memory. The hosted
+   console receives `A2ALAB_MEMORY_CUSTOMER_MAP` through its secret path with the same shape guard
+   as faces; the browser receives only safe customer keys and display metadata.
+5. **Treat the observed 403 as a content refusal only when its wire shape matches.** Keep D94's one
+   session per chat. An entries POST that returns the observed HTTP 403 plus HTML/nginx body retries
+   once after deterministic ingest-only normalization turns URLs and slash-form API paths into
+   readable non-URL text. JSON 403s remain authorization/governance failures. Both attempts and the
+   normalization outcome are traced and surfaced; the model still answers the original text.
+6. **Deployment is both images.** The console UI/endpoints/config and the face-side memory wrapper
+   change, so hosted acceptance requires full console and faces rebuilds. `--skip-build` is invalid.
+
+**Consequences.** Selective deletion is genuinely profile-scoped and irreversible; Start fresh is
+experiment continuity control, not a right-to-be-forgotten operation. Management uses the complete
+typed Memory API response, independent of the prompt's existing 20-entry context cap. Archived
+pre-reset chats cannot silently continue under the current generation. Trace evidence distinguishes
+an original content refusal from its normalized retry, so a successful memory badge never hides the
+wire event that required adaptation. The implementation/cross-review batch is
+`ws27-b2-customer-memory-clear`; its plan, critique and probe evidence live under `build-notes/`.
+

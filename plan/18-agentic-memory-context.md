@@ -28,6 +28,14 @@ are `customer profile × category`. Episodic conversation/session participation 
 `Maya → shared case memory → facts/preferences`; Claude and OpenAI appear separately as execution
 provenance rather than storage partitions.
 
+**D107 addendum (2026-11-03): repeatable customer-memory experiments.** The console's named
+operators can list and permanently delete the selected profile's curated facts/preferences through
+the Memory Management API. Start fresh also writes a profile-scoped generation marker that both
+faces hash into a new experiment conversation; retained historical conversations are not erased.
+The same batch handles the tenant edge's confirmed URL/API-path content refusal with one traced,
+readable ingest-only normalization retry. The evidence and exact boundary are in
+`build-notes/codex/ws27-memory-403-probe.md`.
+
 This
 doc is the setup path and the experiment design. Decisions get ADRs in
 `plan/00-decisions.md` as they settle, and a `## WS27` delivery record in

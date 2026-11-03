@@ -228,9 +228,12 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
             )
             payload["conversation_id"] = sid
             if sid:
-                errors += await write_turn(mem, trace_id, session_id=sid,
-                                           user_message=body.get("user_message"),
-                                           agent_response=body.get("agent_response"), **ids)  # fmt: skip
+                write_errors, normalized = await write_turn(
+                    mem, trace_id, session_id=sid, user_message=body.get("user_message"),
+                    agent_response=body.get("agent_response"), **ids
+                )
+                errors += write_errors
+                payload["normalized"] = normalized
             if errors:
                 payload.update(ok=False, error="; ".join(errors))
             payload["total_ms"] = int((time.perf_counter() - start) * 1000)

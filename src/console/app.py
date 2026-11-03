@@ -1226,6 +1226,7 @@ _OPERATOR_ONLY = {
     "harvest platform logs": ("/api/obs/harvest",),
     "fire the analyst": ("/api/obs/analysis",),
     "delete the trace archive": ("DELETE /api/traces",),
+    "manage customer memory": ("/api/memory/customer",),
 }
 
 
@@ -1358,6 +1359,18 @@ def create_console_app(registry: Registry | None = None):
         if state["registry"] is None:
             state["registry"] = Registry.load()
         return state["registry"]
+
+    def customer_memory_owner(customer_key: str) -> str:
+        if customer_key not in load_memory_customers():
+            raise HTTPException(status_code=404, detail="unknown demo customer")
+        try:
+            mapping = json.loads(os.environ.get("A2ALAB_MEMORY_CUSTOMER_MAP", "{}"))
+        except json.JSONDecodeError:
+            mapping = {}
+        owner = mapping.get(customer_key) if isinstance(mapping, dict) else None
+        if not isinstance(owner, str) or not owner.strip():
+            raise HTTPException(status_code=503, detail="customer memory profile is not configured")
+        return owner.strip()
 
     def get_client(name: str) -> RemoteAgentClient:
         if name not in clients:
@@ -1908,6 +1921,133 @@ def create_console_app(registry: Registry | None = None):
         if not sub:
             return False
         return bool(identity.load_users().get(sub, {}).get("reviewer"))
+
+    async def _customer_memory_snapshot(customer_key: str, trace_id: str):
+        from interop.memory import GENERATION_CATEGORY, MemoryClient, SAVED_CATEGORIES
+        from interop.memory_adapter import CASE_MEMORY_AGENT
+
+        owner = customer_memory_owner(customer_key)
+        mem = MemoryClient(source="console-memory-management")
+        try:
+            listings = {}
+            for category in (*SAVED_CATEGORIES, GENERATION_CATEGORY):
+                listings[category] = await mem.list_memories(
+                    trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner, category=category
+                )
+            return owner, listings
+        finally:
+            await mem.aclose()
+
+    def _safe_memory_snapshot(customer_key: str, trace_id: str, listings: dict) -> dict:
+        from interop.memory import GENERATION_CATEGORY, SAVED_CATEGORIES, select_generation
+
+        marker, malformed = select_generation(listings[GENERATION_CATEGORY])
+        return {
+            "customer": customer_key,
+            "trace_id": trace_id,
+            "complete": all(item.complete for item in listings.values()),
+            "generation": marker,
+            "generation_invalid": malformed,
+            "memories": [
+                {"category": category, "memory_id": entry.memory_id, "content": entry.content}
+                for category in SAVED_CATEGORIES
+                for entry in listings[category].entries
+            ],
+        }
+
+    @app.get("/api/memory/customer/{customer_key}")
+    async def list_customer_memory(customer_key: str, request: Request):
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="customer memory requires a named operator")
+        trace_id = new_trace_id()
+        try:
+            _, listings = await _customer_memory_snapshot(customer_key, trace_id)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"memory listing failed: {exc}") from None
+        return _safe_memory_snapshot(customer_key, trace_id, listings)
+
+    @app.post("/api/memory/customer/{customer_key}")
+    async def manage_customer_memory(customer_key: str, request: Request):
+        from interop.memory import (
+            GENERATION_CATEGORY,
+            MemoryCallError,
+            MemoryClient,
+            SAVED_CATEGORIES,
+            new_generation_marker,
+        )
+        from interop.memory_adapter import CASE_MEMORY_AGENT
+
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="customer memory requires a named operator")
+        body = await request.json()
+        action = str(body.get("action") or "")
+        if action not in {"delete", "fresh"}:
+            raise HTTPException(status_code=400, detail="action must be delete or fresh")
+        trace_id = new_trace_id()
+        owner, listings = await _customer_memory_snapshot(customer_key, trace_id)
+        if not all(item.complete for item in listings.values()):
+            raise HTTPException(status_code=409, detail="memory listing is incomplete; reset refused")
+        allowed = {
+            (category, entry.memory_id)
+            for category in SAVED_CATEGORIES
+            for entry in listings[category].entries
+        }
+        requested = {
+            (str(item.get("category") or ""), str(item.get("memory_id") or ""))
+            for item in body.get("memories", []) if isinstance(item, dict)
+        }
+        if action == "delete" and (not requested or not requested <= allowed):
+            raise HTTPException(status_code=400, detail="selection is empty or no longer governed")
+
+        mem = MemoryClient(source="console-memory-management")
+        try:
+            async def delete_ids(category: str, ids: list[str]) -> None:
+                if not ids:
+                    return
+                try:
+                    await mem.delete_memories(
+                        trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
+                        category=category, memory_ids=ids
+                    )
+                except MemoryCallError as exc:
+                    if exc.status != 404:
+                        raise
+                    current = await mem.list_memories(
+                        trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner, category=category
+                    )
+                    remaining = [
+                        entry.memory_id for entry in current.entries if entry.memory_id in ids
+                    ]
+                    if remaining:
+                        await mem.delete_memories(
+                            trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
+                            category=category, memory_ids=remaining
+                        )
+
+            if action == "fresh":
+                marker = new_generation_marker()
+                created = await mem.create_memories(
+                    trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
+                    category=GENERATION_CATEGORY, contents=[marker]
+                )
+                requested = allowed
+                old_marker_ids = [entry.memory_id for entry in listings[GENERATION_CATEGORY].entries]
+            else:
+                created = None
+                old_marker_ids = []
+            for category in SAVED_CATEGORIES:
+                ids = [memory_id for cat, memory_id in requested if cat == category]
+                await delete_ids(category, ids)
+            await delete_ids(GENERATION_CATEGORY, old_marker_ids)
+        finally:
+            await mem.aclose()
+        _, after = await _customer_memory_snapshot(customer_key, trace_id)
+        result = _safe_memory_snapshot(customer_key, trace_id, after)
+        result["action"] = action
+        result["ok"] = result["complete"] and (
+            action == "delete" or (not result["memories"] and created is not None)
+        )
+        return result
 
     @app.post("/api/insights/{insight_id}/review")
     async def review_insight(insight_id: str, request: Request):

@@ -70,6 +70,11 @@ scenarios:
       customer profile × category. Claude and OpenAI remain execution/provenance participants,
       while episodic conversation/session access and Data 360 governance still apply. A custom
       Case real-time data graph is a future enhancement and is not attached in this experiment.
+
+      CURATION. Operators can inspect and permanently delete this selected customer's curated
+      facts/preferences. Start fresh also advances the demo to a tenant-backed conversation
+      generation so retained earlier summaries are no longer supplied. It does not erase Data 360
+      conversation history; normal governance and retention still apply (D107).
     target: claude-rest
     via_bridge: false
     status: live
@@ -136,6 +141,10 @@ scenarios:
       customer profile × category. Claude and OpenAI remain execution/provenance participants,
       while episodic conversation/session access and Data 360 governance still apply. A custom
       Case real-time data graph is a future enhancement and is not attached in this experiment.
+
+      CURATION. The same selected-customer management panel applies here. Permanent semantic-memory
+      deletion and Start fresh affect the shared customer scope, while retained historical
+      conversations remain governed in Data 360 and are not claimed erased (D107).
     target: openai-rest
     via_bridge: false
     status: live

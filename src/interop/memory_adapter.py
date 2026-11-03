@@ -48,7 +48,18 @@ from collections import OrderedDict
 from typing import Any
 
 from interop.adapter import AgentAdapter
-from interop.memory import MemoryClient, open_and_read, owner_conversation, redact, write_turn
+from interop.memory import (
+    GENERATION_CATEGORY,
+    MemoryCallError,
+    MemoryClient,
+    MemoryListing,
+    generation_conversation,
+    open_and_read,
+    owner_conversation,
+    redact,
+    select_generation,
+    write_turn,
+)
 from interop.models import AgentRequest, AgentResponse
 
 # Both platforms use one domain-level memory-service identity. Claude and
@@ -99,11 +110,13 @@ def owner_of(req: AgentRequest) -> str | None:
     return owner.strip() if isinstance(owner, str) and owner.strip() else None
 
 
-def _derived_session(agent_id: str, owner_id: str, session_id: str) -> str:
+def _derived_session(agent_id: str, owner_id: str, session_id: str, conversation_id: str) -> str:
     """One memory session per (agent, owner, lab session), inside the owner's
     one conversation (D94), stable across restarts — start_conversation treats
     409 as success, so a restarted face resumes it."""
-    digest = hashlib.sha256(f"{agent_id}\0{owner_id}\0{session_id}".encode()).hexdigest()
+    digest = hashlib.sha256(
+        f"{agent_id}\0{owner_id}\0{conversation_id}\0{session_id}".encode()
+    ).hexdigest()
     return f"a2alab-{digest[:24]}"
 
 
@@ -140,7 +153,7 @@ class MemoryAdapter:
             else float(os.environ.get(BUDGET_ENV, DEFAULT_BUDGET_S))
         )
         # (owner, lab session) -> an OPENED memory session
-        self._sessions: OrderedDict[tuple[str, str], str] = OrderedDict()
+        self._sessions: OrderedDict[tuple[str, str, str], str] = OrderedDict()
 
     def __getattr__(self, attr: str):
         # Anything else the protocol servers look for on an adapter
@@ -155,7 +168,7 @@ class MemoryAdapter:
             _shared = MemoryClient(source="memory-adapter")
         return _shared
 
-    def _remember(self, key: tuple[str, str], sid: str) -> None:
+    def _remember(self, key: tuple[str, str, str], sid: str) -> None:
         self._sessions[key] = sid
         self._sessions.move_to_end(key)
         while len(self._sessions) > _MAX_SESSIONS:
@@ -184,20 +197,51 @@ class MemoryAdapter:
         trace_id = req.trace_id or ""
         ids = {"agent_id": self.agent_id, "owner_id": owner}
 
-        known = self._sessions.get((owner, req.session_id)) if req.session_id else None
+        conversation_id = owner_conversation(owner)
+        generation = None
+        generation_error = None
+        if isinstance((req.metadata or {}).get("memory_customer"), str):
+            try:
+                listing, generation_errors = await self._bounded(
+                    mem.list_memories(trace_id, category=GENERATION_CATEGORY, **ids),
+                    "generation read",
+                )
+                if generation_errors:
+                    generation_error = "; ".join(generation_errors)
+                if isinstance(listing, MemoryListing):
+                    generation, malformed = select_generation(listing)
+                    if malformed:
+                        generation_error = "invalid customer-memory generation marker"
+                    elif generation:
+                        conversation_id = generation_conversation(owner, generation)
+            except MemoryCallError as exc:
+                generation_error = str(exc)
+        if generation_error:
+            resp = await self.inner.handle(req)
+            meta = dict(resp.metadata or {})
+            meta["memory"] = {
+                "agent_id": self.agent_id, "owner_id": owner, "ok": False,
+                "error": generation_error, "customer_key": (req.metadata or {}).get("memory_customer"),
+            }
+            return dataclasses.replace(resp, metadata=meta)
+
+        cache_key = (owner, conversation_id, req.session_id) if req.session_id else None
+        known = self._sessions.get(cache_key) if cache_key else None
         sid = known or (
-            _derived_session(self.agent_id, owner, req.session_id) if req.session_id else None
+            _derived_session(self.agent_id, owner, req.session_id, conversation_id)
+            if req.session_id else None
         )
         t0 = time.perf_counter()
         opened, read_errors = await self._bounded(
-            open_and_read(mem, trace_id, session_id=sid, start=not known, **ids), "read"
+            open_and_read(mem, trace_id, session_id=sid, start=not known,
+                          conversation_id=conversation_id, **ids), "read"
         )
         context = ""
         if opened is not None:
             sid, context, read_errors = opened
         read_ms = int((time.perf_counter() - t0) * 1000)
         if sid and req.session_id and not read_errors:
-            self._remember((owner, req.session_id), sid)
+            self._remember(cache_key, sid)
 
         sent = (
             dataclasses.replace(req, message=_with_context(req.message, context))
@@ -208,6 +252,7 @@ class MemoryAdapter:
 
         t1 = time.perf_counter()
         write_errors: list[str] = []
+        normalized = False
         if sid:
             written, overrun = await self._bounded(
                 write_turn(
@@ -216,16 +261,20 @@ class MemoryAdapter:
                     session_id=sid,
                     user_message=req.message,
                     agent_response=resp.text or None,
+                    conversation_id=conversation_id,
                     **ids,
                 ),  # fmt: skip
                 "ingest",
             )
-            write_errors += overrun or written or []
+            if overrun:
+                write_errors += overrun
+            elif written:
+                write_errors, normalized = written
         ingest_ms = int((time.perf_counter() - t1) * 1000)
         # A first turn with no session: the inner agent minted one, and the next
         # turn arrives carrying it — follow it to the session just opened.
         if sid and not req.session_id and resp.session_id and not (read_errors or write_errors):
-            self._remember((owner, resp.session_id), sid)
+            self._remember((owner, conversation_id, resp.session_id), sid)
 
         errors = [*read_errors, *write_errors]
         customer_key = (req.metadata or {}).get("memory_customer")
@@ -233,7 +282,8 @@ class MemoryAdapter:
         meta["memory"] = {
             "agent_id": self.agent_id,
             "owner_id": owner,
-            "conversation_id": owner_conversation(owner),
+            "conversation_id": conversation_id,
+            "generation": generation,
             "session_id": sid,
             "context_chars": len(context),
             "context_preview": redact(context)[:360] if context else "",
@@ -242,6 +292,7 @@ class MemoryAdapter:
             "read_ms": read_ms,
             "ingest_ms": ingest_ms,
             "stored": bool(sid) and not write_errors,
+            "normalized": normalized,
             "customer_key": customer_key if isinstance(customer_key, str) else None,
             "ok": not errors,
             **({"error": "; ".join(errors)} if errors else {}),

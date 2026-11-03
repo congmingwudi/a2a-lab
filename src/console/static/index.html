@@ -604,6 +604,12 @@
   .chan-row .qhelp:focus-visible .qpop { opacity: 1; visibility: visible; }
   .chan-row .chan-more { flex-basis: 100%; color: var(--muted); font-size: 11px; }
   .chan-row .chan-more a { color: var(--muted); text-decoration: underline; cursor: pointer; }
+  .memory-manager { flex-basis: 100%; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; background: var(--surface); }
+  .memory-manager-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .memory-manager-list { display: grid; gap: 6px; max-height: 240px; overflow: auto; }
+  .memory-manager-list label { align-items: flex-start; font-size: 12px; line-height: 1.35; }
+  .memory-manager-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
   /* requires_mode gate — the run is refused in the wrong deployment mode */
   .mode-notice { padding: 9px 16px; border-top: 1px solid var(--border); font-size: 12.5px;
@@ -1824,6 +1830,7 @@ let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
 let memoryModes = {};     // key -> "off" | "on" (WS27/D91 per-run Agentic Memory radio)
 let selectedMemoryCustomer = "maya"; // shared across the teach → recall story
+let memoryManagers = {};   // customer -> {open, loading, memories, selected:Set, error, trace_id}
 let fanoutMemoryModes = {};   // key -> "off" | "seed" | "recall" (D102)
 let fanoutMemoryReaders = {}; // key -> "coordinator" | "specialists" | "both"
 let fanoutMemoryCases = {};   // key -> display label; server derives opaque id from JWT owner
@@ -4610,9 +4617,99 @@ function memoryCustomerRowHtml(exp) {
     </select></label>
     <span class="badge agentforce">${esc(c.name)}</span>
     <span>${esc([c.title, c.company].filter(Boolean).join(" · "))}</span>
+    <button class="ghost" onclick="toggleMemoryManager()"
+      ${labUser && labUser.role === "viewer" ? "disabled" : ""}>Manage memories</button>
     <span class="chan-more">Unified Data 360 profile · ${esc(c.email || "")}</span>
+    ${memoryManagerHtml(selectedMemoryCustomer, c)}
   </div>`;
 }
+
+function memoryManagerState(key) {
+  return memoryManagers[key] || (memoryManagers[key] = {
+    open: false, loading: false, complete: true, memories: [], selected: new Set(), error: "", trace_id: "",
+  });
+}
+
+function memoryManagerHtml(key, customer) {
+  const state = memoryManagerState(key);
+  if (!state.open) return "";
+  const rows = state.memories.length
+    ? state.memories.map((m, i) => `<label><input type="checkbox" ${state.selected.has(i) ? "checked" : ""}
+        onchange="toggleMemorySelection(${i}, this.checked)">
+        <span><b>${esc(m.category.includes("PREFERENCES") ? "Preference" : "Fact")}</b> · ${esc(m.content)}</span></label>`).join("")
+    : `<span class="hint">${state.loading ? "Loading…" : "No curated facts or preferences."}</span>`;
+  return `<div class="memory-manager" aria-label="Manage memories for ${esc(customer.name || key)}">
+    <div class="memory-manager-head"><b>Managing memories for ${esc(customer.name || key)}</b>
+      <span class="spacer"></span><button class="ghost" onclick="loadMemoryManager()" ${state.loading ? "disabled" : ""}>Refresh</button></div>
+    ${state.error ? `<div class="error">${esc(state.error)}</div>` : ""}
+    <div class="memory-manager-list">${rows}</div>
+    <div class="memory-manager-actions">
+      <button class="ghost" onclick="deleteSelectedMemories()" ${state.loading || !state.selected.size ? "disabled" : ""}>Delete selected</button>
+      <button class="ghost" onclick="startFreshMemory()" ${state.loading || !state.complete ? "disabled" : ""}>Start fresh for ${esc(customer.name || key)}</button>
+      ${state.trace_id ? `<span class="hint">trace ${esc(state.trace_id)}</span>` : ""}
+    </div>
+    <div class="hint">Deletion is permanent. Start fresh deletes curated facts/preferences and moves this demo to a new conversation; retained Data 360 conversation history is not erased.</div>
+  </div>`;
+}
+
+window.toggleMemoryManager = async () => {
+  const state = memoryManagerState(selectedMemoryCustomer);
+  state.open = !state.open;
+  renderMain(true);
+  if (state.open && !state.memories.length) await loadMemoryManager();
+};
+window.toggleMemorySelection = (index, checked) => {
+  const state = memoryManagerState(selectedMemoryCustomer);
+  checked ? state.selected.add(index) : state.selected.delete(index);
+  renderMain(true);
+};
+window.loadMemoryManager = async () => {
+  const key = selectedMemoryCustomer, state = memoryManagerState(key);
+  state.loading = true; state.error = ""; renderMain(true);
+  try {
+    const r = await fetch(apiUrl(`/api/memory/customer/${encodeURIComponent(key)}`));
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+    state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
+    state.complete = data.complete !== false;
+    if (!state.complete) state.error = "Data 360 returned an incomplete list; reset is disabled.";
+  } catch (e) { state.error = String(e.message || e); }
+  state.loading = false; renderMain(true);
+};
+async function mutateCustomerMemory(action, memories) {
+  const key = selectedMemoryCustomer, state = memoryManagerState(key);
+  state.loading = true; state.error = ""; renderMain(true);
+  try {
+    const r = await fetch(apiUrl(`/api/memory/customer/${encodeURIComponent(key)}`), {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({action, memories}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+    state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
+    if (!data.ok) state.error = "The operation was partial; remaining memories are shown.";
+    if (action === "fresh" && data.ok) {
+      for (const chatKey of Object.keys(chatArchives)) {
+        if (chatKey.includes("customer-memory-claude") || chatKey.includes("customer-memory-openai")) {
+          delete chatArchives[chatKey];
+        }
+      }
+      resetChat();
+    }
+  } catch (e) { state.error = String(e.message || e); }
+  state.loading = false; renderMain(true);
+}
+window.deleteSelectedMemories = async () => {
+  const state = memoryManagerState(selectedMemoryCustomer);
+  const memories = [...state.selected].map(i => state.memories[i]).filter(Boolean);
+  if (!memories.length || !confirm(`Permanently delete ${memories.length} selected memories?`)) return;
+  await mutateCustomerMemory("delete", memories);
+};
+window.startFreshMemory = async () => {
+  const c = memoryCustomer();
+  if (!confirm(`Permanently delete all curated memories for ${c?.name || selectedMemoryCustomer} and start a fresh experiment?`)) return;
+  await mutateCustomerMemory("fresh", []);
+};
 
 window.setFanoutMemoryMode = m => {
   if (!view || view.type !== "experiment") return;

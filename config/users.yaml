@@ -45,8 +45,8 @@ users:
     role: viewer
   memprobe:
     # WS27/D93: the memory owner for recall tests (owner id a2alab-memprobe).
-    # Agentic Memory has no delete short of deleting the agent registration, so
-    # a test fact written for a real persona stays in that persona for good.
+    # D107's Memory Management seam can now delete selected profile memories;
+    # this synthetic owner remains the safe target for lifecycle/content probes.
     # Tokens are minted locally (identity.issue_token); the faces verify only
     # the signature, so this entry needs no image rebuild.
     name: Memory Probe
