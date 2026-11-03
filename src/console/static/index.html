@@ -3315,7 +3315,7 @@ permission prompt, so a tool evaluated as "ask" stalls the session indefinitely 
 ### What it analyses, and where the brief lands
 
 The harvested execution logs in \`lab.obs_sessions\` and \`lab.obs_events\` — sessions, turns, tool calls,
-token usage and errors from all six platforms. This is the telemetry of what the **experiments** did.
+token usage and errors from all seven agent platforms harvested by the default sweep (Agentforce, Claude, OpenAI, ADK, Foundry, Strands and, since D77, LangGraph via LangSmith; the coding-agent and infra sources are not platform columns). This is the telemetry of what the **experiments** did.
 
 Briefs are written to \`lab.obs_briefs\` with \`kind='observability'\`. The cost sentinel writes to the same
 table with a different kind; each tab shows only its own.
@@ -3355,7 +3355,8 @@ on Aurora Postgres, which is the source of truth for everything on this page (D4
 - **Microsoft Foundry** — KQL over App Insights \`gen_ai\` spans
 - **AWS Strands (Bedrock AgentCore)** — AWS/Bedrock CloudWatch meters (Input/OutputTokenCount, Invocations, InvocationLatency) plus the AgentCore runtime access log; one session per deployed runtime (D67)
 - **LangGraph (LangSmith)** — the LangSmith runs API (LangGraph's framework-native trace store): one session per turn with its run tree — the LLM and tool child runs as events, tokens/latency/model rolled up (WS4/D77)
-- **coding** — CloudWatch metrics for the agents that build the lab (WS9), surfaced in its own section
+- **coding** — CloudWatch OTLP metrics (cost/tokens) for the agents that build the lab (WS9), surfaced in its own section
+- **coding-logs** — the behavioural OTLP log signal (edit-acceptance, tool mix, latency) read from the \`/a2alab/coding-agents/otlp\` log group (WS16/D59), surfaced in the same Coding Agents Telemetry section
 
 ### What limits what you see here
 
@@ -5673,6 +5674,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
   ST --> HARV
   LG --> HARV
   CD --> HARV
+  CDL --> HARV
   HARV --> S
   HARV --> E
   HARV --> H
@@ -5699,8 +5701,10 @@ const OTEL_TRACE_DIAGRAM = `flowchart LR
   API -.->|"same record,<br/>pre-joined"| D360
   DMO -.->|"same record,<br/>assembled by hand"| D360`;
 
-// WS22 / Track B: the SRE sibling of OBS_HARVEST above. Same harvest Lambda and
-// same schedule, but the sources are each cloud's NATIVE runtime metrics (not the
+// WS22 / Track B: the SRE sibling of OBS_HARVEST above. Same harvest Lambda but
+// NOT the same schedule: the 6h EventBridge sweep sends {} and never includes
+// infra, so this is on demand (the Harvest button or `obs_harvest.py infra`).
+// The sources are each cloud's NATIVE runtime metrics (not the
 // agents' semantic logs) and the sink is lab.infra_metrics (a dense regular grid),
 // not obs_sessions/obs_events. The forecast runner is drawn dashed because it is
 // not built yet (plan/explore-moirai-timeseries-forecasting.md).
@@ -5714,7 +5718,7 @@ const INFRA_DIAGRAM = `flowchart TB
   CFG["config/infra_metrics.yaml<br/>(cloud, resource, metric) + native query<br/>\${VAR} expansion — no id in the repo"]
   SEC["Secrets Manager a2alab/obs/harvest<br/>GCP service-account key · Azure ARM token"]
 
-  SCHED["EventBridge Scheduler / Harvest button<br/>infra group — opt-in, NOT in the sweep"]
+  SCHED["Harvest button (POST /api/obs/harvest?platform=infra)<br/>or scripts/obs_harvest.py infra — on demand only<br/>NOT the 6h EventBridge sweep (its input is {})"]
   HARV["Lambda a2alab-obs-harvest<br/>infra_source.py — deterministic pulls, no LLM<br/>each series skipped-with-reason if unresolved"]
 
   subgraph AUR["Aurora Postgres — lab schema (source of truth, D49)"]
@@ -5816,8 +5820,8 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
   CW --> HARV
   HARV --> PG
 
+  MCP["a2alab-obs-mcp<br/>Lambda + API Gateway (AWS)<br/>query_obs_store + save_brief"]
   subgraph ANT["Anthropic — Managed Agents"]
-    MCP["obs MCP server<br/>query_obs_store + save_brief"]
     AG["Cost Sentinel<br/>daily deployment (07:00 ET)"]
     AG -->|read-only SQL| MCP
     AG -->|save_brief kind=cost| MCP
@@ -6901,8 +6905,8 @@ const MON_DIAGRAM = `flowchart LR
 
   subgraph AWS["AWS — us-east-1 (the console on Fargate)"]
     PX["/api/track proxy<br/>stamps persona from JWT,<br/>country from CF-IPCountry"]
-    PG[("Aurora Postgres<br/>lab.usage_events<br/>write: lab_writer")]
-    DASH["/api/monitoring<br/>A2A Lab Monitoring dashboard<br/>read: lab_reader"]
+    PG[("Aurora Postgres<br/>lab.usage_events<br/>read+write: lab_writer")]
+    DASH["/api/monitoring<br/>A2A Lab Monitoring dashboard<br/>read: lab_writer (single console secret, D46)"]
     PX -->|"INSERT one PII-free row"| PG
     PG -->|"SELECT aggregates"| DASH
   end
@@ -7337,8 +7341,11 @@ function infraDetailsHtml() {
 A **harvest** pulls the lab's own cross-cloud runtime telemetry into one store.
 The three sources live in \`src/observability/infra_source.py\` — \`AwsInfraSource\`,
 \`GcpInfraSource\`, \`AzureInfraSource\` — and run behind the \`infra\` group alias, either
-from \`scripts/obs_harvest.py infra\`, the Harvest button (POST
-\`/api/obs/harvest?platform=infra\`), or the 6-hourly harvest Lambda.
+from \`scripts/obs_harvest.py infra\` (locally), or the Harvest button (POST
+\`/api/obs/harvest?platform=infra\`), which hands the \`infra\` group to the harvest Lambda
+\`a2alab-obs-harvest\` as an async invoke (D54). That is the same function the 6-hourly EventBridge
+schedule fires, but the schedule sends an empty event, so its sweep never includes infra
+(plan/09-deployment-map.md).
 It is **opt-in and NOT in the unqualified sweep**: infrastructure is not an agent-platform
 column, the same reason the coding-agent telemetry is reachable by name only.
 
@@ -7351,7 +7358,7 @@ resolves to empty is **skipped with a reason** (status \`blocked\`), so a partly
 estate degrades honestly rather than erroring the whole pass. No account id, ARN or project
 id is written in the config.
 
-- **AWS** — CloudWatch \`GetMetricData\` over the lab's AWS session (the one human login).
+- **AWS** — CloudWatch \`GetMetricData\` signed by the harvest Lambda's execution role when run from the Harvest button (the \`cloudwatch:GetMetricData\` grant, owned by \`deploy/obs/deploy_harvest.sh\`), or by the operator's AWS session when run locally with \`scripts/obs_harvest.py infra\`.
   Fargate (console, bridge), Aurora Serverless v2, and the harvest Lambda.
 - **GCP** — Cloud Monitoring time series for Vertex AI Agent Engine, read with the
   service-account credential from the \`a2alab/obs/harvest\` Secrets Manager secret
@@ -7836,8 +7843,8 @@ function credsDetailsHtml() {
 
     <div class="arch-prose">
       <p><b>The half that unlocked it has shipped.</b> Collection already runs off the laptop — in
-      the 6-hourly harvest Lambda (WS14), reading IAM and ACM directly and reaching Entra and GCP
-      through the federation the lab already runs (D40/D41), landing the dates in a store
+      the 6-hourly harvest Lambda (WS14), reading IAM and ACM as the Lambda's own role and reaching Entra and GCP
+      with the service identities in the harvest secret (the Entra service principal's client secret and the GCP service-account key, from Secrets Manager, D39), landing the dates in a store
       (<code>lab.lab_state</code>) on a schedule. So the analyst no longer needs a person for its
       <i>data</i>; two things still stand between here and a scheduled deployment: a
       <code>read_expiry</code> tool on the obs MCP server, and turning the analyst into a paused
@@ -7848,7 +7855,7 @@ function credsDetailsHtml() {
       the metrics key expired three days ago" is a join a prompt cannot do but a tool over the obs
       store can.</p>
       <p><b>What it would cost, and why it has not been done:</b> an MCP <code>read_expiry</code>
-      tool and a scheduled Managed Agent — the Lambda, its task role and the federation bindings
+      tool and a scheduled Managed Agent — the Lambda, its execution role and the harvest secret's Entra and GCP identities
       already exist from WS14, so this is smaller than it once was, for a lab whose credential set
       changes a few times a year. There is also a boundary to be careful about: the obs MCP server
       is internet-reachable, so exposing expiry data through it means publishing <i>which secrets

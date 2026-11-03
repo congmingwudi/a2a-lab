@@ -22,7 +22,7 @@ artifacts. Read down until you have the detail you need, then stop.
 - **L2** — Path A end to end: Salesforce reaches out
 - **L3** — Path B end to end: the platforms reach into Salesforce
 - **L4** — identity: who authenticates as what, and which way federation runs
-- **L5** — observability: five interiors, one store
+- **L5** — observability: seven interiors, one store
 - **L5.5** — DNS: the five public hostnames, and what each one is for
 - **L5.7** — scheduled and long-running processes (the async inventory)
 - **L5.8** — the cross-region Zero Copy path: data residency and a real latency measurement
@@ -634,7 +634,7 @@ working without it.
 
 ---
 
-## L5 — Observability: six interiors, one store
+## L5 — Observability: seven interiors, one store
 
 ```mermaid
 flowchart LR
@@ -645,6 +645,7 @@ flowchart LR
     S4["Cloud Logging"]
     S5["App Insights"]
     S8["AWS/Bedrock meters<br/>+ AgentCore access log<br/>(strands, WS5/D67)"]
+    S9["LangSmith run trees<br/>(langgraph, WS4/D77)"]
   end
   subgraph CODE["Coding agents — NOT a platform"]
     S6["Claude Code + Codex + Cursor + Kiro<br/>METRICS to CloudWatch<br/>(coding; Cursor via cursorscope, Kiro via .kiro/hooks)"]
@@ -657,13 +658,14 @@ flowchart LR
   S4 --> HARV2
   S5 --> HARV2
   S8 --> HARV2
+  S9 --> HARV2
   S6 --> HARV2
   S7 --> HARV2
   HARV2 --> PG[("Aurora — hosted store")]
   HARV2 --> LITE[("traces/lab.db — local")]
   PG --> CONSOLE["Console: Observability<br/>+ Coding Agents Telemetry"]
   LITE --> CONSOLE
-  PG --> ANALYST["Hosted analyst agent<br/>nightly, reads via a2alab-obs-mcp"]
+  PG --> ANALYST["Obs analyst (D23)<br/>on demand — paused cron, Analyze button<br/>reads via a2alab-obs-mcp, brief kind=observability"]
   PG --> SENT["Cost sentinel (WS12)<br/>daily, same MCP server<br/>brief kind=cost"]
   PG -. "Zero Copy, 5432/TLS<br/>as lab_reader (WS19/D69)" .-> DC["Salesforce Data 360<br/>+ Tableau Next<br/>(eu-central-1 tenant)"]
   OTLIVE["Agentforce Session Trace<br/>OTel API (beta, WS23/D73)"] -. "LIVE per-request read<br/>/api/obs/otel-trace<br/>(never written to the store)" .-> CONSOLE
@@ -675,7 +677,7 @@ offline-capable, and shows the same thing twice. The one deliberate live proxy i
 the WS23/D73 **Session Trace** tab, which reads the beta Agentforce Session Trace
 OTel API per request (`/api/obs/otel-trace` → `SalesforceOtelSource.fetch_trace`,
 a live `GET …/einstein/audit/otel/{session-id}`) and **never** writes the store —
-so the six harvested interiors are cached, and that one tab alone is a live read.
+so the seven harvested interiors are cached, and that one tab alone is a live read.
 
 **The one deliberate exclusion.** `coding` and `coding-logs` share the harvest
 seam and the store but are **not** columns in the coverage panel. Every column
@@ -720,11 +722,15 @@ yet, switch the exporters on" status, so empty and forbidden look identical.
 **The store now holds two things that are not telemetry**, both because a hosted
 console cannot read a laptop's filesystem (WS13):
 
-- `lab.lab_state` — key/value, for operator artifacts the console *renders* but
-  cannot *produce*. The credential expiry snapshot lives here: collecting it
-  needs the operator's own AWS/az/gcloud sessions, so it can never run in the
-  container. `scripts/expiry_report.py --write` publishes to both the file and
-  the store; the console reads the store first.
+- `lab.lab_state` — key/value, for artifacts the console *renders* but does not
+  *produce*. The credential expiry snapshot lives here. Since WS14 the 6-hourly
+  `a2alab-obs-harvest` Lambda writes it on every full sweep (`_refresh_expiry` in
+  `src/observability/lambda_handlers.py`, running the same
+  `scripts/expiry_report.py` that `deploy/obs/build_zips.sh` bundles). It
+  authenticates as the function's service identities (the GCP key, the Entra app
+  secret, and its role's `a2alab-obs-expiry` IAM/ACM grant), not anyone's login.
+  `scripts/expiry_report.py --write` is still a manual refresh path: it writes
+  `.a2alab/expiry.json` and the store. The console reads the store first.
 - `lab.fanout_tasks` — the durable half of A2A fire-then-poll (WS11/D47). On a
   function runtime, in-memory task state is per-instance and background work is
   frozen between invocations, so a submit/check pair that keeps state in the
@@ -918,7 +924,7 @@ flowchart LR
     BW["a2alab-briefs<br/>poll every 60s"]
   end
   subgraph WORK["What they drive"]
-    HARV["Lambda a2alab-obs-harvest<br/>8 sources -> Aurora"]
+    HARV["Lambda a2alab-obs-harvest<br/>9 sources (7 platforms + 2 coding) -> Aurora"]
     BRIEF["Brief agent session<br/>-> Salesforce record"]
     ANLY["Obs analyst -> lab.obs_briefs"]
     COST["Cost sentinel -> lab.obs_briefs"]
@@ -1071,7 +1077,7 @@ flowchart LR
   R12 -->|"deploy/agentcore/deploy.sh strands"| D12["AgentCore a2alab_strands"]
   R4 -->|"deploy/shim/build_zip.sh + deploy_shim.sh"| D4["Lambda a2alab-af-shim"]
   R5 -->|"deploy/fanout/build_zip.sh + deploy_fanout.sh"| D5["Lambda a2alab-fanout-mcp"]
-  R6 -->|"deploy/obs/build_zips.sh + deploy_harvest.sh"| D6["Lambdas obs-harvest + obs-mcp"]
+  R6 -->|"deploy/obs/build_zips.sh + deploy_harvest.sh / expose_mcp.sh"| D6["Lambdas obs-harvest + obs-mcp"]
   R7 -->|"deploy/adk/deploy_adk.py"| D7["Agent Engine x3"]
   R8 -->|"deploy/foundry/provision_foundry.py"| D8["Foundry agents"]
   R9 -->|"deploy/console/deploy_console.sh"| D9["ECS service a2alab-console<br/>(rule on the bridge ALB)"]
@@ -1130,7 +1136,7 @@ flowchart LR
 | `.kiro/hooks/` + `scripts/kiro_otel.sh` | `kiro_otel.sh` (once, per credential rotation) | Kiro has no native exporter — a stateless per-hook forwarder posts OTLP JSON **directly** to the CloudWatch managed metrics endpoint (no ingestor, unlike Cursor's cursorscope; read by `coding` as `tool=kiro`, WS5/D67). **Delta** Sums — sessions/tools/file-ops only, no cost/token (hooks don't expose them) | laptop → AWS |
 | `scripts/setup_cw_logs_otlp.py` + `scripts/claude_otel.sh` | `setup_cw_logs_otlp.py --apply` (once) | `logs.amazonaws.com` service credential + CloudWatch **log group** `/a2alab/coding-agents/otlp` (bearer auth) + token in Secrets Manager `a2alab/telemetry/cw-logs-api-key`; the launch wrapper exports Claude Code's **log** events there (read by `coding-logs`, WS16) | laptop → AWS |
 | `.env` (gitignored) | `scripts/env_sync.py push` | Secrets Manager secret `A2ALAB_ENV_SECRET` — every platform credential, the account ids, the project ids | AWS |
-| `scripts/credential_analyst.py` | — (no deploy step) | **Nothing hosted** — one `messages.create` per run, started by a person | laptop → Anthropic API |
+| `scripts/credential_analyst.py` | — (no deploy step) | **No dedicated hosted component** — one `messages.create` per run, started by a person: either the console's operator-only Analyze button (`POST /api/credentials/analyze` runs the script as a subprocess inside the hosted console's Fargate task — `scripts/` is in the image via `COPY scripts`, and `ANTHROPIC_API_KEY` is in the task secret) or the CLI on a laptop. Collection (`expiry_report.collect()`) is server-side in the 6-hourly harvest Lambda (WS14) | console Fargate (AWS — us-east-1) or laptop → Anthropic API |
 | `scripts/setup_cost_sentinel.py`, `scripts/cost_sentinel.py` | `setup_cost_sentinel.py` | Managed Agent "A2ALab Cost Sentinel" + daily scheduled deployment (`0 7 * * *` America/New_York — shipped weekly-and-paused, moved to daily and resumed 2026-07-30, D44) + its own vault on the obs MCP server | Anthropic |
 
 **What is still on the laptop, and whether that is a problem:**

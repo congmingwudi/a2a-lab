@@ -120,6 +120,52 @@ the plain env, and nothing put it anywhere else (D53).
 
 ---
 
+## Rotate the coding-agent telemetry key
+
+The CloudWatch metrics API key behind WS9 build telemetry is an IAM
+service-specific credential. The first one, minted 2026-07-26, carried a 90-day
+expiry and died 2026-10-24. The CLI cannot set an expiry on a CloudWatch key
+(`--credential-age-days` is Bedrock-only), and the replacement minted with
+`scripts/rotate_cw_metrics_key.sh` on 2026-11-02 reports **no expiration** — so
+the 90 days was a choice made when the first key was created (most likely the
+console), not an AWS limit. Rotate on suspicion of exposure, or if a key is ever
+minted with an expiry again.
+
+```sh
+scripts/rotate_cw_metrics_key.sh     # mint → Secrets Manager → verify → retire old
+# then restart claude/codex from scripts/claude_otel.sh / scripts/codex_otel.sh, and after
+# a few minutes of work:
+uv run python scripts/obs_harvest.py coding     # 'ok', not 'blocked'
+```
+
+Nothing on the laptop changes — `scripts/otel_headers.sh` and
+`scripts/codex_otel.sh` fetch the secret at launch. The script never prints the
+key, and leaves the old key in place if the new one fails verification. A fresh
+key is **not accepted immediately** — the first probe of the 2026-11-02 key got
+403 and the same key passed a minute later — so the script retries for ~90s. If
+it still fails, do NOT re-run it (IAM allows two keys per user per service, and
+each run mints one): re-probe, then delete the old key by id.
+
+**What an expired key looks like** — nothing errors. `otel_headers.sh` still
+returns a header (the token is readable, just dead), CloudWatch answers each
+export with `403 invalid API key` that no terminal shows, the harvest reports
+`blocked: no claude_code.* … metrics`, and the cost sentinel (WS12/D44) says
+*telemetry is stale, not quiet*. First check: `aws iam
+list-service-specific-credentials --user-name "$A2ALAB_CW_METRICS_USER"`.
+
+**Telemetry is not retroactive.** Metrics not accepted while the key was dead
+are gone. Behavioural logs ride a *separate*, non-expiring logs key
+(`scripts/setup_cw_logs_otlp.py`) and survive in the log group with no
+retention limit, so a coding-logs harvest with a wider window
+(`A2ALAB_CODING_LOGS_WINDOW_DAYS=30`) recovers those days.
+
+The hosted expiry report flags the key at 30 days — but only because the harvest
+Lambda carries `A2ALAB_CW_METRICS_USER` (`deploy/obs/deploy_harvest.sh`). Before
+2026-11-02 it did not, and an unset user produced *no entry* rather than an
+error, so the report read "0 expired" for nine days after the key died.
+
+---
+
 ## Deploy a code change vs a config change
 
 | Changed | Command | Why |
@@ -199,8 +245,12 @@ One pass is one-shot. To hold the lab warm for the length of a demo, wrap it in 
 **in the current session**, so it stops the moment you close the terminal. That is
 exactly right for a pre-demo/attended watch and exactly **wrong** for standing
 monitoring: an unattended, always-on watch is not this command's job. That job
-belongs to the scheduled deployments — the obs analyst (D23) and the cost sentinel
-(WS12/D44), EventBridge-fired Lambdas that run with no human present. Use `/loop`
+belongs to a schedule, not a session — the cost sentinel (WS12/D44) is an Anthropic
+Managed Agent on a cron-scheduled deployment that fires with no human present; the
+obs analyst (D23) has the same shape but its deployment is created PAUSED, so it
+runs only when someone presses Analyze or runs `scripts/obs_analysis.py run`. (The
+EventBridge-fired Lambda in this area is the 6-hourly obs harvest, which feeds
+both — see plan/09-deployment-map.md.) Use `/loop`
 when you are *there*; use a schedule when you are not.
 
 **What it actually does, and why it is a thin wrapper.** The console already knows
@@ -281,11 +331,13 @@ the code reading it is stale, which reads as a code bug. See the table above.
 
 **Two local-vs-hosted differences worth knowing**, both deliberate:
 
-- **The Harvest button sweeps in-process locally** and fires the Lambda when
-  hosted (D54). The local sweep covers four platforms and cannot do ADK at all
-  (no GCP key on the laptop's console), so treat a local harvest as a smoke
-  test of the UI, not of the harvest. Export `A2ALAB_HARVEST_FUNCTION` before
-  the script if you want to exercise the hosted path.
+- **The Harvest button fires the harvest Lambda everywhere, laptop included**
+  (D54). The console defaults `A2ALAB_HARVEST_FUNCTION` to `a2alab-obs-harvest`,
+  so a local console invokes the same hosted function asynchronously and the
+  result lands in Aurora. The in-process sweep is reachable only by setting
+  `A2ALAB_HARVEST_FUNCTION=""`, and it is not a working fallback: with `.env`'s
+  reader Aurora secret every write fails as read-only, and there is no GCP key,
+  so ADK fails. Use `uv run python scripts/obs_harvest.py` for a real local harvest.
 - **Trace writes go to local `traces/` jsonl**, while reads merge local files
   *and* Aurora — so a locally-fired run appears immediately and hosted runs
   appear alongside it. A dev run does not pollute the hosted trace store.

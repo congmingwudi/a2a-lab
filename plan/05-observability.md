@@ -167,13 +167,17 @@ platform APIs ──pull──►  harvester (src/observability/)  ──upsert�
   API session id (client + shims) — which STDM also sees —
   `ssot__TelemetryTraceId__c` on the SF side, OpenAI response ids (M9).
 - **Harvest-and-cache, not live-proxy.** A `PlatformLogSource` per platform
-  (`salesforce.py`, `anthropic.py`, `openai.py`) pulls into local tables
-  (`obs_sessions`, `obs_events`, keyed by platform + native id + lab ids
-  where joinable). Rationale: SF DMO ingestion lags minutes and costs
+  (`salesforce.py`, `anthropic.py`, `openai.py`) pulls into the obs
+  store (`obs_sessions`, `obs_events`, keyed by platform + native id + lab ids
+  where joinable; Aurora by default, see the next bullet). Rationale: SF DMO ingestion lags minutes and costs
   credits; CMA events vanish with the session; OpenAI responses expire in
   30 days. The store is the durable superset; the dashboard reads only the
-  store. Triggers: on-demand button per platform, `scripts/obs_harvest.py`
-  CLI, optional post-scenario hook.
+  store. Triggers: the hosted `a2alab-obs-harvest` Lambda on the EventBridge
+  Scheduler rule `a2alab-obs-harvest-6h` (`rate(6 hours)`, the default sweep:
+  seven platforms plus `coding`/`coding-logs`; the `infra` group is opt-in);
+  the console's Harvest button, which async-invokes that same Lambda (D54);
+  and `scripts/obs_harvest.py [source…]` from the CLI. A post-scenario hook
+  was considered and never built.
 - **Store = Aurora Postgres, source of truth (D23, D49).** Observability tables
   share the hosted `a2alab-obs` cluster with the PostgresSink trace hops, so
   timeline/drill-down joins are plain SQL. `observability.make_obs_store()` is
@@ -322,8 +326,10 @@ CloudWatch grant (from `coding`), and the GCP/Azure identities are the ones
   persistence is what covers the emit-time capture.
 - **M11.5 — observability analyst agent** (deferred until the store holds
   real multi-platform data — at minimum live STDM rows next to the CMA
-  harvest): a scheduled CMA deployment (D16 daily-brief pattern) that
-  *interprets* the harvested store nightly — run/failure counts, cold-start
+  harvest): a CMA deployment (D16 daily-brief pattern) that
+  *interprets* the harvested store. It is created with a `0 6 * * *` cron but
+  **paused** (`setup_obs_analyst.py` calls `deployments.pause`), so it runs on
+  demand only (console Analyze, or `scripts/obs_analysis.py run`) — run/failure counts, cold-start
   timeout clusters, token-spend anomalies ("scenario X looped on
   web_search"), trust-layer score dips, cross-platform latency comparison —
   and writes a short findings brief. Division of labor is the point and is
@@ -344,8 +350,10 @@ CloudWatch grant (from `coding`), and the GCP/Azure identities are the ones
   **Built 2026-07-17** (runbooks §8): Aurora `a2alab-obs` live with the
   local store backfilled; `a2alab-obs-mcp` + `a2alab-obs-harvest` Lambdas
   deployed (harvest on a 6h EventBridge schedule, verified end-to-end);
-  console gained Analyze + briefs feed. Remaining human steps:
-  `deploy/obs/expose_mcp.sh` then `setup_obs_analyst.py --recreate --run`.
+  console gained Analyze + briefs feed. `a2alab-obs-mcp` is exposed
+  via API Gateway (`deploy/obs/expose_mcp.sh`) and the analyst is provisioned
+  by `setup_obs_analyst.py` as a paused deployment, so it fires only on demand
+  (see the schedule table in plan/09-deployment-map.md and D56).
 
 ## References (research sources, verified 2026-07-17)
 

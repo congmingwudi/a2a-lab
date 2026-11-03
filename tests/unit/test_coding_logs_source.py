@@ -209,6 +209,28 @@ def test_parse_skips_non_json_and_unknown_events():
     assert rec and rec["event"] == "claude_code.user_prompt"
 
 
+def test_parse_accepts_unprefixed_event_name_from_current_claude_code():
+    # Wire shape since at least Claude Code 2.1.312 (sampled live 2026-10-29):
+    # `event.name` dropped its `claude_code.` prefix, which now appears only in
+    # `body`. The parser used to take the attribute first, see an unknown name,
+    # and skip EVERY record — 1,313 events in the window, 0 parsed, harvest
+    # "blocked" with logs sitting in the group.
+    msg = json.dumps(
+        {
+            "timeUnixNano": str(int(DAY.timestamp() * 1e9)),
+            "body": "claude_code.api_request",
+            "attributes": {"event.name": "api_request", "model": "m", "cost_usd": 0.5},
+        }
+    )
+    rec = CodingLogsSource._parse(msg)
+    assert rec and rec["event"] == "claude_code.api_request"
+    # An unprefixed name with no body still resolves.
+    bare = json.dumps({"attributes": {"event.name": "tool_result"}})
+    assert CodingLogsSource._parse(bare)["event"] == "claude_code.tool_result"
+    # And an unrecognised unprefixed name is still skipped.
+    assert CodingLogsSource._parse(json.dumps({"attributes": {"event.name": "hook_x"}})) is None
+
+
 def test_harvest_stores_aggregates_and_reports_rate():
     client = FakeLogsClient(
         [
@@ -232,6 +254,34 @@ def test_harvest_stores_aggregates_and_reports_rate():
     assert raw["aggregates"]["decisions"]["accept"] == 1
     # content-off is asserted structurally: no prompt/file/tool text anywhere
     assert "off" in raw["content_flags"]
+
+
+def test_harvest_reports_content_when_records_carry_it():
+    # 2026-11-02: corporate user settings set OTEL_LOG_USER_PROMPTS/TOOL_* = 1,
+    # the wrapper set nothing, and every exported day carried prompt, response
+    # and tool text — while this detail said "(content off)". The claim is now
+    # measured from the records, including events the aggregates ignore.
+    client = FakeLogsClient(
+        [
+            _otlp("claude_code.user_prompt", {"prompt_length": 5, "prompt": "hello"}),
+            _otlp("claude_code.assistant_response", {"response": "hi there"}),
+            _otlp("claude_code.tool_result", {"tool_name": "Bash", "success": True}),
+        ]
+    )
+    store = ObsStore(":memory:")
+    result = CodingLogsSource(client=client).harvest(store)
+    assert "CONTENT PRESENT in 2 event(s)" in result.detail
+    assert "content off" not in result.detail
+    raw = json.loads(store.list_sessions("coding-logs")[0]["raw_json"])
+    assert raw["content_flags"].startswith("ON")
+
+
+def test_redacted_prompt_is_not_content():
+    client = FakeLogsClient(
+        [_otlp("claude_code.user_prompt", {"prompt_length": 5, "prompt": "<REDACTED>"})]
+    )
+    result = CodingLogsSource(client=client).harvest(ObsStore(":memory:"))
+    assert "(content off)" in result.detail
 
 
 def test_harvest_blocks_when_no_events():

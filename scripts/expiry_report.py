@@ -181,7 +181,19 @@ def aws_service_credentials(user: str | None) -> list[dict]:
     serves both.
     """
     if not user:
-        return []
+        # Was `return []` — no entry at all, which reads as "nothing to watch".
+        # The hosted harvest ran that way for months (the env var was never
+        # carried into its secret) and the key expired 2026-10-24 under a
+        # report showing "0 expired". An unconfigured watch is a finding.
+        return [
+            _entry(
+                "CloudWatch metrics API key (WS9)",
+                "api-key",
+                None,
+                "measured",
+                error="A2ALAB_CW_METRICS_USER not set — this key is NOT being watched",
+            )
+        ]
     try:
         import boto3
 

@@ -2088,6 +2088,27 @@ time-to-first-token, and the `interaction` turn tree) are a separate signal
 behind the `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA` flag and are sequenced after
 logs for the same one-signal-at-a-time reason.
 
+**Amendment 2026-11-02 — "content off" was assumed, and it was false.** This
+decision relied on the `OTEL_LOG_*` content flags *defaulting* off: the wrapper
+never set them, so it reasoned there was no content to leak. A corporate Claude
+Code rollout set `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_CONTENT` and
+`OTEL_LOG_TOOL_DETAILS` to `1` in the operator's **user** `~/.claude/settings.json`;
+Claude Code merges `env` across settings layers, so those values applied to
+this project too, and every day exported to `/a2alab/coding-agents/otlp` from
+2026-10-14 carried prompt, assistant-response and tool text — while the harvest
+labelled each run "(content off)". The aggregates in Aurora were never affected
+(they are counts and lengths); the exposure was the raw log group, which has no
+retention limit. Three changes make the guarantee enforced, not assumed:
+`.claude/settings.local.json` pins all three flags to `"0"` (local outranks
+user); `scripts/claude_otel.sh` resolves the flags across the same layers and
+refuses to attach the logs exporter if any is truthy; and
+`coding_logs_source.py` *measures* content per record and reports
+`CONTENT PRESENT in N event(s)` instead of a fixed label. The content-bearing
+stream was deleted after its aggregates were backfilled. Recorded alongside two
+silent failures found the same day — an expired metrics key and an
+`event.name` rename that zeroed the logs harvest — in
+`build-notes/claude/16-telemetry-silent-failures-2026-11.md`.
+
 ## 2026-07-30 — D60: The DevOps project view renders from the repo and only links out to Jira
 
 **Decision.** The console gains a **DevOps** category. Under it sit the
