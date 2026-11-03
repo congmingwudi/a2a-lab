@@ -63,8 +63,34 @@ plans:
     workstream: WS4
     refs: [plan/07-workstreams.md]
 
+  - id: agentforce-native-a2a
+    title: Agentforce native A2A — inbound live as a pilot, outbound gated
+    horizon: in-flight
+    pitch: >
+      Salesforce's Agentforce A2A pilot gives Agentforce its own A2A server, so
+      it no longer needs the lab's hosted shim (D28) to be called, plus a native
+      outbound `connected_subagent` that would let Agentforce call other vendors'
+      agents itself. Inbound is built (D106). Since 2026-11-03 it is the third
+      Agentforce channel (`a2a-native`, beside `agent-api` and `a2a-shim`) on
+      all five channel-toggle experiments, each caller reaching its own
+      Agentforce twin (D25, D109). Outbound waits on a pilot setting only the
+      product manager can enable, then on a registry-accepted token endpoint
+      and a registered lab agent (WS29 items 10–13).
+    payoff: >
+      The first measured answer to "what does native buy over the shim?" The
+      inbound answer so far: discovery works and no lab component sits in the
+      leg. But the native endpoint was slower than the shim on the same agent,
+      and its result envelope (Message, or a Task already completed) varied by
+      caller (plan/03-results.md). Outbound will test the harder question:
+      whether the D27 delegation guard can hold when Agentforce, not the lab,
+      makes the call and the wire carries no `metadata["delegation"]`.
+    platforms: [salesforce, claude, openai, adk, aws]
+    specs: [a2a]
+    workstream: WS29
+    refs: [D25, D27, D28, D106, D109, plan/02-matrix.md, plan/03-results.md]
+
   - id: agentforce-to-agentforce-moma
-    title: Agentforce as native orchestrator — MOMA + third-party A2A (not yet available)
+    title: Agentforce as native orchestrator across orgs — MOMA (not yet available)
     horizon: exploring
     pitch: >
       Salesforce is turning Agentforce into a multi-agent PLATFORM, not just a
@@ -72,32 +98,24 @@ plans:
       test · publish · observe) with three orchestration shapes on one spectrum —
       Single Org Multiple Agents (SOMA — tracked as its own entry below), Multiple
       Org Multiple Agents (MOMA — an Agentforce agent in one org orchestrating an
-      Agentforce agent in ANOTHER org), and native A2A where Agentforce
-      orchestrates third-party agents (Google, AWS, …) AND is orchestrated by them.
-      This entry tracks the two the lab cannot run yet: MOMA and native
-      bidirectional third-party A2A. Every Agentforce experiment to date runs it as
-      one END of a cross-platform pair (Path A/B/C — each caller gets its own
-      Agentforce twin, D25) reached through the lab's OWN hosted A2A shim (D28),
-      never Agentforce orchestrating natively. It must WAIT for the product: MOMA
-      is marked not-currently-available, and native third-party A2A (both
-      directions) is slated for a later Salesforce release — so this stays
-      exploring until the capability ships.
+      Agentforce agent in ANOTHER org), and native A2A with third-party agents
+      (now a pilot, tracked in the entry above, WS29). This entry tracks MOMA,
+      which the lab cannot run yet: it is marked not-currently-available, so it
+      stays exploring until the capability ships.
     payoff: >
-      The waiting is itself part of the finding: when native support lands, the lab
-      records what "native" buys over the shim it runs today. The questions are
-      concrete — does native Agentforce A2A ride the same wire the hosted shim
-      already taps (D28), or a Salesforce-internal channel the wiretap never sees;
-      how does trace correlation survive an org→org or vendor→vendor hop when
-      Agentforce OWNS the orchestration (it logs each subagent as an independent
-      session trace, linked by a delegation step and a previous-session id — the
-      platform-native analogue of the lab's own X-Trace-Id stitching); and what
+      How trace correlation survives an org→org hop when Agentforce OWNS the
+      orchestration (it logs each subagent as an independent session trace,
+      linked by a delegation step and a previous-session id — the
+      platform-native analogue of the lab's own X-Trace-Id stitching), and what
       cross-org identity and trust look like when caller and callee are both
       Agentforce rather than two clouds. MOMA also forces the lab's first SECOND
       org — every experiment so far deploys into one production org — so what that
-      setup costs to stand up is part of the finding.
-    platforms: [salesforce, adk, aws]
-    specs: [a2a, mcp]
-    refs: [D25, D28, plan/02-matrix.md]
+      setup costs to stand up is part of the finding. The native A2A pilot
+      (D106) gives a baseline: whether MOMA rides the same public A2A endpoint
+      or a Salesforce-internal channel the lab's wire capture never sees.
+    platforms: [salesforce]
+    specs: [a2a]
+    refs: [D25, D28, D106, plan/02-matrix.md]
 
   - id: agentforce-soma-single-org
     title: Agentforce SOMA — one org, multiple agents orchestrated natively
@@ -209,13 +227,16 @@ plans:
       implements the asynchronous half of A2A is itself the finding — the two
       A2A legs (ADK, Foundry) run the real submit/poll lifecycle, while the
       AgentCore leg has no task lifecycle and falls back to a blocking call,
-      recorded as async→sync rather than hidden. Folding the poll count and the
+      recorded as async→sync rather than hidden. Agentforce's native A2A
+      pilot (D106) is a candidate third task-lifecycle leg: it has returned
+      Tasks already completed inside the blocking call, but no WORKING task
+      has been polled yet (D109, WS29 item 14). Folding the poll count and the
       per-leg mode into the lab's observability turns "async is supported" from
       a spec claim into a measured, per-platform account.
     platforms: [claude, openai, adk, foundry]
     specs: [a2a]
     workstream: WS11
-    refs: [D47, plan/07-workstreams.md]
+    refs: [D47, D106, D109, plan/07-workstreams.md]
 
   - id: agentforce-otel-session-trace-api
     title: Agentforce Session Trace OTel API — a standard route to the obs data

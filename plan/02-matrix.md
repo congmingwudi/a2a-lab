@@ -23,7 +23,7 @@ plan/03-results.md.
 | Agent API (REST) | **native** | `ask_agentforce` tool → `AgentforceClient` → Agent API directly |
 | MCP | **via-shim** | lab harness MCP client → `agentforce-mcp` shim (:8021) → Agent API (no Claude component speaks MCP to the shim — the Claude agent's own consult uses the Agent API or A2A channels) |
 | A2A | **via-shim** | Claude as A2A client → `agentforce-a2a` shim (:8023) → Agent API |
-| A2A (Agentforce pilot inbound) | **native** (pilot, D106) | lab harness A2A client → `agentforce-a2a-native` → `api.salesforce.com/einstein/ai-agent/a2a/<bot_id>`, no shim. Measured 2026-11-03 from the harness only. The Claude agent's `ask_agentforce_a2a_native` tool is wired under both backends (D109, the console's `a2a-native` channel). Claude-as-caller is **unmeasured** until the hosted runtimes ship the ECA pair (WS29 item 17) |
+| A2A (Agentforce pilot inbound) | **native** (pilot, D106) | lab harness A2A client → `agentforce-a2a-native` → `api.salesforce.com/einstein/ai-agent/a2a/<bot_id>`, no shim. First measured 2026-11-03 from the lab harness. The Claude agent's `ask_agentforce_a2a_native` tool is wired under both backends (D109, the console's `a2a-native` channel). Measured end to end on 2026-11-03 from all five toggle scenarios on the hosted runtimes (Claude managed and AgentCore, ChatGPT, Strands, ADK; plan/03-results.md, WS29 item 17). The four runs whose envelope was captured each returned a 1.0 `Task` already `COMPLETED`; the ADK run's envelope was not recorded (Agent Engine keeps its hops in-container). The Task-polling fallback is still unexercised |
 
 Claude backend note: the **Agent API (REST)** Path B cell runs under either
 `CLAUDE_BACKEND=managed` (CMA custom tool, host-side execution) or `sdk`

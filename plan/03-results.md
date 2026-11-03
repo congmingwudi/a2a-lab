@@ -2091,6 +2091,38 @@ Each call ran through the D27 rider, minted one client-credentials token, and se
 - **Not yet measured:** the console scenarios end to end on the `a2a-native` channel.
   These wait on the hosted runtimes shipping the ECA pair (WS29 item 17).
 
+## 2026-11-03 — D109: the five toggle scenarios end to end on `a2a-native`, hosted
+
+One run per scenario through the hosted console (`POST /api/run`, `af_channel:
+a2a-native`, the scenario's default account question), after full-rebuild deploys of the
+faces, the three AgentCore runtimes and the ADK researcher, plus the managed agent's
+tool update (WS29 item 17). The calls ran as owner. Every run returned 200 with CRM
+figures (open pipeline, case load) in the answer.
+
+| Scenario | entry hop | native A2A hop | envelope |
+|---|---|---|---|
+| claude-to-agentforce (Managed Agents) | 15.9 s | 8.6 s | 1.0 `Task`, `COMPLETED` on arrival |
+| claude-aws-to-agentforce (AgentCore sdk) | 16.6 s | 7.3 s | 1.0 `Task`, `COMPLETED` on arrival |
+| chatgpt-to-agentforce (faces, openai) | 26.0 s | 8.7 s | 1.0 `Task`, `COMPLETED` on arrival |
+| strands-to-agentforce (AgentCore) | 13.3 s | 8.0 s | 1.0 `Task`, `COMPLETED` on arrival |
+| adk-to-agentforce (Agent Engine) | 12.4 s | ≈6.3 s † | not captured † |
+
+- **Every model chose the native tool** when the routing block named it (D28). For the
+  four runs whose hops reach the lab trace store, the native hop is
+  `client → agentforce-a2a-native` (a2a).
+- **The ADK twin routing held.** † Agent Engine writes its hops to the container's own
+  `/tmp/traces`, so the lab trace shows only the inbound ADK hop. Cloud Logging shows
+  the native call: a `GET …/a2a/<ADK twin>/v1/card` for the ADK-paired card, then a
+  `POST …/a2a/rpc/<ADK twin>` with a 200 6.3 s later. The envelope is not in the log.
+- **Hosted, the native endpoint answered with a Task.** The laptop calls above received a
+  synchronous `Message`. These account questions, which run a CRM action, received a 1.0
+  `Task` that was already `COMPLETED` inside the blocking `SendMessage`. The A2A client
+  records a Task digest (`taskId`, `state`, `artifacts`) and a Message as `{message}`, so
+  the difference is in what Agentforce sent, not in our recording. No `GetTask` hop ran.
+  The client's poll-a-WORKING-task fallback is still unexercised (WS29 item 14). What
+  decides Message vs Task is not established: the question and the twin both differ
+  from the laptop runs.
+
 ## 2026-11-03 — WS27 D107 customer-memory management deployed by operator override
 
 The operator explicitly skipped the pending round-two Claude review and directed deployment of
