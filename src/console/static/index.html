@@ -4793,12 +4793,14 @@ function fanoutControlsDetailHtml(s) {
           together — the run reports which it did. The server is <b>ours</b>, not the platforms': the lab's
           fan-out MCP server on AWS Lambda (<code>src/fanout_mcp</code>, D41), whose <code>consult_*</code>
           tools wrap the same business-unit agents over A2A/REST. Google, OpenAI and Microsoft do not expose
-          these as native MCP — we put the MCP face on. Each leg here runs <i>inside</i> an API Gateway
+          these as native MCP — we put the MCP face on. Each <b>synchronous</b> leg (<code>consult_*</code>) runs <i>inside</i> an API Gateway
           request, so it inherits the gateway's 29s integration ceiling (25s per leg, and NOT raisable for
           HTTP APIs); a warm leg (~17s) fits, but a <b>cold</b> platform (Agent Engine ~34s, AgentCore
           31–56s) does not and comes back <code>[leg unavailable: … timed out]</code>. This is the cost of
-          moving the tool off the host, not a bug — <b>warm the runtimes first</b> (Warm-ups panel), or use
-          async on the host-side tool, which is what dissolves the ceiling (WS11/D47).</li>
+          moving the tool off the host, not a bug — <b>warm the runtimes first</b> (Warm-ups panel), or switch the
+          dispatch radio to async: on this topology async uses <code>submit_&lt;unit&gt;</code>/<code>check_task</code>,
+          and each leg runs in a separate self-invoked run of the same Lambda (<code>InvocationType='Event'</code>),
+          off the gateway path, with a 120s leg budget under a 135s function timeout (WS11/D47, D74).</li>
       </ul>` : "";
   // The dispatch prose is controller-aware: WHERE the fire-then-poll loop runs
   // is the whole point, and it runs in a different place under each primary
@@ -5710,7 +5712,7 @@ const OTEL_TRACE_DIAGRAM = `flowchart LR
 // not built yet (plan/explore-moirai-timeseries-forecasting.md).
 const INFRA_DIAGRAM = `flowchart TB
   subgraph CLOUDS["Each cloud's own runtime metrics (the estate under the agents)"]
-    AWS["AWS — CloudWatch (GetMetricData)<br/>Fargate faces · Aurora Serverless v2 · harvest Lambda"]
+    AWS["AWS — CloudWatch (GetMetricData)<br/>Fargate console + bridge · Aurora Serverless v2 · harvest Lambda"]
     GCP["GCP — Cloud Monitoring (timeSeries)<br/>Vertex AI Agent Engine"]
     AZ["Azure — Azure Monitor (metrics REST)<br/>Foundry resource"]
   end
@@ -7757,7 +7759,7 @@ const CRED_AGENT_DIAGRAM = `flowchart LR
 
 const CRED_SCHEDULED_DIAGRAM = `flowchart LR
   subgraph AWSC["AWS — collection (already hosted, WS14)"]
-    LAM["a2alab-obs-harvest<br/>6h Lambda, IAM + ACM + federation"]
+    LAM["a2alab-obs-harvest<br/>6h Lambda · role for IAM + ACM<br/>GCP SA key + Entra secret from Secrets Manager"]
     ST[("lab.lab_state snapshot<br/>Aurora, alongside obs")]
     LAM --> ST
   end

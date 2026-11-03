@@ -239,6 +239,12 @@ flowchart LR
 
   subgraph ALB["Application Load Balancer — idle timeout 120s"]
     BR["a2alab-bridge<br/>ECS Fargate · ARM64 · 512/1024<br/>client timeout 45s"]
+    CON["a2alab-console<br/>ECS Fargate · host-header rule on the bridge ALB"]
+    FAC["a2alab-faces<br/>ECS Fargate · host-header rule on the bridge ALB"]
+  end
+
+  subgraph FG["ECS Fargate — no load balancer"]
+    BRF["a2alab-briefs<br/>reuses the faces image, serves nothing (D52)"]
   end
 
   subgraph AC["Bedrock AgentCore Runtime — no public HTTP"]
@@ -257,6 +263,9 @@ flowchart LR
   SHIM --> SEC
   FAN --> SEC
   BR --> SEC
+  CON --> SEC
+  FAC --> SEC
+  BRF --> SEC
   ACC --> SEC
   ACO --> SEC
   ACS --> SEC
@@ -264,13 +273,15 @@ flowchart LR
   OMCP --> STORE
 ```
 
-**What you are looking at.** Four hosting shapes in one account, and the shape
+**What you are looking at.** Four hosting shapes in one account (the Fargate
+shape covers four services, one of them with no load balancer), and the shape
 is chosen by **what the component's work costs in seconds**, not by preference.
 
 | Shape | Who | Why this one |
 |---|---|---|
 | Lambda + API Gateway HTTP API | shim, fan-out MCP, obs MCP | Cheapest thing with a public URL. Its integration timeout maxes at **30s and is not adjustable** — fine, because the *synchronous* work of each finishes well inside it. The fan-out MCP's async fire-then-poll worker is the exception: it self-invokes (`InvocationType='Event'`) **off** the gateway path and runs under a separate, larger **function timeout of 135s** sized for a **120s per-leg budget** (D75), because outlasting this 30s ceiling is the whole point of the async lane. |
-| ECS Fargate + ALB | **the bridge** | Path A's budget is **45s** (action ~85-90s → Apex 110s → bridge 45s). An HTTP API would have silently cut 15s off the lab's sync research depth. An ALB's `idle_timeout` is a settable attribute — set to **120s** on every deploy so a console edit cannot reintroduce the ceiling. |
+| ECS Fargate + ALB | **the bridge**, plus the console and the faces as host-header rules on the same ALB (WS13) | Path A's budget is **45s** (action ~85-90s → Apex 110s → bridge 45s). An HTTP API would have silently cut 15s off the lab's sync research depth. An ALB's `idle_timeout` is a settable attribute — set to **120s** on every deploy so a console edit cannot reintroduce the ceiling. The console and faces share the bridge's ALB, so they add no second load balancer. |
+| ECS Fargate, no front door | the brief watcher `a2alab-briefs` (D52, WS13) | A long-running watcher that serves nothing: it reuses the faces image and has no ALB or target group. |
 | Bedrock AgentCore Runtime | Claude + OpenAI + Strands self-hosted agents | The point of D26: an agent runtime with an **IAM data plane and no public HTTP endpoint**. Callers use `invoke_agent_runtime` with SigV4; there is no URL to leak. |
 | EventBridge → Lambda | obs harvest | Nothing calls it. It wakes up, pulls each platform's logs, writes Aurora, sleeps. |
 
@@ -415,8 +426,8 @@ sharing one agent's session history.
 
 ```mermaid
 flowchart TB
-  HUMAN(["The ONE human login<br/>AWS SSO"])
-  HUMAN --> SM[("Secrets Manager<br/>a2alab/runtime/*<br/>a2alab/obs/harvest")]
+  HUMAN(["The ONE runtime human login<br/>AWS SSO<br/>(provisioning also: az · gcloud · sf · heroku)"])
+  HUMAN --> SM[("Secrets Manager<br/>a2alab/runtime/*<br/>a2alab/obs/harvest<br/>a2alab/obs/reader|writer (Aurora)")]
 
   subgraph AWSID["AWS workloads — role identity, no stored keys"]
     TR["bridge task role"]
@@ -483,7 +494,10 @@ plane: **at runtime, AWS SSO is the only interactive human login the lab's data
 plane needs.** The harvest and every hosted component fetch each other platform
 credential as a service identity from Secrets Manager — never an `az login`,
 never a `gcloud auth`, never a value that exists only in someone's `.env`
-(enforced by `observability/credentials.py`). Provisioning is the deliberate
+(enforced by `observability/credentials.py`). The one hosted exception is off-AWS:
+the Heroku LangGraph dyno (WS4/D77) carries its Salesforce client credentials and a
+static IAM key as Heroku config vars (`deploy/heroku/deploy_langgraph.sh`), not
+Secrets Manager. Provisioning is the deliberate
 exception: standing up the Foundry agent (`deploy/foundry/provision_foundry.py`)
 and the AWS→GCP federation (`deploy/bridge/gcp_federation.sh`,
 `deploy/fanout/provision_gcp_federation.py`) require the operator's own

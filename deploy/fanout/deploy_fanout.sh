@@ -62,11 +62,29 @@ echo "role: $ROLE_ARN"
 # interop.secret_env. Endpoints and audiences stay plain config — they are
 # addressing, not credentials.
 SECRET_NAME=a2alab/runtime/fanout-mcp
-SECRET_JSON=$(python3 - <<'PY'
+# Credentials config/targets.yaml expands (${SF_CLIENT_SECRET}, ${A2ALAB_TOKEN}, ...)
+# go in the SECRET too. The function env below is derived from every ${VAR}
+# that file references, and before 2026-11-02 that derivation swept those
+# credentials into plain Lambda configuration, readable by anyone with
+# lambda:GetFunctionConfiguration. Computed ONCE here and handed to the env
+# block, so "goes to the secret" and "kept out of the env" cannot drift apart.
+# SF_CLIENT_ID is an identifier, but it travels with its secret.
+CRED_KEYS=$(python3 - <<'PY'
+import pathlib, re
+body = "\n".join(ln.split("#", 1)[0] for ln in pathlib.Path("config/targets.yaml").read_text().splitlines())
+refs = set(re.findall(r"\$\{([A-Z0-9_]+)\}", body))
+creds = {k for k in refs if re.search(r"SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY", k)}
+if "SF_CLIENT_SECRET" in creds:
+    creds.add("SF_CLIENT_ID")
+print(" ".join(sorted(creds)))
+PY
+)
+echo "credentials kept out of the function env: ${CRED_KEYS:-none}"
+SECRET_JSON=$(CRED_KEYS="$CRED_KEYS" python3 - <<'PY'
 import json, os
 keys = ["AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
-        "A2ALAB_FANOUT_MCP_TOKEN"]
-print(json.dumps({k: os.environ[k] for k in keys if os.environ.get(k)}))
+        "A2ALAB_FANOUT_MCP_TOKEN"] + os.environ["CRED_KEYS"].split()
+print(json.dumps({k: os.environ[k] for k in dict.fromkeys(keys) if os.environ.get(k)}))
 PY
 )
 if SECRET_ARN=$(aws secretsmanager describe-secret --region "$REGION" \
@@ -87,7 +105,7 @@ aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name read-runtime-secr
 # JSON rather than the CLI's Variables={...} shorthand, which cannot carry
 # comma-valued vars (A2ALAB_TRACE_SINK=jsonl,postgres).
 ENV_JSON=$(A2ALAB_RUNTIME_SECRET_ARN="$SECRET_ARN" A2ALAB_LEG_TIMEOUT_S="$LEG_TIMEOUT_S" \
-  A2ALAB_ASYNC_LEG_TIMEOUT_S="$ASYNC_LEG_TIMEOUT_S" python3 - <<'PY'
+  A2ALAB_ASYNC_LEG_TIMEOUT_S="$ASYNC_LEG_TIMEOUT_S" CRED_KEYS="$CRED_KEYS" python3 - <<'PY'
 import json, os, pathlib, re
 
 # Every ${VAR} config/targets.yaml expands, DERIVED rather than hand-listed.
@@ -113,6 +131,9 @@ keys = referenced + [
     "A2ALAB_RUNTIME_SECRET_ARN", "A2ALAB_LEG_TIMEOUT_S", "A2ALAB_ASYNC_LEG_TIMEOUT_S",
 ]
 env = {k: os.environ[k] for k in dict.fromkeys(keys) if os.environ.get(k)}
+# Credentials ride the runtime secret (loaded at cold start), never the env.
+for k in os.environ["CRED_KEYS"].split() + ["AZURE_CLIENT_SECRET"]:
+    env.pop(k, None)
 
 # Say what is missing rather than shipping a "" that fails as a network error.
 missing = [k for k in referenced if not os.environ.get(k)]
