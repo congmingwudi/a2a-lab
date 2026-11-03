@@ -120,6 +120,7 @@ def test_no_salesforce_usernames_or_contact_emails_in_tracked_files():
         "SF_OBS_RUNAS_USER",
         "SF_TAB_EMBED_RUNAS_USER",
         "SF_MEMORY_RUNAS_USER",
+        "SF_AF_A2A_RUNAS_USER",
         "SF_ECA_CONTACT_EMAIL",
     )
     needles = {v.partition("@")[2] for k, v in vals.items() if k.endswith("_RUNAS_USER")}

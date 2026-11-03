@@ -4619,3 +4619,146 @@ identity at the memory boundary, so platform-specific memory governance is inten
 for cross-platform continuity; the execution trace still shows which model read or wrote the
 turn. A future Case RTDG can add authoritative structured CRM context without changing this
 memory identity.
+
+## 2026-11-02 — D106: adopt the Agentforce native A2A pilot as new native cells beside the shim and bridge
+
+**Context.** Salesforce's Agentforce A2A pilot ships both directions the lab has had to
+build around. **Inbound** (another agent calls Agentforce) is a native A2A server at
+`api.salesforce.com/einstein/ai-agent/a2a/<bot_id>`, over HTTP+JSON/REST and JSON-RPC. Until
+now the D28 shim stood in for it. **Outbound** (Agentforce delegates to another agent) is a
+`connected_subagent` block in Agent Script plus an Agentforce Registry entry. That is the
+`A2A (native)` cell `plan/02-matrix.md` records as **blocked**, and the reason Path A goes
+through the bridge. The operator enables the pilot permissions on 2026-11-03 (BlackTab). The
+source is the vendor's pilot enablement guide. It is a local note under `tmp-docs/`, not in the
+repo, and is pilot-partner restricted, so this ADR records what the lab depends on, not the guide.
+
+What the pilot actually is, as it bears on the lab:
+
+- **Auth is a Salesforce OrgJWT only.** The caller gets it from an External Client App (client
+  credentials for Service Agents, web-server + PKCE for Employee Agents). The token has to be a
+  JWT (`isNamedUserJwtEnabled`, the box plan/04-runbooks.md already calls the one that cost a
+  day). The gateway checks the `scp` claim for the custom scope `a2a_api_pilot`, `mty=oauth`,
+  and the org.
+- **The dialect is mixed.** The card says `protocolVersion: 0.3.0`, but requests carry
+  `A2A-Version: 1.0` and use 1.0 enums (`ROLE_USER`, `TASK_STATE_COMPLETED`). That is the
+  translation `interop/servers/a2a_compat.py` already does (D28).
+- **Inbound returns a Message within 5 s, otherwise a Task** to poll (`/v1/tasks/<id>` or
+  `GetTask`) for up to 120 s. After that the state is `TASK_STATE_UNKNOWN`. This is the WS11
+  fire-then-poll shape (D74, D76). Outbound polls the remote agent for only **30 s**, then fails.
+- **Plain text only, no streaming** (D11 stays unbuilt either way). A `contextId` stays valid
+  for 3 days.
+- **One identity for every inbound caller.** Every A2A caller runs as the agent's one user.
+  That is the D95/D96 shape again: anything keyed by user sees one user.
+- **The pilot enforces no delegation depth**, in either direction.
+- **Baseline before enablement (2026-11-02):** the *public* card for
+  `A2ALab_Research_Assistant_Script` returns `401 {"message":"JWT Token is required"}`. The guide
+  says it needs no token. If it still 401s after enablement, that is the first finding.
+
+**Decision.**
+
+1. **Add the native cells; do not retire the shim or the bridge.** Inbound becomes a new
+   `agentforce-a2a-native` target, status `native`, run alongside `agentforce-a2a-shim`. The
+   shim is now the comparison arm: same scenario, same wire capture, and the gap between them
+   is the measurement. Outbound becomes a new Path A row, alongside the bridge's A2A row. The
+   `blocked` status changes only when a run is recorded in `plan/03-results.md`, not on
+   enablement.
+2. **Inbound first, on `A2ALab_Research_Assistant_Script`.** It is the plain Agent Script
+   agent and nothing else depends on it (the pilot accepts only new-Builder agents). The caller
+   app is a new ECA, `a2a_lab_af_a2a`. It is rendered by `scripts/render_eca_metadata.py write
+   af_a2a`, which adds a global-OAuth render for apps not yet deployed. Its run-as is **that
+   agent's own user** (`SF_AF_A2A_RUNAS_USER`), not an integration user, because the pilot runs
+   every caller as the agent anyway. It pre-authorizes the empty gate `A2ALab_AF_A2A_Inbound`,
+   not the admin profile (D86, D90). The gate goes only to that agent user, and that user is
+   never shared with another agent (the guide's "Limitation 2"). The OAuth custom scope ships
+   as `oauthcustomscopes/a2a_api_pilot`.
+3. **No outbound cell goes live until D27 covers it.** D27 stops loops by forwarding
+   `metadata["delegation"]` on every seam. Agentforce's native outbound will not carry that
+   metadata, so this chain has no stop: Agentforce → lab face → `ask_agentforce` → Agentforce →
+   … Any face registered as an Agentforce outbound subagent either has its `ask_agentforce`
+   tool off, or treats its Agentforce OAuth client as depth ≥ `A2ALAB_MAX_DELEGATION_DEPTH`.
+   Either way the decision goes through `delegation.allowed()`, not a new code path.
+4. **Outbound needs an OAuth 2.0 client-credentials token endpoint on the lab side.** The
+   Registry does not accept the lab's shared secret or self-issued lab JWT. That endpoint
+   (lab-issued JWTs behind `/oauth/token`, or a cloud issuer) is its own build step, with a
+   `plan/09-deployment-map.md` row when it ships. Its faces must finish inside 30 s, so they
+   should be warm and Haiku-tier, as the Path A budget already wants. The orchestrator's
+   router drops its `EinsteinHyperClassifier` `model_config` (a pilot requirement), and its
+   welcome message carries the pilot's mandatory disclaimer.
+
+**Production org.** The guide says twice not to run the pilot in production. It says not to
+configure the pilot org for production or customer-facing use, and that the pilot is not
+generally available in production orgs (orgfarm or a sandbox instead). The lab org is a
+production org (CLAUDE.md, "Salesforce side"), though not customer-facing, and it holds no
+customer data. The operator confirms with the pilot PM that enabling it here is sanctioned
+before the permissions are turned on. Until then this ADR covers design, not deployment.
+
+**Headless status (CLAUDE.md, "Headless first").** Headless: the ECA (four rendered files,
+F6 recipe), the gate permission set, the bot ids (`SELECT Id, DeveloperName FROM
+BotDefinition`), and the `connected_subagent` block (it lives in the tracked
+`aiAuthoringBundles`). **Unproven:**
+- the custom scope's metadata shape. Validate check-only (`sf project deploy validate`) first.
+- how the scope **attaches** to the ECA policy. There is no known field. If the validate
+  doesn't reveal one, attach it once in Setup and retrieve the policy to learn the field.
+- Registry registration. It creates its own named credential, external credential and
+  permission set. Look for a Connect/Tooling surface before calling it UI-only.
+The consumer secret stays the one known UI-only step.
+
+**Consequences.** Native inbound needs no `src/` change beyond an OrgJWT auth hook in
+`interop/clients/a2a.py` and a `config/targets.yaml` entry. Both seams share the canonical
+models, so the cell is configuration plus credentials. Findings for the `plan/02-matrix.md`
+ledger include the card's 0.3 claim against the 1.0 wire, the public-card 401, and the shared
+caller identity. Nothing in this ADR enables or deploys anything. The permissions, the deploy,
+and the first wire-captured run are the operator's.
+
+**Amendment 2026-11-03 — inbound enabled; what the build measured.**
+
+- **Enablement.** The operator enabled `AgentApiA2A` in BlackTab and sanctioned inbound on
+  the lab org. That is the operator's call on a non-customer-facing org with no customer
+  data. So the production-org caveat above no longer holds back inbound. The second flag the
+  pilot exposes, `A2ARegistration`, is Product Manager-restricted. It gates the Agentforce
+  Registry ("Registered A2A Agents"), so it is the **outbound** half. It stays with the PM,
+  together with D106 items 3–4.
+- **The agent user was shared, so it moved.** The Builder-generated agent user of
+  `A2ALab_Research_Assistant_Script` also ran nine other agents: the five other Research
+  Assistants, `A2ALab_Supply_Orchestrator`, `A2ALab_Memory_Concierge` and both
+  `Memory_Native_*` arms. That is the guide's "Limitation 2" exactly. A token for that run-as
+  would have been one user across ten agents. The agent now runs as its own Digital Agent
+  User, `integration_users.py af_a2a_agent`. It is on the Einstein Agent license, and its
+  bundle copies the old user's: three PSLs, the `AgentforceServiceAgentUserPsg` group and
+  `A2ALab_Agent_Actions`, minus an empty Builder permission set, plus the gate.
+  `sf org assign permset` cannot assign a group, so the script creates that row itself.
+- **The username stays out of the repo.** The bundle and Bot name the user as
+  `{{env:SF_AF_A2A_RUNAS_USER}}`. `scripts/publish_agent.py` renders it for the publish and
+  restores the placeholder afterwards, including in what `sf agent publish` retrieves. This
+  is WS27 item 24's mechanism for this one bundle. The other bundles keep the D88 exemption.
+- **Headless, proved.** All of these were done without the UI:
+  - The custom scope deploys as `OauthCustomScope`. Its description must be alphanumeric.
+  - It **attaches** through `ExtlClntAppOauthSettings.commaSeparatedCustomScopes`. A bogus
+    element is rejected, and an unknown scope name fails with "Unable to find the
+    CustomScopes", so the deploy really resolves it.
+  - The consumer key comes back from the retrieved `ExtlClntAppGlobalOauthSettings`.
+  - The only UI step left is the consumer secret.
+  - Registry registration is still unexamined (outbound).
+- **IP relaxation is deliberately not taken.** The guide says "Relax IP restrictions". The
+  app keeps `Enforce`, as all six client-credentials ECAs do, and they issue tokens fine. If
+  token issuance fails, relaxing it is the first thing to try.
+- **The lab side** is `auth: {scheme: salesforce-cc}` on the A2A client. The token request
+  is yielded from the httpx auth flow, and a 401 mints once more. The target is
+  `agentforce-a2a-native`, with the extended card at `/v1/card` and `A2A-Version: 1.0`
+  pinned.
+- **The public card still 401s after enablement:** `/.well-known/agent-card.json` returns
+  `JWT Token is required`. This is the first ledger finding, pending the authenticated run.
+  `plan/02-matrix.md` and `plan/03-results.md` change only after that run.
+
+**Measured 2026-11-03 — the first authenticated run** (plan/03-results.md, plan/02-matrix.md
+ledger). It corrects three guide-based statements above:
+- **Dialect:** the extended card says `protocolVersion: 1.0` on both bindings, not `0.3.0`.
+  The wire is 1.0 end to end, so `a2a_compat.py` is not needed on this path.
+- **Scope check:** the gateway accepted a JWT whose `scp` was `sfap_api api`, without
+  `a2a_api_pilot`. The scope stays attached, because the pilot may start enforcing it.
+- **Public card:** `/.well-known/agent-card.json` 401s even with a valid bearer, so
+  discovery is the extended card only.
+- **Welcome part:** a context's first reply carries the agent's welcome greeting as a
+  flagged extra part, which the lab client drops.
+- **Message vs Task:** short turns answer as a sync Message, so the 5 s Task fallback is
+  still unexercised.

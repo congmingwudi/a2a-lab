@@ -40,10 +40,15 @@ class UserSpec:
     alias: str  # 8 characters at most
     license: str
     profile: str
-    # (permission set license or None, permission set), in assignment order:
-    # a license is assigned before the permission set that requires it.
-    bundle: tuple[tuple[str | None, str], ...]
+    # (permission set license or None, permission set or None), in assignment
+    # order: a license is assigned before the permission set that requires it. A
+    # license with no permission set is one a group below needs.
+    bundle: tuple[tuple[str | None, str | None], ...]
     used_by: str
+    # Permission set GROUPS, assigned after the bundle. `sf org assign permset`
+    # cannot assign one (the assignment row takes PermissionSetGroupId, not
+    # PermissionSetId), so ensure() creates those rows itself.
+    groups: tuple[str, ...] = ()
 
 
 USERS = {
@@ -147,6 +152,29 @@ USERS = {
         ),
         used_by="a2a_lab_employee: Agent API sessions on the Employee memory arms (D95)",
     ),
+    "af_a2a_agent": UserSpec(
+        name="af_a2a_agent",
+        env_key="SF_AF_A2A_RUNAS_USER",
+        local="a2alab.afa2a.agent",
+        last_name="A2ALab AF A2A Agent",
+        alias="a2aafa2a",
+        # NOT an integration user: the Digital Agent User of A2ALab_Research_Assistant_Script
+        # alone (D106). The pilot runs every inbound A2A caller as the agent's user, and
+        # the shared Builder-generated agent user served ten agents, so this one serves
+        # exactly one (the pilot guide's "Limitation 2"). The bundle copies the shared
+        # user's, measured 2026-11-03, minus its empty Builder-generated permission set.
+        license="Einstein Agent",
+        profile="Einstein Agent User",
+        bundle=(
+            ("GenieDataPlatformStarterPsl", None),
+            ("EinsteinGPTPromptTemplatesPsl", None),
+            ("AgentforceServiceAgentUserPsl", None),
+            (None, "A2ALab_Agent_Actions"),  # the agent's Apex actions + their credentials
+            (None, "A2ALab_AF_A2A_Inbound"),  # gate: a2a_lab_af_a2a (client credentials)
+        ),
+        groups=("AgentforceServiceAgentUserPsg",),
+        used_by="a2a_lab_af_a2a: inbound A2A pilot calls to Research_Assistant_Script (D106)",
+    ),
 }
 
 
@@ -158,8 +186,13 @@ def plan_steps(
     for psl, ps in spec.bundle:
         if psl and psl not in psls:
             steps.append(("org", "assign", "permsetlicense", "-n", psl, "-b", username))
-        if ps not in pss:
+        if ps and ps not in pss:
             steps.append(("org", "assign", "permset", "-n", ps, "-b", username))
+    # assigned() reports a group by its aggregate permission set's name, which is
+    # the group's developer name, so the same set answers "already assigned".
+    for group in spec.groups:
+        if group not in pss:
+            steps.append(("group", group, username))
     return steps
 
 
@@ -197,16 +230,34 @@ def ensure(spec: UserSpec, username: str | None, apply: bool) -> None:
     steps = ([create] if create else []) + plan_steps(spec, username, bool(rows), psls, pss)
     print(f"{spec.name} integration user: {username} ({'exists' if rows else 'new'})")
     for st in steps:
-        print("  sf " + " ".join(st[:3]) + (f" {st[4]}" if st[0] == "org" else " User"))
+        if st[0] == "group":
+            print(f"  sf data create record PermissionSetAssignment (group {st[1]})")
+        else:
+            print("  sf " + " ".join(st[:3]) + (f" {st[4]}" if st[0] == "org" else " User"))
     if not steps:
         print("  nothing to do")
     if not apply:
         print("(dry run — re-run with --apply to write these in the production org)")
         return
     for st in steps:
-        sf_json(*st)
+        if st[0] == "group":
+            assign_group(st[1], st[2])
+        else:
+            sf_json(*st)
     set_env_value(spec.env_key, username)
     print(f"done; wrote {spec.env_key} to .env")
+
+
+def assign_group(group: str, username: str) -> None:
+    """Assign a permission set group: the row takes PermissionSetGroupId."""
+    from setup_agentic_memory import sf_json, soql
+
+    grp = soql(f"SELECT Id FROM PermissionSetGroup WHERE DeveloperName = '{group}'")
+    if not grp:
+        sys.exit(f"no permission set group {group!r} in the org")
+    user = soql(f"SELECT Id FROM User WHERE Username = '{username}'")[0]
+    sf_json("data", "create", "record", "-s", "PermissionSetAssignment", "-v",
+            f"AssigneeId={user['Id']} PermissionSetGroupId={grp[0]['Id']}")  # fmt: skip
 
 
 def cmd_status(_args) -> None:

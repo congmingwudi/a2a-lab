@@ -23,6 +23,7 @@ plan/03-results.md.
 | Agent API (REST) | **native** | `ask_agentforce` tool → `AgentforceClient` → Agent API directly |
 | MCP | **via-shim** | lab harness MCP client → `agentforce-mcp` shim (:8021) → Agent API (no Claude component speaks MCP to the shim — the Claude agent's own consult uses the Agent API or A2A channels) |
 | A2A | **via-shim** | Claude as A2A client → `agentforce-a2a` shim (:8023) → Agent API |
+| A2A (Agentforce pilot inbound) | **native** (pilot, D106) | lab harness A2A client → `agentforce-a2a-native` → `api.salesforce.com/einstein/ai-agent/a2a/<bot_id>`, no shim. Measured 2026-11-03 from the harness only: no Claude component is wired to it yet, so the Claude-as-caller half of this cell is still the shim row above |
 
 Claude backend note: the **Agent API (REST)** Path B cell runs under either
 `CLAUDE_BACKEND=managed` (CMA custom tool, host-side execution) or `sdk`
@@ -249,3 +250,25 @@ interop.
   cross-agent read exists. A successful mutation response proves the API
   boundary accepted the event, not that downstream conversation persistence or
   context materialization can serve it.
+- **Agentforce's native A2A inbound is a real 1.0 server, and some guide details
+  don't hold on the wire** (WS29/D106, measured 2026-11-03).
+  - **Short turns answer synchronously.** They come back as a 1.0 `Message`
+    (`ROLE_AGENT`, no `kind`) in 3–7 s, so the WS11 Task fallback was never
+    exercised.
+  - **The extended card (`/v1/card`) says `1.0` on both bindings** (JSONRPC and
+    HTTP+JSON), not the `0.3.0` the guide warned of.
+  - **The gateway accepted a token without the custom scope.** The token's `scp`
+    was `sfap_api api`, with no `a2a_api_pilot`.
+  - **The public `/.well-known/agent-card.json` 401s** with or without a bearer.
+    An unauthenticated caller cannot discover the agent.
+  - **The first turn of each context starts with the agent's welcome greeting**
+    as an extra text part. It is flagged
+    `urn:salesforce:agentforce:a2a:welcome-part`, so a client can drop it
+    without matching on text; the lab client now does. Sending the `contextId`
+    back continues the same session, with no second greeting.
+  - **Native vs the AWS shim (D28):** median 6.0 s vs 4.3 s, n=3 each,
+    interleaved. Roughly 0.5–0.7 s of the gap is the harness minting a fresh
+    OAuth token per client (measured separately). The rest is not attributed;
+    n=3 can't separate gateway overhead from turn variance. The shim's honest
+    status stays `via-shim` for callers that cannot get an OrgJWT, such as
+    Foundry's A2A tool and any caller without a Salesforce ECA.

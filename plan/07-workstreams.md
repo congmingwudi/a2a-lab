@@ -3710,3 +3710,25 @@ D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` a
     add source-parser, public-route and Supplier Disruption Details regressions under D103.
 20. ✅ Add keyboard-focusable hover help to every Case memory run setting: section purpose,
     Off/Seed/Recall behavior, recall-reader placement and signed-in-user case-key isolation.
+
+## WS29 — Agentforce native A2A pilot: inbound and outbound cells beside the shim and bridge (raised 2026-11-02, D106)
+
+Salesforce's Agentforce A2A pilot ships both directions the lab built around: a native
+inbound A2A server (until now the D28 shim stood in for it) and a native outbound
+`connected_subagent` (the blocked `A2A (native)` cell in `plan/02-matrix.md`). D106 keeps
+the shim and bridge as comparison arms. Inbound first, on `A2ALab_Research_Assistant_Script`.
+
+1. ✅ Enable the inbound pilot permission (`AgentApiA2A`, BlackTab, 2026-11-03).
+2. ✅ Deploy the `a2a_api_pilot` OAuth custom scope and the empty `A2ALab_AF_A2A_Inbound` gate.
+3. ✅ Create the agent's own Digital Agent User (`integration_users.py af_a2a_agent`), replacing the user ten agents shared.
+4. ✅ Render and deploy the `a2a_lab_af_a2a` client-credentials ECA with the custom scope attached headlessly (`commaSeparatedCustomScopes`).
+5. ✅ Name the agent user by placeholder and publish through `scripts/publish_agent.py`; bundle validated.
+6. ✅ Add the `salesforce-cc` auth scheme to the A2A client and the `agentforce-a2a-native` target.
+7. ✅ Publish and activate `A2ALab_Research_Assistant_Script` on the new agent user (operator, 2026-11-03: v5 active; `publish_agent.py` restored the placeholder in the three files the publish retrieved).
+8. ✅ Fetch the `a2a_lab_af_a2a` consumer secret into `.env` (the one UI-only step).
+9. ✅ First wire-captured inbound run against the native cell and the shim side by side; record in `plan/03-results.md` and the `plan/02-matrix.md` ledger.
+14. ⏳ Inbound: exercise the Task fallback with a turn longer than 5 s, polled through `GetTask` up to 120 s. Short turns came back as synchronous Messages, so this path is unmeasured.
+10. ⏳ Outbound: `A2ARegistration` enabled by the pilot PM.
+11. ⏳ Outbound: make D27 hold on native outbound (no `metadata["delegation"]` on the wire) before any face is registered.
+12. ⏳ Outbound: a lab OAuth 2.0 client-credentials token endpoint the Agentforce Registry accepts, with its `plan/09-deployment-map.md` row.
+13. ⏳ Outbound: register a warm, Haiku-tier face in the Registry and wire a `connected_subagent` into the orchestrator (30 s remote-poll budget).

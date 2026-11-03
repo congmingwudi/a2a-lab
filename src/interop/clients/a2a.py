@@ -43,8 +43,18 @@ from interop.trace import Hop
 DEFAULT_TIMEOUT = 45.0
 
 
+# Agentforce's native A2A (D106) opens each new context with the agent's welcome
+# turn as an extra text part, flagged with this metadata key; it is not the answer.
+WELCOME_PART_KEY = "urn:salesforce:agentforce:a2a:welcome-part"
+
+
+def _is_welcome(part) -> bool:
+    field = part.metadata.fields.get(WELCOME_PART_KEY)
+    return bool(field and field.bool_value)
+
+
 def _texts_from_parts(parts) -> list[str]:
-    return [p.text for p in parts if p.WhichOneof("content") == "text"]
+    return [p.text for p in parts if p.WhichOneof("content") == "text" and not _is_welcome(p)]
 
 
 # Terminal in the protocol's sense: no further events will arrive without a new
@@ -97,6 +107,67 @@ class TaskSnapshot:
     @property
     def working(self) -> bool:
         return not self.done and not self.interrupted
+
+
+class _SalesforceClientCredentials(httpx.Auth):
+    """auth: {scheme: salesforce-cc, my_domain, client_id, client_secret} (D106).
+
+    The Agentforce A2A pilot's gateway takes only a Salesforce OrgJWT: a
+    client-credentials token from an External Client App that issues JWT-based
+    access tokens and carries the a2a_api_pilot custom scope (a2a_lab_af_a2a).
+    The token request is YIELDED from the auth flow, so httpx sends it on the same
+    client and transport as the A2A call: no blocking I/O on the event loop, and
+    one MockTransport serves both in tests. Cached on this object, so it lives as
+    long as the A2AClient's _httpx_auth() result (one per connection, see
+    _connected); a 401 mints once more, for a token revoked before it expired.
+    """
+
+    # client-credentials tokens don't carry expires_in reliably; same conservative
+    # window as AgentforceClient.
+    TTL_S = 25 * 60
+    # httpx reads each yielded response's body before handing it back, in whichever
+    # mode (sync/async) the client runs; a .read() here breaks the async client.
+    requires_response_body = True
+
+    def __init__(self, auth: dict[str, Any]):
+        for key in ("my_domain", "client_id", "client_secret"):
+            if not auth.get(key):
+                raise ValueError(f"auth scheme salesforce-cc needs {key}")
+        # SF_MY_DOMAIN is a bare host in .env; every other consumer prefixes it the same way.
+        domain = auth["my_domain"].rstrip("/")
+        domain = domain if domain.startswith("https://") else f"https://{domain}"
+        self._url = domain + "/services/oauth2/token"
+        self._form = {
+            "grant_type": "client_credentials",
+            "client_id": auth["client_id"],
+            "client_secret": auth["client_secret"],
+        }
+        self._token: str | None = None
+        self._expires = 0.0
+
+    def _token_request(self) -> httpx.Request:
+        return httpx.Request("POST", self._url, data=self._form)
+
+    def _take(self, response: httpx.Response) -> None:
+        import time as _time
+
+        response.raise_for_status()
+        self._token = response.json()["access_token"]
+        self._expires = _time.time() + self.TTL_S
+
+    def auth_flow(self, request):
+        import time as _time
+
+        if not self._token or _time.time() > self._expires - 60:
+            token_response = yield self._token_request()
+            self._take(token_response)
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        response = yield request
+        if response.status_code == 401:
+            token_response = yield self._token_request()
+            self._take(token_response)
+            request.headers["Authorization"] = f"Bearer {self._token}"
+            yield request
 
 
 class A2AClient(RemoteAgentClient):
@@ -192,6 +263,8 @@ class A2AClient(RemoteAgentClient):
                     yield request
 
             return _EntraAuth()
+        if scheme == "salesforce-cc":
+            return _SalesforceClientCredentials(self.auth)
         return None
 
     def _base_headers(self, adc_auth) -> dict[str, str]:

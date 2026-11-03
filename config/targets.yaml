@@ -267,6 +267,28 @@ targets:
     auth:
       header_name: x-lab-token
       header_value: ${A2ALAB_TOKEN}
+  agentforce-a2a-native:
+    platform: agentforce
+    protocol: a2a
+    # The Agentforce A2A PILOT's own inbound server (D106), beside the shim above:
+    # same agent role, and the gap between the two cells is the measurement. The
+    # agent is A2ALab_Research_Assistant_Script, running as its own Digital Agent
+    # User (integration_users.py af_a2a_agent). The card is the EXTENDED card and
+    # needs the token too; the public /.well-known card 401s (measured 2026-11-03).
+    # Card and wire are both A2A 1.0 (measured; the guide said the card read 0.3.0),
+    # and the header is pinned. Inbound answers within 5 s with a Message, else a Task
+    # to poll for up to 120 s (the WS11 shape, D74/D76); short turns measured sync.
+    endpoint: https://api.salesforce.com/einstein/ai-agent/a2a/${SF_AF_A2A_BOT_ID}
+    status: native
+    options:
+      card_path: /v1/card
+      protocol_version: "1.0"
+      timeout: 125
+    auth:
+      scheme: salesforce-cc  # OrgJWT from a2a_lab_af_a2a (scope a2a_api_pilot)
+      my_domain: ${SF_MY_DOMAIN}
+      client_id: ${SF_AF_A2A_CLIENT_ID}
+      client_secret: ${SF_AF_A2A_CLIENT_SECRET}
   agentforce-foundry-rest:
     platform: agentforce
     protocol: agentforce-api

@@ -2040,3 +2040,29 @@ Commercial, Customer Ops and Coordinator Supplier Disruption registrations.
 The cleanup added a dry-run-by-default `delete` verb whose applied path sends
 the endpoint's required empty JSON body and re-lists the registry before
 reporting success.
+
+## 2026-11-03 — WS29 first inbound run: Agentforce native A2A vs the AWS shim
+
+Target `agentforce-a2a-native` (D106) against `agentforce-a2a-shim` (D28). Both
+front `A2ALab_Research_Assistant_Script` v5, running as its own Digital Agent
+User. Caller: the lab A2A client on the operator laptop, interleaved, using the
+same two-sentence protocol question.
+
+| Target | n | median | range | envelope |
+|---|---|---|---|---|
+| `agentforce-a2a-native` | 3 | 6.0 s | 5.2–7.0 s | 1.0 `Message` (sync), via the pilot gateway |
+| `agentforce-a2a-shim` | 3 | 4.3 s | 4.0–4.7 s | shim → Agent API |
+
+- **Token mint:** 0.51–0.73 s per client-credentials mint at the org's My
+  Domain. The harness builds a client per call, so each native sample includes
+  one mint.
+- **Raw JSON-RPC `SendMessage`** (`/a2a/rpc/<bot_id>`): 200 in 3.2 s, returning
+  `result.message` with two text parts, the flagged welcome part and the answer.
+  A second turn on the returned `contextId` kept the same context, in 4.8 s,
+  with no welcome part.
+- **Envelopes kept local:** raw envelopes and the extended card are in
+  `traces/ws29/` (gitignored).
+- **Two lab-client fixes found by the first call, both with tests:**
+  `salesforce-cc` needed `requires_response_body` (an async client cannot
+  `.read()` inside an auth flow), and a bare `SF_MY_DOMAIN` host now gets
+  `https://`.
