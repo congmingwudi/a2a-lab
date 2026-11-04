@@ -247,7 +247,9 @@ class MemoryAdapter:
         t0 = time.perf_counter()
         opened, read_errors = await self._bounded(
             open_and_read(mem, trace_id, session_id=sid, start=not known,
-                          conversation_id=conversation_id, **ids), "read"
+                          conversation_id=conversation_id,
+                          include_saved_memories=not bool(generation),
+                          include_profile_context=not bool(generation), **ids), "read"
         )
         context = ""
         if opened is not None:
@@ -297,6 +299,7 @@ class MemoryAdapter:
             "owner_id": owner,
             "conversation_id": conversation_id,
             "generation": generation,
+            "profile_memory_suppressed": bool(generation),
             "session_id": sid,
             "context_chars": len(context),
             "context_preview": redact(context)[:360] if context else "",

@@ -9,7 +9,14 @@ import pytest
 
 from interop import identity
 from interop import memory_adapter as ma
-from interop.memory import MemoryCallError, MemoryEntry, MemoryListing, generation_conversation, owner_conversation
+from interop.memory import (
+    GENERATION_CATEGORY,
+    MemoryCallError,
+    MemoryEntry,
+    MemoryListing,
+    generation_conversation,
+    owner_conversation,
+)
 from interop.memory_adapter import MemoryAdapter, owner_of, with_memory
 from interop.models import AgentRequest, AgentResponse
 
@@ -38,6 +45,7 @@ class FakeMemory:
         self.fail_read = False
         self.read_delay_s = 0.0
         self.generation: str | None = None
+        self.list_calls: list[str] = []
 
     async def start_conversation(self, trace_id, **kw):
         self.calls.append(("start", kw))
@@ -57,6 +65,7 @@ class FakeMemory:
         self.calls.append(("close", kw))
 
     async def list_memories(self, trace_id, **kw):
+        self.list_calls.append(kw["category"])
         if self.generation:
             return MemoryListing((MemoryEntry("generation-1", self.generation),), 1)
         return MemoryListing((), 0)
@@ -197,6 +206,34 @@ async def test_customer_generation_changes_conversation_and_session_for_every_fa
     )
     assert second.metadata["memory"]["conversation_id"] != first.metadata["memory"]["conversation_id"]
     assert second.metadata["memory"]["session_id"] != first.metadata["memory"]["session_id"]
+
+
+async def test_customer_generation_quarantines_recreated_profile_memory():
+    fake = FakeMemory(
+        context={
+            "userContext": [
+                {
+                    "entry": "SYS_PROFILE_FACT[1]{CREATED,VALUE}\n  2026-11-03T23:52:42Z,Old fact",
+                    "sourceType": "Profile",
+                },
+                {
+                    "entry": "CONVERSATION_SUMMARY[1]{CREATED,VALUE}\n  2026-11-04T01:00:00Z,New turn",
+                    "sourceType": "Conversation",
+                },
+            ]
+        }
+    )
+    fake.generation = "v1:2026-11-03T20:00:00Z:0123456789abcdef01234567"
+    adapter, inner = _adapter(fake)
+    req = _req(session_id="s-1")
+    req.metadata["memory_customer"] = "maya"
+
+    resp = await adapter.handle(req)
+
+    assert "Old fact" not in inner.seen[0].message
+    assert "New turn" in inner.seen[0].message
+    assert fake.list_calls == [GENERATION_CATEGORY]
+    assert resp.metadata["memory"]["profile_memory_suppressed"] is True
 
 
 async def test_stale_customer_chat_is_refused_before_the_inner_agent_runs():

@@ -33,6 +33,11 @@ operators can list and permanently delete the selected profile's curated facts/p
 the Memory Management API. Start fresh also writes a reserved generation marker in the tenant's
 supported `sys_PROFILE_FACT` category; both prompt-rendering paths filter that control row, while
 both faces hash it into a new experiment conversation. Retained historical conversations are not erased.
+Because Data 360 can immediately re-materialize deleted historical profile facts with new creation
+timestamps, a valid reset generation also quarantines all `sourceType: Profile` GetContext rows and
+skips the saved-facts/preferences merge. Only `sourceType: Conversation` context produced inside the
+marker-derived conversation is eligible for that generation's prompts. This makes the first teaching
+turn genuinely empty without claiming that retained profile history was erased.
 The same batch handles the tenant edge's confirmed URL/API-path content refusal with one traced,
 readable ingest-only normalization retry. The evidence and exact boundary are in
 `build-notes/codex/ws27-memory-403-probe.md` and

@@ -4819,6 +4819,15 @@ content 403'd, the normalized twin succeeded, and a benign post-close write succ
    normalization outcome are traced and surfaced; the model still answers the original text.
 6. **Deployment is both images.** The console UI/endpoints/config and the face-side memory wrapper
    change, so hosted acceptance requires full console and faces rebuilds. `--skip-build` is invalid.
+7. **A reset generation is a hard profile-memory quarantine.** Live trace
+   `19b1eca3ebbe4cb2b0feb00a05ad3d0b` showed why timestamp filtering is insufficient: Data 360
+   re-materialized 21 deleted historical facts about one second *after* the reset marker, giving
+   them new `CREATED` values. When a valid generation marker exists, both faces therefore omit
+   owner-global `sourceType: Profile` rows from GetContext and skip the profile Memory API merge.
+   They still accept `sourceType: Conversation` from the marker-derived conversation, so the first
+   teaching turn is empty and stored, while later Claude/OpenAI turns can recall only context
+   produced inside that generation. The management panel continues to show re-materialized profile
+   rows for honest curation and explains that they are quarantined from agent prompts.
 
 **Consequences.** Selective deletion is genuinely profile-scoped and irreversible; Start fresh is
 experiment continuity control, not a right-to-be-forgotten operation. Management uses the complete
@@ -4826,7 +4835,9 @@ typed `memories[]` response, independent of the prompt's existing 20-entry conte
 the tenant's non-contract count separately for diagnosis. Archived
 pre-reset chats cannot silently continue under the current generation. Trace evidence distinguishes
 an original content refusal from its normalized retry, so a successful memory badge never hides the
-wire event that required adaptation. The implementation/cross-review batch is
+wire event that required adaptation. Once Start fresh creates a generation, profile-wide semantic
+rows remain governed and manageable but no longer enter that generation's prompts; continuity uses
+the new conversation summary instead. The implementation/cross-review batch is
 `ws27-b2-customer-memory-clear`; its plan, critique and probe evidence live under `build-notes/`.
 
 ## 2026-11-03 — D109: the native A2A pilot becomes the third Agentforce channel on every toggle scenario

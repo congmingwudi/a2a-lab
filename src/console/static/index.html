@@ -4650,7 +4650,7 @@ function memoryCustomerRowHtml(exp) {
 function memoryManagerState(key) {
   return memoryManagers[key] || (memoryManagers[key] = {
     open: false, loading: false, complete: true, memories: [], generation: undefined,
-    selected: new Set(), error: "", trace_id: "",
+    profile_memory_suppressed: false, selected: new Set(), error: "", trace_id: "",
   });
 }
 
@@ -4666,6 +4666,10 @@ function memoryManagerHtml(key, customer) {
     <div class="memory-manager-head"><b>Managing memories for ${esc(customer.name || key)}</b>
       <span class="spacer"></span><button class="ghost" onclick="loadMemoryManager()" ${state.loading ? "disabled" : ""}>Refresh</button></div>
     ${state.error ? `<div class="error">${esc(state.error)}</div>` : ""}
+    ${state.profile_memory_suppressed ? `<div class="hint">Fresh-generation isolation is active.
+      Data 360 can re-materialize profile facts from retained history, so those profile-wide rows
+      remain visible here for curation but are not supplied to agents. Only conversation context
+      produced inside the current generation is eligible for recall.</div>` : ""}
     <div class="memory-manager-list">${rows}</div>
     <div class="memory-manager-actions">
       <button class="ghost" onclick="deleteSelectedMemories()" ${state.loading || !state.selected.size ? "disabled" : ""}>Delete selected</button>
@@ -4698,6 +4702,7 @@ window.loadMemoryManager = async () => {
     if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
     state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
     state.generation = data.generation || "";
+    state.profile_memory_suppressed = data.profile_memory_suppressed === true;
     state.complete = data.complete !== false;
     if (!state.complete) state.error = "Data 360 returned an incomplete list; reset is disabled.";
   } catch (e) { state.error = String(e.message || e); }
@@ -4718,6 +4723,7 @@ async function mutateCustomerMemory(action, memories) {
     if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
     state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
     state.generation = data.generation || "";
+    state.profile_memory_suppressed = data.profile_memory_suppressed === true;
     state.complete = data.complete !== false;
     if (!data.ok) state.error = `The operation was partial; remaining memories are shown.${
       (data.errors || []).length ? ` ${data.errors.join("; ")}` : ""}`;
@@ -4841,6 +4847,10 @@ function memoryDetailHtml(s) {
         <li><b>After the answer.</b> Your message and the agent's reply are both ingested, with tokens, passwords
           and contact details redacted first (D94). The reply is the side no Agentforce hook can supply (D89). Then
           the session is closed, because the close is what makes Data 360 extract memory from the entries (D93).</li>
+        ${s.memory_customer_selector ? `<li><b>After Start fresh.</b> Data 360 can re-materialize profile facts
+          from retained history with new timestamps. A valid reset generation therefore suppresses all profile-wide
+          facts/preferences from agent prompts. Only conversation context produced inside the new generation is
+          eligible for later Claude/OpenAI recall (D107).</li>` : ""}
         <li><b>Bounds.</b> Each half is cut off at <code>A2ALAB_MEMORY_BUDGET_S</code> (default 8 s); any refusal
           or overrun fails open. Every tenant call is its own <code>agentic-memory</code> hop in the trace, and the
           turn's badge carries the read/ingest milliseconds.</li>
@@ -9994,7 +10004,7 @@ function memoryBadgeHtml(m) {
     const label = failed ? "memory: unavailable" : (m.context_chars > 0 ? "memory: recalled" : "memory: empty");
     return `<span class="badge${failed ? "" : " claude"}" title="${esc(`Data 360 case recall ${m.state || "unknown"} for ${m.reader || "coordinator"}: ${m.context_chars || 0} context characters; ${m.error_count || 0} error(s).`)}">${label}</span>`;
   }
-  const title = esc(`Data 360 Agentic Memory, conversation ${m.conversation_id || "unknown"}${m.session_id ? `, session ${m.session_id}` : ""}. Read ${m.read_ms} ms (${m.context_chars || 0} chars), ingest ${m.ingest_ms} ms.`);
+  const title = esc(`Data 360 Agentic Memory, conversation ${m.conversation_id || "unknown"}${m.session_id ? `, session ${m.session_id}` : ""}. Read ${m.read_ms} ms (${m.context_chars || 0} chars), ingest ${m.ingest_ms} ms.${m.profile_memory_suppressed ? " Fresh-generation isolation suppressed profile-wide facts/preferences re-materialized from retained history; only this generation's conversation context was eligible." : ""}`);
   const recalled = m.recalled != null ? m.recalled : m.context_chars > 0;
   const stored = m.stored != null ? m.stored : !!m.ok;
   const chips = [];

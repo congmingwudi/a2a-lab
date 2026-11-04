@@ -564,6 +564,7 @@ def test_customer_memory_management_is_persona_scoped_and_operator_only(tmp_path
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["customer"] == "maya" and data["complete"] is True
+    assert data["profile_memory_suppressed"] is False
     assert data["memories"] == [
         {"category": "sys_PROFILE_FACT", "memory_id": "fact-1", "content": "Keeps bees."}
     ]
@@ -578,6 +579,7 @@ def test_customer_memory_management_is_persona_scoped_and_operator_only(tmp_path
     )
     assert fresh.status_code == 200 and fresh.json()["ok"] is True
     assert fresh.json()["generation"].startswith("v1:")
+    assert fresh.json()["profile_memory_suppressed"] is True
     jordan = client.get("/api/memory/customer/jordan", headers=operator)
     assert jordan.status_code == 200 and jordan.json()["memories"] == [
         {"category": "sys_PROFILE_FACT", "memory_id": "fact-j", "content": "Keeps koi."}
@@ -692,6 +694,10 @@ def test_customer_memory_panel_has_selection_reset_and_retention_copy():
     assert "Deletion is permanent" in html
     assert "conversation history is not erased" in html
     assert "Automatic extraction is asynchronous" in html
+    assert "Fresh-generation isolation is active" in html
+    assert "profile-wide rows" in html
+    assert "profile_memory_suppressed" in html
+    assert "Only conversation context produced inside the new generation" in html
     assert "20 entries capped into an agent prompt" in html
     assert "memory: normalized retry" in html
     assert "stale_memory_generation" in html

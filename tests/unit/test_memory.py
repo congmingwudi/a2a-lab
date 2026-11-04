@@ -446,6 +446,53 @@ def test_render_context_drops_the_envelope():
     )
 
 
+def test_render_context_generation_scope_quarantines_profile_rows():
+    ctx = {
+        "userContext": [
+            {
+                "entry": "SYS_PROFILE_FACT[1]{CREATED,VALUE}\n  2026-11-03T23:52:42Z,Old fact",
+                "sourceType": "Profile",
+            },
+            {
+                "entry": "CONVERSATION_SUMMARY[1]{CREATED,VALUE}\n  2026-11-04T01:00:00Z,New turn",
+                "sourceType": "Conversation",
+            },
+        ]
+    }
+
+    rendered = render_context(ctx, include_profile=False)
+
+    assert "Old fact" not in rendered and "Profile" not in rendered
+    assert "New turn" in rendered and "Conversation" in rendered
+
+
+async def test_generation_read_skips_profile_api_and_keeps_conversation_context():
+    fake = FakeTenant(
+        context={
+            "userContext": [
+                {"entry": "old profile fact", "sourceType": "Profile"},
+                {"entry": "new generation summary", "sourceType": "Conversation"},
+            ]
+        }
+    )
+    fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["old saved fact"]
+
+    _, context, errors = await memory_mod.open_and_read(
+        fake.client(),
+        "t-generation",
+        session_id="s-1",
+        start=True,
+        include_saved_memories=False,
+        include_profile_context=False,
+        **IDS,
+    )
+
+    assert errors == []
+    assert "new generation summary" in context
+    assert "old profile fact" not in context and "old saved fact" not in context
+    assert not any(r.url.path == "/api/v1/agentic/memory" for r in fake.calls)
+
+
 # ---------------------------------------------------------------- bridge route
 
 

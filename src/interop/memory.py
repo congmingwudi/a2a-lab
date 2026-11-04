@@ -619,6 +619,7 @@ async def open_and_read(
     read: bool = True,
     conversation_id: str | None = None,
     include_saved_memories: bool = True,
+    include_profile_context: bool = True,
 ) -> tuple[str | None, str, list[str]]:
     """The read half of a turn, fail-open: (session_id, context text, errors).
 
@@ -643,7 +644,8 @@ async def open_and_read(
     if sid and read:
         try:
             context = render_context(
-                await mem.get_context(trace_id, conversation_id=conversation_id, **ids)
+                await mem.get_context(trace_id, conversation_id=conversation_id, **ids),
+                include_profile=include_profile_context,
             )
         except MemoryCallError as exc:
             errors.append(str(exc))
@@ -691,12 +693,26 @@ async def write_turn(
 ENVELOPE_KEYS = frozenset({"contextId", "sessionId", "createdAt"})
 
 
-def render_context(ctx: dict, limit: int = 4000) -> str:
+def render_context(ctx: dict, limit: int = 4000, *, include_profile: bool = True) -> str:
     """The context payload as prompt text: every non-empty string leaf,
     labelled by its key path, minus the top-level envelope (`ENVELOPE_KEYS`).
     Deliberately generic, because the service has added fields before."""
     lines: list[str] = []
     ctx = {k: v for k, v in ctx.items() if k not in ENVELOPE_KEYS}
+    if not include_profile and isinstance(ctx.get("userContext"), list):
+        # A reset rotates the conversation, but Data 360 can immediately
+        # re-materialize profile facts from retained pre-reset history. Their
+        # CREATED timestamps are new, so a timestamp comparison is not a safe
+        # generation boundary. Keep this generation's Conversation context and
+        # quarantine owner-global Profile rows instead.
+        ctx["userContext"] = [
+            item
+            for item in ctx["userContext"]
+            if not (
+                isinstance(item, dict)
+                and str(item.get("sourceType") or "").casefold() == "profile"
+            )
+        ]
 
     def walk(node: Any, path: str) -> None:
         if isinstance(node, dict):

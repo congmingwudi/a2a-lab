@@ -73,8 +73,11 @@ scenarios:
 
       CURATION. Operators can inspect and permanently delete this selected customer's curated
       facts/preferences. Start fresh also advances the demo to a tenant-backed conversation
-      generation so retained earlier summaries are no longer supplied. It does not erase Data 360
-      conversation history; normal governance and retention still apply (D107).
+      generation so retained earlier summaries are no longer supplied. Data 360 can re-materialize
+      profile facts from retained history; after Start fresh those profile-wide rows remain visible
+      for curation but are quarantined from agent prompts. Only conversation context produced inside
+      the new generation is eligible for recall. It does not erase Data 360 conversation history;
+      normal governance and retention still apply (D107).
     target: claude-rest
     via_bridge: false
     status: live
@@ -145,7 +148,9 @@ scenarios:
 
       CURATION. The same selected-customer management panel applies here. Permanent semantic-memory
       deletion and Start fresh affect the shared customer scope, while retained historical
-      conversations remain governed in Data 360 and are not claimed erased (D107).
+      conversations remain governed in Data 360 and are not claimed erased. After Start fresh,
+      re-materialized profile-wide rows are quarantined from prompts; OpenAI can recall only
+      conversation context produced inside the current generation (D107).
     target: openai-rest
     via_bridge: false
     status: live

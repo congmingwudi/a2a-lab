@@ -2054,6 +2054,7 @@ def create_console_app(registry: Registry | None = None):
             "complete": all(item.complete for item in listings.values()),
             "generation": marker,
             "generation_invalid": malformed,
+            "profile_memory_suppressed": bool(marker),
             "memories": [
                 {"category": category, "memory_id": entry.memory_id, "content": entry.content}
                 for category in SAVED_CATEGORIES

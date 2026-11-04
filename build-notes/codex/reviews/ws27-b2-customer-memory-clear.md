@@ -131,3 +131,24 @@ task definition `a2alab-console:144` (digest
 A read-only hosted acceptance returned `complete=true`, zero curated Maya rows, and a valid
 generation marker (trace `dbff59487c644796a697631582794b61`); both customer-memory scenarios
 returned `default_memory: on`. No additional destructive operation was performed.
+
+## D107 generation isolation follow-up — 2026-11-03
+
+The first Maya teaching turn after reset recalled 2,914 characters despite the earlier zero-row
+management verification. Trace `19b1eca3ebbe4cb2b0feb00a05ad3d0b` showed one profile preference
+and 22 profile facts in GetContext. Twenty-one historical facts had been re-materialized roughly
+one second after the generation marker, so their new `CREATED` timestamps were later than the reset.
+A timestamp-only cutoff would therefore preserve the leak it was intended to stop.
+
+The runtime now uses the response's governed source boundary instead. With a valid generation it
+filters `sourceType: Profile` items from GetContext and skips the saved profile-category merge;
+`sourceType: Conversation` from the marker-derived conversation remains eligible. Management still
+lists profile rows for curation and explicitly explains the quarantine. Memory metadata carries
+`profile_memory_suppressed`, which also travels in the badge tooltip.
+
+Pre-deploy validation from the clean worktree: focused memory/adapter/console suite **176 passed**;
+full suite **862 passed, 5 skipped, 6 deselected**; Ruff and `git diff --check` passed. Both Codex
+regression harness cases passed; the readiness probe stopped at its historical old-behavior
+redaction assertion, as expected and not weakened. New regressions reproduce the live mixed Profile/Conversation
+shape, prove old profile facts never reach the inner agent, prove the profile Memory API categories
+are not read for a generation, and retain the new conversation summary.
