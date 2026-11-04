@@ -84,6 +84,12 @@ keys = [
     # seed/recall calls therefore need the dedicated memory ECA identity here,
     # not in the faces task.
     "SF_CLIENT_ID_MEMORY",
+    # D106/D109: the a2a_lab_af_a2a client-credentials pair. The console's
+    # Components rows fetch the NATIVE Agentforce A2A card, which is the extended
+    # /v1/card behind the same OrgJWT the a2a-native tool uses (the public
+    # well-known card 401s). The SECRET is *_SECRET-shaped, so without this line
+    # is_secret() drops it and the card row reports the missing variable.
+    "SF_AF_A2A_CLIENT_ID", "SF_AF_A2A_CLIENT_SECRET",
     # D107: selectable customer key -> org-specific unified profile id. The
     # management API resolves it server-side; profile ids never reach the browser.
     "A2ALAB_MEMORY_CUSTOMER_MAP",
@@ -311,7 +317,7 @@ SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            # like the other SF_CLIENT_ID*; the signing key (…JWT_KEY) is caught
            # by the KEY-name rule; the run-as username is not secret-shaped and
            # rides plain env so the code can read it.
-           "SF_CLIENT_ID_TAB_EMBED", "SF_CLIENT_ID_MEMORY",
+           "SF_CLIENT_ID_TAB_EMBED", "SF_CLIENT_ID_MEMORY", "SF_AF_A2A_CLIENT_ID",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
 

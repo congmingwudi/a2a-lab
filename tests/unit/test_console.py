@@ -964,7 +964,7 @@ def test_every_component_has_a_console_url(tmp_path, monkeypatch):
         (s["name"], c["title"])
         for s in data["scenarios"]
         for c in s.get("components") or []
-        if not c.get("url")
+        if not c.get("url") and not c.get("card_target")
     ]
     assert missing == [], f"components with no console link: {missing}"
 
@@ -2610,7 +2610,7 @@ def test_empty_console_url_env_falls_back_to_the_default(tmp_path, monkeypatch):
         (s["name"], c["title"])
         for s in data["scenarios"]
         for c in s.get("components") or []
-        if not c.get("url")
+        if not c.get("url") and not c.get("card_target")
     ]
     assert missing == [], f"empty env var blanked a console link: {missing}"
 
@@ -3138,3 +3138,97 @@ def test_operator_can_delete_traces(tmp_path, monkeypatch):
     client = TestClient(app)
     headers = _operator_headers(monkeypatch, tmp_path)
     assert client.delete("/api/traces", headers=headers).status_code == 200
+
+
+def test_channel_toggle_scenarios_show_both_agentforce_a2a_cards(tmp_path, monkeypatch):
+    """D28/D106/D109: every channel-toggle scenario lists the shim-hosted and the
+    native Agentforce A2A cards as separate Components, the native one keyed to
+    the twin its entry agent consults (D25). Scenarios without the toggle don't."""
+    app = make_app(tmp_path / "traces", monkeypatch)
+    data = TestClient(app).get("/api/scenarios").json()
+    expected_twin = {
+        "claude-to-agentforce": "claude",
+        "claude-aws-to-agentforce": "claude",
+        "chatgpt-to-agentforce": "openai",
+        "strands-to-agentforce": "strands",
+        "adk-to-agentforce": "adk",
+    }
+    for s in data["scenarios"]:
+        cards = {c["card_target"]: c for c in s["components"] if c.get("card_target")}
+        if not s.get("af_channel_toggle"):
+            assert not cards, s["name"]
+            continue
+        assert set(cards) == {"agentforce-a2a-shim", "agentforce-a2a-native"}, s["name"]
+        assert "card_twin" not in cards["agentforce-a2a-shim"]  # one card fronts every twin
+        assert cards["agentforce-a2a-native"]["card_twin"] == expected_twin[s["name"]]
+        assert "lab-built" in cards["agentforce-a2a-shim"]["title"]
+        assert "Salesforce pilot" in cards["agentforce-a2a-native"]["title"]
+    html = (Path(__file__).parents[2] / "src/console/static/index.html").read_text()
+    assert "function compCardRow(c)" in html
+    assert "toggleCompCard(" in html
+
+
+def _native_target(**auth):
+    return SimpleNamespace(
+        name="agentforce-a2a-native",
+        endpoint="https://api.salesforce.com/einstein/ai-agent/a2a/BOT-DEFAULT",
+        options={"card_path": "/v1/card", "protocol_version": "1.0"},
+        auth={"scheme": "salesforce-cc", **auth},
+    )
+
+
+def test_native_agentforce_card_is_fetched_with_the_orgjwt(tmp_path, monkeypatch):
+    """The native card is the EXTENDED /v1/card (the public well-known one 401s),
+    so the console must mint the same a2a_lab_af_a2a OrgJWT the tool does, pin
+    A2A-Version, and fetch the requested twin's card rather than the default."""
+    import asyncio
+
+    import httpx
+
+    make_app(tmp_path / "traces", monkeypatch)
+    import console.app as console_app
+
+    monkeypatch.setenv("SF_OPENAI_AGENT_ID", "BOT-OPENAI")
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/services/oauth2/token":
+            return httpx.Response(200, json={"access_token": "orgjwt"})
+        return httpx.Response(200, json={"name": "OpenAI twin"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        console_app.httpx,
+        "AsyncClient",
+        lambda **kw: real(transport=httpx.MockTransport(handler), **kw),
+    )
+    target = _native_target(my_domain="org.example.com", client_id="cid", client_secret="cs")
+    out = asyncio.run(console_app._native_agentforce_card(target, "v1/card", "openai"))
+
+    assert out["ok"] is True and out["card"] == {"name": "OpenAI twin"}
+    assert "Published by Salesforce" in out["note"]
+    token_req, card_req = seen
+    assert str(token_req.url) == "https://org.example.com/services/oauth2/token"
+    assert str(card_req.url).endswith("/a2a/BOT-OPENAI/v1/card")
+    assert card_req.headers["Authorization"] == "Bearer orgjwt"
+    assert card_req.headers["A2A-Version"] == "1.0"
+
+
+def test_native_agentforce_card_reports_missing_credential_and_bad_twin(tmp_path, monkeypatch):
+    import asyncio
+
+    from fastapi import HTTPException
+
+    make_app(tmp_path / "traces", monkeypatch)
+    import console.app as console_app
+
+    out = asyncio.run(
+        console_app._native_agentforce_card(
+            _native_target(my_domain="o.example.com"), "v1/card", None
+        )
+    )
+    assert out["ok"] is False and "client_id" in out["error"]
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(console_app._native_agentforce_card(_native_target(), "v1/card", "nope"))
+    assert exc.value.status_code == 400

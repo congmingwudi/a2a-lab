@@ -4932,7 +4932,10 @@ function afChannelsDetailHtml(s) {
           open items are recorded under WS29 (plan/07-workstreams.md) and D106.</li>
       </ul>
       <p class="desc-note">The gap between the a2a-shim and a2a-native rows on the same scenario is the
-        measurement: same A2A client, same twin, with and without the lab's translation layer.</p>
+        measurement: same A2A client, same twin, with and without the lab's translation layer.
+        The two channels also meet two different agent cards, both under Components below: the shim's
+        card is published by the lab and fronts every twin, while the native card is published by
+        Salesforce for this experiment's own twin, and only to an authenticated caller.</p>
     </div>`;
 }
 
@@ -10371,21 +10374,28 @@ window.draftChanged = el => {
 // --- Details tab ------------------------------------------------------------
 window.setCardTab = (target, tab) => { cardTab[target] = tab; renderMain(true); };
 
-window.toggleCard = async target => {
-  if (openCards.has(target)) { openCards.delete(target); renderMain(true); return; }
-  openCards.add(target);
+window.toggleCard = target => toggleCardKey(target, target, null);
+
+// One cache entry per CARD, not per target: the native Agentforce row (D106)
+// fetches a different card for each twin it is asked about (D25), so its key is
+// target|twin. The shim and every lab face key on the bare target.
+async function toggleCardKey(key, target, twin) {
+  if (openCards.has(key)) { openCards.delete(key); renderMain(true); return; }
+  openCards.add(key);
   renderMain(true); // show "fetching…" immediately
-  if (!cardCache[target]) {
+  if (!cardCache[key]) {
+    const q = twin ? "?twin=" + encodeURIComponent(twin) : "";
     try {
-      const r = await fetch(apiUrl("/api/agent-card/" + encodeURIComponent(target)));
+      const r = await fetch(apiUrl("/api/agent-card/" + encodeURIComponent(target) + q));
       const data = await r.json();
-      cardCache[target] = r.ok ? data : { ok: false, url: target, error: data.detail || r.statusText };
+      cardCache[key] = r.ok ? data : { ok: false, url: target, error: data.detail || r.statusText };
     } catch (e) {
-      cardCache[target] = { ok: false, url: target, error: String(e) };
+      cardCache[key] = { ok: false, url: target, error: String(e) };
     }
     renderMain(true);
   }
-};
+}
+window.toggleCompCard = (key, target, twin) => toggleCardKey(key, target, twin || null);
 
 // Human-readable view of an A2A AgentCard — the fields customers should be
 // able to read without parsing JSON. The JSON tab always has the raw truth.
@@ -10413,33 +10423,36 @@ function cardFields(card) {
   </div>`;
 }
 
-function agentRow(a) {
-  const open = openCards.has(a.target);
-  const c = cardCache[a.target];
-  let body = "";
-  if (open) {
-    if (!c) {
-      body = `<div class="cardbox"><pre>fetching live agent card…</pre></div>`;
-    } else if (c.no_card) {
-      // Reachable agent that publishes no public A2A card (e.g. AgentCore over
-      // agentcore-http/SigV4). Honest note, not a server-down error.
-      body = `<div class="cardbox"><p class="caption">${esc(c.reason || "This agent publishes no public A2A agent card.")}</p></div>`;
-    } else if (!c.ok) {
-      body = `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
-        <pre style="color:var(--err)">${esc(c.error)}
+// The fetched card for one cache key: pending, no-card note, error, or the
+// Agent card / JSON tabs. Shared by the Agent cards section and the Components
+// rows that carry a live card (the two Agentforce A2A cards, D28/D106).
+function cardBodyHtml(key) {
+  const c = cardCache[key];
+  if (!c) return `<div class="cardbox"><pre>fetching live agent card…</pre></div>`;
+  if (c.no_card) {
+    // Reachable agent that publishes no public A2A card (e.g. AgentCore over
+    // agentcore-http/SigV4). Honest note, not a server-down error.
+    return `<div class="cardbox"><p class="caption">${esc(c.reason || "This agent publishes no public A2A agent card.")}</p></div>`;
+  }
+  if (!c.ok) {
+    return `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
+      <pre style="color:var(--err)">${esc(c.error)}
 
 Is that server running? scripts/run_local.sh starts the full stack.</pre></div>`;
-    } else {
-      const tab = cardTab[a.target] || "fields";
-      body = `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
-        ${c.synthesized && c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
-        <div class="tabs">
-          <button class="tab ${tab === "fields" ? "on" : ""}" onclick="setCardTab('${esc(a.target)}', 'fields')">Agent card</button>
-          <button class="tab ${tab === "json" ? "on" : ""}" onclick="setCardTab('${esc(a.target)}', 'json')">JSON</button>
-        </div>
-        ${tab === "fields" ? cardFields(c.card) : `<pre>${esc(JSON.stringify(c.card, null, 2))}</pre>`}</div>`;
-    }
   }
+  const tab = cardTab[key] || "fields";
+  return `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
+      ${c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
+      <div class="tabs">
+        <button class="tab ${tab === "fields" ? "on" : ""}" onclick="event.stopPropagation(); setCardTab('${esc(key)}', 'fields')">Agent card</button>
+        <button class="tab ${tab === "json" ? "on" : ""}" onclick="event.stopPropagation(); setCardTab('${esc(key)}', 'json')">JSON</button>
+      </div>
+      ${tab === "fields" ? cardFields(c.card) : `<pre>${esc(JSON.stringify(c.card, null, 2))}</pre>`}</div>`;
+}
+
+function agentRow(a) {
+  const open = openCards.has(a.target);
+  const body = open ? cardBodyHtml(a.target) : "";
   return `
     <div class="agentrow">
       <span class="aname">${esc(a.title || a.target)}</span>
@@ -10457,7 +10470,7 @@ function componentsHtml(components) {
     <h3>Components — the live agent assets</h3>
     <div class="desc"><span class="stat">Click a component to see inside its platform — no login needed.
       "Open ↗" jumps to the live config page (operator login required).</span></div>
-    ${components.map(c => {
+    ${components.map(c => c.card_target ? compCardRow(c) : (() => {
       const key = "comp:" + c.title;
       const open = openComps.has(key);
       const shots = c.shots || [];
@@ -10486,8 +10499,28 @@ function componentsHtml(components) {
               `<code>src/console/static/components/${esc(sl)}.png</code>`).join(" and ")}
             and reopen this tab.</div>` : ""}
       </div>` : ""}`;
-    }).join("")}
+    })()).join("")}
   </div>`;
+}
+
+// A component that IS an agent card (the two Agentforce A2A cards on a
+// channel-toggle scenario, D28/D106): expanding fetches the live card rather
+// than a screenshot, and there is no config page to "Open ↗" — the card is the
+// asset. Same caret row as the screenshot components so the list reads as one.
+function compCardRow(c) {
+  const key = c.card_target + "|" + (c.card_twin || "");
+  const open = openCards.has(key);
+  const call = `toggleCompCard('${esc(key)}', '${esc(c.card_target)}', '${esc(c.card_twin || "")}')`;
+  return `
+    <div class="agentrow comp-row" onclick="${call}" title="Fetch this live agent card">
+      <span class="caret">${open ? "▾" : "▸"}</span>
+      <span class="aname">${esc(c.title)}</span>
+      <span class="badge ${esc(c.kind)}">${esc(c.kind)}</span>
+      <span class="atarget mono">${esc(c.card_target)}</span>
+      <span class="badge a2a" title="Expanding this row fetches the card live from its server">live card</span>
+      ${c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
+    </div>
+    ${open ? cardBodyHtml(key) : ""}`;
 }
 
 window.toggleComp = key => {

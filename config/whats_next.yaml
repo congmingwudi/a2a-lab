@@ -161,20 +161,36 @@ plans:
     workstream: WS10
     refs: [plan/07-workstreams.md]
 
-  - id: agent-memory-across-platforms
-    title: How each agent platform does agent memory
-    horizon: exploring
+  - id: data360-agentic-memory
+    title: Data 360 Agentic Memory — one customer memory across agent platforms
+    horizon: in-flight
     pitch: >
-      Run the same "remember this across turns / across sessions" probe against
-      every platform in the lab and record what each actually persists, where it
-      lives, and who can read it back.
+      One shared Data 360 Agentic Memory behind every lab platform, keyed to the
+      customer's unified profile rather than to whichever agent served them
+      (plan/18-agentic-memory-context.md). Agentforce reaches it through a
+      `before_reasoning` hook on the bridge (D83, D84); Claude and OpenAI through
+      the generic memory seam (D91). Since 2026-11-02 it runs in the console as
+      the "Agent Memory — customer continuity" pair: teach Claude a customer's
+      constraint, then OpenAI recalls it under "From memory" and carries the next
+      step out as an Agentforce CRM Case (D104). Both platforms share one
+      registration, scoped customer → facts/preferences (D105). Operators can
+      list and delete a customer's curated memory or start fresh (D107). Still
+      open: the supplier-disruption case-memory recall, which Data 360 has not
+      yet served back (D102); SDK adapters for the remaining platforms; and the
+      full recall matrix (WS27 items 11–12).
     payoff: >
-      Memory is the next axis the lab has not measured. The same cross-vendor
-      seam that makes delegation interesting applies here: whose store, under
-      whose trust boundary, surviving which hops — and whether memory travels
-      with a delegated request or stays stranded on the platform that holds it.
-    platforms: [claude, openai, adk, foundry, salesforce]
+      The first measured answer to "can one agent remember what another agent
+      learned?" — yes, across vendors, when memory belongs to the customer and
+      not to the agent. Hosted, OpenAI recalled all three facts Claude was taught
+      45 s earlier, while a second customer (Jordan) got nothing back
+      (plan/03-results.md). The native Agentforce memory arms recall too, but
+      from a separate store that never reaches Data 360 (D92, D96). The open
+      question is the honest one: an accepted memory write is not proof it can
+      be read back (plan/02-matrix.md).
+    platforms: [salesforce, claude, openai]
     specs: []
+    workstream: WS27
+    refs: [D83, D84, D91, D92, D96, D102, D104, D105, D107, plan/18-agentic-memory-context.md, plan/03-results.md, plan/02-matrix.md]
 
   - id: agent-plugins-spec
     title: Agent Plugins spec support across the platforms
