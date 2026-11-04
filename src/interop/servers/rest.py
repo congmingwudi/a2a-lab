@@ -52,6 +52,12 @@ def create_rest_app(adapter: AgentAdapter) -> FastAPI:
             # the caller's trace hop (and the console) can show WHAT failed,
             # not just that a 500 happened. Full stack still goes to stderr.
             error = f"{type(exc).__name__}: {exc}"
+            # A typed refusal (e.g. StaleMemoryGeneration) declares its own
+            # status and code so it survives the hop; everything else is a 500.
+            status_code = getattr(exc, "http_status", None) or 500
+            error_body = {"error": error, "trace_id": req.trace_id}
+            if getattr(exc, "error_code", None):
+                error_body["error_code"] = exc.error_code
             recorder.record(
                 TraceEvent(
                     trace_id=req.trace_id,
@@ -60,14 +66,14 @@ def create_rest_app(adapter: AgentAdapter) -> FastAPI:
                     protocol="rest",
                     transport_detail="POST /invoke",
                     request_payload_raw=body,
-                    response_payload_raw={"error": error, "trace_id": req.trace_id},
+                    response_payload_raw=error_body,
                     status="error",
                     latency_ms=int((time.perf_counter() - start) * 1000),
                     hop_seq=recorder.next_hop_seq(req.trace_id),
                 )
             )
             traceback.print_exc()
-            return JSONResponse(status_code=500, content={"error": error, "trace_id": req.trace_id})
+            return JSONResponse(status_code=status_code, content=error_body)
         resp.latency_ms = resp.latency_ms or int((time.perf_counter() - start) * 1000)
         payload = resp.to_dict()
         recorder.record(

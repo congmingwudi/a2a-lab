@@ -852,6 +852,36 @@ def test_run_defaults_and_errors(tmp_path, monkeypatch):
     assert client.post("/api/run", json={}).status_code == 400
 
 
+def test_run_keeps_a_typed_refusal_across_the_hosted_hop(tmp_path, monkeypatch):
+    """ws27-b2 R2-1: hosted, a stale chat reaches the console as the REST
+    client's RemoteAgentError, not as StaleMemoryGeneration. The wire code must
+    still reach the browser, or "Fork to a new chat" never appears."""
+    from interop.clients.base import RemoteAgentError
+
+    registry = FakeRegistry()
+
+    async def refuse(req):
+        raise RemoteAgentError(
+            "HTTP 409 from https://face — server said: ...",
+            status=409,
+            error_code="stale_memory_generation",
+        )
+
+    monkeypatch.setattr(registry.fake_client, "ask", refuse)
+    client = TestClient(make_app(tmp_path / "traces", monkeypatch, registry))
+    data = client.post("/api/run", json={"target": "claude-rest", "message": "hi"}).json()
+    assert data["ok"] is False
+    assert data["error_code"] == "stale_memory_generation"
+
+    # An untyped failure stays untyped.
+    async def boom(req):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(registry.fake_client, "ask", boom)
+    data = client.post("/api/run", json={"target": "claude-rest", "message": "hi"}).json()
+    assert data["ok"] is False and "error_code" not in data
+
+
 def test_scenarios_listed(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     client = TestClient(app)

@@ -59,7 +59,14 @@ class MemoryCallError(RuntimeError):
 
 
 class StaleMemoryGeneration(MemoryCallError):
-    """A chat was created under an older customer-memory generation."""
+    """A chat was created under an older customer-memory generation.
+
+    ``error_code``/``http_status`` are its wire shape: the REST face answers 409
+    with this code, so a caller behind a hop (the hosted console) can still tell
+    a stale chat from a failure and offer to fork it (ws27-b2 R2-1, D107)."""
+
+    error_code = "stale_memory_generation"
+    http_status = 409
 
 
 def data_space() -> str:

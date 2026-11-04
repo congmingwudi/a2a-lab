@@ -541,6 +541,17 @@ of the "start a new chat" fork until reload. **Suggested fix:** have the face re
 (for example a 409 with `error_code`) and let the REST client keep the code. Alternatively, match
 on the `StaleMemoryGeneration` text. Not required for this batch.
 
+**Fixed 2026-11-04 (Claude), both suggestions combined.** `StaleMemoryGeneration` declares
+`error_code = "stale_memory_generation"` and `http_status = 409` (`src/interop/memory.py`). The
+REST face answers a typed exception with its own status and puts `error_code` in the body; the
+trace hop records the same body (`src/interop/servers/rest.py`). `RestClient` raises the new
+`RemoteAgentError(RuntimeError)`, which carries `status` and `error_code`. The operator message
+is unchanged (`src/interop/clients/base.py`, `clients/rest.py`). `/api/run` reads the code through
+`_run_error_code`: first the exception attribute, then the class name in the message as a fallback
+for MCP/A2A hops, which carry only text (`src/console/app.py`). Tests:
+`tests/unit/test_typed_remote_errors.py` (409 + code on the wire, untyped stays 500, client keeps
+the code) and `test_run_keeps_a_typed_refusal_across_the_hosted_hop`.
+
 ### Reviewer evidence
 
 - `uv run pytest -q` (proxy and `ANTHROPIC_BASE_URL` unset) → **870 passed, 3 skipped, 6

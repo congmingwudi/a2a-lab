@@ -24,6 +24,18 @@ def auth_headers(auth: dict[str, Any] | None) -> dict[str, str]:
     return headers
 
 
+class RemoteAgentError(RuntimeError):
+    """A remote agent answered with an error. ``error_code`` is set when the
+    server typed it on the wire (our REST face does for typed refusals such as
+    ``stale_memory_generation``), so callers can branch on the code instead of
+    parsing the message."""
+
+    def __init__(self, message: str, *, status: int | None = None, error_code: str | None = None):
+        super().__init__(message)
+        self.status = status
+        self.error_code = error_code
+
+
 class RemoteAgentClient(ABC):
     """One implementation per protocol (rest/mcp/a2a) plus one per
     platform-native API (Agentforce Agent API)."""

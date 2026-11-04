@@ -1407,6 +1407,21 @@ def _logger_request_headers(url: str, body: bytes) -> dict[str, str] | None:
     return {"Content-Type": "application/json", "X-Api-Key": key}
 
 
+def _run_error_code(exc: BaseException) -> str | None:
+    """The typed code of a run failure, however it reached us (ws27-b2 R2-1).
+
+    In-process the exception IS a StaleMemoryGeneration and carries the code; over
+    the hosted REST hop the client re-raises a RemoteAgentError carrying the wire
+    ``error_code``; MCP/A2A carry only text, so the class name in the message is the
+    last resort."""
+    code = getattr(exc, "error_code", None)
+    if isinstance(code, str) and code:
+        return code
+    if "StaleMemoryGeneration" in str(exc):
+        return "stale_memory_generation"
+    return None
+
+
 def create_console_app(registry: Registry | None = None):
     state = {"registry": registry}
     # One long-lived client per target (same rule as the bridge): they cache
@@ -3490,11 +3505,7 @@ def create_console_app(registry: Registry | None = None):
                 "ok": False,
                 "trace_id": req.trace_id,
                 "error": f"{type(exc).__name__}: {exc}",
-                **(
-                    {"error_code": "stale_memory_generation"}
-                    if type(exc).__name__ == "StaleMemoryGeneration"
-                    else {}
-                ),
+                **({"error_code": code} if (code := _run_error_code(exc)) else {}),
             }
 
     @app.post("/api/run/poll")
