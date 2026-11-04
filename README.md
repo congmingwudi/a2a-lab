@@ -657,7 +657,7 @@ flowchart LR
     SCON -- "a2a_lab_obs<br/>api" --> DMO
     SB -- "a2a_lab_app (shared)" --> AAPI
     SB -- "a2a_lab_memory<br/>JWT-bearer, run-as user (D83)" --> MEM["Data 360 Agentic Memory<br/>/memory/turn"]
-    SF -- "a2a_lab_memory<br/>JWT-bearer (D91)" --> MEM
+    SF -- "a2a_lab_memory<br/>aid + customer xid (D91/D104)" --> MEM
     SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEM
     SBR -- "a2a_lab_app (shared)<br/>writes A2ALab_Account_Brief__c" --> SFORG[("Salesforce org")]
 ```
