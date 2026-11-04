@@ -3237,6 +3237,30 @@ def test_channel_toggle_scenarios_show_both_agentforce_a2a_cards(tmp_path, monke
     assert "toggleCompCard(" in html
 
 
+def test_channel_toggle_scenarios_list_both_agentforce_cards_in_agent_cards(tmp_path, monkeypatch):
+    """D28/D106: the Agent cards list of a channel-toggle scenario shows the
+    shim-hosted card AND the Salesforce-hosted native card (twin-scoped), side
+    by side. Scenarios without the toggle keep their yaml agents untouched."""
+    app = make_app(tmp_path / "traces", monkeypatch)
+    data = TestClient(app).get("/api/scenarios").json()
+    import console.app as console_app
+
+    raw = console_app.load_scenarios()
+    for s in data["scenarios"]:
+        targets = [a["target"] for a in s.get("agents") or []]
+        if not s.get("af_channel_toggle"):
+            assert s.get("agents", []) == (raw[s["name"]].get("agents") or []), s["name"]
+            continue
+        i = targets.index("agentforce-a2a")
+        assert targets[i + 1] == "agentforce-a2a-native", s["name"]
+        shim, native = s["agents"][i], s["agents"][i + 1]
+        assert "shim-hosted" in shim["title"] and "twin" not in shim
+        assert "Salesforce-hosted" in native["title"]
+        assert native["twin"] and native["twin"] != "agentforce"
+    html = (Path(__file__).parents[2] / "src/console/static/index.html").read_text()
+    assert "agent|${a.target}|${a.twin}" in html
+
+
 def _native_target(**auth):
     return SimpleNamespace(
         name="agentforce-a2a-native",

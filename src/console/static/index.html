@@ -10468,13 +10468,20 @@ Is that server running? scripts/run_local.sh starts the full stack.</pre></div>`
 }
 
 function agentRow(a) {
-  const open = openCards.has(a.target);
-  const body = open ? cardBodyHtml(a.target) : "";
+  // A twin-scoped card (the native Agentforce card, D106) is keyed by
+  // agent|target|twin: distinct from the Components row of the same card, and
+  // two scenarios on different twins never share a cache slot.
+  const key = a.twin ? `agent|${a.target}|${a.twin}` : a.target;
+  const open = openCards.has(key);
+  const body = open ? cardBodyHtml(key) : "";
+  const click = a.twin
+    ? `toggleCompCard('${esc(key)}','${esc(a.target)}','${esc(a.twin)}')`
+    : `toggleCard('${esc(a.target)}')`;
   return `
     <div class="agentrow">
       <span class="aname">${esc(a.title || a.target)}</span>
-      <span class="atarget mono">${esc(a.target)}</span>
-      <button class="ghost" onclick="toggleCard('${esc(a.target)}')">${open ? "Hide agent card" : "Show agent card"}</button>
+      <span class="atarget mono">${esc(a.target)}${a.twin ? ` · twin ${esc(a.twin)}` : ""}</span>
+      <button class="ghost" onclick="${click}">${open ? "Hide agent card" : "Show agent card"}</button>
       ${a.caption ? `<p class="caption">${esc(a.caption)}</p>` : ""}
     </div>${body}`;
 }
@@ -10646,8 +10653,10 @@ function detailsTabHtml() {
     ${(s.agents || []).length ? `<div class="flow">
       <h3>Agent cards — the agents in this experiment</h3>
       <div class="desc"><span class="stat">A2A AgentCards are generated at runtime by each running server
-        and published at <code>/.well-known/agent-card.json</code> — what you see below is fetched live
-        from the lab, not from a file.</span></div>
+        and published at <code>/.well-known/agent-card.json</code> — what you see below is fetched live,
+        not from a file. Where an experiment can reach Agentforce over both A2A servers, both cards are
+        listed: the lab-built shim card (D28) and the card Salesforce itself publishes (pilot, D106 —
+        the extended <code>/v1/card</code>, fetched with an OrgJWT because the public one answers 401).</span></div>
       ${(s.agents || []).map(agentRow).join("")}
     </div>` : ""}
     ${afChannelsDetailHtml(s)}

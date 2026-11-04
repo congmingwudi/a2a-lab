@@ -1563,24 +1563,54 @@ def create_console_app(registry: Registry | None = None):
         pair = by_name.get(name)
         return delegation.rider_for(*pair) if pair else None
 
+    def _scenario_twin(spec: dict) -> str | None:
+        """The Agentforce twin (D25) a channel-toggle scenario's entry agent
+        consults: the first non-Agentforce agent's registry platform."""
+        if not spec.get("af_channel_toggle"):
+            return None
+        reg = get_registry()
+        for agent in spec.get("agents") or []:
+            try:
+                platform = reg.get(reg.resolve_name(agent.get("target", ""))).platform
+            except KeyError:
+                continue
+            if platform != "agentforce":
+                return platform
+        return None
+
     def _scenario_components(spec: dict) -> list[dict]:
         """Components for a scenario. A channel-toggle scenario (D28/D106) also
         gets the two Agentforce A2A card rows, keyed to the twin its entry
-        agent consults (D25): the first non-Agentforce agent's platform."""
+        agent consults (D25)."""
         tags = set(spec.get("tags") or [])
-        twin = None
         if spec.get("af_channel_toggle"):
             tags.add("af-channels")
-            reg = get_registry()
-            for agent in spec.get("agents") or []:
-                try:
-                    platform = reg.get(reg.resolve_name(agent.get("target", ""))).platform
-                except KeyError:
-                    continue
-                if platform != "agentforce":
-                    twin = platform
-                    break
-        return components_for(tags, twin)
+        return components_for(tags, _scenario_twin(spec))
+
+    def _scenario_agents(spec: dict) -> list[dict]:
+        """The Agent cards list. A channel-toggle scenario reaches Agentforce
+        over BOTH A2A servers (D28 shim, D106 native), so its shim entry is
+        relabelled and the Salesforce-published native card is listed beside
+        it, keyed to the twin the entry agent consults."""
+        agents = [dict(a) for a in spec.get("agents") or []]
+        twin = _scenario_twin(spec)
+        if not twin:
+            return agents
+        out: list[dict] = []
+        for a in agents:
+            out.append(a)
+            if a.get("target") in ("agentforce-a2a", "agentforce-a2a-shim"):
+                a["title"] = "Agentforce agent — shim-hosted card (lab-built, D28)"
+                a["caption"] = SHIM_CARD_NOTE + " Used by the a2a-shim channel; honest status via-shim."
+                out.append(
+                    {
+                        "title": "Agentforce agent — native card (Salesforce-hosted, pilot D106)",
+                        "target": "agentforce-a2a-native",
+                        "twin": twin,
+                        "caption": NATIVE_CARD_NOTE + " Used by the a2a-native channel.",
+                    }
+                )
+        return out
 
     @app.get("/api/scenarios")
     async def scenarios(request: Request):
@@ -1591,6 +1621,7 @@ def create_console_app(registry: Registry | None = None):
                 {
                     "name": name,
                     **spec,
+                    "agents": _scenario_agents(spec),
                     "components": public_components(_scenario_components(spec), signed_in),
                     **({"rider": r} if (r := _scenario_rider(name)) else {}),
                 }
