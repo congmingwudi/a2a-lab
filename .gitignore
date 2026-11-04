@@ -114,3 +114,6 @@ build-notes/claude/dist/
 # trees on every publish; the .agent bundle is the source, so they are build output.
 salesforce/force-app/main/default/aiAgents/
 salesforce/force-app/main/default/aiAgentDefinitionVersions/
+
+# Playwright MCP browser scratch (console logs + logged-in page snapshots)
+.playwright-mcp/
