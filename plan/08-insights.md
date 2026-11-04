@@ -24,7 +24,7 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Advise customers to consolidate within a trust domain and federate across trust domains — and to treat "we'll never need interop" with suspicion: your vendors are already shipping agents, so the second platform usually arrives whether you chose it or not.
 
-**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
+**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces — on hold, its Production gateway stopped since 2026-10-20.
 
 ```mermaid
 flowchart LR
@@ -58,7 +58,7 @@ flowchart LR
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
     LG["LangGraph on Heroku (D77)<br/>3 faces, one web dyno"]
 
-    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5"]
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1, on hold)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5<br/>gateway STOPPED since 2026-10-20"]
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
@@ -78,7 +78,7 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
-    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    CONSOLE -. "A2A run: mule-broker-a2a<br/>(ingress down while gateway stopped)" .-> MULEBK
     MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
@@ -236,7 +236,7 @@ For months only two platforms spoke a protocol natively: Google Vertex AI Agent 
 
 **Advisor take:** Plan for bridges and adapters as permanent, first-class, observable components of an interop program — not temporary scaffolding. Ask every vendor "which protocols do you speak natively, in which direction, GA or beta?" and demand wire-level evidence. Direction matters as much as protocol. A platform that can be called over A2A but cannot call out over it supports half the protocol, and an interop design should record which half.
 
-**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
+**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces — on hold, its Production gateway stopped since 2026-10-20.
 
 ```mermaid
 flowchart LR
@@ -270,7 +270,7 @@ flowchart LR
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
     LG["LangGraph on Heroku (D77)<br/>3 faces, one web dyno"]
 
-    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5"]
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1, on hold)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5<br/>gateway STOPPED since 2026-10-20"]
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
@@ -290,7 +290,7 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
-    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    CONSOLE -. "A2A run: mule-broker-a2a<br/>(ingress down while gateway stopped)" .-> MULEBK
     MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
@@ -490,7 +490,7 @@ flowchart LR
     SBR -- "a2a_lab_app (shared)<br/>writes A2ALab_Account_Brief__c" --> SFORG[("Salesforce org")]
 ```
 
-**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, deployed to Production (WS10 SP1; stopped 2026-10-20, restarted 2026-10-29).
+**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, deployed to Production (WS10 SP1, on hold; gateway STOPPED since 2026-10-20 — /oauth/token is live but has no running caller).
 
 ```mermaid
 flowchart LR
@@ -503,7 +503,7 @@ flowchart LR
     end
 
     HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
-    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, edge 1.13.5 · broker deployed<br/>stopped 2026-10-20, restarted 2026-10-29"]
+    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, edge 1.13.5 · broker deployed<br/>STOPPED since 2026-10-20 (checked 2026-11-04)"]
 
     HUMAN -- "username + password" --> LOGIN
     MULE -- "gateway client id/secret" --> OAUTH
@@ -532,7 +532,7 @@ flowchart LR
 
 **Advisor take:** Once agents can call agents, delegation chains form transitively — including across billing, compliance, and data boundaries. Enforce closed systems per use case, and monitor real topology from traces. This governance problem arrives with your second platform, not your tenth.
 
-**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
+**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces — on hold, its Production gateway stopped since 2026-10-20.
 
 ```mermaid
 flowchart LR
@@ -566,7 +566,7 @@ flowchart LR
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
     LG["LangGraph on Heroku (D77)<br/>3 faces, one web dyno"]
 
-    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5"]
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1, on hold)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5<br/>gateway STOPPED since 2026-10-20"]
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
@@ -586,7 +586,7 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
-    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    CONSOLE -. "A2A run: mule-broker-a2a<br/>(ingress down while gateway stopped)" .-> MULEBK
     MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
@@ -685,7 +685,7 @@ flowchart LR
     SBR -- "a2a_lab_app (shared)<br/>writes A2ALab_Account_Brief__c" --> SFORG[("Salesforce org")]
 ```
 
-**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, deployed to Production (WS10 SP1; stopped 2026-10-20, restarted 2026-10-29).
+**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, deployed to Production (WS10 SP1, on hold; gateway STOPPED since 2026-10-20 — /oauth/token is live but has no running caller).
 
 ```mermaid
 flowchart LR
@@ -698,7 +698,7 @@ flowchart LR
     end
 
     HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
-    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, edge 1.13.5 · broker deployed<br/>stopped 2026-10-20, restarted 2026-10-29"]
+    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, edge 1.13.5 · broker deployed<br/>STOPPED since 2026-10-20 (checked 2026-11-04)"]
 
     HUMAN -- "username + password" --> LOGIN
     MULE -- "gateway client id/secret" --> OAUTH

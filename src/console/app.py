@@ -1941,12 +1941,12 @@ def create_console_app(registry: Registry | None = None):
 
     @app.post("/api/credentials/analyze")
     async def credentials_analyze(request: Request):
-        """Fire the credential analyst (a Claude Managed Agent) and return its
-        briefing.
+        """Fire the credential analyst (one plain ``messages.create``, not a
+        Managed Agent) and return its briefing.
 
-        Runs the COLLECTOR here rather than in the agent: gathering expiry dates
-        needs the operator's own AWS/az/gcloud sessions, which a hosted agent
-        does not have. The agent is handed measured numbers and asked for
+        Runs the COLLECTOR here rather than in the model call: expiry_report
+        re-collects under this process's own service identities (WS14), and the
+        model is handed measured numbers and asked for
         judgment — D22's split, applied to credentials.
         """
         if not _is_operator(request):
@@ -5215,7 +5215,7 @@ and console never present a combined dollar total across tools (WS12/D44).
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     # ---- Cost sentinel (WS12): weekly build-cost brief --------------------
-    # Same shape as the obs analyst above — a paused weekly deployment reading
+    # Same shape as the obs analyst above — a daily scheduled deployment (shipped paused, resumed 2026-07-30, D44) reading
     # the store through the obs MCP server — and deliberately so. What differs
     # is the read: briefs share lab.obs_briefs and are separated by `kind`.
 
@@ -5243,7 +5243,7 @@ and console never present a combined dollar total across tools (WS12/D44).
 
     @app.get("/api/cost-brief")
     async def cost_brief():
-        """The newest weekly cost brief, plus enough state to render the panel
+        """The newest daily cost brief, plus enough state to render the panel
         before one exists. An un-provisioned sentinel is a normal state, not an
         error — the answer is the setup command."""
         state = _cost_sentinel_state()

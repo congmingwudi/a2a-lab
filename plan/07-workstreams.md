@@ -1595,6 +1595,15 @@ scheduled.
 
 ## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
 
+**ON HOLD (2026-11-04, operator decision).** The Production Omni Gateway
+`agent-network-shared-gw` has been **STOPPED since 2026-10-20** (live
+`status: STOPPED`, checked 2026-11-04), so `/broker1/` is not serving. The
+"RUNNING" status below is the 2026-09-01 record, kept as history. Agent
+context/memory experiments (WS27) and Agentforce's native inbound A2A pilot
+(WS29) take priority for the week-of-2026-11-15 demonstration. Resuming means
+starting the gateway, publishing and deploying the rewritten `broker1.agent`,
+then re-running `scripts/mule_broker_smoke.py` (plan/15).
+
 **Status: SP1 walking skeleton BUILT and DEPLOYED to Production; broker RUNNING;
 broker→face consult unproven end to end (2026-09-01).** Phase 0 passed, the
 managed-gateway entitlement was raised, and the Omni Gateway

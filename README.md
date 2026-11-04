@@ -297,7 +297,7 @@ flowchart LR
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
     LG["LangGraph on Heroku (D77)<br/>3 faces, one web dyno"]
 
-    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5"]
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1, on hold)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5<br/>gateway STOPPED since 2026-10-20"]
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
@@ -317,7 +317,7 @@ flowchart LR
     FDY -- "A2A (0.3 dialect)" --> HSHIM
     ADK -- "cross-hyperscaler A2A" --> FDY
     HSHIM --> AGENTAPI
-    CONSOLE -- "A2A run: mule-broker-a2a<br/>(protocol-generic client)" --> MULEBK
+    CONSOLE -. "A2A run: mule-broker-a2a<br/>(ingress down while gateway stopped)" .-> MULEBK
     MULEBK -- "broker egress: oauth2-cc then A2A (lf.a2a.v1)<br/>consult → faces (end-to-end unproven)" --> SRV
     CONSOLE -.scenarios.-> BR
     CONSOLE -.reads.-> OBSDB
@@ -832,7 +832,7 @@ and once deployed nothing needs a live session for the lab to keep working.
 | Foundry agents | Azure AI Foundry | `deploy/foundry/provision_foundry.py` |
 | Brief watcher (D52) | ECS Fargate service `a2alab-briefs`, reuses the faces image, no ALB | `deploy/briefs/deploy_briefs.sh` |
 | LangGraph agent, 3 faces (WS4/D77) | Heroku web dyno, the first non-AWS host; traces to Aurora via the Data API | `deploy/heroku/deploy_langgraph.sh` |
-| Agent Fabric broker (WS10) | MuleSoft Omni Gateway on CloudHub 2.0 us-east-1; consult leg not yet proven end to end | `anypoint-cli-v4 agent-network project deploy` (from `mulesoft/agent-network/`) |
+| Agent Fabric broker (WS10) | MuleSoft Omni Gateway `agent-network-shared-gw` on CloudHub 2.0 us-east-1 — **on hold**: gateway STOPPED since 2026-10-20, so `/broker1/` is not serving; the rewritten broker is build-validated but not published, and the consult leg is not proven end to end (plan/15) | `anypoint-cli-v4 agent-network project deploy` (from `mulesoft/agent-network/`) |
 
 Three hostnames — the bridge, the console and the faces — are CNAMEs at the
 **same** ALB, which terminates TLS with one wildcard origin certificate. A new

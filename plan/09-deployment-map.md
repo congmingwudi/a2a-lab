@@ -343,8 +343,8 @@ flowchart LR
   BRX --> T2["google-adk-a2a<br/>Agent Engine, federated"]
   BRX --> T3["foundry-*-a2a<br/>Entra service principal"]
   BRX --> T4["agentforce-rest<br/>Agent API"]
-  CON["Agentforce agent<br/>A2ALab Memory Concierge"] -->|"before_reasoning, every turn"| MAPEX["Apex A2ALabMemoryTurn<br/>callout timeout 20s, fail-open"]
-  MAPEX -->|"POST /memory/turn"| DNS
+  CON["Agentforce agent<br/>A2ALab Memory Concierge<br/>(registration retired 2026-11-03)"] -.->|"before_reasoning (historical, D83)"| MAPEX["Apex A2ALabMemoryTurn<br/>callout timeout 20s, fail-open"]
+  MAPEX -.->|"POST /memory/turn"| DNS
   BRX -->|"JWT-bearer → a360 token<br/>memory ECA (D83)"| MEM["Data 360 tenant<br/>Agentic Memory /api/v1/agentic/*"]
   T1 -.->|"memory seam, per-run toggle (D91/D104)<br/>Claude + OpenAI customer agents"| MEM
   CMA["Console Fargate task<br/>CMA host-side fan-out"] -.->|"case seed/recall (D102)<br/>verified user + case conversation"| MEM
@@ -362,11 +362,15 @@ Apex callout 110s → bridge client 45s → agent-side caps. Each layer must be
 comfortably inside the one above it, and the ALB's 120s idle timeout sits above
 all of it.
 
-**Memory rides the same door (D83).** The Memory Concierge's
-`before_reasoning` hook runs `A2ALabMemoryTurn` on every turn, through the
-same `A2ALab_Bridge` Named Credential; the bridge holds the memory ECA identity
-and calls the Data 360 tenant, each call a traced `agentic-memory` hop. It is
-a verb on the bridge, not a `targets.yaml` target. Agentforce also has native
+**Memory rode the same door (D83) — now historical.** The Memory Concierge's
+`before_reasoning` hook ran `A2ALabMemoryTurn` (20s callout, fail-open) on every
+turn, through the same `A2ALab_Bridge` Named Credential; the bridge holds the
+memory ECA identity and calls the Data 360 tenant, each call a traced
+`agentic-memory` hop. Its `A2ALab_Memory_Concierge` Agent Configuration
+registration was deleted 2026-11-03 (see L6) because no current console
+experiment uses it; the Apex, the bundle and the bridge verb (`POST /memory/turn`,
+not a `targets.yaml` target) remain, and the route needs
+`setup_agentic_memory.py register concierge --apply` before it runs again. Agentforce also has native
 memory actions (`manageUserMemory`); whether they reach the same Data 360
 memory, including from a Data Cloud One companion org, is the D84 experiment
 (plan/18 Phase 2b).
@@ -404,7 +408,7 @@ a hope.
 ```mermaid
 flowchart LR
   subgraph HOSTS["Each agent, in its own vendor's home"]
-    C["Claude agent<br/>Managed Agents (Agent API only) or AgentCore"]
+    C["Claude agent<br/>Managed Agents or AgentCore"]
     O["OpenAI agent<br/>AgentCore"]
     S["Strands agent<br/>AgentCore (Bedrock)"]
     A["ADK agent<br/>Agent Engine"]
@@ -414,11 +418,17 @@ flowchart LR
   O -->|"ask_agentforce (default)"| AAPI
   S -->|"ask_agentforce (default)"| AAPI
   A -->|"ask_agentforce (default)"| AAPI
-  C -->|"ask_agentforce_a2a<br/>channel radio, D28 (AgentCore/sdk only)"| SHIMX
+  C -->|"ask_agentforce_a2a<br/>channel radio, D28"| SHIMX
   O -->|"ask_agentforce_a2a<br/>channel radio, D28"| SHIMX
   S -->|"ask_agentforce_a2a<br/>channel radio, D28"| SHIMX
   A -->|"ask_agentforce_a2a (A2A 1.0)"| SHIMX
   F -->|"A2A 0.3 dialect"| SHIMX
+  C -->|"ask_agentforce_a2a_native<br/>channel radio, D109"| AFN
+  O -->|"ask_agentforce_a2a_native"| AFN
+  S -->|"ask_agentforce_a2a_native"| AFN
+  A -->|"ask_agentforce_a2a_native"| AFN
+  AFN["Agentforce native inbound A2A (pilot)<br/>api.salesforce.com/einstein/ai-agent/a2a<br/>a2a_lab_af_a2a ECA, no lab shim (D106)"]
+  AFN --> AFT
   SHIMX["a2alab-af-shim<br/>Lambda behind API Gateway<br/>+ wiretap + 0.3 to 1.0 compat"]
   AAPI["Agentforce Agent API (GA)<br/>default channel"]
   SHIMX -->|"Agent API"| AFT["Agentforce twin agent<br/>one per calling platform, D25"]
@@ -434,11 +444,13 @@ under `A2ALAB_MODE=hosted`, with `:8021` as its local twin — and the faces tas
 also serves an `agentforce-a2a` face; the platform-native A2A callers and the
 `ask_agentforce_a2a` channel use the Lambda, which carries the wiretap and the
 0.3→1.0 compat, D28) and
-the Agent API on the inside. Foundry reaches Agentforce only through it; the
-self-hosted backends (Claude sdk/AgentCore, OpenAI, Strands, ADK) default to
-`ask_agentforce` over the GA Agent API and reach the shim only when the
-console's channel radio picks `ask_agentforce_a2a` (D28,
-`src/interop/af_channel.py`).
+the Agent API on the inside. Foundry reaches Agentforce only through it. Every
+self-hosted backend (Claude managed/sdk/AgentCore, OpenAI, Strands, ADK) defaults
+to `ask_agentforce` over the GA Agent API; the console's channel radio (D28, D109,
+`src/interop/af_channel.py`) switches a run to one of two other channels —
+`ask_agentforce_a2a` through this shim, or `ask_agentforce_a2a_native` straight to
+Agentforce's own inbound A2A pilot endpoint with no lab shim (D106), authenticated
+by the `a2a_lab_af_a2a` ECA and free of the shim's 29 s gateway wall.
 
 **Why the shim is hosted rather than local.** Two platform-native A2A callers
 (Foundry, and Agent Engine) must reach a public endpoint, and pointing them at a
@@ -478,7 +490,7 @@ flowchart TB
   subgraph AWSID["AWS workloads — role identity, no stored keys"]
     TR["bridge task role"]
     FT["console · faces · briefs task roles<br/>a2alab/runtime/console|faces|briefs"]
-    LR["lambda roles<br/>shim · fanout · obs harvest"]
+    LR["lambda roles<br/>shim · fanout · obs harvest · obs MCP<br/>(obs MCP bearer token still in function env)"]
     AR["AgentCore runtime roles"]
   end
   SM --> TR
@@ -520,9 +532,12 @@ flowchart TB
   TR --> E5
   FT -->|"all three: console, faces, brief writer (D90)"| E0
   FT -->|"console + faces only (briefs: a2a_lab_app alone)"| E4
-  FT -->|"console: case preflight + seed/recall (D102); faces: Claude face memory seam (D91)"| E5
-  AR --> E1
-  AR --> E2
+  FT -->|"console: case preflight + seed/recall (D102), customer-memory list/reset (D107); faces: Claude + OpenAI customer-memory seam (D91/D104)"| E5
+  AR -->|"claude runtime"| E1
+  AR -->|"openai runtime"| E2
+  AR -->|"strands runtime: no own app, shared"| E0
+  AR -->|"all three runtimes: a2a-native channel (D106)"| E9
+  FT -->|"console + faces: a2a-native channel (D106)"| E9
   LR -->|"shim Lambda"| E3
   LR -->|"harvest Lambda"| E4
   FT -->|"console only: frontdoor embed (WS19)"| E7
@@ -537,6 +552,7 @@ flowchart TB
   AR -.-> A2G
   A2G --> ADKX["Agent Engine"]
   ADKX -.-> G2A
+  ADKX -.->|"Agent Engine: a2a-native channel (D106)"| E9
   G2A --> AWSID
 
   subgraph OPS["Operational agents — not experiments"]
@@ -553,7 +569,7 @@ flowchart TB
   end
   SM -.->|"env_sync.py<br/>.env lives here too"| OPER
 
-  MULE["MuleSoft Omni Gateway + AgentScript broker<br/>agent-network-shared-gw (edge 1.13.5)<br/>cloudhub-us-east-1, Production<br/>stopped 2026-10-20, restarted 2026-10-29<br/>broker deployed; rewrite + re-smoke pending"]
+  MULE["MuleSoft Omni Gateway + AgentScript broker<br/>agent-network-shared-gw (edge 1.13.5)<br/>cloudhub-us-east-1, Production<br/>STOPPED since 2026-10-20 · WS10 on hold<br/>broker deployed; rewrite + re-smoke pending"]
   MULE -->|"client_credentials"| MACH
 ```
 
@@ -562,10 +578,16 @@ plane: **at runtime, AWS SSO is the only interactive human login the lab's data
 plane needs.** The harvest and every hosted component fetch each other platform
 credential as a service identity from Secrets Manager — never an `az login`,
 never a `gcloud auth`, never a value that exists only in someone's `.env`
-(enforced by `observability/credentials.py`). The one hosted exception is off-AWS:
-the Heroku LangGraph dyno (WS4/D77) carries its Salesforce client credentials and a
-static IAM key as Heroku config vars (`deploy/heroku/deploy_langgraph.sh`), not
-Secrets Manager. Provisioning is the deliberate
+(enforced by `observability/credentials.py`). Three hosted components are
+exceptions. The Heroku LangGraph dyno (WS4/D77) carries its Salesforce client
+credentials and a static IAM key as Heroku config vars
+(`deploy/heroku/deploy_langgraph.sh`). The Vertex AI Agent Engine agents (WS2/WS8)
+carry `SF_CLIENT_SECRET`, `SF_AF_A2A_CLIENT_SECRET` (D106), `AZURE_CLIENT_SECRET`
+and the shim token as Agent Engine env vars copied from `.env` by
+`deploy/adk/deploy_adk.py`; only their AWS identity is federated (D40). On AWS
+itself, the obs MCP Lambda (`a2alab-obs-mcp`, D23) still holds
+`A2ALAB_OBS_MCP_TOKEN` in its own function env (`interop.secret_env` already
+supports moving it into a runtime secret). Provisioning is the deliberate
 exception: standing up the Foundry agent (`deploy/foundry/provision_foundry.py`)
 and the AWS→GCP federation (`deploy/bridge/gcp_federation.sh`,
 `deploy/fanout/provision_gcp_federation.py`) require the operator's own
@@ -580,11 +602,16 @@ scheduled" below).
 shorter scope list — Salesforce attributes client-credentials calls to the
 **app**, so one shared app made every lab caller look like one integration user
 in the org's own audit trail. The modelling error showed up as an observability
-failure. The lab now holds six client-credentials External Client Apps
+failure. The lab now holds seven client-credentials External Client Apps
 (`a2a_lab_app`, `a2a_lab_claude`, `a2a_lab_openai`, `a2a_lab_shim`, `a2a_lab_obs`,
-`a2a_lab_tab_embed`; `a2a_lab_app` is deliberately shared by the bridge and the
-brief writer, D90) plus two JWT-bearer ECAs (`a2a_lab_memory`,
-`a2a_lab_employee`, D95/D96), each pre-authorizing its own run-as user. The
+`a2a_lab_tab_embed`, and `a2a_lab_af_a2a` — the native inbound A2A pilot caller,
+which carries the `a2a_api_pilot` scope and runs as one agent's own Digital Agent
+User, D106; `a2a_lab_app` is deliberately shared by the bridge and the brief
+writer, D90) plus two JWT-bearer ECAs (`a2a_lab_memory`,
+`a2a_lab_employee`, D95/D96), each pre-authorizing its own run-as user. `a2a_lab_af_a2a` is held by the three
+AgentCore runtimes, the console and faces tasks and the Agent Engine deployment for
+the native A2A channel; the Strands runtime has no app of its own and rides
+`a2a_lab_app`. The
 `tab_embed` app's frontdoor exchange itself signs a JWT-bearer assertion as its
 user (WS19), so it straddles the two groups. Each hosted ECS service has its own
 task role and runtime secret. Four AWS roles are bound into the one AWS→GCP
@@ -604,14 +631,16 @@ gate for the identical reason `/api/login` is: it *is* the credential
 exchange (D36's public-surface rule extended to a machine caller). The caller
 is the MuleSoft **Omni Gateway** `agent-network-shared-gw` — a managed
 `large` gateway on `cloudhub-us-east-1`, provisioned in
-Production (it was stopped on 2026-10-20 and restarted on 2026-10-29; upgraded in place to `edge 1.13.5`, the first runtime that
+Production (upgraded in place to `edge 1.13.5`, the first runtime that
 ships the auto-applied Agent Fabric policies — see plan/15). As of
 2026-09-01 the agent-network **broker** is **deployed**: `build` + `publish`
 + `deploy` succeeded, creating all six agent-connection API instances and
 the 1-hop AgentScript broker (at the gateway ingress `/broker1/`).
 So `mule-broker-a2a` in `config/targets.yaml` (status `via-fabric`,
-plan/02-matrix.md) now has a live endpoint the console can call. Honestly:
-the console→broker **ingress** hop works, and the lab-side A2A path (minted-JWT
+plan/02-matrix.md) has a deployed endpoint, live only while the gateway runs.
+**The gateway has been STOPPED since 2026-10-20 (checked 2026-11-04) and WS10 is
+on hold**, so `/broker1/` is currently unreachable. Honestly: the console→broker
+**ingress** hop worked while the gateway ran (2026-09-01), and the lab-side A2A path (minted-JWT
 auth → face → completed task) is proven live. The broker's `TASK_STATE_FAILED`
 was diagnosed (plan/15) as the broker script itself, not the egress:
 `broker1.agent` echoed `@executor.consult.output`, and AgentScript executors do
@@ -1241,7 +1270,7 @@ flowchart LR
 | `src/faces/` (the protocol faces) | `deploy/faces/deploy_faces.sh` | ECR image + task def + ECS service `a2alab-faces`, target group + host-header rule on the bridge's ALB, roles `a2alab-faces-task` / `-exec`, secret `a2alab/runtime/faces` (memory ECA identity/key plus the environment-only verified-subject → unified-customer `A2ALAB_MEMORY_OWNER_MAP`). Required `A2ALAB_MEMORY_DATA_SPACE` is plain deployment configuration shared by registration, writes and GetContext reads (D112). The deploy fails before rewriting the secret if the memory signing key is absent. The per-run seam wraps Claude and OpenAI customer-memory agents (D104), binding both `aid` and `xid`. **One process serves all fourteen, addressed by path** (the three strands faces still run the stub — the live Strands turn runs on the AgentCore runtime, not the faces task; the faces image would need the `strands` extra + `STRANDS_BACKEND` to serve the real backend, WS5/D66) | AWS → Salesforce Data 360 |
 | `src/briefs/` (the watcher) | `deploy/briefs/deploy_briefs.sh` | ECS service `a2alab-briefs` on the shared cluster, roles `a2alab-briefs-task` / `-exec`, secret `a2alab/runtime/briefs`. **Reuses the faces image**, no ALB, no target group — it serves nothing | AWS |
 | `src/platforms/langgraph/` | `deploy/heroku/deploy_langgraph.sh` | Heroku container app in team `sfdc-ta` (`HEROKU_APP`/`HEROKU_TEAM`/`HEROKU_API_KEY` from `.env`): one **web dyno** running `python -m platforms.langgraph --protocol all`, which reuses the faces multiplexer to serve all three langgraph faces (`/langgraph-rest`, `/langgraph-mcp/mcp`, `/langgraph-a2a`) behind one `$PORT`. Image carries the `langgraph` + `aws` extras and pushes as a Docker **schema2** manifest (buildx `oci-mediatypes=false,push=true` — Heroku's registry rejects the OCI manifest Docker 29's containerd store emits). The lab's **first non-AWS-hosted platform** (D77). **LIVE 2026-08-17** (app `a2a-lab-langgraph`, `LANGGRAPH_BACKEND=langgraph`, one Basic dyno); the `langgraph-*-hosted` twins + hosted-mode remap are uncommented in `config/targets.yaml`. **Cross-cloud trace sink LIVE 2026-08-19 (WS4 item 9):** the dyno now runs `A2ALAB_TRACE_SINK=postgres` and writes its hops to the shared Aurora store **off-VPC via the rds-data Data API** (an HTTPS AWS call, no VPC peering) — authenticated by a static scoped AWS access-key config var held under dedicated `A2ALAB_HEROKU_AWS_*` names (so `source .env` never shadows the operator's SSO locally), acting as the `lab_writer` role via the writer-secret swap. Proven end to end by the forward delegation trace `verify-fwd-1787158072` (5 hops incl. the agentforce-api leg) landing in `lab.trace_events`. Flipping the sink was a config-only `--skip-build` re-release | Heroku |
-| `mulesoft/agent-network/` | `ANYPOINT_ENV=Production anypoint-cli-v4 agent-network project build\|publish\|deploy --gateway agent-network-shared-gw` | Registers the six agent descriptors + a 1-hop AgentScript broker on the Omni Gateway (WS10 SP1). **Deployed to Production 2026-09-01** on `edge 1.13.5` — all six agent-connection API instances (`claudeConn`, `openaiConn`, `strandsConn`, `guideConn`, `agentforceConn`, `langgraphConn`) + the broker at ingress `/broker1/`. The Production gateway was stopped on 2026-10-20 and restarted on 2026-10-29. The `edge 1.9.16` runtime the gateway shipped with lacked builds for the auto-applied Agent Fabric policies (`tracing` 1.1.1 + siblings), so the deploy 400'd until the gateway was edited in place to `edge 1.13.5` (plan/15). **Open:** the original broker's `TASK_STATE_FAILED` was its own unsupported `@executor.consult.output` reference (plan/15), not the egress; `broker1.agent` is rewritten as a fixed sequence with no LLM step, and its publish/deploy plus `scripts/mule_broker_smoke.py` re-run are operator-held — not yet proven end to end | MuleSoft CloudHub 2.0 (us-east-1) |
+| `mulesoft/agent-network/` | `ANYPOINT_ENV=Production anypoint-cli-v4 agent-network project build\|publish\|deploy --gateway agent-network-shared-gw` | Registers the six agent descriptors + a 1-hop AgentScript broker on the Omni Gateway (WS10 SP1). **Deployed to Production 2026-09-01** on `edge 1.13.5` — all six agent-connection API instances (`claudeConn`, `openaiConn`, `strandsConn`, `guideConn`, `agentforceConn`, `langgraphConn`) + the broker at ingress `/broker1/`. The Production gateway has been **STOPPED since 2026-10-20** (live `status: STOPPED`, checked 2026-11-04), so `/broker1/` and the six connection instances are not serving; WS10 is on hold (2026-11-04) and restarting the gateway is operator-held. The `edge 1.9.16` runtime the gateway shipped with lacked builds for the auto-applied Agent Fabric policies (`tracing` 1.1.1 + siblings), so the deploy 400'd until the gateway was edited in place to `edge 1.13.5` (plan/15). **Open:** the original broker's `TASK_STATE_FAILED` was its own unsupported `@executor.consult.output` reference (plan/15), not the egress; `broker1.agent` is rewritten as a fixed sequence with no LLM step, and its publish/deploy plus `scripts/mule_broker_smoke.py` re-run are operator-held — not yet proven end to end | MuleSoft CloudHub 2.0 (us-east-1) |
 | `salesforce/` | Salesforce DX MCP deploy | Apex `A2ALabInvokeRemoteAgent`, Named/External Credentials, External Client Apps | Salesforce |
 | `salesforce/.../classes/A2ALabCreateFollowUpCase.cls` + `aiAuthoringBundles/A2ALab_Research_Assistant_OpenAI/` + `permissionsets/A2ALab_Agent_Actions` | `sf project deploy start` for Apex/permissions, then `sf agent validate authoring-bundle`, `sf agent publish authoring-bundle -n A2ALab_Research_Assistant_OpenAI`, and `sf agent activate` | D104 terminal CRM action for the customer-memory recall story. The OpenAI agent recalls governed Data 360 context, but only an explicit current-turn request invokes Agentforce to create one exact-Account Case. Apex performs the write in user mode; a scoped generated-number reader survives queue reassignment. **v3 active 2026-11-02; draft live action, published unknown-Account, and delegated no-callback acceptance passed.** | Salesforce |
 | `salesforce/.../aiAuthoringBundles/A2ALab_Supply_Orchestrator` | `sf agent validate\|publish\|activate` | Agent Script orchestrator bundle in the prod org (WS8 variant 3, D61). Fans out by **delegating** to the bridge's `fanout:` route; reuses `A2ALabInvokeRemoteAgent` — no new Apex, no new Named Credential | Salesforce |

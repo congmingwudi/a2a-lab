@@ -6356,7 +6356,8 @@ function buildDetailsHtml() {
 
     <h3>Where the brief lands</h3>
     <p class="hint">The same <code>lab.obs_briefs</code> table as the observability analyst's
-    nightly brief, separated by a <code>kind</code> column — one store, one reader, one
+    on-demand brief (its deployment is paused, so it writes only when Analyze or
+    <code>scripts/obs_analysis.py run</code> fires it — D23, D56), separated by a <code>kind</code> column — one store, one reader, one
     migration. That was the open question in WS12 and this is the answer: two tables would have
     been two migrations and two console readers for the same shape of row.</p>
 
@@ -6378,7 +6379,7 @@ function buildDetailsHtml() {
     <table class="obs-table"><tbody>
       <tr><td>agent</td><td>${esc(s.agent_name || "A2ALab Cost Sentinel")} · ${agentLink}</td></tr>
       <tr><td>model</td><td>${esc(s.model || "—")}</td></tr>
-      <tr><td>schedule</td><td>${s.cron ? `<code>${esc(s.cron)}</code> ${esc(s.timezone || "")} — created paused` : "—"}</td></tr>
+      <tr><td>schedule</td><td>${s.cron ? `<code>${esc(s.cron)}</code> ${esc(s.timezone || "")} — ${s.sched_status ? esc(s.sched_status) : "status unknown"} (shipped paused; resumed daily 2026-07-30, D44)` : "—"}</td></tr>
       <tr><td>deployment</td><td><code>${esc(s.deployment_id || "—")}</code></td></tr>
       <tr><td>setup</td><td><code>uv run python scripts/setup_cost_sentinel.py</code></td></tr>
       <tr><td>drive</td><td><code>uv run python scripts/cost_sentinel.py run|status|latest|pause|resume</code></td></tr>
@@ -8031,6 +8032,7 @@ const CRED_AGENT_DIAGRAM = `flowchart LR
   COL --> P5
 
   REP[("lab.lab_state<br/>measured dates — read by the console")]
+  RUN["credential_analyst.py run<br/>re-runs expiry_report.collect() in the caller<br/>(console task or operator shell)<br/>--cached reads .a2alab/expiry.json"]
   P1 --> REP
   P2 --> REP
   P3 --> REP
@@ -8038,8 +8040,8 @@ const CRED_AGENT_DIAGRAM = `flowchart LR
   P5 --> REP
 
   API["Claude API<br/>one messages.create<br/>no tools, no session, no state"]
-  REP -->|"the numbers, in the prompt"| API
-  API --> BR["briefing<br/>verdict · act now · watch · blind spots"]`;
+  RUN -->|"the numbers, in the prompt"| API
+  API --> BR["briefing → .a2alab/credential_brief.json<br/>verdict · act now · watch · blind spots"]`;
 
 const CRED_SCHEDULED_DIAGRAM = `flowchart LR
   subgraph AWSC["AWS — collection (already hosted, WS14)"]

@@ -88,7 +88,7 @@ keys = [
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
-    # WS27/D91: the Claude face's memory seam signs as the memory ECA's run-as
+    # WS27/D91: the Claude and OpenAI faces' memory seam (D91/D104) signs as the memory ECA's run-as
     # user, the same identity the bridge's /memory/turn holds (D86). JWT-bearer,
     # so no secret exists; the signing key rides as PEM text (below).
     "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER",
