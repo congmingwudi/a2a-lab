@@ -24,3 +24,4 @@ Same convention as the Claude build notes:
 | File | Theme |
 |---|---|
 | [01-plan-requirements-sweep.md](01-plan-requirements-sweep.md) | A repo-scoped Codex skill that turns the comprehensive plan-to-requirements review into an ad hoc, repeatable sweep, plus the optional path to a scheduled task |
+| [02-agents-md-instruction-scopes.md](02-agents-md-instruction-scopes.md) | Layering a personal Codex handoff default with a repository-specific definition of the next recommended step |
