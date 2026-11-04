@@ -492,6 +492,7 @@ def test_d102_supplier_memory_controls_are_scoped_and_accessible():
     assert '"SF_CLIENT_ID_MEMORY"' in deploy
     assert 'payload["A2ALAB_MEMORY_JWT_KEY"]' in deploy
     assert 'memory_jwt_private.pem' in deploy
+    assert "memory signing key is required" in deploy
 
 
 def test_customer_memory_owner_map_is_secret_backed_and_validated_at_deploy():
@@ -499,6 +500,7 @@ def test_customer_memory_owner_map_is_secret_backed_and_validated_at_deploy():
     assert '"A2ALAB_MEMORY_OWNER_MAP"' in deploy
     assert '"A2ALAB_MEMORY_CUSTOMER_MAP"' in deploy
     assert "json.loads(payload[map_key])" in deploy
+    assert "memory signing key is required" in deploy
     example = Path(".env.example").read_text()
     assert "#A2ALAB_MEMORY_OWNER_MAP='{" in example
     assert "#A2ALAB_MEMORY_CUSTOMER_MAP='{" in example
@@ -660,6 +662,58 @@ def test_customer_memory_reset_reports_partial_delete_and_selected_generation(tm
     )
     assert response.status_code == 200 and response.json()["ok"] is False
     assert response.json()["generation"] is None
+
+
+def test_customer_memory_reset_succeeds_when_profile_rows_are_rematerialized(
+    tmp_path, monkeypatch
+):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    class RematerializingMemory:
+        def __init__(self):
+            self.marker = None
+
+        async def list_memories(self, trace_id, **kw):
+            entries = []
+            if kw["category"] == "sys_PROFILE_FACT":
+                entries.append(MemoryEntry("fact-old", "Retained history rebuilt this fact."))
+                if self.marker:
+                    entries.append(MemoryEntry("marker-new", self.marker))
+            return MemoryListing(tuple(entries), len(entries))
+
+        async def create_memories(self, trace_id, **kw):
+            self.marker = kw["contents"][0]
+            return MemoryListing((MemoryEntry("marker-new", self.marker),), 1)
+
+        async def delete_memories(self, trace_id, **kw):
+            # The governed delete succeeds, then retained conversation history
+            # immediately re-materializes the same profile fact.
+            return tuple(kw["memory_ids"])
+
+        async def aclose(self):
+            pass
+
+    fake = RematerializingMemory()
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake)
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    response = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry())).post(
+        "/api/memory/customer/maya",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+
+    data = response.json()
+    assert response.status_code == 200 and data["ok"] is True
+    assert data["errors"] == [] and data["profile_memory_suppressed"] is True
+    assert data["memories"] == [
+        {
+            "category": "sys_PROFILE_FACT",
+            "memory_id": "fact-old",
+            "content": "Retained history rebuilt this fact.",
+        }
+    ]
 
 
 def test_customer_memory_reset_refuses_incomplete_listing(tmp_path, monkeypatch):

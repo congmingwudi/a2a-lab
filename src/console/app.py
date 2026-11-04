@@ -2207,7 +2207,6 @@ def create_console_app(registry: Registry | None = None):
             (action == "delete" and not (requested & remaining_ids))
             or (
                 action == "fresh"
-                and not result["memories"]
                 and created is not None
                 and result["generation"] == marker
                 and not result["generation_invalid"]

@@ -107,8 +107,14 @@ for map_key in ("A2ALAB_MEMORY_OWNER_MAP", "A2ALAB_MEMORY_CUSTOMER_MAP"):
         ):
             raise SystemExit(f"{map_key} must be a non-empty-string JSON object")
 _mem_key = pathlib.Path(os.environ.get("A2ALAB_JWT_DIR", ".a2alab")) / "memory_jwt_private.pem"
-if _mem_key.exists():  # the same file deploy_bridge.sh reads
+if os.environ.get("A2ALAB_MEMORY_JWT_KEY"):
+    payload["A2ALAB_MEMORY_JWT_KEY"] = os.environ["A2ALAB_MEMORY_JWT_KEY"]
+elif _mem_key.exists():  # the same file deploy_bridge.sh reads
     payload["A2ALAB_MEMORY_JWT_KEY"] = _mem_key.read_text()
+else:
+    raise SystemExit(
+        f"memory signing key is required: set A2ALAB_MEMORY_JWT_KEY or create {_mem_key}"
+    )
 
 # The lab JWT VERIFY key — public half ONLY. A face verifies lab JWTs (WS6 U1:
 # a signed per-user or machine credential accepted wherever the shared

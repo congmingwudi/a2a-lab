@@ -170,8 +170,14 @@ elif _embed_key.exists():
 # D102: the memory ECA's RS256 key. The run-as user is a non-secret env value;
 # this signing key is a local PEM and must be relocated into the runtime secret.
 _memory_key = key_dir / "memory_jwt_private.pem"
-if _memory_key.exists():
+if os.environ.get("A2ALAB_MEMORY_JWT_KEY"):
+    payload["A2ALAB_MEMORY_JWT_KEY"] = os.environ["A2ALAB_MEMORY_JWT_KEY"]
+elif _memory_key.exists():
     payload["A2ALAB_MEMORY_JWT_KEY"] = _memory_key.read_text()
+else:
+    raise SystemExit(
+        f"memory signing key is required: set A2ALAB_MEMORY_JWT_KEY or create {_memory_key}"
+    )
 print(json.dumps(payload))
 PY
 )
