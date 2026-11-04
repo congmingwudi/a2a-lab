@@ -3663,7 +3663,7 @@ and the experiment design: `plan/18-agentic-memory-context.md`.
 61. ⏳ Tenant-backed Start fresh (D107): create and validate a shared generation marker, hash it into the effective conversation across Claude/OpenAI, verify the reset saga, and prevent archived pre-reset chats from silently continuing.
 62. ⏳ Memory-management UI and copy (D107): list the selected customer's complete facts/preferences, confirm permanent selected deletion or Start fresh, expose partial/error trace evidence, and distinguish curated deletion from retained conversation history.
 63. ⏳ Deploy and prove D107: add the customer map to the console secret path, update Details/runbooks/deployment map, full-rebuild faces and console, then prove correction, selective deletion, fresh teaching, cross-platform recall and Jordan isolation with recorded traces.
-64. ⏳ D107 reset hotfix: tolerate the tenant's observed undocumented `totalCount` under-count without weakening the greater-than-row safety refusal; default Data 360 Agentic Memory on for the Claude/OpenAI customer-memory pair while Run All remains an explicit memory-off control; test and full-rebuild faces + console.
+64. ✅ D107 reset hotfix: tolerate the tenant's observed undocumented `totalCount` under-count without weakening the greater-than-row safety refusal; default Data 360 Agentic Memory on for the Claude/OpenAI customer-memory pair while Run All remains an explicit memory-off control; focused regressions passed and full-rebuild faces + console deployment reached healthy/stable state.
 
 ## WS28 — AXS-inspired local console design study (raised 2026-10-29, D97)
 

@@ -2144,3 +2144,19 @@ No destructive Maya/Jordan reset was run for smoke. The supported `sys_PROFILE_F
 lifecycle and prompt filtering had already passed against `a2alab-memprobe`, with cleanup, under
 trace `e3c30627c7f945a99a54b6e7535f20a3`.
 
+## 2026-11-03 — D107 reset count-drift hotfix deployed
+
+Trace `bbc1c17a0c79434bb7696c12c438521e` explained the reported reset failure: the Memory API
+returned all 22 fact entries beside undocumented `totalCount: 1`, and one preference beside
+`totalCount: 0`. The previous equality guard therefore called a complete row set incomplete. The
+published Read Memories contract defines `memories[]` and no paging input; the hotfix retains the
+extra count for diagnosis, accepts under-counts, and still refuses a reported value greater than
+the returned rows.
+
+Exact clean source `1253cd1` was full-rebuilt into faces `a2alab-faces:29` and console
+`a2alab-console:144`; both rollouts completed 1/1 and both ALB health routes returned 200. A
+read-only hosted acceptance then returned `complete=true`, zero curated Maya facts/preferences,
+and a valid reset generation (trace `dbff59487c644796a697631582794b61`). The two customer-memory
+scenario documents both returned `default_memory: on`; Run All remains explicitly memory-off.
+No additional delete/reset was issued by the acceptance probe.
+

@@ -121,3 +121,13 @@ Validation before deployment: focused memory/adapter/console suite **174 passed*
 unrelated dirty-worktree changes (`README.md`/`config/diagrams.yaml` parity and two new optional
 Tableau consumption variables absent from the local `.env`). Both Codex regression harness cases
 passed. The readiness probe stopped at its historical old-behavior redaction assertion, as before.
+
+Deployment used the exact clean commit `1253cd1` with full builds. Faces task definition
+`a2alab-faces:29` (digest
+`sha256:56a937aafd7b7e68bf06c8b9f971f3e3254524a58a1ee349f40cc5b9d7830a70`) and console
+task definition `a2alab-console:144` (digest
+`sha256:ee9193778f3f08aae285e415447137c646a3281744bc18d09c695579f53a4abc`) both reached
+`COMPLETED`, 1/1 running, with ALB health 200. The clean-worktree focused suite passed 173 tests.
+A read-only hosted acceptance returned `complete=true`, zero curated Maya rows, and a valid
+generation marker (trace `dbff59487c644796a697631582794b61`); both customer-memory scenarios
+returned `default_memory: on`. No additional destructive operation was performed.
