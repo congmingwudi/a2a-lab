@@ -3665,6 +3665,7 @@ and the experiment design: `plan/18-agentic-memory-context.md`.
 63. ⏳ Deploy and prove D107: add the customer map to the console secret path, update Details/runbooks/deployment map, full-rebuild faces and console, then prove correction, selective deletion, fresh teaching, cross-platform recall and Jordan isolation with recorded traces.
 64. ✅ D107 reset hotfix: tolerate the tenant's observed undocumented `totalCount` under-count without weakening the greater-than-row safety refusal; default Data 360 Agentic Memory on for the Claude/OpenAI customer-memory pair while Run All remains an explicit memory-off control; focused regressions passed and full-rebuild faces + console deployment reached healthy/stable state.
 65. ✅ D107 generation isolation: quarantine re-materialized `sourceType: Profile` rows and skip the saved-profile merge after Start fresh, retain only marker-derived `sourceType: Conversation` recall, expose the boundary in management/badge copy, fail deployment closed if the memory signing key is absent, and prove the first teaching turn is memory-empty then stored (`13202e8bfc704b319a574a0dd15a23de` → `91aa0a885567d41f16d27bcf5157c3b1`).
+66. ✅ D112 data-space visibility: replace the runtime/setup hard-code with required `A2ALAB_MEMORY_DATA_SPACE` deployment configuration, expose the public-safe name through `/api/config`, show it in customer-memory Run and Details panes, and keep profile ids plus environment selection server-side.
 
 ## WS28 — AXS-inspired local console design study (raised 2026-10-29, D97)
 

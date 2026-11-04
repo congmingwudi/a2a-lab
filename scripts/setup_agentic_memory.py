@@ -64,11 +64,11 @@ import sys
 import time
 from dataclasses import dataclass, field
 
+from interop.memory import data_space
 from setup_jwt_eca import load_env, target_org
 
 API = "/services/data/v66.0/ssot/agentic"
 V67 = "/services/data/v67.0/ssot/agentic"  # first version whose agent carries `configuration`
-DATA_SPACE = "default"  # the org has one data space (plan/18 "What the org already has")
 
 
 @dataclass(frozen=True)
@@ -190,7 +190,7 @@ def error_code(resp: object) -> str | None:
 
 
 def setups() -> list[dict]:
-    resp = api("GET", f"/setup?dataSpaceName={DATA_SPACE}")
+    resp = api("GET", f"/setup?dataSpaceName={data_space()}")
     if error_code(resp):
         sys.exit(f"listing agentic setups failed: {resp}")
     return resp.get("setupConfigs", [])
@@ -206,7 +206,7 @@ def agents() -> list[dict]:
 def register_body(a: Agent) -> dict:
     # `dataspaceName`, lowercase s: the spec SCHEMA says dataSpaceName and the server
     # 400s "Unrecognized field" on it (2026-10-12). The setup endpoint is the reverse.
-    body = {"dataspaceName": DATA_SPACE, "name": a.name, "label": a.label,
+    body = {"dataspaceName": data_space(), "name": a.name, "label": a.label,
             "description": a.description}  # fmt: skip
     if a.profile_dmos or a.data_graphs:
         configuration: dict[str, object] = {}
@@ -236,15 +236,15 @@ def send(method: str, path: str, body: dict, apply: bool) -> object | None:
 
 
 def cmd_status(_args) -> None:
-    print(f"agentic setups in {DATA_SPACE!r}: {json.dumps(setups(), indent=2)}")
+    print(f"agentic setups in {data_space()!r}: {json.dumps(setups(), indent=2)}")
     print(f"registered agents: {json.dumps(agents(), indent=2)}")
 
 
 def cmd_setup(args) -> None:
     if setups():
-        print(f"an agentic setup already exists in {DATA_SPACE!r} — nothing to do")
+        print(f"an agentic setup already exists in {data_space()!r} — nothing to do")
         return
-    send("POST", "/setups", {"dataSpaceName": DATA_SPACE, "enabled": True}, args.apply)
+    send("POST", "/setups", {"dataSpaceName": data_space(), "enabled": True}, args.apply)
 
 
 def cmd_register(args) -> None:
@@ -253,7 +253,7 @@ def cmd_register(args) -> None:
         print(f"{a.name} is already registered — `wait {args.agent}` shows its status")
         return
     if not setups():
-        print(f"note: no agentic setup in {DATA_SPACE!r} yet — run `setup` first if this 4xxs")
+        print(f"note: no agentic setup in {data_space()!r} yet — run `setup` first if this 4xxs")
     send("POST", "/agent", register_body(a), args.apply)
 
 
@@ -419,7 +419,7 @@ def cmd_probe(args) -> None:
             print(f"POST {path}  ({label})\n{json.dumps(body, indent=2)}")
         print("(dry run — re-run with --apply to write this probe turn to the production tenant)")
         return
-    post_h = {"dataspace": DATA_SPACE, "owner_id": owner_id, "agent_id": a.name}
+    post_h = {"dataspace": data_space(), "owner_id": owner_id, "agent_id": a.name}
     with tenant_session(a, owner_id) as http:
         for label, path, body in writes:
             r = http.post(path, json=body, headers=post_h)
@@ -432,10 +432,10 @@ def cmd_probe(args) -> None:
             r = http.get("/api/v1/agentic/context",
                          params={**read_q, "conversation_id": cid, "agent_id": a.name},
                          headers={"ctx-agent-id": a.name,
-                                  "ctx-dataspace-ds_name": DATA_SPACE})  # fmt: skip
+                                  "ctx-dataspace-ds_name": data_space()})  # fmt: skip
             show(f"GetContext (+{(attempt + 1) * args.wait}s)", r)
         r = http.get(f"/api/v1/agentic/conversations/{cid}", params={**read_q, "scope": "all"},
-                     headers={"x-sfdc-dataspace": DATA_SPACE, "agent_id": a.name})  # fmt: skip
+                     headers={"x-sfdc-dataspace": data_space(), "agent_id": a.name})  # fmt: skip
         show("get conversation", r)
 
 
@@ -452,7 +452,7 @@ def cmd_context(args) -> None:
         r = http.get(
             "/api/v1/agentic/context",
             params=params,
-            headers={"ctx-agent-id": a.name, "ctx-dataspace-ds_name": DATA_SPACE},
+            headers={"ctx-agent-id": a.name, "ctx-dataspace-ds_name": data_space()},
         )
     if r.status_code != 200:
         show("GetContext", r)

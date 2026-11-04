@@ -4894,3 +4894,21 @@ failed on exactly the turns it exists to measure. WS29 item 14 covers measuring 
   timeout (34 s on OpenAI/Strands; `AF_A2A_NATIVE_TIMEOUT_S`, default 60 s, elsewhere), not 29 s.
 - Pilot terms still apply (plan/07-workstreams.md WS29). The endpoint is enabled per org and may
   change before GA, so a failure on this channel is a finding about the pilot first.
+
+## 2026-11-03 — D112: Agentic Memory names its Data 360 data space as deployment configuration
+
+**Context.** Agentic Memory is attached to a Unified Individual inside a Data 360 data space. The
+lab runtime and setup tooling silently hard-coded the current environment's data-space API name,
+and the console showed the customer profile without showing that enclosing boundary. That becomes
+ambiguous when the same experiments are installed in another Data Cloud One environment.
+
+**Decision.** `A2ALAB_MEMORY_DATA_SPACE` is required deployment configuration with no code or UI
+fallback. The same value drives agent registration/setup, conversation writes, GetContext reads,
+turn metadata, and the public-safe `/api/config` field. Customer-memory Run and Details panes show
+the active data-space name beside the selected persona. Profile identifiers remain secret and
+server-resolved; the browser can display but cannot choose the data space.
+
+**Consequences.** Each Data 360 environment declares its own memory boundary without a source-code
+change, and the lab makes that boundary visible before an operator compares experiments. One
+deployment still targets one Agentic Memory data space; simultaneous multi-environment routing
+would require an explicit server-side environment selector rather than accepting a browser value.

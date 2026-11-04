@@ -54,6 +54,7 @@ from interop.memory import (
     MemoryClient,
     MemoryListing,
     StaleMemoryGeneration,
+    data_space,
     generation_conversation,
     open_and_read,
     owner_conversation,
@@ -296,6 +297,7 @@ class MemoryAdapter:
         meta = dict(resp.metadata or {})
         meta["memory"] = {
             "agent_id": self.agent_id,
+            "data_space": data_space(),
             "owner_id": owner,
             "conversation_id": conversation_id,
             "generation": generation,

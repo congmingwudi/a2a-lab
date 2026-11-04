@@ -34,7 +34,7 @@ import httpx
 
 from interop.trace import Hop
 
-DATA_SPACE = "default"
+DATA_SPACE_ENV = "A2ALAB_MEMORY_DATA_SPACE"
 OWNER_TYPE = "individual"  # the SDK's default; open question 3 in plan/18
 KEY_ENV = "A2ALAB_MEMORY_JWT_KEY"  # PEM text — the hosted bridge's secret carries it
 KEY_FILE = "memory_jwt_private.pem"  # local: under A2ALAB_JWT_DIR (.a2alab)
@@ -60,6 +60,14 @@ class MemoryCallError(RuntimeError):
 
 class StaleMemoryGeneration(MemoryCallError):
     """A chat was created under an older customer-memory generation."""
+
+
+def data_space() -> str:
+    """Configured Data 360 data space; never guess which environment owns memory."""
+    value = os.environ.get(DATA_SPACE_ENV, "").strip()
+    if not value:
+        raise MemoryCallError(f"memory data space is not configured: set {DATA_SPACE_ENV}")
+    return value
 
 
 @dataclass(frozen=True)
@@ -355,7 +363,7 @@ class MemoryClient:
         return r.status_code, body
 
     def _post_headers(self, owner_id: str, agent_id: str) -> dict[str, str]:
-        return {"dataspace": DATA_SPACE, "owner_id": owner_id, "agent_id": agent_id}
+        return {"dataspace": data_space(), "owner_id": owner_id, "agent_id": agent_id}
 
     # ------------------------------------------------------------ verbs
 
@@ -476,7 +484,7 @@ class MemoryClient:
         _, body = await self._call(
             trace_id, agent_id, "GET", "/api/v1/agentic/context", owner_id=owner_id,
             ref_key="contextId",
-            headers={"ctx-agent-id": agent_id, "ctx-dataspace-ds_name": DATA_SPACE},
+            headers={"ctx-agent-id": agent_id, "ctx-dataspace-ds_name": data_space()},
             params={"conversation_id": _conversation_id(owner_id, conversation_id),
                     "owner_id": owner_id,
                     "agent_id": agent_id, "owner_type": OWNER_TYPE},

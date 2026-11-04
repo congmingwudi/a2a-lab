@@ -47,6 +47,12 @@ readable ingest-only normalization retry. The evidence and exact boundary are in
 `build-notes/codex/ws27-memory-403-probe.md` and
 `build-notes/codex/ws27-generation-category-probe.md`.
 
+**D112 addendum (2026-11-03): visible, configurable data-space boundary.** Agentic Memory setup,
+runtime writes and GetContext reads all resolve the required `A2ALAB_MEMORY_DATA_SPACE` value. The
+console exposes that public-safe API name beside the selected customer and in Details, while unified
+profile ids remain server-side. This deployment targets one data space; another Data Cloud One
+environment supplies its own value rather than changing source or inheriting a silent fallback.
+
 This
 doc is the setup path and the experiment design. Decisions get ADRs in
 `plan/00-decisions.md` as they settle, and a `## WS27` delivery record in

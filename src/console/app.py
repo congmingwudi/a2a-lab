@@ -2618,6 +2618,8 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/config")
     async def config(request: Request):
+        from interop.memory import data_space
+
         reg = get_registry()
         # WS19/M10: the in-org "A2A Lab" Lightning app holds the live Tableau
         # Next dashboard over the Zero-Copy observability data. Everyone sees
@@ -2675,6 +2677,10 @@ def create_console_app(registry: Registry | None = None):
             # tab's memory only (not persisted, not server-side) — the server
             # just sets the cap, like guide_history_limit above.
             "experiment_history_limit": int(os.environ.get("A2ALAB_EXPERIMENT_CHAT_HISTORY", "3")),
+            # Public-safe environment boundary for the customer-memory exhibit.
+            # Profile ids remain server-side; the data-space API name is shown
+            # so another Data 360 environment cannot be mistaken for this one.
+            "memory_data_space": data_space(),
             "memory_customers": load_memory_customers(),
             "remapped": {
                 name: reg.resolve_name(name)

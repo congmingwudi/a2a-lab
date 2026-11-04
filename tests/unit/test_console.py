@@ -501,6 +501,8 @@ def test_customer_memory_owner_map_is_secret_backed_and_validated_at_deploy():
     assert '"A2ALAB_MEMORY_CUSTOMER_MAP"' in deploy
     assert "json.loads(payload[map_key])" in deploy
     assert "memory signing key is required" in deploy
+    assert '${A2ALAB_MEMORY_DATA_SPACE:?' in deploy
+    assert 'env["A2ALAB_MEMORY_DATA_SPACE"]' in deploy
     example = Path(".env.example").read_text()
     assert "#A2ALAB_MEMORY_OWNER_MAP='{" in example
     assert "#A2ALAB_MEMORY_CUSTOMER_MAP='{" in example
@@ -508,6 +510,8 @@ def test_customer_memory_owner_map_is_secret_backed_and_validated_at_deploy():
     console_deploy = Path("deploy/console/deploy_console.sh").read_text()
     assert '"A2ALAB_MEMORY_CUSTOMER_MAP"' in console_deploy
     assert 'json.loads(payload["A2ALAB_MEMORY_CUSTOMER_MAP"])' in console_deploy
+    assert '${A2ALAB_MEMORY_DATA_SPACE:?' in console_deploy
+    assert 'env["A2ALAB_MEMORY_DATA_SPACE"]' in console_deploy
 
 
 def test_customer_memory_management_is_persona_scoped_and_operator_only(tmp_path, monkeypatch):
@@ -751,6 +755,8 @@ def test_customer_memory_panel_has_selection_reset_and_retention_copy():
     assert "Fresh-generation isolation is active" in html
     assert "profile-wide rows" in html
     assert "profile_memory_suppressed" in html
+    assert "data space: ${esc(dataSpace)}" in html
+    assert "A2ALAB_MEMORY_DATA_SPACE" in html
     assert "Only conversation context produced inside the new generation" in html
     assert "20 entries capped into an agent prompt" in html
     assert "memory: normalized retry" in html
@@ -986,8 +992,11 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
 
 
 def test_config_exposes_safe_customer_personas_without_profile_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_MEMORY_DATA_SPACE", "customer-memory-space")
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
-    customers = TestClient(app).get("/api/config").json()["memory_customers"]
+    config = TestClient(app).get("/api/config").json()
+    assert config["memory_data_space"] == "customer-memory-space"
+    customers = config["memory_customers"]
     assert customers["maya"]["name"] == "Maya Chen"
     assert customers["jordan"]["name"] == "Jordan Alvarez"
     assert all("id" not in field.lower() for customer in customers.values() for field in customer)

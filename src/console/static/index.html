@@ -4633,6 +4633,7 @@ function memoryCustomerRowHtml(exp) {
     selectedMemoryCustomer = exp.default_memory_customer || keys[0];
   }
   const c = customers[selectedMemoryCustomer];
+  const dataSpace = (labConfig && labConfig.memory_data_space) || "unconfigured";
   return `<div class="chan-row" aria-label="Customer memory context">
     <span class="chan-label">Customer context</span>
     <label>Running as <select aria-label="Customer persona" onchange="setMemoryCustomer(this.value)">
@@ -4640,6 +4641,7 @@ function memoryCustomerRowHtml(exp) {
     </select></label>
     <span class="badge agentforce">${esc(c.name)}</span>
     <span>${esc([c.title, c.company].filter(Boolean).join(" · "))}</span>
+    <span class="badge" title="The Data 360 data space that owns this experiment's Unified Individual and Agentic Memory configuration (D112).">data space: ${esc(dataSpace)}</span>
     <button class="ghost" onclick="toggleMemoryManager()"
       ${labUser && labUser.role === "viewer" ? "disabled" : ""}>Manage memories</button>
     <span class="chan-more">Unified Data 360 profile · ${esc(c.email || "")}</span>
@@ -4817,6 +4819,7 @@ function memoryDetailHtml(s) {
   if (!s || !s.memory_toggle) return "";
   const customer = memoryCustomer();
   const persona = customer && customer.name ? customer.name : "Customer / Unified Individual";
+  const dataSpace = (labConfig && labConfig.memory_data_space) || "unconfigured";
   return `<div class="flow">
       <h6>Memory — Data 360 Agentic Memory for this run (WS27, D91)</h6>
       <p class="desc-note">With <b>Memory</b> on, the Claude or OpenAI face wraps the turn in the lab's generic memory seam
@@ -4825,6 +4828,10 @@ function memoryDetailHtml(s) {
         byte-for-byte the experiment without it — the toggle is per run, never a lab-wide setting.</p>
       ${memoryScopeMapHtml([], persona, ["Claude", "OpenAI"])}
       <ul class="steps">
+        <li><b>Data-space boundary.</b> This deployment reads and writes Agentic Memory in
+          <code>${esc(dataSpace)}</code>. The value comes from <code>A2ALAB_MEMORY_DATA_SPACE</code>,
+          not from the browser or a UI default, so another Data 360 environment can identify its
+          own memory substrate without changing this console (D112, plan/18-agentic-memory-context.md).</li>
         <li><b>Whose memory.</b> The verified lab JWT identifies the demo persona, then deployment configuration
           maps that persona to a real unified Data 360 Individual id. That profile id becomes the governed
           <code>xid</code>; it is never browser-supplied, never the integration user, and never a synthetic run

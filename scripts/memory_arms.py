@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from interop.memory import owner_conversation
-from setup_agentic_memory import AGENTS, DATA_SPACE, api, sf_json, soql, tenant_session
+from setup_agentic_memory import AGENTS, api, data_space, sf_json, soql, tenant_session
 from setup_jwt_eca import PRESETS, load_env, mint_core_token, target_org
 
 ARMS = {  # arm -> setup_agentic_memory.AGENTS key (the registered agent)
@@ -113,7 +113,7 @@ def tenant_reads(agent_key: str, owners: list[str], conversations: list[str]) ->
                              params={"owner_id": owner, "owner_type": "individual",
                                      "agent_id": a.name, "conversation_id": cid},
                              headers={"ctx-agent-id": a.name,
-                                      "ctx-dataspace-ds_name": DATA_SPACE})  # fmt: skip
+                                      "ctx-dataspace-ds_name": data_space()})  # fmt: skip
                 body = r.json() if r.status_code == 200 else {}
                 # Recalled memory is `userContext` entries; `ontology` is {} even on a
                 # read that recalls (trace f1f870e6, 2026-10-15), so it proves nothing.

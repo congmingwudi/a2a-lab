@@ -34,6 +34,7 @@ set -a; source .env; set +a
 : "${A2ALAB_TOKEN:?set A2ALAB_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 : "${BRIDGE_TOKEN:?set BRIDGE_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 : "${A2ALAB_FANOUT_MCP_TOKEN:?set A2ALAB_FANOUT_MCP_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
+: "${A2ALAB_MEMORY_DATA_SPACE:?set A2ALAB_MEMORY_DATA_SPACE in .env — Agentic Memory has no implicit data-space target (D112)}"
 source deploy/aws_preflight.sh
 
 REGION="${AWS_REGION:-us-east-1}"
@@ -301,6 +302,7 @@ env = {k: os.environ[k] for k in sorted(referenced)
        if os.environ.get(k) and not is_secret(k) and k not in AMBIENT}
 env["A2ALAB_RUNTIME_SECRET_ARN"] = os.environ["A2ALAB_RUNTIME_SECRET_ARN"]
 env["AWS_REGION"] = os.environ["DEPLOY_REGION"]
+env["A2ALAB_MEMORY_DATA_SPACE"] = os.environ["A2ALAB_MEMORY_DATA_SPACE"]
 # Hosted console: no traces/ directory, no .a2alab. Aurora is the only source.
 env["A2ALAB_FACES_BASE"] = f"https://{os.environ['FACES_HOSTNAME']}"
 env["A2ALAB_TRACE_SINK"] = "postgres"

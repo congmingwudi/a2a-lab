@@ -234,6 +234,7 @@ async def test_customer_generation_quarantines_recreated_profile_memory():
     assert "New turn" in inner.seen[0].message
     assert fake.list_calls == [GENERATION_CATEGORY]
     assert resp.metadata["memory"]["profile_memory_suppressed"] is True
+    assert resp.metadata["memory"]["data_space"] == "test-memory-space"
 
 
 async def test_stale_customer_chat_is_refused_before_the_inner_agent_runs():

@@ -17,6 +17,7 @@ from interop.memory import (
     MemoryClient,
     MemoryListing,
     case_conversation,
+    data_space,
     entry_id,
     owner_conversation,
     redact,
@@ -111,6 +112,12 @@ class FakeTenant:
 IDS = {"agent_id": "A2ALab_Memory_Concierge", "owner_id": "persona-ana"}
 
 
+def test_data_space_is_required_configuration(monkeypatch):
+    monkeypatch.delenv("A2ALAB_MEMORY_DATA_SPACE", raising=False)
+    with pytest.raises(MemoryCallError, match="A2ALAB_MEMORY_DATA_SPACE"):
+        data_space()
+
+
 async def test_start_conversation_opens_a_session_in_the_owners_conversation():
     fake = FakeTenant()
     sid = await fake.client().start_conversation("t1", **IDS)
@@ -128,7 +135,7 @@ async def test_start_conversation_opens_a_session_in_the_owners_conversation():
     agent = fake.bodies("/participants")[0]["participants"][0]
     assert agent == {**agent, "id": "A2ALab_Memory_Concierge-participant", "type": "agent"}
     post = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/conversations")
-    assert post.headers["dataspace"] == "default"
+    assert post.headers["dataspace"] == "test-memory-space"
     assert post.headers["agent_id"] == "A2ALab_Memory_Concierge"
     # the exchange is bound to the calling agent: a360 refuses an unregistered aid
     assert fake.exchanges[0]["aid"] == "A2ALab_Memory_Concierge"
@@ -301,7 +308,7 @@ async def test_get_context_uses_the_context_header_and_records_a_hop(isolated_tr
     ctx = await fake.client().get_context("t-ctx", **IDS)
     assert ctx["summary"] == "likes aisle seats"
     req = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/context")
-    assert req.headers["ctx-dataspace-ds_name"] == "default"
+    assert req.headers["ctx-dataspace-ds_name"] == "test-memory-space"
     # the read 403s without it (2026-10-13), whatever the agent_id param says
     assert req.headers["ctx-agent-id"] == "A2ALab_Memory_Concierge"
     assert req.url.params["owner_type"] == "individual"
@@ -370,6 +377,21 @@ async def test_list_memories_reads_one_shared_service_by_owner(isolated_traces):
     assert hop["transport_detail"] == (
         "GET /api/v1/agentic/memory · sys_PROFILE_FACT · A2ALab_Memory_Concierge"
     )
+
+
+async def test_runtime_calls_use_configured_data_space(monkeypatch):
+    monkeypatch.setenv("A2ALAB_MEMORY_DATA_SPACE", "second-environment-space")
+    fake = FakeTenant()
+    client = fake.client()
+
+    await client.start_conversation("t1", **IDS)
+    await client.get_context("t2", **IDS)
+
+    tenant_calls = [r for r in fake.calls if r.url.host == "tenant.example"]
+    post = next(r for r in tenant_calls if r.method == "POST")
+    get = next(r for r in tenant_calls if r.url.path == "/api/v1/agentic/context")
+    assert post.headers["dataspace"] == "second-environment-space"
+    assert get.headers["ctx-dataspace-ds_name"] == "second-environment-space"
 
 
 async def test_list_memories_ignores_undocumented_total_count_undercount():
