@@ -38,6 +38,10 @@ timestamps, a valid reset generation also quarantines all `sourceType: Profile` 
 skips the saved-facts/preferences merge. Only `sourceType: Conversation` context produced inside the
 marker-derived conversation is eligible for that generation's prompts. This makes the first teaching
 turn genuinely empty without claiming that retained profile history was erased.
+Reset verification keys on the exact new marker, a complete listing, and error-free governed delete
+steps; re-materialized profile rows remain visible for curation but do not invalidate the isolated
+generation. Hosted proof: reset `13202e8bfc704b319a574a0dd15a23de`, then first teaching turn
+`91aa0a885567d41f16d27bcf5157c3b1` with zero recalled characters and a successful store.
 The same batch handles the tenant edge's confirmed URL/API-path content refusal with one traced,
 readable ingest-only normalization retry. The evidence and exact boundary are in
 `build-notes/codex/ws27-memory-403-probe.md` and

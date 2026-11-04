@@ -4806,7 +4806,10 @@ content 403'd, the normalized twin succeeded, and a benign post-close write succ
    under-count cannot invalidate rows the response actually contains. A value greater than the
    returned row count remains a conservative incomplete-list signal in case the tenant introduces
    paging. A 404 triggers re-list/retry. Partial results keep the new marker so episodic summaries
-   remain cut off, report every remaining entry, and never say "fresh" until verification passes.
+   remain cut off and report every remaining entry. A reset is verified when the complete re-list
+   selects the exact new valid marker and every requested delete completed without error; profile
+   rows that retained history immediately re-materializes remain visible but do not make that
+   verified generation boundary fail.
 4. **Permanent operations require a human operator.** Both list and delete routes require a
    verified operator/master persona through `_is_operator`, with `_OPERATOR_ONLY` defence in depth.
    Viewer, machine and shared service-token callers cannot curate customer memory. The hosted
@@ -4819,6 +4822,8 @@ content 403'd, the normalized twin succeeded, and a benign post-close write succ
    normalization outcome are traced and surfaced; the model still answers the original text.
 6. **Deployment is both images.** The console UI/endpoints/config and the face-side memory wrapper
    change, so hosted acceptance requires full console and faces rebuilds. `--skip-build` is invalid.
+   Both deploy scripts fail closed before rewriting their runtime secret when neither
+   `A2ALAB_MEMORY_JWT_KEY` nor the configured local memory signing-key file is present.
 7. **A reset generation is a hard profile-memory quarantine.** Live trace
    `19b1eca3ebbe4cb2b0feb00a05ad3d0b` showed why timestamp filtering is insufficient: Data 360
    re-materialized 21 deleted historical facts about one second *after* the reset marker, giving
@@ -4828,6 +4833,11 @@ content 403'd, the normalized twin succeeded, and a benign post-close write succ
    teaching turn is empty and stored, while later Claude/OpenAI turns can recall only context
    produced inside that generation. The management panel continues to show re-materialized profile
    rows for honest curation and explains that they are quarantined from agent prompts.
+
+Hosted acceptance on the final build used reset trace `13202e8bfc704b319a574a0dd15a23de`:
+the exact new marker verified successfully even though two profile rows were immediately visible.
+The first teaching turn in that generation, trace `91aa0a885567d41f16d27bcf5157c3b1`, reported
+`context_chars=0`, `recalled=false`, `stored=true`, and `profile_memory_suppressed=true`.
 
 **Consequences.** Selective deletion is genuinely profile-scoped and irreversible; Start fresh is
 experiment continuity control, not a right-to-be-forgotten operation. Management uses the complete

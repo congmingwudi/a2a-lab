@@ -2160,3 +2160,22 @@ and a valid reset generation (trace `dbff59487c644796a697631582794b61`). The two
 scenario documents both returned `default_memory: on`; Run All remains explicitly memory-off.
 No additional delete/reset was issued by the acceptance probe.
 
+## 2026-11-03 — D107 generation isolation accepted live
+
+Data 360 re-materialized deleted profile facts from retained conversation history, including rows
+created after the earlier reset marker. The final implementation therefore treats a valid reset
+generation as a source boundary: `sourceType: Profile` context and the saved profile-category merge
+are suppressed, while marker-derived `sourceType: Conversation` remains eligible. The management
+panel still lists re-materialized rows for honest curation.
+
+The final Start fresh returned `ok=true`, `complete=true`, an exact valid new marker,
+`profile_memory_suppressed=true`, and no errors even though two profile rows were immediately
+visible again (trace `13202e8bfc704b319a574a0dd15a23de`). The first Claude teaching turn in
+that generation then returned `context_chars=0`, `recalled=false`, `stored=true`,
+`profile_memory_suppressed=true`, and `normalized=false` (trace
+`91aa0a885567d41f16d27bcf5157c3b1`). This is the intended first-run badge combination: stored
+without recalled. Console ECS task `a2alab-console:149`, image digest
+`sha256:79974e6542a7b95e3f96bc0607f6745c38398995ea92a72e9e493bc4dc4bb1d3`, reached stable 1/1
+with ALB health 200; faces remained on the accepted generation-isolation image
+`sha256:c77ce2229bc84bf845880ee75a529c00855b61221703081ca24f8d517c878c07`.
+

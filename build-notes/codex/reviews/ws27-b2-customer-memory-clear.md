@@ -152,3 +152,27 @@ regression harness cases passed; the readiness probe stopped at its historical o
 redaction assertion, as expected and not weakened. New regressions reproduce the live mixed Profile/Conversation
 shape, prove old profile facts never reach the inner agent, prove the profile Memory API categories
 are not read for a generation, and retain the new conversation summary.
+
+## Final hosted acceptance — 2026-11-03
+
+The first deployed console revision was replaced by a later image, and the clean-worktree deploy
+also exposed a secret-safety gap: its incorrectly nested local key directory caused both runtime
+secrets to be rewritten without `A2ALAB_MEMORY_JWT_KEY`. The exact failure was captured directly
+from the ALB over verified TLS. Both secrets were restored without printing values; the deployment
+scripts now fail closed when neither the env PEM nor configured key file exists.
+
+Final code commit `3fd6727` changes reset success to follow the hard boundary rather than demand
+that retained history never re-materialize a visible profile row. It requires the exact new valid
+marker, a complete listing and no mutation errors. Focused validation passed 69 tests (10 console
+customer-memory/D102 plus 59 memory/adapter), Ruff, both deploy-script syntax checks and
+`git diff --check`. The wider console selection encountered one unrelated environment-dependent
+harvest-source failure; no memory test failed.
+
+Console task `a2alab-console:149` runs digest
+`sha256:79974e6542a7b95e3f96bc0607f6745c38398995ea92a72e9e493bc4dc4bb1d3`; faces task
+`a2alab-faces:31` retained the exact generation-isolation digest
+`sha256:c77ce2229bc84bf845880ee75a529c00855b61221703081ca24f8d517c878c07`. Both runtime secrets
+were verified to contain the signing key without exposing it. Final Start fresh trace
+`13202e8bfc704b319a574a0dd15a23de` returned `ok=true` with two re-materialized rows still visible.
+The first teaching turn, trace `91aa0a885567d41f16d27bcf5157c3b1`, returned zero context,
+`recalled=false`, `stored=true`, and `profile_memory_suppressed=true`.
