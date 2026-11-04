@@ -218,7 +218,11 @@ One-time setup (after §1 and §2 are done):
 Provisioned 2026-07-17 in the lab's runtime account (D21), us-east-1:
 - **Aurora Postgres Serverless v2** `a2alab-obs` (engine 16.13, min ACU 0 —
   scale-to-zero; Data API enabled; publicly accessible instance
-  `a2alab-obs-1`; SG `a2alab-aurora-sg` allowlists the lab host only).
+  `a2alab-obs-1`; SG `a2alab-aurora-sg` originally allowlisted the lab host
+  only, for the direct `A2ALAB_PG_DSN` path. That rule was revoked on 2026-10-29
+  once everything used the Data API, and since WS19 port 5432 admits only the
+  pinned Data 360 `/32`s. See `deploy/obs/deploy_datacloud_ingress.sh --verify`
+  and plan/09 L5).
   Database `a2alab`, schema `lab`: trace_events, obs_sessions, obs_events,
   obs_harvest, obs_briefs (all jsonb payloads).
 - **Roles/secrets** (Secrets Manager): master (RDS-managed),

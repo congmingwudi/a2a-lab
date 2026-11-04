@@ -24,7 +24,7 @@ every hop's raw wire payload recorded. Status marks the evidence level:
 
 **Advisor take:** Advise customers to consolidate within a trust domain and federate across trust domains — and to treat "we'll never need interop" with suspicion: your vendors are already shipping agents, so the second platform usually arrives whether you chose it or not.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
+**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -37,12 +37,12 @@ flowchart LR
         AGENTAPI -. sessions .-> STDM
     end
 
-    subgraph lab["Lab host — the two seams"]
-        BR["Bridge :8100<br/>REST in, any protocol out"]
-        SRV["Protocol servers<br/>REST :8001 · MCP :8002 · A2A :8003"]
-        GUIDE["Lab Guide :8031-33 (D35)"]
-        SHIMS["Agentforce shims<br/>MCP :8021 · A2A :8023"]
-        CONSOLE["Console :8200"]
+    subgraph lab["AWS us-east-1 — ECS Fargate behind the bridge ALB (the two seams)"]
+        BR["Bridge (a2alab-bridge)<br/>REST in, any protocol out"]
+        SRV["Protocol faces (a2alab-faces, one process, by path)<br/>REST · MCP · A2A"]
+        GUIDE["Lab Guide faces (D35)<br/>in a2alab-faces"]
+        SHIMS["Agentforce shim faces<br/>MCP · A2A, in a2alab-faces"]
+        CONSOLE["Console (a2alab-console)<br/>host rule on the bridge ALB"]
     end
 
     subgraph aws["AWS"]
@@ -56,15 +56,18 @@ flowchart LR
     CMA["Anthropic<br/>Managed Agents"]
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
+    LG["LangGraph on Heroku (D77)<br/>3 faces, one web dyno"]
 
-    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5"]
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
-    BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+    BR -- "rest | mcp | a2a<br/>per targets.yaml (hosted twins, D26)" --> SRV
     BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
     BR --> ACO
     BR --> ACS
+    BR -- "A2A fire-then-poll (submit_poll)" --> LG
+    LG -- ask_agentforce --> AGENTAPI
     SRV --> CMA
     SRV -- "Path B: ask_agentforce" --> AGENTAPI
     SHIMS --> AGENTAPI
@@ -233,7 +236,7 @@ For months only two platforms spoke a protocol natively: Google Vertex AI Agent 
 
 **Advisor take:** Plan for bridges and adapters as permanent, first-class, observable components of an interop program — not temporary scaffolding. Ask every vendor "which protocols do you speak natively, in which direction, GA or beta?" and demand wire-level evidence. Direction matters as much as protocol. A platform that can be called over A2A but cannot call out over it supports half the protocol, and an interop design should record which half.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
+**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -246,12 +249,12 @@ flowchart LR
         AGENTAPI -. sessions .-> STDM
     end
 
-    subgraph lab["Lab host — the two seams"]
-        BR["Bridge :8100<br/>REST in, any protocol out"]
-        SRV["Protocol servers<br/>REST :8001 · MCP :8002 · A2A :8003"]
-        GUIDE["Lab Guide :8031-33 (D35)"]
-        SHIMS["Agentforce shims<br/>MCP :8021 · A2A :8023"]
-        CONSOLE["Console :8200"]
+    subgraph lab["AWS us-east-1 — ECS Fargate behind the bridge ALB (the two seams)"]
+        BR["Bridge (a2alab-bridge)<br/>REST in, any protocol out"]
+        SRV["Protocol faces (a2alab-faces, one process, by path)<br/>REST · MCP · A2A"]
+        GUIDE["Lab Guide faces (D35)<br/>in a2alab-faces"]
+        SHIMS["Agentforce shim faces<br/>MCP · A2A, in a2alab-faces"]
+        CONSOLE["Console (a2alab-console)<br/>host rule on the bridge ALB"]
     end
 
     subgraph aws["AWS"]
@@ -265,15 +268,18 @@ flowchart LR
     CMA["Anthropic<br/>Managed Agents"]
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
+    LG["LangGraph on Heroku (D77)<br/>3 faces, one web dyno"]
 
-    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5"]
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
-    BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+    BR -- "rest | mcp | a2a<br/>per targets.yaml (hosted twins, D26)" --> SRV
     BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
     BR --> ACO
     BR --> ACS
+    BR -- "A2A fire-then-poll (submit_poll)" --> LG
+    LG -- ask_agentforce --> AGENTAPI
     SRV --> CMA
     SRV -- "Path B: ask_agentforce" --> AGENTAPI
     SHIMS --> AGENTAPI
@@ -443,7 +449,7 @@ The second half is sharper because the lab got it wrong for a week (2026-07-25):
 
 **Advisor take:** Make credential locality explicit in every agent integration review — across trust boundaries, prefer broker/host-side tool patterns where the reasoning runtime never holds partner secrets, because an agent that can be prompt-injected should not also be an agent holding your partner's keys. Then ask the question most reviews skip: WHICH IDENTITY does this code authenticate as, and could a developer's own login satisfy it? Pick exactly one human login as the root of trust (the lab uses AWS SSO), make every other credential a service identity fetched with it from a managed secret, and construct cloud credentials EXPLICITLY — the convenience chains are appropriate for a CLI and actively harmful in a service, because they turn "unconfigured" into "works on my machine." A credential chain that can fall back to a person does not test production; it hides the gap until the code is somewhere a person is not.
 
-**Who authenticates as what** — Every hosted seam holds its own credentials and its own Salesforce identity: runtime configs carry only a secret ARN, and each caller presents a per-caller External Client App scoped to what it actually calls.
+**Who authenticates as what** — Every hosted seam loads its credentials from its own Secrets Manager secret (F1/D39), so runtime configs carry only a secret ARN. The callers with a dedicated job present a per-caller External Client App (F6/D37): claude, openai, shim, obs, tab_embed, and the memory ECA via JWT-bearer (D83/D91). The bridge, faces, briefs and console still also hold the shared a2a_lab_app pair.
 
 ```mermaid
 flowchart LR
@@ -452,23 +458,39 @@ flowchart LR
         SO["a2alab/runtime/openai"]
         SS["a2alab/runtime/shim"]
         SCON["a2alab/runtime/console"]
+        SB["a2alab/runtime/bridge"]
+        SF["a2alab/runtime/faces"]
+        SBR["a2alab/runtime/briefs"]
+        SST["a2alab/runtime/strands"]
+        SFAN["a2alab/runtime/fanout-mcp"]
+        SH["a2alab/obs/harvest (D23)"]
     end
 
     ACC["AgentCore: Claude"] --> SC
     ACO["AgentCore: OpenAI"] --> SO
     HSHIM["Hosted A2A shim"] --> SS
     CON["Console"] --> SCON
-    HARV["Obs harvest"] --> SH["harvest secret (D23)"]
+    HARV["Obs harvest"] --> SH
+    BR["Bridge (Fargate)"] --> SB
+    FACES["Faces (Fargate)"] --> SF
+    BRIEFS["Briefs task"] --> SBR
+    ACS["AgentCore: Strands"] --> SST
+    FAN["Fan-out MCP Lambda"] --> SFAN
 
     SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
     SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
-    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEMD102["Data 360 Agentic Memory<br/>case conversation"]
+    SCON -- "a2a_lab_obs<br/>api" --> DMO
+    SB -- "a2a_lab_app (shared)" --> AAPI
+    SB -- "a2a_lab_memory<br/>JWT-bearer, run-as user (D83)" --> MEM["Data 360 Agentic Memory<br/>/memory/turn"]
+    SF -- "a2a_lab_memory<br/>aid + customer xid (D91/D104)" --> MEM
+    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEM
+    SBR -- "a2a_lab_app (shared)<br/>writes A2ALab_Account_Brief__c" --> SFORG[("Salesforce org")]
 ```
 
-**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
+**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, deployed to Production (WS10 SP1; stopped 2026-10-20, restarted 2026-10-29).
 
 ```mermaid
 flowchart LR
@@ -481,12 +503,25 @@ flowchart LR
     end
 
     HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
-    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, RUNNING · broker deployed (edge 1.13.5)"]
+    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, edge 1.13.5 · broker deployed<br/>stopped 2026-10-20, restarted 2026-10-29"]
 
     HUMAN -- "username + password" --> LOGIN
     MULE -- "gateway client id/secret" --> OAUTH
     KEY -- "8h persona JWT" --> HUMAN
     KEY -- "short-lived JWT<br/>sub=mulesoft-omni-gateway" --> MULE
+```
+
+**Customer continuity: Claude teaches, OpenAI recalls** — A verified lab persona resolves to Maya's unified Data 360 Individual. Claude and OpenAI share one memory registration, A2ALab_Memory_Case, and the same governed xid (platform identity stays in the execution trace, not in memory partitions, D105); remembered customer context and each run's fresh Agentforce CRM contribution stay visibly distinct.
+
+```mermaid
+flowchart LR
+    USER["Verified lab persona"] -->|"environment-only mapping"| PROFILE["Unified Individual AM01<br/>Maya Chen"]
+    USER --> C["Claude customer-memory run"]
+    C -->|"A2ALab_Memory_Case · xid=Maya<br/>write + close"| MEM[("Data 360 Agentic Memory")]
+    USER --> O["OpenAI customer-memory run"]
+    MEM -->|"A2ALab_Memory_Case · same xid<br/>GetContext"| O
+    C -->|"fresh CRM context"| AF["Agentforce"]
+    O -->|"fresh CRM context"| AF
 ```
 
 ### Agent-to-agent graphs grow edges nobody drew — govern the actual topology, not the diagram
@@ -497,7 +532,7 @@ flowchart LR
 
 **Advisor take:** Once agents can call agents, delegation chains form transitively — including across billing, compliance, and data boundaries. Enforce closed systems per use case, and monitor real topology from traces. This governance problem arrives with your second platform, not your tenth.
 
-**The platform map** — Six platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
+**The platform map** — Seven platforms, every pair a closed two-platform system — and the lab is the only thing that speaks all three protocols in both directions. WS10 SP1 adds a seventh path, the MuleSoft Agent Fabric broker: the buy-side comparator the console reaches as an ordinary A2A target, fanning back to the same faces.
 
 ```mermaid
 flowchart LR
@@ -510,12 +545,12 @@ flowchart LR
         AGENTAPI -. sessions .-> STDM
     end
 
-    subgraph lab["Lab host — the two seams"]
-        BR["Bridge :8100<br/>REST in, any protocol out"]
-        SRV["Protocol servers<br/>REST :8001 · MCP :8002 · A2A :8003"]
-        GUIDE["Lab Guide :8031-33 (D35)"]
-        SHIMS["Agentforce shims<br/>MCP :8021 · A2A :8023"]
-        CONSOLE["Console :8200"]
+    subgraph lab["AWS us-east-1 — ECS Fargate behind the bridge ALB (the two seams)"]
+        BR["Bridge (a2alab-bridge)<br/>REST in, any protocol out"]
+        SRV["Protocol faces (a2alab-faces, one process, by path)<br/>REST · MCP · A2A"]
+        GUIDE["Lab Guide faces (D35)<br/>in a2alab-faces"]
+        SHIMS["Agentforce shim faces<br/>MCP · A2A, in a2alab-faces"]
+        CONSOLE["Console (a2alab-console)<br/>host rule on the bridge ALB"]
     end
 
     subgraph aws["AWS"]
@@ -529,15 +564,18 @@ flowchart LR
     CMA["Anthropic<br/>Managed Agents"]
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
+    LG["LangGraph on Heroku (D77)<br/>3 faces, one web dyno"]
 
-    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5"]
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
-    BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+    BR -- "rest | mcp | a2a<br/>per targets.yaml (hosted twins, D26)" --> SRV
     BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
     BR --> ACO
     BR --> ACS
+    BR -- "A2A fire-then-poll (submit_poll)" --> LG
+    LG -- ask_agentforce --> AGENTAPI
     SRV --> CMA
     SRV -- "Path B: ask_agentforce" --> AGENTAPI
     SHIMS --> AGENTAPI
@@ -606,7 +644,7 @@ One shared app had also made every caller look like one integration user in the 
 
 **Advisor take:** When a shared integration app's scope list looks bloated, don't start by trimming it — enumerate the callers behind it first. A union grant is the arithmetic of shared identity, and you cannot shrink it without splitting the identity, because every scope on it is genuinely needed by someone. Budget the split as the real remediation: one app per caller, each scoped to what that caller actually calls. You get least privilege and per-caller attribution from the same change — and the attribution is often the part the auditors were really asking for.
 
-**Who authenticates as what** — Every hosted seam holds its own credentials and its own Salesforce identity: runtime configs carry only a secret ARN, and each caller presents a per-caller External Client App scoped to what it actually calls.
+**Who authenticates as what** — Every hosted seam loads its credentials from its own Secrets Manager secret (F1/D39), so runtime configs carry only a secret ARN. The callers with a dedicated job present a per-caller External Client App (F6/D37): claude, openai, shim, obs, tab_embed, and the memory ECA via JWT-bearer (D83/D91). The bridge, faces, briefs and console still also hold the shared a2a_lab_app pair.
 
 ```mermaid
 flowchart LR
@@ -615,23 +653,39 @@ flowchart LR
         SO["a2alab/runtime/openai"]
         SS["a2alab/runtime/shim"]
         SCON["a2alab/runtime/console"]
+        SB["a2alab/runtime/bridge"]
+        SF["a2alab/runtime/faces"]
+        SBR["a2alab/runtime/briefs"]
+        SST["a2alab/runtime/strands"]
+        SFAN["a2alab/runtime/fanout-mcp"]
+        SH["a2alab/obs/harvest (D23)"]
     end
 
     ACC["AgentCore: Claude"] --> SC
     ACO["AgentCore: OpenAI"] --> SO
     HSHIM["Hosted A2A shim"] --> SS
     CON["Console"] --> SCON
-    HARV["Obs harvest"] --> SH["harvest secret (D23)"]
+    HARV["Obs harvest"] --> SH
+    BR["Bridge (Fargate)"] --> SB
+    FACES["Faces (Fargate)"] --> SF
+    BRIEFS["Briefs task"] --> SBR
+    ACS["AgentCore: Strands"] --> SST
+    FAN["Fan-out MCP Lambda"] --> SFAN
 
     SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
     SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
-    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEMD102["Data 360 Agentic Memory<br/>case conversation"]
+    SCON -- "a2a_lab_obs<br/>api" --> DMO
+    SB -- "a2a_lab_app (shared)" --> AAPI
+    SB -- "a2a_lab_memory<br/>JWT-bearer, run-as user (D83)" --> MEM["Data 360 Agentic Memory<br/>/memory/turn"]
+    SF -- "a2a_lab_memory<br/>aid + customer xid (D91/D104)" --> MEM
+    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEM
+    SBR -- "a2a_lab_app (shared)<br/>writes A2ALab_Account_Brief__c" --> SFORG[("Salesforce org")]
 ```
 
-**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, now deployed to Production (WS10 SP1).
+**One signing key, two public mints** — /api/login and /oauth/token are peer credential exchanges on the same console task, holding the same RS256 signing key — a human persona password mints an 8h browser session, a machine client_credentials mints a short-lived service JWT for a caller like the MuleSoft Omni Gateway, deployed to Production (WS10 SP1; stopped 2026-10-20, restarted 2026-10-29).
 
 ```mermaid
 flowchart LR
@@ -644,7 +698,7 @@ flowchart LR
     end
 
     HUMAN["Signed-in operator/viewer<br/>browser bearer token, 8h TTL"]
-    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, RUNNING · broker deployed (edge 1.13.5)"]
+    MULE["MuleSoft Omni Gateway<br/>agent-network-shared-gw<br/>Production, edge 1.13.5 · broker deployed<br/>stopped 2026-10-20, restarted 2026-10-29"]
 
     HUMAN -- "username + password" --> LOGIN
     MULE -- "gateway client id/secret" --> OAUTH

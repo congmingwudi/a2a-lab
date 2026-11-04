@@ -3744,3 +3744,41 @@ the shim and bridge as comparison arms. Inbound first, on `A2ALab_Research_Assis
 15. ✅ Make the native endpoint the third Agentforce channel (`a2a-native`) on all five channel-toggle scenarios (D109). The `ask_agentforce_a2a_native` tool is in every backend, with D25 twin routing and the D27 guard; the console radio, flow step, routing exhibit and Details pane are updated.
 16. ✅ Add the A2A client's Task fallback: a WORKING task from a blocking `SendMessage` is polled through `tasks/get` within the client timeout instead of being read as an empty answer (D109).
 17. ✅ Ship the `a2a_lab_af_a2a` pair to the faces, AgentCore and ADK runtimes with full rebuilds, register the A2A tools on the managed agent, and record one measured run per scenario on the native channel.
+
+## WS30 — Digital Wallet consumption attribution (raised 2026-11-03, D108/D110/D111)
+
+1. ✅ Install Consumption Tagging with direct Data Cloud Architect plus the least-privilege
+   `AppFrameworkManageTemplate` grant (D108).
+2. ✅ Create the six-group, 38-tag taxonomy and assign 144 resource/tag pairs: all 12 current lab
+   bots, 18 custom actions resolved through active planner plugins, and `Individual_AM01` (D110).
+3. ⏳ **Resume checkpoint: 2026-11-05 or later.** Confirm that `TenantEnrichedUsageEvent` contains
+   events newer than the 2026-11-03 tag assignments. Record delivery/freshness timestamps and
+   inventory the emitted usage type, card, feature, credits, units, resource/root-resource ids and
+   types, custom tags, and `CorrelationIdentifier__c`. Do not interpret an empty first query as zero
+   usage until at least one daily ingestion cycle has completed.
+4. ✅ Put the Agentic Memory Limited GA billing boundary in every current memory Details pane:
+   ingestion/retrieval/GetContext are free, future LLM memory generation consumes Flex Credits,
+   final pricing is unannounced, and a zero wallet charge does not disprove execution.
+5. ✅ Scaffold Observability → Digital Wallet as a second Tableau Next dashboard using the existing
+   owner-gated embed session. It stays in an explicit awaiting-data state until
+   `TABLEAU_CONSUMPTION_DASHBOARD_API_NAME` is set (D111).
+6. ⏳ Run the attribution acceptance set after records land: one cross-platform research action,
+   one direct A2A action, one supply fan-out, and one customer-memory teach/recall pair. Verify the
+   expected Agentforce root/action and D110 dimensions on fresh events. Treat Agentic Memory's
+   Limited GA no-charge operations as execution evidence plus billed zero, not missing execution.
+7. ⏳ Audit Data 360 attribution separately: confirm `Individual_AM01` profile-unification events,
+   use `CorrelationIdentifier__c` to join Data Query charges to Agentforce session/trace ids, and
+   quantify an explicit unattributed bucket. Re-test tagging the eight managed
+   `AgenticConnector-*` streams, `A2ALab_Memory_Customer360`, and its two generated transforms;
+   each currently appears in the picker but Save returns `Unknown error`.
+8. ⏳ Build the **Agent & Data 360 Consumption** semantic model and Tableau Next dashboard with:
+   credits/units by usage type and day; agent and action; Data 360 resource; all six custom tag
+   groups; memory-arm comparison; attribution coverage; freshness; and unattributed consumption.
+   Keep this billing-event model separate from Agent Interop Traffic's Aurora wire-hop model.
+9. ⏳ Share the dashboard with the `a2alab.tabembed` run-as user and prove it renders with Tableau
+   Next Consumer + Data Cloud User. Set `TABLEAU_CONSUMPTION_DASHBOARD_API_NAME`; optionally create
+   and set `TABLEAU_CONSUMPTION_APP_TAB`; then capture
+   `src/console/static/components/tableau-next-consumption.png` as the non-owner fallback.
+10. ⏳ Full-rebuild and deploy the console, verify owner inline embed + in-org link + non-owner
+    snapshot/owner-only copy, record the first measured dashboard refresh and wallet delivery lag
+    in `plan/03-results.md`, and close the awaiting-data state only after live evidence passes.

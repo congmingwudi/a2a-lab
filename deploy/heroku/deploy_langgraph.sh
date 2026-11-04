@@ -164,5 +164,9 @@ hapi PATCH "/apps/${APP}/formation" \
     -H "$AUTH" -H "Content-Type: application/json" \
     -d "{\"updates\":[{\"type\":\"web\",\"docker_image\":\"${IMAGE_ID}\"}]}" >/dev/null
 
-echo "==> Done. https://${APP}.herokuapp.com/  (set A2ALAB_LANGGRAPH_BASE to it)"
+# Heroku assigns a randomized default domain (<app>-<12-hex>.herokuapp.com), so
+# the bare https://${APP}.herokuapp.com does not resolve: read the real web_url.
+WEB_URL="$(hapi GET "/apps/${APP}" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["web_url"])' 2>/dev/null || true)"
+echo "==> Done. ${WEB_URL:-<web_url unavailable: run 'heroku apps:info -a ${APP}'>}  (set A2ALAB_LANGGRAPH_BASE to it, without the trailing slash)"
 echo "    Then uncomment the langgraph-*-hosted twins + remap in config/targets.yaml."

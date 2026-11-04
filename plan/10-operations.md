@@ -312,9 +312,13 @@ runtimes, Observability reads the real Aurora store, the Lab Guide answers from
 the repo prose on disk. Nothing else needs to be running on the laptop, and
 nothing you do locally touches the deployed console.
 
-**`scripts/run_local.sh` is no longer the default.** It starts sixteen
-processes — fourteen protocol faces, the bridge, the console — and fifteen of them
-are now hosted. Reach for it when you are changing an **adapter** rather than
+**`scripts/run_local.sh` is no longer the default.** It starts nineteen
+processes — seventeen protocol faces (Claude, OpenAI, Strands, LangGraph and the Lab
+Guide on all three protocols, plus the two Agentforce shims), the bridge and the
+console — and adds the brief watcher when `.a2alab/brief.json` and `SF_*` are
+present. Every one of the nineteen now has a hosted twin: the faces on Fargate or,
+for LangGraph, Heroku (D77), and the bridge and console on ECS (`config/targets.yaml`
+`modes.hosted`, plan/09-deployment-map.md L6). Reach for it when you are changing an **adapter** rather than
 the console (`src/platforms/**`, `src/interop/servers/**`, the delegation guard)
 and want to exercise it before deploying, because those are the faces' own code
 and only that script runs them here.
@@ -348,20 +352,25 @@ the code reading it is stale, which reads as a code bug. See the table above.
 
 Work down this list — it is ordered by how often each was the answer.
 
-1. **Is the domain blocked?** The corporate proxy blocks the lab's whole domain
-   at DNS. The tell is a **timeout**, not `NXDOMAIN`. Confirm the record exists
-   with `dig +short @1.1.1.1 console-lab.<domain>`, then drop the proxy.
-2. **Is it the image?** See
+1. **Is it the image?** See
    [above](#deploy-a-code-change-vs-a-config-change).
-3. **Empty Observability section?** Postgres is the source of truth (D49). Check
+2. **Empty Observability section?** Postgres is the source of truth (D49). Check
    `A2ALAB_PG_SECRET_ARN` is on the task — the env derivation cannot see
    variables read through a module constant, so it has been missed twice.
-4. **`/api/traces` empty but Aurora has rows?** The window is **6 hours**
+3. **`/api/traces` empty but Aurora has rows?** The window is **6 hours**
    (`_REMOTE_WINDOW_S`). An idle overnight lab shows nothing. Not a fault.
-5. **Login rejected, or every request 401 after a successful login?** The
+4. **Login rejected, or every request 401 after a successful login?** The
    passwords or the JWT private key did not reach the container. Check the
    startup line: `[secret-env] console: loaded N keys from secret: …` and look
    for `A2ALAB_OPERATOR_PASSWORD` and `A2ALAB_JWT_PRIVATE_KEY` by name.
+5. **Has the proxy block come back?** Until 2026-10-14 the corporate Zscaler denied
+   the lab's domain as an uncategorized ("Miscellaneous or Unknown") site, which
+   looked like a DNS timeout through the tunnel resolver. A recategorization fixed
+   it (plan/19-zscaler-domain-unblock.md). If the console is unreachable only while
+   the Zscaler client is connected, check the response's `Server` header:
+   `cloudflare` means you are through; a Zscaler page or a reset means the category
+   regressed, so re-file per plan/19. To test DNS or Cloudflare themselves, use the
+   ALB `Host`-header route (plan/19 step 5).
 
 ```sh
 aws logs tail /ecs/a2alab-console --since 10m --region us-east-1 | grep secret-env

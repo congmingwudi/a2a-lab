@@ -3247,13 +3247,15 @@ const OBS_TABS = [
   ["observability", "Observability Analysis"],
   ["session-trace", "Session Trace"],
   ["tableau", "Tableau Next"],
+  ["digital-wallet", "Digital Wallet"],
 ];
 // Brief kinds keyed by tab id — `null` for the dashboard, which reads the
 // harvested tables rather than lab.obs_briefs. The cost sentinel's briefs used
 // to have a "Cost Analysis" tab here too; they now live ONLY in the Coding
 // Agents Telemetry → Cost tab (WS9/WS12), where the tokens and modelled cost
 // they explain also live, so the same brief is not rendered in two sections.
-const OBS_TAB_KIND = { dashboard: null, observability: "observability", "session-trace": null, tableau: null };
+const OBS_TAB_KIND = { dashboard: null, observability: "observability", "session-trace": null,
+  tableau: null, "digital-wallet": null };
 
 window.setObsTab = t => {
   obs.tab = t;
@@ -3450,6 +3452,50 @@ function obsTableauNextHtml() {
   </div>`;
 }
 
+// D111/WS30: a second Tableau Next asset over Digital Wallet consumption data.
+// It reuses the existing owner-gated SDK session and ECA; only the dashboard API
+// name differs. Until that asset exists, the tab remains an explicit future-data
+// surface instead of attempting a broken embed or presenting zero as measured.
+function obsDigitalWalletHtml() {
+  const root = (labConfig && labConfig.tableau_next) || {};
+  const c = root.consumption || {};
+  const shot = c.shot ? apiUrl(c.shot) : null;
+  const embed = c.embed;
+  const shotInner = shot
+    ? `<div class="compshot"><img src="${esc(shot)}" alt="Tableau Next — A2A Lab agent and Data 360 consumption dashboard" loading="lazy"></div>`
+    : `<div class="compshot"><div class="compshot-missing">No consumption-dashboard snapshot yet. Once the
+        first daily Digital Wallet usage lands, build the Tableau Next asset and set
+        <code>TABLEAU_CONSUMPTION_DASHBOARD_API_NAME</code>.</div></div>`;
+  const shotBlock = embed
+    ? `<details class="snapfold consumption-snapfold"><summary>Dashboard snapshot</summary>${shotInner}</details>`
+    : shotInner;
+  return `<div class="flow">
+    <h3>Agent &amp; Data 360 Consumption — Digital Wallet${embed ? " Inline Embedded" : ""}</h3>
+    <div class="desc"><span class="stat">A cost-attribution companion to the wire-level observability views.
+      It will read Salesforce's <code>TenantEnrichedUsageEvent</code> data through the Consumption Insights
+      semantic model and slice usage by agent, action, Data 360 resource, usage type, and the lab's custom
+      Portfolio / Experiment / Workload / Platform Pair / Execution Mode / Memory Arm tags.</span></div>
+    ${embed
+      ? `<div id="tableauConsumptionEmbedHost" class="tableau-embed" aria-busy="true">
+           <div class="tableau-embed-status stat">Connecting to Salesforce…</div>
+         </div>`
+      : ""}
+    ${shotBlock}
+    ${!c.configured
+      ? `<div class="desc"><span class="stat"><b>Awaiting billable usage.</b> Digital Wallet records arrive
+          on an approximately daily cadence. This tab is scaffolded now, but it does not treat an absent event
+          as measured zero—especially for Agentic Memory, which is free during Limited GA.</span></div>`
+      : ""}
+    ${c.app_url
+      ? `<div class="desc" style="margin-top:10px"><a class="ghost" href="${esc(c.app_url)}" target="_blank"
+          rel="noopener">Open the consumption dashboard in Salesforce ↗</a></div>`
+      : c.app_url_owner_only
+        ? `<div class="desc" style="margin-top:10px"><span class="stat">The in-org dashboard link is available
+            only to the lab owner during controlled presentations.</span></div>`
+        : ""}
+  </div>`;
+}
+
 // WS19/M10: mount the live Tableau Next dashboard inline (owner only). Called
 // after obsTableauNextHtml() is in the DOM. Fetches a fresh frontdoor URL from
 // the owner-gated /api/tableau/frontdoor (the Bearer JWT rides the global fetch
@@ -3459,16 +3505,18 @@ function obsTableauNextHtml() {
 // frontdoor URLs are short-lived and single-use, so this runs per mount.
 let _tableauSdkPromise = null;   // the module import — once per page load
 let _tableauSdkInit = null;      // initializeAnalyticsSdk() — once per page load
-async function mountTableauEmbed() {
-  const cfg = (labConfig && labConfig.tableau_next && labConfig.tableau_next.embed) || null;
-  const host = document.getElementById("tableauEmbedHost");
+async function mountTableauEmbed(kind = "traffic") {
+  const root = (labConfig && labConfig.tableau_next) || {};
+  const consumption = kind === "consumption";
+  const cfg = consumption ? ((root.consumption && root.consumption.embed) || null) : (root.embed || null);
+  const host = document.getElementById(consumption ? "tableauConsumptionEmbedHost" : "tableauEmbedHost");
   if (!cfg || !host) return;   // not the owner, or ECA not wired
   const fail = (msg) => {
     host.setAttribute("aria-busy", "false");
     host.classList.add("tableau-embed-failed");
     // The screenshot fold is the graceful fallback: open it so the still image
     // is visible without a click, and explain the gap.
-    document.querySelector(".snapfold")?.setAttribute("open", "");
+    host.closest(".flow")?.querySelector(".snapfold")?.setAttribute("open", "");
     const s = host.querySelector(".tableau-embed-status");
     if (s) s.innerHTML = `<span class="stat">Inline dashboard unavailable — ${esc(msg)}
       The <b>Dashboard snapshot</b> below is a still image of the same dashboard off the same live data;
@@ -3521,6 +3569,41 @@ async function mountTableauEmbed() {
   } catch (e) {
     fail((e && e.message ? e.message + "." : "connection failed."));
   }
+}
+
+function obsDigitalWalletDetailsHtml() {
+  const md = `### What this dashboard is for
+
+This is the **billing and attribution** view beside the lab's execution observability—not a replacement
+for traces. Its source is Digital Wallet's **TenantEnrichedUsageEvent** DLO and the Consumption Insights
+semantic model. The first dashboard should answer: which agent or action consumed credits, which Data 360
+usage type was charged, and which lab experiment/workload/memory arm should own that usage?
+
+### First report slices
+
+- Credits and units by **usage type**, day, and consumption card
+- Agentforce usage by **root BotDefinition** and **GenAiFunctionDefinition** action
+- Data 360 usage by reportable resource type and resource API name
+- Custom dimensions: **Portfolio, Experiment, Workload, Platform Pair, Execution Mode, Memory Arm**
+- **Unattributed Data 360** as an explicit bucket, never silently folded into zero
+- Data-query events joined from \`CorrelationIdentifier__c\` to the corresponding Agentforce trace/session
+
+### Memory billing boundary
+
+Salesforce currently documents Agentic Memory and Context as free during Limited GA, with final pricing
+unannounced. Conversation ingestion, retrieval, and GetContext are free. LLM extraction of profile facts,
+preferences, and session summaries will consume Flex Credits when usage-based pricing takes effect. A zero
+wallet charge therefore does not prove that a memory read/write failed; the execution trace remains the
+evidence that the path ran.
+
+### Embed and access model
+
+The second dashboard reuses the existing owner-only Tableau Next Embedding SDK session, dedicated
+\`a2a_lab_tab_embed\` run-as user, and \`/api/tableau/frontdoor\` exchange. No second OAuth app or browser-held
+Salesforce credential is required. Set \`TABLEAU_CONSUMPTION_DASHBOARD_API_NAME\` after the dashboard asset is
+created; optionally set \`TABLEAU_CONSUMPTION_APP_TAB\` for an in-org deep link. Digital Wallet events and
+custom-tag stamping arrive on an approximately daily cadence, so freshness must be shown on the dashboard.`;
+  return `<div class="flow">${mdToHtml(md)}</div>`;
 }
 
 function obsTableauNextDetailsHtml() {
@@ -4574,7 +4657,7 @@ function fanoutGateRowHtml(key) {
 // same experiment can be run with and without memory side by side.
 const MEMORY_HELP = {
   off: "no memory: the run is exactly the experiment without WS27 — the agent sees only your message (the control).",
-  on: "memory on: before the agent answers, the lab reads what Data 360 Agentic Memory already knows about YOU (the signed-in lab user) and puts it in front of your message; after it answers, both your message and its reply are written back, so a later session can recall them. Fails open: a memory outage answers without memory and the turn says why (D91).",
+  on: "memory on: the verified lab persona resolves to a configured Data 360 customer profile (xid). Before answering, the agent reads that customer's governed memory; afterward it writes both sides of the turn so another registered agent can continue later. Missing mappings and memory outages fail open and are reported (D91).",
 };
 const CASE_MEMORY_HELP = {
   section: "Case memory lets one supplier-disruption run save reusable specialist observations in Data 360 and a later run reuse them. It is case-scoped operational context, not profile memory about you.",
@@ -4807,10 +4890,20 @@ function fanoutMemoryDetailHtml(s) {
         facts/preferences, so a transient strike does not become a fact about you.</li>
       <li><b>Evidence.</b> Tenant calls are <code>agentic-memory</code> trace hops. A live go/no-go decides
         whether source ids survive summarization; otherwise the result says provenance unavailable.</li>
+      ${agenticMemoryBillingDetailHtml()}
       <li><b>Placement.</b> This first arm is host-side CMA because the custom tool executes in the console
         Fargate task. Remote MCP, ADK-primary and Agentforce-primary are follow-ups.</li>
     </ul>
   </div>`;
+}
+
+function agenticMemoryBillingDetailHtml() {
+  return `<li><b>Limited GA and billing.</b> Salesforce currently documents Agentic Memory and Context as
+    free during Limited GA, with final pricing still unannounced. Real-time conversation ingestion,
+    retrieval, and <code>GetContext</code> do not incur a consumption charge. LLM-based memory generation—
+    extracting profile facts, preferences, and session summaries—will consume Flex Credits when
+    usage-based pricing takes effect. Digital Wallet can therefore correctly show no dedicated Agent Memory
+    charge today; that is a current product-pricing result, not proof that the memory path did not run.</li>`;
 }
 
 // The Details half of the Memory radio (D57: what produces it, as whom, where
@@ -4858,6 +4951,7 @@ function memoryDetailHtml(s) {
           from retained history with new timestamps. A valid reset generation therefore suppresses all profile-wide
           facts/preferences from agent prompts. Only conversation context produced inside the new generation is
           eligible for later Claude/OpenAI recall (D107).</li>` : ""}
+        ${agenticMemoryBillingDetailHtml()}
         <li><b>Bounds.</b> Each half is cut off at <code>A2ALAB_MEMORY_BUDGET_S</code> (default 8 s); any refusal
           or overrun fails open. Every tenant call is its own <code>agentic-memory</code> hop in the trace, and the
           turn's badge carries the read/ingest milliseconds.</li>
@@ -10798,7 +10892,7 @@ function renderMain(force) {
       el.innerHTML = obsCrumbsHtml() + obsSessionDetailHtml();
     } else if (view.platform) {
       el.innerHTML = obsCrumbsHtml() + obsDashboardHtml() + obsSessionsHtml(view.platform);
-    } else if (!obsHasData() && !["tableau", "session-trace"].includes(obs.tab || "dashboard")) {
+    } else if (!obsHasData() && !["tableau", "digital-wallet", "session-trace"].includes(obs.tab || "dashboard")) {
       // First-run: explain the pipeline instead of an empty dashboard. The
       // Tableau Next tab is exempt — its exhibit is the Zero-Copy federation,
       // not the harvest store, so it has content even before the first sweep.
@@ -10814,6 +10908,10 @@ function renderMain(force) {
         // WS19/M10: not a brief and not the harvest dashboard — its own thing
         // (the Zero-Copy → Tableau Next exhibit), with its own Details pane.
         pane = details ? obsTableauNextDetailsHtml() : obsTableauNextHtml();
+      } else if (tab === "digital-wallet") {
+        // D111/WS30: Digital Wallet billing attribution is a second Tableau
+        // Next asset, not another view over the Aurora trace dashboard.
+        pane = details ? obsDigitalWalletDetailsHtml() : obsDigitalWalletHtml();
       } else if (tab === "session-trace") {
         // WS23/D73: a live single-session OTel API read — its own thing beside
         // the harvest dashboard, not a facet of it.
@@ -10839,7 +10937,11 @@ function renderMain(force) {
       // the markup is in the DOM.
       if (!details && tab === "tableau") {
         // Owner-only inline embed; no-op for everyone else / when unwired.
-        mountTableauEmbed();
+        mountTableauEmbed("traffic");
+      } else if (!details && tab === "digital-wallet") {
+        // Reuses the initialized SDK/frontdoor browser session; only the
+        // dashboard API name and host element differ.
+        mountTableauEmbed("consumption");
       }
       if (details) {
         if (tab === "tableau") {

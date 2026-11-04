@@ -4850,6 +4850,26 @@ rows remain governed and manageable but no longer enter that generation's prompt
 the new conversation summary instead. The implementation/cross-review batch is
 `ws27-b2-customer-memory-clear`; its plan, critique and probe evidence live under `build-notes/`.
 
+## 2026-11-03 — D108: Consumption Tagging installation uses a direct, single-permission grant
+
+**Context.** Digital Wallet's Consumption Tagging installer requires Data Cloud Architect and the
+"Access to manage the template framework templates" user permission. The operator received the
+template permission indirectly through both the System Administrator profile and a Tableau Next
+permission-set group, but the installer's required-permissions check did not recognize that state.
+An assignment audit also found that the operator held only Data Cloud Base Permissions, not the
+actual Data Cloud Architect permission set (`GenieAdmin`).
+
+**Decision.** Assign the standard Data Cloud Architect permission set and track and assign
+`A2ALab_Consumption_Tagging_Installer`, containing only the Metadata API user permission
+`AppFrameworkManageTemplate`, directly to the operator. Do not assign the broader standard App
+Framework permission set just to work around this installer prerequisite.
+
+**Consequences.** Both required grants are now direct and auditable. The custom permission set is
+explicit, reproducible, and least-privilege; it can be removed after installation if the operator
+no longer administers template-framework apps. Data Cloud Architect remains a separate standard
+grant.
+
+
 ## 2026-11-03 — D109: the native A2A pilot becomes the third Agentforce channel on every toggle scenario
 
 **Context.** D106 added `agentforce-a2a-native` as a matrix cell, and the first inbound run
@@ -4894,6 +4914,67 @@ failed on exactly the turns it exists to measure. WS29 item 14 covers measuring 
   timeout (34 s on OpenAI/Strands; `AF_A2A_NATIVE_TIMEOUT_S`, default 60 s, elsewhere), not 29 s.
 - Pilot terms still apply (plan/07-workstreams.md WS29). The endpoint is enabled per org and may
   change before GA, so a failure on this channel is a finding about the pilot first.
+
+## 2026-11-03 — D110: Digital Wallet attribution uses a bounded six-dimension tag taxonomy
+
+**Context.** A2A Lab needs Digital Wallet reporting that can separate portfolio, experiment,
+workload, platform, execution mode, and Agentic Memory comparison arm. Consumption records arrive
+about a day after usage, and Agentforce charges can land against either a bot definition or an
+active action resource. Historical action versions remain selectable in the Consumption Tagging
+app, so label-only assignment would mix obsolete and current implementations.
+
+**Decision.** Keep six tag groups with 38 controlled values: `Portfolio`, `Experiment`,
+`Workload`, `Platform Pair`, `Execution Mode`, and `Memory Arm`. Assign the relevant dimensions to
+all 12 current A2A Lab bot definitions and to the 18 custom function resources joined to their
+active bot-version planner plugins. Tag `Individual_AM01` for the customer-memory identity path.
+Do not tag inactive action versions.
+
+The app currently accepts BotDefinition, GenAiFunctionDefinition, and
+IdentityResolutionDefinition assignments. It exposes the eight managed `AgenticConnector-*`
+streams, `A2ALab_Memory_Customer360`, and the graph's two generated transforms in the picker but
+returns the same generic `Unknown error` when saving any of them. Treat those resources as
+unattributed until Salesforce accepts the assignments; do not represent the failed saves as zero
+consumption.
+
+**Consequences.** The live baseline is 38 tags and 144 successful tagged-resource assignments:
+53 bot-level, 86 active-action-level, and 5 identity-resolution assignments. Dashboard filters can
+compare bridge vs direct/native execution, platform pairs, supply fan-out, and memory arms without
+including stale action versions. The first wallet validation must run after the daily ingestion
+lag and must retain an explicit unattributed bucket for the managed Data 360 resources. Every
+current memory experiment's Details pane also carries the current Limited GA billing boundary:
+real-time ingestion, retrieval, and GetContext are free; LLM extraction of facts, preferences, and
+session summaries will consume Flex Credits only when usage-based pricing takes effect; final
+pricing remains unannounced. A zero Digital Wallet charge is therefore not presented as evidence
+that the memory path did not execute.
+
+## 2026-11-03 — D111: Digital Wallet is a separate Observability dashboard on the existing Tableau session
+
+**Context.** The console's Observability section already separates wire-level traces, harvested
+platform interiors, live Agentforce session tracing, and the Tableau Next aggregate over the
+lab-owned Aurora trace store. Digital Wallet introduces a different source and grain:
+Salesforce-owned billing events in `TenantEnrichedUsageEvent`, enriched with standard resource
+references, correlation identifiers, and the lab's custom consumption tags. Combining those rows
+with the Agent Interop Traffic semantic model would blur execution evidence and billing evidence.
+
+**Decision.** Add a distinct **Digital Wallet** tab under Observability and back it with a second
+Tableau Next dashboard asset. Reuse the existing owner-gated Embedding SDK session,
+`a2a_lab_tab_embed` run-as user, and `/api/tableau/frontdoor`; do not create another OAuth app or
+send Salesforce credentials to the browser. The asset API name is optional configuration
+(`TABLEAU_CONSUMPTION_DASHBOARD_API_NAME`), so the tab renders an explicit awaiting-data state until
+the daily wallet events land and the dashboard exists. An optional
+`TABLEAU_CONSUMPTION_APP_TAB` supplies the in-org deep link.
+
+The first dashboard keeps five separate lenses: Agentforce root agent/action, Data 360 reportable
+resource, usage type/card, the six D110 custom dimensions, and an explicit unattributed Data 360
+bucket. Data-query cost can be joined to Agentforce trace/session evidence through
+`CorrelationIdentifier__c`. The Details pane repeats Agentic Memory's Limited GA boundary so a
+zero charge is never presented as a failed execution path.
+
+**Consequences.** Execution observability and commercial attribution are adjacent but remain
+honest about their different sources, lags, and grains. One browser session can render either
+Tableau asset. The console scaffold is deployable before the dashboard exists; the remaining
+operator work begins after the first approximately daily wallet delivery: inspect emitted fields,
+build/share the semantic assets, set the dashboard API name, and full-rebuild the console.
 
 ## 2026-11-03 — D112: Agentic Memory names its Data 360 data space as deployment configuration
 

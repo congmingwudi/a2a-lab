@@ -656,6 +656,12 @@ TABLEAU_SDK_URL = (
     "/dist/sdk-bundle.module.js"
 )
 TABLEAU_DASHBOARD_API_NAME = os.environ.get("TABLEAU_DASHBOARD_API_NAME", "New_Dashboard")
+# Optional second Tableau Next asset over Digital Wallet's Consumption Insights
+# objects. It deliberately has no default: until the wallet data has landed and
+# the dashboard exists, the console renders an honest awaiting-data state.
+TABLEAU_CONSUMPTION_DASHBOARD_API_NAME = os.environ.get(
+    "TABLEAU_CONSUMPTION_DASHBOARD_API_NAME", ""
+).strip()
 # The "open in Salesforce" deep link points at the in-org custom TAB
 # (CustomTab A2A_Lab_Traffic) rather than the raw /tableau/dashboard view: the
 # tab is an App Builder page that carries the licence/perm-set + asset-share
@@ -663,6 +669,7 @@ TABLEAU_DASHBOARD_API_NAME = os.environ.get("TABLEAU_DASHBOARD_API_NAME", "New_D
 # works for a signed-in admin. Tab api-name from env so the org is never a
 # literal here.
 TABLEAU_APP_TAB = os.environ.get("TABLEAU_APP_TAB", "A2A_Lab_Traffic")
+TABLEAU_CONSUMPTION_APP_TAB = os.environ.get("TABLEAU_CONSUMPTION_APP_TAB", "").strip()
 
 
 # The JWT `aud` for the token exchange is the login authorization server, NOT
@@ -2667,6 +2674,11 @@ def create_console_app(registry: Registry | None = None):
         # is never a literal. This is the "open in Salesforce" target; the inline
         # embed below renders the same dashboard in-page.
         tableau_app_url = f"{ld}/lightning/n/{TABLEAU_APP_TAB}" if ld else None
+        tableau_consumption_app_url = (
+            f"{ld}/lightning/n/{TABLEAU_CONSUMPTION_APP_TAB}"
+            if ld and TABLEAU_CONSUMPTION_APP_TAB
+            else None
+        )
         owner = _is_owner(request)
         # The inline embed: for the OWNER only, the console mints a frontdoor
         # URL server-side (see _mint_frontdoor_url) so the dashboard renders in
@@ -2685,6 +2697,19 @@ def create_console_app(registry: Registry | None = None):
                 "dashboard": TABLEAU_DASHBOARD_API_NAME,
                 "frontdoor_endpoint": "/api/tableau/frontdoor",
             }
+        consumption_embed = None
+        if (
+            owner
+            and ld
+            and TABLEAU_CONSUMPTION_DASHBOARD_API_NAME
+            and _tableau_embed_configured()
+        ):
+            consumption_embed = {
+                "sdk_url": TABLEAU_SDK_URL,
+                "org_url": ld,
+                "dashboard": TABLEAU_CONSUMPTION_DASHBOARD_API_NAME,
+                "frontdoor_endpoint": "/api/tableau/frontdoor",
+            }
         tableau_next = {
             "app_url": tableau_app_url if owner else None,
             "app_url_owner_only": bool(tableau_app_url),
@@ -2695,6 +2720,22 @@ def create_console_app(registry: Registry | None = None):
                 if (SHOTS_DIR / "tableau-next-traffic.png").exists()
                 else None
             ),
+            "consumption": {
+                "configured": bool(TABLEAU_CONSUMPTION_DASHBOARD_API_NAME),
+                "app_url": tableau_consumption_app_url if owner else None,
+                "app_url_owner_only": bool(tableau_consumption_app_url),
+                "embed": consumption_embed,
+                "embed_owner_only": bool(
+                    TABLEAU_CONSUMPTION_DASHBOARD_API_NAME
+                    and ld
+                    and _tableau_embed_configured()
+                ),
+                "shot": (
+                    "/static/components/tableau-next-consumption.png"
+                    if (SHOTS_DIR / "tableau-next-consumption.png").exists()
+                    else None
+                ),
+            },
         }
         return {
             "mode": reg.mode,

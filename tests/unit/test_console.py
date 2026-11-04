@@ -485,6 +485,7 @@ def test_d102_supplier_memory_controls_are_scoped_and_accessible():
     assert 'exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key)' in html
     assert "This run does not claim recall" in html
     assert "fanoutMemoryDetailHtml(s)" in html
+    assert "${agenticMemoryBillingDetailHtml()}" in html
     assert 'm.state === "unavailable"' in html
     assert "memory: seeded ${written}/${nominated}" in html
     assert '"memory: empty"' in html
@@ -943,6 +944,14 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert '["Claude", "OpenAI"]' in html
     assert "Shared case memory" in html
     assert "real-time</i> data graphs" in html
+    assert "function agenticMemoryBillingDetailHtml()" in html
+    assert "free during Limited GA" in html
+    assert "final pricing still unannounced" in html
+    assert "Real-time conversation ingestion" in html
+    assert "retrieval, and <code>GetContext</code> do not incur a consumption charge" in html
+    assert "extracting profile facts, preferences, and session summaries" in html
+    assert "will consume Flex Credits when" in html
+    assert "not proof that the memory path did not run" in html
     monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
     monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
     monkeypatch.setenv(
@@ -1954,6 +1963,50 @@ def test_tableau_embed_absent_when_eca_unwired(tmp_path, monkeypatch):
     assert tn["embed_owner_only"] is False
     # Owner, but no credential to mint with → 503, not a 502 from a bad exchange.
     assert client.get("/api/tableau/frontdoor", headers=owner).status_code == 503
+
+
+def test_digital_wallet_tableau_dashboard_reuses_owner_gated_embed(tmp_path, monkeypatch):
+    """D111: the consumption dashboard is a second asset on the existing
+    Tableau Next session, not a second Salesforce credential path."""
+    from interop import identity
+
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    monkeypatch.setenv("SF_CLIENT_ID_TAB_EMBED", "cid")
+    monkeypatch.setenv("SF_TAB_EMBED_RUNAS_USER", "admin@example.demo")
+    monkeypatch.setenv(
+        "A2ALAB_TAB_EMBED_JWT_KEY", "-----BEGIN PRIVATE KEY-----\\nx\\n-----END PRIVATE KEY-----"
+    )
+    monkeypatch.setenv("TABLEAU_CONSUMPTION_DASHBOARD_API_NAME", "A2A_Lab_Consumption")
+    monkeypatch.setenv("TABLEAU_CONSUMPTION_APP_TAB", "A2A_Lab_Consumption")
+    client = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry()))
+
+    owner = {"authorization": f"Bearer {identity.issue_token('ryan')}"}
+    operator = {"authorization": f"Bearer {identity.issue_token('ana')}"}
+    owner_cfg = client.get("/api/config", headers=owner).json()["tableau_next"]["consumption"]
+    assert owner_cfg["configured"] is True
+    assert owner_cfg["embed"]["dashboard"] == "A2A_Lab_Consumption"
+    assert owner_cfg["embed"]["frontdoor_endpoint"] == "/api/tableau/frontdoor"
+    assert owner_cfg["app_url"] == (
+        "https://example.lightning.force.com/lightning/n/A2A_Lab_Consumption"
+    )
+
+    operator_cfg = client.get("/api/config", headers=operator).json()["tableau_next"][
+        "consumption"
+    ]
+    assert operator_cfg["configured"] is True
+    assert operator_cfg["embed"] is None
+    assert operator_cfg["app_url"] is None
+
+    html = Path("src/console/static/index.html").read_text()
+    assert '["digital-wallet", "Digital Wallet"]' in html
+    assert "function obsDigitalWalletHtml()" in html
+    assert "function obsDigitalWalletDetailsHtml()" in html
+    assert 'mountTableauEmbed("consumption")' in html
+    assert "TenantEnrichedUsageEvent" in html
+    assert "Unattributed Data 360" in html
+    assert "free during Limited GA" in html
 
 
 def test_service_token_unaffected_by_role_gate(tmp_path, monkeypatch):

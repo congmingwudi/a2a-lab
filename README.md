@@ -276,12 +276,12 @@ flowchart LR
         AGENTAPI -. sessions .-> STDM
     end
 
-    subgraph lab["Lab host — the two seams"]
-        BR["Bridge :8100<br/>REST in, any protocol out"]
-        SRV["Protocol servers<br/>REST :8001 · MCP :8002 · A2A :8003"]
-        GUIDE["Lab Guide :8031-33 (D35)"]
-        SHIMS["Agentforce shims<br/>MCP :8021 · A2A :8023"]
-        CONSOLE["Console :8200"]
+    subgraph lab["AWS us-east-1 — ECS Fargate behind the bridge ALB (the two seams)"]
+        BR["Bridge (a2alab-bridge)<br/>REST in, any protocol out"]
+        SRV["Protocol faces (a2alab-faces, one process, by path)<br/>REST · MCP · A2A"]
+        GUIDE["Lab Guide faces (D35)<br/>in a2alab-faces"]
+        SHIMS["Agentforce shim faces<br/>MCP · A2A, in a2alab-faces"]
+        CONSOLE["Console (a2alab-console)<br/>host rule on the bridge ALB"]
     end
 
     subgraph aws["AWS"]
@@ -295,15 +295,18 @@ flowchart LR
     CMA["Anthropic<br/>Managed Agents"]
     ADK["Google Vertex AI<br/>Agent Engine — native A2A"]
     FDY["Microsoft Foundry<br/>native A2A, Entra-only"]
+    LG["LangGraph on Heroku (D77)<br/>3 faces, one web dyno"]
 
-    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, RUNNING"]
+    MULEBK["MuleSoft Agent Fabric (WS10 SP1)<br/>Omni Gateway + AgentScript broker<br/>CloudHub 2.0 us-east-1 · Production, edge 1.13.5"]
 
     APEX -- "Path A: REST callout<br/>via ALB (D50/D51)" --> BR
     APEX -- "direct A2A (D30)" --> ADK
-    BR -- "rest | mcp | a2a<br/>per targets.yaml<br/>(A2ALAB_MODE=hosted → Fargate faces, D26)" --> SRV
+    BR -- "rest | mcp | a2a<br/>per targets.yaml (hosted twins, D26)" --> SRV
     BR -- "target names *-agentcore<br/>agentcore-http, IAM (D68)" --> ACC
     BR --> ACO
     BR --> ACS
+    BR -- "A2A fire-then-poll (submit_poll)" --> LG
+    LG -- ask_agentforce --> AGENTAPI
     SRV --> CMA
     SRV -- "Path B: ask_agentforce" --> AGENTAPI
     SHIMS --> AGENTAPI
@@ -615,8 +618,10 @@ fetch-streaming precisely so no token ever rides a URL.
 
 ### Who authenticates as what
 
-Every hosted seam holds its own credentials and its own Salesforce identity
-— no shared runtime env vars, no shared integration app (D37):
+Every hosted seam holds its own credentials — no shared runtime env vars — and
+the callers with a dedicated job present their own Salesforce identity (D37);
+the bridge, faces, briefs and console still also hold the shared `a2a_lab_app`
+pair (D90):
 
 ```mermaid
 flowchart LR
@@ -625,20 +630,36 @@ flowchart LR
         SO["a2alab/runtime/openai"]
         SS["a2alab/runtime/shim"]
         SCON["a2alab/runtime/console"]
+        SB["a2alab/runtime/bridge"]
+        SF["a2alab/runtime/faces"]
+        SBR["a2alab/runtime/briefs"]
+        SST["a2alab/runtime/strands"]
+        SFAN["a2alab/runtime/fanout-mcp"]
+        SH["a2alab/obs/harvest (D23)"]
     end
 
     ACC["AgentCore: Claude"] --> SC
     ACO["AgentCore: OpenAI"] --> SO
     HSHIM["Hosted A2A shim"] --> SS
     CON["Console"] --> SCON
-    HARV["Obs harvest"] --> SH["harvest secret (D23)"]
+    HARV["Obs harvest"] --> SH
+    BR["Bridge (Fargate)"] --> SB
+    FACES["Faces (Fargate)"] --> SF
+    BRIEFS["Briefs task"] --> SBR
+    ACS["AgentCore: Strands"] --> SST
+    FAN["Fan-out MCP Lambda"] --> SFAN
 
     SC -- "a2a_lab_claude<br/>chatbot_api, sfap_api" --> AAPI["Agentforce<br/>Agent API"]
     SO -- "a2a_lab_openai<br/>chatbot_api, sfap_api" --> AAPI
     SS -- "a2a_lab_shim<br/>chatbot_api, sfap_api" --> AAPI
     SH -- "a2a_lab_obs<br/>api" --> DMO[("Data Cloud DMOs")]
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
-    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEMD102["Data 360 Agentic Memory<br/>case conversation"]
+    SCON -- "a2a_lab_obs<br/>api" --> DMO
+    SB -- "a2a_lab_app (shared)" --> AAPI
+    SB -- "a2a_lab_memory<br/>JWT-bearer, run-as user (D83)" --> MEM["Data 360 Agentic Memory<br/>/memory/turn"]
+    SF -- "a2a_lab_memory<br/>JWT-bearer (D91)" --> MEM
+    SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEM
+    SBR -- "a2a_lab_app (shared)<br/>writes A2ALab_Account_Brief__c" --> SFORG[("Salesforce org")]
 ```
 
 Runtime configs carry only the secret's **ARN**; `interop.secret_env` resolves
@@ -792,7 +813,7 @@ open http://localhost:8200         # lab console
 uv run python scripts/sf_smoke.py  # Agentforce go/no-go (needs SF_* in .env)
 ```
 
-## Where it actually runs (WS13)
+## Where it actually runs (WS13, D77)
 
 **The lab no longer needs the laptop at runtime.** `run_local.sh` above is a
 development convenience, not the deployment — as of 2026-07-28 every runtime
@@ -804,16 +825,20 @@ and once deployed nothing needs a live session for the lab to keep working.
 |---|---|---|
 | Path A bridge | ECS Fargate + ALB | `deploy/bridge/deploy_bridge.sh` |
 | Lab console | ECS Fargate, host-header rule on the same ALB | `deploy/console/deploy_console.sh` |
-| The fourteen protocol faces | ECS Fargate, **one process**, addressed by path | `deploy/faces/deploy_faces.sh` |
+| The fourteen Fargate protocol faces | ECS Fargate, **one process**, addressed by path | `deploy/faces/deploy_faces.sh` |
 | Claude + OpenAI + Strands SDK agents | Bedrock AgentCore (IAM data plane, no URL) | `deploy/agentcore/deploy.sh <claude\|openai\|strands>` |
 | Agentforce A2A shim, fan-out MCP, obs harvest + obs MCP | Lambda | `deploy/shim/`, `deploy/fanout/`, `deploy/obs/` |
 | ADK agents | Vertex AI Agent Engine | `deploy/adk/deploy_adk.py` |
 | Foundry agents | Azure AI Foundry | `deploy/foundry/provision_foundry.py` |
+| Brief watcher (D52) | ECS Fargate service `a2alab-briefs`, reuses the faces image, no ALB | `deploy/briefs/deploy_briefs.sh` |
+| LangGraph agent, 3 faces (WS4/D77) | Heroku web dyno, the first non-AWS host; traces to Aurora via the Data API | `deploy/heroku/deploy_langgraph.sh` |
+| Agent Fabric broker (WS10) | MuleSoft Omni Gateway on CloudHub 2.0 us-east-1; consult leg not yet proven end to end | `anypoint-cli-v4 agent-network project deploy` (from `mulesoft/agent-network/`) |
 
 Three hostnames — the bridge, the console and the faces — are CNAMEs at the
 **same** ALB, which terminates TLS with one wildcard origin certificate. A new
 face costs a listener rule and a target group, not a load balancer. The
-`cloudflared` tunnel still runs, re-scoped to local development.
+one entrance not on it is LangGraph's Heroku-assigned domain (plan/09-deployment-map.md
+L5.5). The `cloudflared` tunnel still runs, re-scoped to local development.
 
 `A2ALAB_MODE=hosted` swaps every `localhost` target for its hosted twin, so the
 same console, the same adapters and the same protocol comparison run either way
