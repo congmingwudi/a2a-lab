@@ -552,6 +552,12 @@ for MCP/A2A hops, which carry only text (`src/console/app.py`). Tests:
 `tests/unit/test_typed_remote_errors.py` (409 + code on the wire, untyped stays 500, client keeps
 the code) and `test_run_keeps_a_typed_refusal_across_the_hosted_hop`.
 
+Deployed 2026-11-04 (faces task def 32, console 153, both rollouts COMPLETED; commit `76c1b6f`).
+Hosted smoke: `/api/run` on `customer-memory-claude` / `maya` with a bogus `memory_generation`.
+The console returned `ok: false, error_code: "stale_memory_generation"`, carried by
+`RemoteAgentError: HTTP 409 from …/claude-rest/invoke`, trace `a54e569a…`. Codex's `4b5bc448…`
+had shown an untyped 500. No model call and no memory write happened.
+
 ### Reviewer evidence
 
 - `uv run pytest -q` (proxy and `ANTHROPIC_BASE_URL` unset) → **870 passed, 3 skipped, 6
