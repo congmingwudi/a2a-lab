@@ -1,4 +1,4 @@
-**Verdict: REQUEST CHANGES**
+**Verdict: PASS**
 
 # WS27 batch 2 critique — customer-memory curation, fresh-start reset, closed-session fix
 
@@ -489,3 +489,70 @@ The stale `_write_ok` stub (R1-1) shows why the signature-change paths need real
 - The UI was reviewed from source and text tests. I did not drive it in a browser.
 - I did not modify implementation files, stage anything, or touch the operator's unrelated dirty
   worktree changes. This section and the handoff state are the only writes.
+
+## Round 2 — Claude Code cross-review
+
+Reviewer: Claude Code (cross-review station, round 2), 2026-11-03. Reviewed at `3f7ff0c`, which
+contains Codex's round-2 answer (`8df42f6`) and the D107 follow-ups `1253cd1`, `cceb398`, `c4c4fe8`.
+Codex deployed under an operator override before this round, so this verdict reviews code that is
+already live. It does not gate a deploy.
+
+**Verdict for this round: PASS.** Every R1 finding is closed in code and covered by a test. D107
+now describes the shipped behaviour, including the profile-quarantine redesign (§7), with live
+trace evidence. One new MINOR finding is below. It does not block.
+
+### R1 findings — status
+
+| Finding | Status | My evidence |
+|---|---|---|
+| R1-1 probe `write_turn` shape | **Closed** | `scripts/supplier_memory_probe.py#L61` unpacks `errors, _normalized`. The `_write_ok` stub (`tests/unit/test_supplier_memory_probe.py#L65-L66`) returns `[], False`, so a future signature change goes red. |
+| R1-2 saga failure report / marker check | **Closed** | `manage_customer_memory` records a JSON step result for every mutation (`src/console/app.py#L2191-L2228`). `ok` requires `generation == marker` and `not generation_invalid` (`#L2244-L2250`). Tests: `test_customer_memory_reset_reports_partial_delete_and_selected_generation` and `…_refuses_incomplete_listing`. |
+| R1-3 archived chats / cross-customer purge | **Closed** (see R2-1) | The chat stamps `memory_generation` into body and toggles (`index.html#L10261-L10263`, `#L10320`). The face refuses a mismatch before `inner.handle` (`memory_adapter.py#L221-L232`). Test: `test_stale_customer_chat_is_refused_before_the_inner_agent_runs`. |
+| R1-4 normalization badge | **Closed** | `memory: normalized retry` chip at `index.html#L10117`. |
+| R1-5 custom category unproven | **Closed by redesign** | The custom category and `PROFILE_FACT` both returned 403 live. The marker moved to the supported `sys_PROFILE_FACT` and is filtered from rendering and saved prompts (tests `test_generation_control_fact_*`). Probe: `build-notes/codex/ws27-generation-category-probe.md`. |
+| R1-6 missing edge tests | **Closed** | JSON-403 no-retry, second closed-session write, incomplete listing, machine callers, generation forwarding/refusal and profile quarantine are all present (`tests/unit/test_memory.py`, `test_memory_adapter.py`, `test_console.py`). |
+| R1-7 confirmation/copy | **Closed** | Per Codex. Covered by `test_customer_memory_panel_has_selection_reset_and_retention_copy`. |
+| R1-8 blank rows, `/api/v1` | **Closed** | `API_PATH_RE = (?:/api)?/v(\d+)/…` (`memory.py#L181`). Typed listings keep blank rows for deletion. |
+
+### Design change I checked: quarantine instead of "zero rows"
+
+`c4c4fe8` relaxes reset success: re-materialized profile rows no longer fail Start fresh. The hard
+boundary moves to read time. With a valid generation, both faces drop `sourceType: Profile` and
+skip the profile merge (`include_saved_memories` / `include_profile_context` = `not generation`).
+I agree with this design. Trace `19b1eca3…` shows deletion cannot be made to stick, so a
+read-side boundary is the only one the lab controls. Its cost is stated honestly in D107 §7 and
+Consequences: after a reset, recall comes only from the generation's conversation summary.
+Profile facts extracted from new teaching are also quarantined, so post-reset recall is
+conversation-scoped by design, not a regression.
+
+### New finding
+
+#### R2-1 — MINOR: hosted, the stale-chat refusal arrives untyped, so the fork prompt depends on the client-side check
+
+The console maps a refusal to `error_code: "stale_memory_generation"` only when the exception type
+is `StaleMemoryGeneration` in-process (`src/console/app.py#L3494-L3495`). Hosted, the REST face
+returns it as HTTP 500, the remote client wraps it, and the type is lost. Codex's smoke trace
+`4b5bc448…` shows exactly this. `index.html#L10351` therefore never fires hosted.
+
+The guard is still fail-closed: no model call and no memory mutation happen. The client-side
+comparison (`index.html#L10035-L10036`) marks the chat stale whenever the manager snapshot has
+loaded. The only gap is a stale chat opened before that snapshot. It shows a generic error instead
+of the "start a new chat" fork until reload. **Suggested fix:** have the face return a typed body
+(for example a 409 with `error_code`) and let the REST client keep the code. Alternatively, match
+on the `StaleMemoryGeneration` text. Not required for this batch.
+
+### Reviewer evidence
+
+- `uv run pytest -q` (proxy and `ANTHROPIC_BASE_URL` unset) → **870 passed, 3 skipped, 6
+  deselected, 2 failed** at `65bf6bf`. Both failures came from the operator's WS30/sweep commit,
+  not this batch:
+  - the README `identity-and-secrets` diagram lagged `config/diagrams.yaml`;
+  - `.env` lacked the two new `TABLEAU_CONSUMPTION_*` keys.
+
+  I fixed both (`3f7ff0c`, plus a local `.env` edit) and re-ran them: 14 passed.
+- `uv run ruff check` on `memory.py`, `memory_adapter.py`, `console/app.py` and the probe script →
+  clean.
+- Code reading of every R1 site cited above, at HEAD.
+- No tenant calls this round. The live evidence is Codex's: traces `e3c30627…`, `13202e8b…` and
+  `91aa0a88…`. My round-1 `/tmp` execution probes did not survive the machine restart and were not
+  re-run. The R1-2 and R1-1 regressions are now permanent repo tests instead.
