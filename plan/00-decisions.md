@@ -4798,10 +4798,15 @@ content 403'd, the normalized twin succeeded, and a benign post-close write succ
    summary. Synthetic lifecycle evidence is in
    `build-notes/codex/ws27-generation-category-probe.md`.
 3. **Reset is a convergent saga, not an atomic claim.** The console requires a complete governed
-   listing (`totalCount` must match), creates the new marker, deletes the previously listed semantic
-   entries and old markers, then re-lists all categories. A 404 triggers re-list/retry. Partial
-   results keep the new marker so episodic summaries remain cut off, report every remaining entry,
-   and never say "fresh" until verification passes.
+   listing, creates the new marker, deletes the previously listed semantic entries and old markers,
+   then re-lists all categories. The published Read Memories contract defines `memories[]`, but not
+   pagination or `totalCount`. During initial D107 acceptance that extra tenant field matched the
+   row count; later the same endpoint returned 22 facts with `totalCount: 1` and one preference
+   with `totalCount: 0` (trace `bbc1c17a0c79434bb7696c12c438521e`). Therefore an undocumented
+   under-count cannot invalidate rows the response actually contains. A value greater than the
+   returned row count remains a conservative incomplete-list signal in case the tenant introduces
+   paging. A 404 triggers re-list/retry. Partial results keep the new marker so episodic summaries
+   remain cut off, report every remaining entry, and never say "fresh" until verification passes.
 4. **Permanent operations require a human operator.** Both list and delete routes require a
    verified operator/master persona through `_is_operator`, with `_OPERATOR_ONLY` defence in depth.
    Viewer, machine and shared service-token callers cannot curate customer memory. The hosted
@@ -4817,7 +4822,8 @@ content 403'd, the normalized twin succeeded, and a benign post-close write succ
 
 **Consequences.** Selective deletion is genuinely profile-scoped and irreversible; Start fresh is
 experiment continuity control, not a right-to-be-forgotten operation. Management uses the complete
-typed Memory API response, independent of the prompt's existing 20-entry context cap. Archived
+typed `memories[]` response, independent of the prompt's existing 20-entry context cap, and records
+the tenant's non-contract count separately for diagnosis. Archived
 pre-reset chats cannot silently continue under the current generation. Trace evidence distinguishes
 an original content refusal from its normalized retry, so a successful memory badge never hides the
 wire event that required adaptation. The implementation/cross-review batch is

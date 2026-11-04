@@ -72,6 +72,7 @@ class MemoryEntry:
 class MemoryListing:
     entries: tuple[MemoryEntry, ...]
     total_count: int
+    reported_total_count: int | None = None
 
     @property
     def complete(self) -> bool:
@@ -524,7 +525,22 @@ class MemoryClient:
             MemoryEntry(str(m.get("memoryId") or ""), str(m.get("content") or "").strip())
             for m in memories if str(m.get("memoryId") or "")
         )
-        return MemoryListing(entries, int(body.get("totalCount", len(entries))))
+        # The published Read Memories contract returns ``memories[]`` and does
+        # not define pagination or ``totalCount``. The tenant did include that
+        # extra field during D107 acceptance, where it matched the row count,
+        # but later returned 1 beside 22 facts and 0 beside one preference.
+        # Treat an under-count as non-contract metadata: every returned id is
+        # still governed and deletable. A value GREATER than the returned rows
+        # remains a useful conservative signal and keeps destructive reset
+        # disabled in case a future tenant version introduces paging.
+        reported = None
+        try:
+            if isinstance(body, dict) and body.get("totalCount") is not None:
+                reported = max(0, int(body["totalCount"]))
+        except (TypeError, ValueError):
+            pass
+        effective_total = max(len(entries), reported or 0)
+        return MemoryListing(entries, effective_total, reported)
 
     async def create_memories(
         self, trace_id: str, *, agent_id: str, owner_id: str, category: str,

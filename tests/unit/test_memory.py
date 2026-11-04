@@ -55,6 +55,7 @@ class FakeTenant:
         self.context_status = context_status
         self.conversation_status = 201
         self.memories: dict[tuple[str, str], list[str]] = {}
+        self.memory_total_counts: dict[tuple[str, str], object] = {}
         self.refuse_memory: set[str] = set()
         self.html_403_entries = 0
         self.json_403_entries = 0
@@ -91,7 +92,7 @@ class FakeTenant:
             contents = self.memories.get(key, [])
             return httpx.Response(200, json={"memories": [
                 {"memoryId": f"m-{i}", "content": c} for i, c in enumerate(contents)
-            ], "totalCount": len(contents)})
+            ], "totalCount": self.memory_total_counts.get(key, len(contents))})
         if path.endswith("/entries") and self.html_403_entries:
             self.html_403_entries -= 1
             return httpx.Response(403, text="<html><h1>403 Forbidden</h1></html>")
@@ -369,6 +370,31 @@ async def test_list_memories_reads_one_shared_service_by_owner(isolated_traces):
     assert hop["transport_detail"] == (
         "GET /api/v1/agentic/memory · sys_PROFILE_FACT · A2ALab_Memory_Concierge"
     )
+
+
+async def test_list_memories_ignores_undocumented_total_count_undercount():
+    fake = FakeTenant()
+    key = (IDS["agent_id"], "sys_PROFILE_FACT")
+    fake.memories[key] = [f"Fact {i}" for i in range(22)]
+    fake.memory_total_counts[key] = 1
+
+    got = await fake.client().list_memories("t1", category="sys_PROFILE_FACT", **IDS)
+
+    assert len(got.entries) == got.total_count == 22
+    assert got.reported_total_count == 1
+    assert got.complete is True
+
+
+async def test_list_memories_still_refuses_a_reported_count_above_returned_rows():
+    fake = FakeTenant()
+    key = (IDS["agent_id"], "sys_PROFILE_FACT")
+    fake.memories[key] = ["Only returned row"]
+    fake.memory_total_counts[key] = 2
+
+    got = await fake.client().list_memories("t1", category="sys_PROFILE_FACT", **IDS)
+
+    assert got.total_count == got.reported_total_count == 2
+    assert got.complete is False
 
 
 async def test_create_and_delete_memories_use_profile_scope():

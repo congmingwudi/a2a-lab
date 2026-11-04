@@ -79,6 +79,7 @@ scenarios:
     via_bridge: false
     status: live
     memory_toggle: true
+    default_memory: "on"
     memory_customer_selector: true
     default_memory_customer: maya
     tags: [data-360, agentic-memory, identity-resolution, claude, managed-agents]
@@ -149,6 +150,7 @@ scenarios:
     via_bridge: false
     status: live
     memory_toggle: true
+    default_memory: "on"
     memory_customer_selector: true
     default_memory_customer: maya
     tags: [data-360, agentic-memory, openai, cross-agent, agentforce]

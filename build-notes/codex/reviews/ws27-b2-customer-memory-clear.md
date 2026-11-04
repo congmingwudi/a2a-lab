@@ -102,3 +102,22 @@ the operator's explicit instruction to skip round-two review. Deployment evidenc
 - A destructive Maya reset and a post-deploy URL-normalization write were deliberately not run as
   deployment smoke. The synthetic generation lifecycle was already proven and cleaned up under
   `a2alab-memprobe` (trace `e3c30627c7f945a99a54b6e7535f20a3`).
+
+## D107 reset hotfix — 2026-11-03
+
+The hosted Refresh trace `bbc1c17a0c79434bb7696c12c438521e` returned all 22 Maya fact rows
+with undocumented `totalCount: 1`, plus one preference with `totalCount: 0`. The published Read
+Memories response defines `memories[]` and does not define that field or a pagination parameter.
+The initial acceptance trace had returned matching counts, so the defensive equality check became
+a false incomplete-list refusal when the tenant's extra field changed behavior.
+
+`MemoryListing` now retains the reported value separately, treats an under-count as non-contract
+metadata, and still marks the response incomplete if a reported value is greater than the returned
+row count. The Claude/OpenAI customer-memory scenarios also declare `default_memory: on`; explicit
+radio choices still win and Run All still sends its explicit memory-off control override.
+
+Validation before deployment: focused memory/adapter/console suite **174 passed**; Ruff and
+`git diff --check` passed. Full suite: **860 passed, 3 skipped, 6 deselected, 2 failed** only in
+unrelated dirty-worktree changes (`README.md`/`config/diagrams.yaml` parity and two new optional
+Tableau consumption variables absent from the local `.env`). Both Codex regression harness cases
+passed. The readiness probe stopped at its historical old-behavior redaction assertion, as before.

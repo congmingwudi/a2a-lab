@@ -846,6 +846,7 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert claude["group"] == openai["group"] == "agent-memory"
     assert claude["target"] == "claude-rest" and openai["target"] == "openai-rest"
     assert claude["memory_toggle"] is openai["memory_toggle"] is True
+    assert claude["default_memory"] == openai["default_memory"] == "on"
     assert claude["memory_customer_selector"] is openai["memory_customer_selector"] is True
     assert claude["default_memory_customer"] == openai["default_memory_customer"] == "maya"
     assert claude["seed_prompts"] and openai["seed_prompts"]
@@ -855,6 +856,10 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert "seedPromptsHtml(exp)" in html and "useSeedPrompt" in html
     assert 'aria-label="Customer persona"' in html
     assert "Data 360 memory supplied to this agent" in html
+    assert "function memoryModeFor(key, exp)" in html
+    assert 'exp && exp.default_memory === "on" ? "on" : "off"' in html
+    assert "memoryRowHtml(key, exp)" in html
+    assert "(overrides && overrides.memory) || memoryModeFor(key, spec)" in html
     assert "memory-evidence-lines" in html
     assert "memory-evidence-line" in html
     assert '.split("\\n")' in html

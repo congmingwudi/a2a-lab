@@ -4590,8 +4590,13 @@ window.setMemoryMode = m => {
   renderMain(true);
 };
 
-function memoryRowHtml(key) {
-  const m = memoryModes[key] || "off";
+function memoryModeFor(key, exp) {
+  if (Object.prototype.hasOwnProperty.call(memoryModes, key)) return memoryModes[key];
+  return exp && exp.default_memory === "on" ? "on" : "off";
+}
+
+function memoryRowHtml(key, exp) {
+  const m = memoryModeFor(key, exp);
   return `
   <div class="chan-row">
     <span class="chan-label">Memory</span>
@@ -10130,10 +10135,11 @@ async function sendTurn(kind, name, message, overrides) {
       body.gate = (overrides && overrides.gate) || fanoutGates[key] || "none";
       toggles.gate = body.gate;
     }
-    // WS27/D91: memory is per run; Run All passes no override, so the sweep
-    // runs memory-off (the control) unless a permutation asks.
+    // WS27/D91: memory is per run. The two customer-memory demonstrations
+    // default on from scenario config; an explicit user radio choice wins.
+    // Run All passes an explicit off override to preserve its control arm.
     if (spec && spec.memory_toggle) {
-      toggles.memory = (overrides && overrides.memory) || memoryModes[key] || "off";
+      toggles.memory = (overrides && overrides.memory) || memoryModeFor(key, spec);
       body.memory = toggles.memory === "on";
       if (spec.memory_customer_selector) {
         body.memory_customer = selectedMemoryCustomer || spec.default_memory_customer;
@@ -10846,7 +10852,7 @@ function renderMain(force) {
             ? dispatchModeRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.gate_toggle
             ? fanoutGateRowHtml(key) : ""}
-          ${view.kind === "scenario" && exp && exp.memory_toggle ? memoryRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.memory_toggle ? memoryRowHtml(key, exp) : ""}
           ${view.kind === "scenario" && exp && exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
