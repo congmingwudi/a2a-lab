@@ -1020,6 +1020,15 @@
                  padding: 18px; margin: 10px 0 14px; overflow-x: auto; text-align: center; }
   .arch-figure svg { max-width: 100%; height: auto; }
   .arch-figure pre { text-align: left; margin: 0; overflow-x: auto; font-size: 11.5px; }
+  /* draw.io twins (D113) are exported light-theme with their own colour per
+     cloud, so they sit on white in both themes — a dark card under #444 edges
+     would make the arrows disappear. */
+  .arch-figure.arch-drawio, .arch-figure.arch-drawio:fullscreen,
+  .arch-figure.arch-drawio.arch-fsfallback { background: #fff; }
+  .arch-views { margin: 0; }
+  .arch-views .tab { padding: 3px 10px; font-size: 12px; }
+  .arch-stale { text-align: left; margin: 0 0 10px; }
+  .arch-figure:fullscreen .arch-stale, .arch-figure.arch-fsfallback .arch-stale { display: none; }
   .arch-prose { font-size: 13.5px; line-height: 1.7; }
   .arch-prose table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 10px 0 16px; }
   .arch-prose th { text-align: left; padding: 8px 11px; background: var(--card2);
@@ -7800,11 +7809,23 @@ function archHtml() {
     <section class="arch-level" id="arch-${esc(l.id)}">
       <div class="arch-head">
         <h3>${esc(l.id)} — ${esc(l.title)}</h3>
+        ${l.drawio ? `
+          <div class="tabs arch-views" role="tablist" aria-label="Diagram rendering">
+            ${[["drawio", "draw.io"], ["mermaid", "Mermaid"]].map(([v, lab]) => `
+              <button class="tab ${archViewFor(l) === v ? "on" : ""}" role="tab"
+                aria-selected="${archViewFor(l) === v}"
+                onclick="archSetView('${esc(l.id)}','${v}')"
+                title="${v === "drawio"
+                  ? "Hand-drawn draw.io rendering of this level (D113)"
+                  : "The mermaid in plan/09 — the source this level is parsed from"}">${lab}${
+                v === "drawio" && l.drawio.stale ? " ⚠" : ""}</button>`).join("")}
+          </div>` : ""}
         ${l.mermaid ? `
           <button class="ghost" onclick="archFullscreen('${esc(l.id)}')"
             title="Full screen (Esc to exit)">Full screen</button>
           <button class="ghost" onclick="archToggleSource('${esc(l.id)}')"
-            id="archsrc-${esc(l.id)}">mermaid source</button>` : ""}
+            id="archsrc-${esc(l.id)}"
+            ${archViewFor(l) === "mermaid" ? "" : `style="display:none"`}>mermaid source</button>` : ""}
       </div>
       ${l.mermaid ? `<div class="arch-figure" id="archfig-${esc(l.id)}"
         data-level="${esc(l.id)}"><span class="hint">Rendering…</span></div>` : ""}
@@ -7856,8 +7877,82 @@ function linkifyRepoFiles(root) {
   }
 }
 
-async function renderArchDiagrams() {
-  const figs = Array.from(document.querySelectorAll(".arch-figure[data-level]"));
+// Each level can render two ways (D113): the hand-drawn draw.io twin, and the
+// mermaid it was drawn from. draw.io is the default — EXCEPT when the server
+// says the drawing is stale (plan/09's mermaid changed after the drawing was
+// last stamped by scripts/arch_drawio.py). Then the level opens on mermaid,
+// which is current by construction, because a default view showing the old
+// shape is the console asserting something false. A reader's explicit choice
+// is remembered per level and wins over the default either way.
+const ARCH_VIEW_KEY = "a2a-arch-view-v1";
+let archViewSel = {};
+try { archViewSel = JSON.parse(localStorage.getItem(ARCH_VIEW_KEY) || "{}") || {}; } catch (e) {}
+const archLevel = id => (archData?.levels || []).find(l => l.id === id) || {};
+function archViewFor(l) {
+  if (!l || !l.drawio) return "mermaid";
+  const picked = archViewSel[l.id];
+  if (picked === "drawio" || picked === "mermaid") return picked;
+  return l.drawio.stale ? "mermaid" : "drawio";
+}
+
+window.archSetView = (id, v) => {
+  archViewSel[id] = v;
+  try { localStorage.setItem(ARCH_VIEW_KEY, JSON.stringify(archViewSel)); } catch (e) {}
+  const l = archLevel(id);
+  // Restore every piece of per-view state explicitly — this runs after first
+  // paint, so the tab states, the source button and the source/diagram toggle
+  // all have to be put back, not only switched on.
+  document.querySelectorAll(`#arch-${CSS.escape(id)} .arch-views .tab`).forEach(b => {
+    const on = b.getAttribute("onclick").includes(`'${v}'`);
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", on);
+  });
+  const src = document.getElementById("archsrc-" + id);
+  // style, not the hidden attribute: button.ghost sets display and wins over it.
+  if (src) { src.style.display = archViewFor(l) === "mermaid" ? "" : "none"; src.textContent = "mermaid source"; }
+  const fig = document.getElementById("archfig-" + id);
+  if (fig) { fig.dataset.showingSource = "0"; fig.innerHTML = `<span class="hint">Rendering…</span>`; }
+  renderArchDiagrams([fig]);
+};
+
+const archSvgCache = new Map();
+async function archDrawioSvg(url) {
+  if (!archSvgCache.has(url)) {
+    archSvgCache.set(url, fetch(url).then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    }).catch(e => { archSvgCache.delete(url); throw e; }));
+  }
+  return archSvgCache.get(url);
+}
+
+async function renderArchDiagrams(only) {
+  const all = only || Array.from(document.querySelectorAll(".arch-figure[data-level]"));
+  if (!all.length) return;
+  const figs = [];
+  for (const fig of all) {
+    if (!fig || fig.dataset.showingSource === "1") continue;
+    const l = archLevel(fig.dataset.level);
+    const isDrawio = archViewFor(l) === "drawio";
+    fig.classList.toggle("arch-drawio", isDrawio);
+    if (!isDrawio) { figs.push(fig); continue; }
+    try {
+      const svg = await archDrawioSvg(l.drawio.url);
+      // The view may have flipped while the fetch was in flight.
+      if (archViewFor(archLevel(fig.dataset.level)) !== "drawio") continue;
+      fig.innerHTML = (l.drawio.stale
+        ? `<p class="hint arch-stale">This drawing predates the latest change to this level's
+             mermaid in <code>plan/09-deployment-map.md</code>, so it may show an older shape —
+             the Mermaid view is current. Redraw with <code>scripts/arch_drawio.py</code> (D113).</p>`
+        : "") + svg;
+      fig.dataset.svg = "1";
+    } catch (e) {
+      // Fall back to the source of truth rather than a blank box.
+      fig.classList.remove("arch-drawio");
+      fig.dataset.drawioError = String(e.message || e);
+      figs.push(fig);
+    }
+  }
   if (!figs.length) return;
   let mermaid;
   try {

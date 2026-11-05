@@ -15,12 +15,24 @@ sections, so the console shows the whole document rather than only the pictures.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import subprocess
 from pathlib import Path
 
 DOC_PATH = Path("plan/09-deployment-map.md")
+
+# The hand-drawn draw.io twin of each level's mermaid (D113). Sources are
+# editable XML under docs/architecture/; scripts/arch_drawio.py builds the slim
+# SVG the console inlines and stamps, per level, the digest of the mermaid the
+# drawing was checked against. Resolved from this file, not the cwd, so the
+# image (WORKDIR /app) and the test suite find the same files.
+_REPO = Path(__file__).resolve().parents[2]
+DRAWIO_SRC_DIR = _REPO / "docs" / "architecture"
+ARCH_SVG_DIR = _REPO / "src" / "console" / "static" / "arch"
+MANIFEST_PATH = ARCH_SVG_DIR / "manifest.json"
 
 # The public repo. Every file the document names links here, so a reader can
 # open the actual source of anything the diagrams claim.
@@ -116,6 +128,39 @@ def repo_files(markdown: str, root: Path) -> list[dict]:
     return sorted(out.values(), key=lambda f: (-len(f["path"]), f["path"]))
 
 
+def mermaid_digest(src: str) -> str:
+    """Identity of a level's mermaid, whitespace-insensitive at the ends — the
+    parse strips the fence body, so a trailing newline is not a redraw."""
+    return hashlib.sha256(src.strip().encode("utf-8")).hexdigest()
+
+
+def attach_drawio(
+    levels: list[dict], svg_dir: Path = ARCH_SVG_DIR, manifest_path: Path = MANIFEST_PATH
+) -> None:
+    """Give each level that has a built drawing a `drawio` entry.
+
+    `stale` is the honesty bit: the mermaid in plan/09 changed after the drawing
+    was last stamped, so the drawing may show the old shape. The console then
+    opens that level on its mermaid and says why, rather than defaulting to a
+    picture of a system that no longer exists.
+    """
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        manifest = {}
+    for lv in levels:
+        svg = svg_dir / f"{lv['id']}.svg"
+        if not lv.get("mermaid") or not svg.exists():
+            continue
+        body = svg.read_bytes()
+        stamped = (manifest.get(lv["id"]) or {}).get("mermaid_sha256")
+        lv["drawio"] = {
+            # Cache-busted by content: a rebuilt drawing is a new URL.
+            "url": f"/static/arch/{lv['id']}.svg?v={hashlib.sha256(body).hexdigest()[:10]}",
+            "stale": stamped != mermaid_digest(lv["mermaid"]),
+        }
+
+
 def _split_diagram(body: str) -> tuple[str, str]:
     """(mermaid source, prose with the fence removed)."""
     match = _MERMAID_RE.search(body)
@@ -187,4 +232,5 @@ def load(path: str | Path = DOC_PATH, root: Path | None = None) -> dict:
     parsed["path"] = str(doc)
     parsed["repo_url"] = REPO_URL
     parsed["files"] = repo_files(markdown, root or Path.cwd())
+    attach_drawio(parsed["levels"])
     return parsed

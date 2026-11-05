@@ -4993,3 +4993,34 @@ server-resolved; the browser can display but cannot choose the data space.
 change, and the lab makes that boundary visible before an operator compares experiments. One
 deployment still targets one Agentic Memory data space; simultaneous multi-environment routing
 would require an explicit server-side environment selector rather than accepting a browser value.
+
+## 2026-11-04 — D113: Architecture levels render as draw.io drawings by default, with the mermaid one tab away
+
+**Context.** The console's Architecture section rendered each `plan/09-deployment-map.md` level from
+its mermaid fence. Mermaid's automatic layout is reliable but generic: on the dense levels (L0, L4,
+L6), boundaries overlap, edges run through nodes, and nothing tells one cloud from another at a
+glance. A side-by-side comparison of hand-laid-out draw.io versions of all eleven levels read better
+on every one. But plan/09's mermaid is the one place deployment facts are written, and the console
+parses it at request time. A second hand-drawn copy of those facts drifts as soon as someone edits
+the mermaid and forgets the drawing.
+
+**Decision.** Each level gets a draw.io twin, `docs/architecture/<id>.drawio`, held to the style
+contract in `docs/architecture/STYLE.md`. `scripts/arch_drawio.py build` exports it to a slimmed SVG
+(light theme, rasterised-label fallbacks stripped) at `src/console/static/arch/<id>.svg`. The
+mermaid **stays the source of facts**. `arch_drawio.py stamp` records the sha256 of the level's
+mermaid in `src/console/static/arch/manifest.json`, and refuses to stamp a drawing that is missing
+any mermaid label. `/api/architecture` attaches `drawio: {url, stale}` to each level. The console
+opens a level on its drawing and keeps the full mermaid view (source toggle, fullscreen, zoom) on a
+Mermaid tab, with the reader's choice remembered per level. **A stale level, meaning one whose
+mermaid changed since its stamp, opens on Mermaid.** Its draw.io tab is marked ⚠ and shows a
+warning, so a visitor is never shown a picture of an old shape by default. `/architecture-sweep`
+gains a Drawings phase. It redraws every level that `arch_drawio.py status` reports stale or
+label-incomplete, rebuilds it, and stamps it. This is the one thing the sweep edits: the drawings
+add no facts of their own, so bringing one back to the current mermaid is mechanical. The sweep's
+mermaid and console-copy findings are still reported rather than applied.
+
+**Consequences.** The drawings cost upkeep: an architectural change now also redraws the affected
+level (CLAUDE.md, "An architectural change updates its DIAGRAMS"). Skipped upkeep degrades safely
+to the old mermaid view rather than to a wrong picture. Redrawing needs draw.io Desktop's CLI on the
+machine that runs it. The console image already copies `src/`, so the SVGs ship with a normal
+**full** console rebuild. `--skip-build` keeps the old image and the old drawings.

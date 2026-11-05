@@ -172,3 +172,76 @@ def test_the_real_map_carries_the_dns_level():
     body = dns[0]["prose"]
     for host in ("bridge-lab", "console-lab", "faces-lab"):
         assert host in body, f"{host} not recorded in the DNS level"
+
+
+# ---- draw.io twins (D113) ---------------------------------------------------
+# Each level may carry a hand-drawn draw.io rendering. The mermaid stays the
+# source; the drawing is stamped with the digest of the mermaid it was checked
+# against, and goes `stale` the moment plan/09 changes under it — which is what
+# makes the console open that level on mermaid instead of an outdated picture.
+
+
+def _drawio_fixture(tmp_path, stamped_src):
+    import json
+
+    from console.architecture import mermaid_digest
+
+    (tmp_path / "L0.svg").write_text("<svg/>")
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"L0": {"mermaid_sha256": mermaid_digest(stamped_src)}})
+    )
+    return tmp_path / "manifest.json"
+
+
+def test_drawio_is_fresh_when_stamped_against_the_current_mermaid(tmp_path):
+    from console.architecture import attach_drawio
+
+    levels = [{"id": "L0", "mermaid": "flowchart TB\n  A --> B"}, {"id": "L1", "mermaid": "x"}]
+    man = _drawio_fixture(tmp_path, "flowchart TB\n  A --> B\n")  # trailing ws is not a change
+    attach_drawio(levels, svg_dir=tmp_path, manifest_path=man)
+
+    assert levels[0]["drawio"]["stale"] is False
+    assert levels[0]["drawio"]["url"].startswith("/static/arch/L0.svg?v=")
+    # no built svg → no drawio entry: the level is mermaid-only, not "stale"
+    assert "drawio" not in levels[1]
+
+
+def test_drawio_goes_stale_when_the_mermaid_changes(tmp_path):
+    from console.architecture import attach_drawio
+
+    levels = [{"id": "L0", "mermaid": "flowchart TB\n  A --> C"}]
+    man = _drawio_fixture(tmp_path, "flowchart TB\n  A --> B")
+    attach_drawio(levels, svg_dir=tmp_path, manifest_path=man)
+    assert levels[0]["drawio"]["stale"] is True
+
+
+def test_drawio_unstamped_or_unreadable_manifest_is_stale_not_an_error(tmp_path):
+    from console.architecture import attach_drawio
+
+    (tmp_path / "L0.svg").write_text("<svg/>")
+    levels = [{"id": "L0", "mermaid": "flowchart TB"}]
+    attach_drawio(levels, svg_dir=tmp_path, manifest_path=tmp_path / "missing.json")
+    assert levels[0]["drawio"]["stale"] is True
+
+
+def test_shipped_drawio_files_are_consistent_and_slim():
+    """Every SVG the console serves has its editable source, every stamp names a
+    built SVG, and no SVG carries the CLI's base64 PNG text fallbacks — those are
+    ~90% of a raw export, and inlining eleven of them cost ~9 MB per page load."""
+    import json
+
+    from console.architecture import ARCH_SVG_DIR, DRAWIO_SRC_DIR, MANIFEST_PATH
+
+    svgs = {p.stem for p in ARCH_SVG_DIR.glob("*.svg")}
+    sources = {p.stem for p in DRAWIO_SRC_DIR.glob("*.drawio")}
+    assert svgs <= sources, f"built SVGs without a docs/architecture source: {svgs - sources}"
+    stamped = set(json.loads(MANIFEST_PATH.read_text())) if MANIFEST_PATH.exists() else set()
+    assert stamped <= svgs, f"manifest stamps levels with no built SVG: {stamped - svgs}"
+    level_ids = {lv["id"] for lv in load(DOC_PATH)["levels"]}
+    assert svgs <= level_ids, f"SVGs for levels plan/09 no longer has: {svgs - level_ids}"
+    for p in ARCH_SVG_DIR.glob("*.svg"):
+        body = p.read_text()
+        assert "data:image/png;base64" not in body, (
+            f"{p.name}: unslimmed — rebuild with arch_drawio.py"
+        )
+        assert not body.lstrip().startswith("<?xml"), f"{p.name}: prolog breaks innerHTML inlining"

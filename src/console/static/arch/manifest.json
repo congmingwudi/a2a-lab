@@ -1,0 +1,35 @@
+{
+  "L0": {
+    "mermaid_sha256": "cf4da9bb21d162c37ed40c1be2c863bc696b3eed661b8e530844644e595704ed"
+  },
+  "L0.5": {
+    "mermaid_sha256": "e53d38315cffd68acf248011c7ca6a60c4030e26f4d17defccc8dc25a25c6495"
+  },
+  "L1": {
+    "mermaid_sha256": "21168eaaf70010a9cfe5f1254110cc525f03cd3d22fbe6a2582bbc299f4134de"
+  },
+  "L2": {
+    "mermaid_sha256": "494110a3e36238c64ef89e5f5d8307a28f7f7e49e7529ae3dc7a95a2c5cc93b8"
+  },
+  "L3": {
+    "mermaid_sha256": "6f72c637d7f729f24241d32f8977299aedfb6950087b1c6053149bed74d41afe"
+  },
+  "L4": {
+    "mermaid_sha256": "6b90c71633a3780686e041810c36a128f680ccd80a62e4fb5b02c6b668b80f77"
+  },
+  "L5": {
+    "mermaid_sha256": "e0331ced186effa8b7fe3efe37187ded9c21feb265ce8496101c395ca99cf8f7"
+  },
+  "L5.5": {
+    "mermaid_sha256": "7b117ce9bd3d886bb3627362cc7c719c915c4fcddffd4a82e47956cccf0fc0ef"
+  },
+  "L5.7": {
+    "mermaid_sha256": "e15ba82f7b729abe025b8a140a8e2341d278aea24d70bd6207d32e3fbbcd8cd3"
+  },
+  "L5.8": {
+    "mermaid_sha256": "24554e758540feead8a7e6ca1b73dd4a4d5c9bc6bb20adf5b60daa1d69437edd"
+  },
+  "L6": {
+    "mermaid_sha256": "5bf8db940ab934767ee8bfbefc278fa9e72016a0a72bd7658abe3d0f562cbee1"
+  }
+}
