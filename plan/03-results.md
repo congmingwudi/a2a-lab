@@ -2268,13 +2268,40 @@ Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile da
 | GetContext `ontology` | `{}` | `{}` | `{}` |
 | GetContext median latency | 240–410 ms | 200–400 ms (first read ≈1 s) | — |
 
-- **The graph never reached GetContext.** B returned `ontology: {}` on 16 reads spread over
-  30 minutes (22:09–22:39Z), and with `mode=fast`, `token_budget=8000`, and both. It is not a key
-  mismatch: `GET /ssot/data-graphs/data/A2ALab_Memory_Customer360/{xid}` with the same owner id
-  returns Maya's record (760 bytes: Unified Link → Individual → Contact Point Email). The
-  attachment is stored on both surfaces (`configuration.contextDataSources.dataGraphs` and
-  `DataAgntcCntxtAddlDgLst`). It is not served. The cause is unknown; the wire contract that would
-  answer it (the SDK and the product's fit tests) was not reachable during the probe.
+- **The graph never reached GetContext.** B returned no `Profile` entry in `userContext` on
+  16 reads spread over 30 minutes (22:09–22:39Z). `ontology` was `{}` throughout, but that was the
+  wrong field to watch (see the code reading below). The lookup itself works:
+  `GET /ssot/data-graphs/data/A2ALab_Memory_Customer360/{xid}` returns Maya's record (760 bytes:
+  Unified Link → Individual → Contact Point Email). Reading B with `owner_id` set to the unified
+  id, the Individual id, or the Unified Link's source record id gave no `Profile` entry with any of
+  them. The attachment is stored on both surfaces (`configuration.contextDataSources.dataGraphs`
+  and `DataAgntcCntxtAddlDgLst`). It is not served.
+- **Where the graph would appear: service code** (`d360-personalization/decisioning-pipeline` on
+  git.soma, sha `864b9bd`, read 2026-11-05):
+  - **Plain reads fetch the graph.** A read with no `purpose_id` resolves to
+    `ContextPack.DEFAULT`, and that pack carries the `CUSTOM_PROFILE` need "to preserve backward
+    compatibility" (`profile/models/contextpack/ContextPack.java`). `isInitialContextPack()` is
+    also true (`ContextMetadata.java`). So `FastContextRequestHandler.fetchAdditionalDatasourceData`
+    runs whenever `owner_id` is set and the agent config lists additional graphs. The plain reads
+    the faces make already qualify.
+  - **The config path.** `AgentConfigLoader` fills `additionalDatasourceDgs` from the realtime
+    management service's `GetAgentConfiguration` response
+    (`getAdditionalDatasources().getDgsList()`, by graph name). That service is outside this repo,
+    so whether our registration's `contextDataSources.dataGraphs` arrives there is not visible from
+    here.
+  - **The lookup.** `AdditionalDatasourceSupplier` calls realtime gRPC
+    `getDgInstance(dgTypeId=<graph name>, id=owner_id, resolveId=true)`. A failure is logged and
+    turned into null, so a failed lookup and an empty one look the same on the wire.
+  - **The response.** `AdditionalDatasourceToonContextComposer` converts each record to TOON text
+    and adds it with `addProfileContext`. **Graph data lands in the `userContext` `Profile` entry,
+    not in `ontology`.** `ontology` is filled only by the reserved `ontology` context pack.
+  - **`mode` and `token_budget` are ignored.** `ContextRestController` reads neither, so the reads
+    that set them were plain reads.
+  - **Conclusion.** B's missing `Profile` entry means `additionalDatasourceDg` came back empty.
+    Either the registration's graph is not in the config the service loads, or `getDgInstance`
+    resolves nothing for these ids. The service writes both counts to its own logs
+    (`configured_additional_datasource_dgs=N`, `additional_datasource_results=N`), and only the
+    product team can read those logs.
 - **A graph's root must be a declared profile DMO.** Registering D returned `INVALID_API_INPUT`:
   "The data graph must be rooted on User, Individual, or a Unified DMO declared in profileDmos
   (UnifiedIndividual__dlm)". A registration with no profile DMO therefore defaults to
@@ -2292,7 +2319,13 @@ Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile da
 
 **For the calling agents.** Today Claude and OpenAI receive the shared registration's
 conversation summaries, its own Profile row and its saved facts and preferences. Attaching a graph
-adds nothing to their prompt in this tenant. If it ever does, `render_context`
-(`src/interop/memory.py`) flattens every response key into the prompt under a 4000-character cap,
-and the tenant sends `userContext` before `ontology`. So memory lines survive the cap and a large
-graph record is what gets cut off. The D107 reset filter does not touch `ontology`.
+adds nothing to their prompt in this tenant. If it ever does, the record arrives inside the
+`userContext` `Profile` entry, as TOON text. That has two consequences for the faces:
+- **The D107 reset filter would remove it.** When a generation marker exists, the filter drops
+  `sourceType: Profile` rows, and the graph's CRM data would go with them. That data is not a stale
+  memory.
+- **It shares the 4000-character cap with memory.** `render_context` (`src/interop/memory.py`)
+  truncates the whole rendered text at that cap. The record sits in `userContext` next to the
+  conversation summaries, so a large record pushes memory out of the prompt.
+
+Both need a change in `render_context` before the graph is adopted (D115).

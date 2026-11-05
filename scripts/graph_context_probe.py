@@ -9,10 +9,12 @@ the attached graph:
   A  A2ALab_Memory_Case        the shared registration the faces call (D105)
   B  A2ALab_Memory_Case_Graph  same profile DMO + A2ALab_Memory_Customer360
 
-and report, per arm: the response keys, item counts, raw bytes per key,
-latency, and what `render_context` (the faces' prompt renderer, 4000-char cap)
+and report, per arm: the response keys, item counts, raw bytes per key, the
+`userContext` sourceTypes and the size of the `Profile` entry, latency, and what `render_context` (the faces' prompt renderer, 4000-char cap)
 would hand Claude/OpenAI — including whether the graph crowds memory out of
-the cap. Raw bodies are written under traces/graph-probe/ (gitignored: they
+the cap. An attached graph's record arrives inside the `userContext` `Profile`
+entry as TOON text (AdditionalDatasourceToonContextComposer in the service), NOT
+in `ontology` — that key belongs to the reserved `ontology` context pack (D115). Raw bodies are written under traces/graph-probe/ (gitignored: they
 hold CRM profile data). Nothing is written to Data 360.
 
     uv run python scripts/graph_context_probe.py [--customers maya jordan] [--reads 3]
@@ -82,6 +84,8 @@ async def probe(customer: str, owner: str, reads: int, stamp: str) -> dict:
             (OUT / f"{stamp}-{customer}-{arm}.json").write_text(json.dumps(body, indent=1))
             uncapped = render_context(body, limit=10**9, include_profile=not has_gen)
             capped = render_context(body, include_profile=not has_gen)
+            uc = body.get("userContext") if isinstance(body.get("userContext"), list) else []
+            profile = [it for it in uc if str(it.get("sourceType", "")).casefold() == "profile"]
             mem_lines = [ln for ln in uncapped.splitlines() if ln.startswith("- userContext")]
             kept = sum(1 for ln in mem_lines if ln in capped)
             out[arm] = {
@@ -89,6 +93,8 @@ async def probe(customer: str, owner: str, reads: int, stamp: str) -> dict:
                 "keys": sorted(body),
                 "items": {k: len(v) for k, v in body.items() if isinstance(v, list)},
                 "bytes": {k: nbytes(v) for k, v in body.items()},
+                "source_types": [it.get("sourceType") for it in uc],
+                "profile_entry_chars": [len(str(it.get("entry", ""))) for it in profile],
                 "ms": times,
                 "ms_median": int(statistics.median(times)),
                 "rendered_chars_uncapped": len(uncapped),

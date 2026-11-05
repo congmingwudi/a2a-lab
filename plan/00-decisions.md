@@ -5062,8 +5062,16 @@ future enhancement") stays accurate.
 `A2ALab_Memory_Customer360` graph is attached to an Agent Configuration, and how does it reach
 Claude and OpenAI? A read-only A/B with sibling registrations (`plan/03-results.md`, "Attaching a
 data graph to an Agent Configuration") found four things:
-1. The attachment is accepted and stored, but GetContext's `ontology` stayed `{}` for 30 minutes,
-   with and without `mode=fast` and `token_budget`. Maya's graph record resolves by the same id.
+1. The attachment is accepted and stored, but GetContext never served it. Arm B returned no
+   `userContext` `Profile` entry for 30 minutes, whichever owner id kind it was given. The service
+   code (`d360-personalization/decisioning-pipeline`; plan/03 has the file-by-file reading) shows
+   that a plain read does fetch attached graphs: `ContextPack.DEFAULT` carries `CUSTOM_PROFILE`.
+   The service merges graph records into that `Profile` entry, not into `ontology`; `ontology`
+   belongs to the separate `ontology` context pack. So the fetch is returning nothing. Either
+   the registration's graph is not in the config the service loads, or `getDgInstance` resolves
+   no record for these ids. Lookup errors are swallowed to null, and only the product team can
+   read the service log counts that would tell the two apart. Maya's graph record does resolve
+   through the REST data-graph lookup.
 2. The graph's root must be a declared profile DMO. Undeclared, the profile DMO defaults to
    `UnifiedIndividual__dlm`, which is how the live `A2ALab_Memory_Case` runs. D105 and plan/18
    describe it as running over AM01.
@@ -5076,16 +5084,20 @@ data graph to an Agent Configuration") found four things:
   change its profile DMO (point 2), and it would add no measured context (point 1).
 - **Keep `A2ALab_Memory_Case_Graph` as the standing graph arm.** It has the AM01 profile DMO, the
   `Customer360` graph and extraction off. Re-run `scripts/graph_context_probe.py` after each change
-  to the graph or the platform. Change the live registration only once arm B returns a non-empty
-  `ontology`.
+  to the graph or the platform. Change the live registration only once arm B returns a
+  `Profile` entry carrying the graph record.
+- **Before adopting the graph, change `render_context`.** The graph text arrives inside the
+  `Profile` entry, which the D107 reset filter drops, and it shares the 4000-character cap with
+  memory.
 - **When the graph is adopted, PATCH the live registration; never delete and recreate it.** The
   memories live in the registration (point 3), and the PATCH keeps them (point 4).
 - **Correct D105's premise.** One shared registration is the right design, but the reason is that
   memories are registration-scoped, not that the platform scopes them to the customer. A second
   registration starts empty for every customer.
-- Next step: read the wire contract (`agentic-context` SDK and the product's fit tests on
-  git.soma) for how GetContext selects additional graphs. It needs a git.soma re-auth on the
-  operator's machine.
+- **Next step: settle which of the two causes it is.** Read how registration
+  `contextDataSources` becomes the realtime management service's `additionalDatasources`
+  (the product's fit tests and the ACE demo app on git.soma register graphs). If that does not
+  settle it, ask the product team for the two log counts on arm B's reads (quote the `contextId`).
 
 **Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the
 console are unchanged, so nothing is redeployed. One new production registration exists
