@@ -9,9 +9,12 @@ memory configuration. D105 replaces the platform registrations with shared
 uses Maya's unified id from either platform. The console experiment pair
 and seeded teach/recall prompts are deployed. The measured Claude → OpenAI run recalled all
 three planted details after 45 seconds, while Jordan's control stayed empty (`plan/03-results.md`).
-The org lacks the custom real-time data graph capability required for an additional GetContext
-source. The existing standard graph remains a direct-query artifact; use DC1 or enable RTDG in
-this org for the future Case enrichment.
+**Corrected 2026-11-05 (D105 follow-up):** the org now has the real-time data graph capability.
+`A2ALab_Memory_Customer360` was switched to `type: realtime` on 2026-11-04 and its lookups are
+served by the real-time layer. The real-time layer only refreshes at batch speed, though: the CRM
+`Contact_Home` stream that feeds it is `BATCH`, with no acceleration, and measured 3.5 to more than
+8 minutes from a Contact edit to Data Cloud (`plan/03-results.md`). The graph is still not attached
+to the memory configuration; a future Case real-time graph can now be built in this org.
 
 The deployed demo now separates memory from action cleanly. **Teach Claude** stores the selected
 customer's facts/preferences without calling Agentforce. **OpenAI recalls** reads those memories
@@ -110,7 +113,7 @@ provenance and don't vendor their content.
 | The UI "Agent Config" exists but stayed hidden until setup | Tabs `standard-Agents` ("Agent Config") and `standard-DataAgenticContextAgent` ("Data Agentic Context Agents", the raw object tab) exist. "Agent Config" became usable once the `default` setup went ACTIVE (Phase 1) | App Launcher → **"Agent Config"** (Agentforce Studio → Agent Configuration). The object tab errors (Phase 1); registration needs neither |
 | One data space                                  | `DataSpace`: `default` only                                                                                                                | Every lab agent lands in `default`; no data-space choice to make                                                                                                |
 | Identity Resolution (updated D104/D105)         | Ruleset `AM01` succeeded over 146 Individual profiles and produced `UnifiedssotIndividualAm01__dlm`                                      | Shared `A2ALab_Memory_Case` registers this profile DMO; `xid` is its unified key, never a synthetic lab user id |
-| Customer graph (deferred by D105)               | `A2ALab_Memory_Customer360` is a standard graph rooted on the unified profile                                                             | Keep it out of Agentic Memory configuration. Additional GetContext sources are documented as real-time data graphs; future Case enrichment waits for RTDG support |
+| Customer graph (deferred by D105)               | `A2ALab_Memory_Customer360` is a real-time graph (since 2026-11-04) rooted on the unified profile; its CRM input is batch-fed             | Keep it out of Agentic Memory configuration. The org now supports real-time graphs (D105 follow-up), so a future Case real-time graph can be built here; real-time freshness also needs a real-time CRM stream |
 | Data 360 tenant region                          | eu-central-1 tenant (D70)                                                                                                                  | GetContext latency from us-east-1 agents includes a transatlantic hop. Record it, don't hide it                                                                 |
 
 

@@ -5024,3 +5024,33 @@ level (CLAUDE.md, "An architectural change updates its DIAGRAMS"). Skipped upkee
 to the old mermaid view rather than to a wrong picture. Redrawing needs draw.io Desktop's CLI on the
 machine that runs it. The console image already copies `src/`, so the SVGs ship with a normal
 **full** console rebuild. `--skip-build` keeps the old image and the old drawings.
+
+## 2026-11-05 — D105 follow-up: the org now supports real-time data graphs, but CRM input is batch
+
+**Context.** D105 kept `A2ALab_Memory_Customer360` out of the memory configuration and deferred a
+Case real-time data graph "until the org receives that capability". On 2026-11-04 the graph was
+switched to `type: realtime` in this org. A probe on 2026-11-05 (`plan/03-results.md`) showed that
+its lookups are served by the real-time store, ahead of both batch tables, and that source-field
+edits reach it without identity resolution. Its CRM input is still batch: the `Contact_Home` stream
+is `BATCH` with no acceleration, and measured 3.5 to more than 8 minutes from a CRM edit to Data
+Cloud. An attempt to build a graph through the API (`POST /ssot/data-graphs`) produced a graph
+with no transforms, which errored.
+
+**Decision.**
+- D105's capability premise is corrected: **this org can host real-time graphs.** The Case
+  real-time graph no longer needs DC1. It is still deferred, now for scope reasons rather than
+  for capability.
+- **D105's memory model is unchanged.** `Customer360` stays unattached. Real-time support does
+  not make a unified-profile graph the Case context D105 described.
+- **Build real-time graphs in the Data Graph builder, not through `POST /ssot/data-graphs`,**
+  until the API path is shown to provision streaming transforms. This is a recorded exception to
+  the headless-first rule. What was ruled out: the Connect API create (no transforms provisioned,
+  `error` after about four minutes, run twice). The Metadata API and the Tooling API are not yet
+  tried.
+- **Don't describe the lab's graphs as delivering real-time freshness** while `Contact_Home` is a
+  batch stream. Getting second-level freshness needs a real-time CRM stream; that is an operator
+  decision about stream configuration and cost, not a graph change.
+
+**Consequences.** `plan/18-agentic-memory-context.md` and `plan/09-deployment-map.md` no longer say
+the capability is missing. The `config/scenarios.yaml` copy ("Case real-time data graph is a
+future enhancement") stays accurate.

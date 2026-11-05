@@ -385,7 +385,9 @@ runs, each call an `agentic-memory` hop like the bridge's. The verified lab subj
 faces secret (`A2ALAB_MEMORY_OWNER_MAP`) to the demo customer's unified Individual id, which
 binds the a360 token as `xid`; there is no synthetic-owner fallback.
 Claude/OpenAI remain distinct execution-trace participants, not semantic-memory partitions. No
-custom graph is attached; structured Case enrichment waits for real-time data graph support.
+custom graph is attached. The org supports real-time data graphs as of 2026-11-04
+(`A2ALab_Memory_Customer360` is one, unattached); structured Case enrichment waits for a Case
+real-time graph, and real-time freshness for a real-time CRM stream (D105 follow-up).
 
 **The CMA host reaches the tenant too (D102).** The host-side custom-tool
 variant of `supplier-disruption-cma` executes inside the console task. Its

@@ -2179,3 +2179,59 @@ without recalled. Console ECS task `a2alab-console:149`, image digest
 with ALB health 200; faces remained on the accepted generation-isolation image
 `sha256:c77ce2229bc84bf845880ee75a529c00855b61221703081ca24f8d517c878c07`.
 
+## 2026-11-05 — Real-time data graph probe: the graph serves real-time lookups, but its CRM input is batch
+
+**Question.** Does the A2A Lab org have a real-time data graph (RTDG), and are its lookups served
+from the real-time layer? D105 had recorded that the org lacked the capability.
+
+**Inventory** (`GET /ssot/data-graphs/metadata`). Five graphs, all `Ready`.
+`A2ALab_Memory_Customer360` (Unified Individual AM01 → Unified Link → Individual → Contact Point
+Email) is `type: realtime` with the real-time toggle on, CRM and Ingestion API processing on, a
+30-minute session window, and a 30-minute full batch refresh. The switch to real-time happened on
+2026-11-04, and the graph was edited again at 01:49 and 02:50 GMT on 2026-11-05. The four
+auto-provisioned `Agentic*` graphs report `isRT: true` with the toggle off.
+
+**The lookup reads the real-time store.**
+- `GET /ssot/data-graphs/data/A2ALab_Memory_Customer360/{unifiedId}` returns the nested profile as
+  one HTML-entity-escaped `json_blob__c`. Consumers must `html.unescape` it before `json.loads`.
+- Adding `?live=true` is refused by the query service with "Live lookup is not supported for real
+  time DGs". Live lookup is the standard-graph mode.
+- At 03:07Z the lookup returned a Contact Title edit, at both the unified root and the nested
+  Individual, while both batch tables still held the old value: the identity-resolution output
+  `UnifiedssotIndividualAm01__dlm` and the graph's VALUE DMO (`last_refreshed_on` null,
+  `version 0`).
+- Each graph node has its own `STREAMING` fragment transform, plus one `BATCH` transform. The
+  Individual and Contact Point Email streams run continuously. The unified-root and link streams
+  have been idle since 2026-11-04 11:19, because they only have work when identity resolution
+  changes those tables.
+- So a source-field edit reaches the graph without identity resolution. A new or merged person
+  would not appear until identity resolution runs.
+
+**Freshness is bounded by ingestion, not by the graph.** Three reversible Title edits to a
+non-demo Contact; all values were restored.
+
+| Run | CRM write → `ssot__Individual__dlm` | CRM write → graph lookup |
+|---|---|---|
+| 2026-11-04 23:44Z | (overwritten before it could be timed) | not seen within 180 s |
+| 2026-11-05 02:39Z | ≈ 3.5 min | not seen at 5 min; present by 27 min, ahead of both batch tables |
+| 2026-11-05 19:54Z (baseline read first) | not seen within 480 s | not seen within 480 s |
+
+The cause is the `Contact_Home` stream (`GET /ssot/data-streams`). It is
+`refreshConfig.frequency.frequencyType: BATCH` with `isAccelerationEnabled: false`. Every
+`SalesforceDotCom_Home` stream is batch, so the graph's `processSalesforceCrm` real-time path
+receives no change events from CRM.
+
+**What the API does when building a graph** (recorded so the next attempt does not rediscover it):
+- `POST /ssot/data-graphs` needs `type: "REALTIME"` (uppercase), even though GET returns
+  `realtime`. It also needs `primaryObjectName` and `isKeyColumn` on every field. The parser
+  reports the position *after* the bad token.
+- The created graph (`A2ALab_RTDG_Probe`, a single `ssot__Individual__dlm` node, made twice) was
+  registered with **no streaming or batch transforms**. It went to `status: error` about four
+  minutes later, and every lookup returned 404. The UI-built `Customer360` graph does have its
+  transforms and its `dayZero*` mapping. The probe was deleted.
+- `sf api request rest -X DELETE` fails with "No 'mode' found in 'body' entry". It works through
+  `--file` with a Postman-style request (`"body": {"mode": "raw", "raw": ""}`).
+
+**Conclusion.** The org supports real-time data graphs, and `Customer360`'s lookups are served
+by the real-time layer. End-to-end freshness from CRM is batch: minutes, not seconds. Making it
+real-time is a stream-configuration change on `Contact_Home`, not a graph change.
