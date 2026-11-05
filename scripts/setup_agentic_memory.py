@@ -111,8 +111,10 @@ AGENTS = {
     ),
     # D105: Claude and OpenAI are execution participants, not semantic-memory
     # partitions. New customer-memory turns use this shared domain identity.
-    # No custom context graph is attached; Case RTDG enrichment is deferred
-    # until the org has the required capability.
+    # D115: the LIVE registration carries no profile DMO (it was registered
+    # before profile_dmos was declared here), so it defaults to
+    # UnifiedIndividual__dlm. Change it with a v67 PATCH, which keeps its
+    # memories; never delete and recreate it.
     "case-memory": Agent(
         name="A2ALab_Memory_Case",
         label="A2ALab Shared Case Memory",
@@ -122,6 +124,34 @@ AGENTS = {
         ),
         profile_dmos=("UnifiedssotIndividualAm01__dlm",),
     ),
+    # D105 follow-up: the graph-attached A/B twin of case-memory. Same profile
+    # DMO, plus the real-time Customer360 graph as an additional context source,
+    # so diffing the two GetContext reads isolates what the graph contributes.
+    # Extraction stays off: it is a read arm, never a second memory writer.
+    "case-graph": Agent(
+        name="A2ALab_Memory_Case_Graph",
+        label="A2ALab Case Memory + Customer360",
+        description=(
+            "A2A lab A/B arm: shared case memory plus the Customer360 real-time data graph "
+            "as a GetContext source. Read-only comparison against A2ALab_Memory_Case."
+        ),
+        profile_dmos=("UnifiedssotIndividualAm01__dlm",),
+        data_graphs=("A2ALab_Memory_Customer360",),
+    ),
+    # Probe arm, DELETED after the D115 run (re-register to repeat it). The LIVE
+    # A2ALab_Memory_Case carries no profile DMO (DataAgenticContextAgent
+    # .ProfileObjectList is null, 2026-11-05), so the twin copies that live
+    # shape — not the profile_dmos declared above — to test whether curated
+    # memories are scoped to the registration or to the customer.
+    "case-twin": Agent(
+        name="A2ALab_Memory_Case_Twin",
+        label="A2ALab Case Memory Twin",
+        description="A2A lab A/B arm: same live configuration as A2ALab_Memory_Case (no profile DMO, no graph).",
+    ),
+    # The fourth corner (graph, no profile DMO) cannot exist: registration 400s
+    # INVALID_API_INPUT "The data graph must be rooted on User, Individual, or a
+    # Unified DMO declared in profileDmos (UnifiedIndividual__dlm)" (2026-11-05).
+    # A registration with no profile DMO defaults to UnifiedIndividual__dlm.
     "supply-logistics": Agent(
         name="A2ALab_Memory_Supply_Logistics",
         label="A2ALab Memory Supply Logistics",

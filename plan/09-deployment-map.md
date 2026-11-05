@@ -385,7 +385,8 @@ runs, each call an `agentic-memory` hop like the bridge's. The verified lab subj
 faces secret (`A2ALAB_MEMORY_OWNER_MAP`) to the demo customer's unified Individual id, which
 binds the a360 token as `xid`; there is no synthetic-owner fallback.
 Claude/OpenAI remain distinct execution-trace participants, not semantic-memory partitions. No
-custom graph is attached. The org supports real-time data graphs as of 2026-11-04
+custom graph is attached to the faces' registration; `Customer360` is attached only to the A/B
+arm `A2ALab_Memory_Case_Graph`, where GetContext does not serve it yet (D115). The org supports real-time data graphs as of 2026-11-04
 (`A2ALab_Memory_Customer360` is one, unattached); structured Case enrichment waits for a Case
 real-time graph. CRM-sourced fields follow the CRM connector's ~10-minute ingestion schedule
 (D105 follow-up).

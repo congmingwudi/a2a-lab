@@ -2238,3 +2238,61 @@ by the real-time layer. For CRM-sourced data, end-to-end freshness is bounded by
 connector's ingestion schedule (about 10 minutes). That is the expected behaviour, not a
 misconfiguration; second-level freshness applies to sources that stream into Data Cloud, such as
 the Ingestion API.
+
+## 2026-11-05 — Attaching a data graph to an Agent Configuration: what GetContext returns (D115)
+
+The question: when `A2ALab_Memory_Customer360` (a real-time graph rooted on
+`UnifiedssotIndividualAm01__dlm`) is attached to an Agentic Memory registration, does GetContext
+return it to the calling agents (Claude, OpenAI), and how do the registration's settings change
+what they get? The test was read-only on the demo path. The faces' registration
+(`A2ALab_Memory_Case`, constant in `src/interop/memory_adapter.py`) was never changed. Sibling
+registrations served as the experimental arms. Script: `scripts/graph_context_probe.py`; arms in
+`scripts/setup_agentic_memory.py` (`case-graph`, and `case-twin`, which was deleted afterwards).
+Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile data).
+
+**Arms** (v67 `GET /ssot/agentic/agent/{name}` + `DataAgenticContextAgent` row):
+
+| Arm | Registration | Profile DMO | Graph | Extraction |
+| --- | --- | --- | --- | --- |
+| A | `A2ALab_Memory_Case` (live, faces) | **none declared**; `ProfileObjectList` is null | none | on |
+| B | `A2ALab_Memory_Case_Graph` | `UnifiedssotIndividualAm01__dlm` | `A2ALab_Memory_Customer360` | off (on briefly to isolate) |
+| C | `A2ALab_Memory_Case_Twin` | none (A's live shape) | none (then PATCHed to add both) | off |
+| D | graph with no profile DMO | refused at registration | | |
+
+**Results.**
+
+| Read (Maya; Jordan in brackets) | A | B | C |
+| --- | --- | --- | --- |
+| Memory API `sys_PROFILE_FACT` / `sys_PROFILE_PREFERENCES` | 11 / 1 (7 / 1) | 0 / 0 (0 / 0) | 0 / 0 (0 / 0) |
+| GetContext `userContext` sourceTypes | Conversation ×2, Profile | Conversation ×2 | Conversation ×2 |
+| GetContext `ontology` | `{}` | `{}` | `{}` |
+| GetContext median latency | 240–410 ms | 200–400 ms (first read ≈1 s) | — |
+
+- **The graph never reached GetContext.** B returned `ontology: {}` on 16 reads spread over
+  30 minutes (22:09–22:39Z), and with `mode=fast`, `token_budget=8000`, and both. It is not a key
+  mismatch: `GET /ssot/data-graphs/data/A2ALab_Memory_Customer360/{xid}` with the same owner id
+  returns Maya's record (760 bytes: Unified Link → Individual → Contact Point Email). The
+  attachment is stored on both surfaces (`configuration.contextDataSources.dataGraphs` and
+  `DataAgntcCntxtAddlDgLst`). It is not served. The cause is unknown; the wire contract that would
+  answer it (the SDK and the product's fit tests) was not reachable during the probe.
+- **A graph's root must be a declared profile DMO.** Registering D returned `INVALID_API_INPUT`:
+  "The data graph must be rooted on User, Individual, or a Unified DMO declared in profileDmos
+  (UnifiedIndividual__dlm)". A registration with no profile DMO therefore defaults to
+  `UnifiedIndividual__dlm`, and that is how the live `A2ALab_Memory_Case` runs, not over AM01.
+- **Curated memories belong to the registration, not to the customer.** C has A's exact live
+  configuration and listed none of Maya's 11 facts. A synthetic fact written through C was then
+  listed by C and not by A. B with extraction switched on still received no `Profile` row. Only
+  `Conversation` summaries are shared across registrations, which is what the Agent Config dialog
+  says ("same access to session and summary data"). This answers plan/18 open question 4.
+- **Configuration can be changed in place without losing memories.** A v67 PATCH of
+  `{label, configuration: {profileDmos, contextDataSources}}` on C was accepted, and C's synthetic
+  fact was still listed immediately and 150 s later.
+- **A new registration takes about 2.4 minutes to reach the tenant.** Until then, tenant calls
+  return 404 "Agent not found", although the core API already reports `ACTIVE`.
+
+**For the calling agents.** Today Claude and OpenAI receive the shared registration's
+conversation summaries, its own Profile row and its saved facts and preferences. Attaching a graph
+adds nothing to their prompt in this tenant. If it ever does, `render_context`
+(`src/interop/memory.py`) flattens every response key into the prompt under a 4000-character cap,
+and the tenant sends `userContext` before `ontology`. So memory lines survive the cap and a large
+graph record is what gets cut off. The D107 reset filter does not touch `ontology`.

@@ -5055,3 +5055,38 @@ with no transforms, which errored.
 **Consequences.** `plan/18-agentic-memory-context.md` and `plan/09-deployment-map.md` no longer say
 the capability is missing. The `config/scenarios.yaml` copy ("Case real-time data graph is a
 future enhancement") stays accurate.
+
+## 2026-11-05 — D115: an attached data graph is not served by GetContext yet; memories are registration-scoped
+
+**Context.** The next WS27 question after the D105 follow-up: what happens when the real-time
+`A2ALab_Memory_Customer360` graph is attached to an Agent Configuration, and how does it reach
+Claude and OpenAI? A read-only A/B with sibling registrations (`plan/03-results.md`, "Attaching a
+data graph to an Agent Configuration") found four things:
+1. The attachment is accepted and stored, but GetContext's `ontology` stayed `{}` for 30 minutes,
+   with and without `mode=fast` and `token_budget`. Maya's graph record resolves by the same id.
+2. The graph's root must be a declared profile DMO. Undeclared, the profile DMO defaults to
+   `UnifiedIndividual__dlm`, which is how the live `A2ALab_Memory_Case` runs. D105 and plan/18
+   describe it as running over AM01.
+3. Curated facts and preferences belong to the registration that holds them; only conversation
+   summaries are shared.
+4. Configuration can be PATCHed in place without losing memories.
+
+**Decision.**
+- **Leave `A2ALab_Memory_Case` unchanged for the Nov 15 demo.** Attaching the graph would also
+  change its profile DMO (point 2), and it would add no measured context (point 1).
+- **Keep `A2ALab_Memory_Case_Graph` as the standing graph arm.** It has the AM01 profile DMO, the
+  `Customer360` graph and extraction off. Re-run `scripts/graph_context_probe.py` after each change
+  to the graph or the platform. Change the live registration only once arm B returns a non-empty
+  `ontology`.
+- **When the graph is adopted, PATCH the live registration; never delete and recreate it.** The
+  memories live in the registration (point 3), and the PATCH keeps them (point 4).
+- **Correct D105's premise.** One shared registration is the right design, but the reason is that
+  memories are registration-scoped, not that the platform scopes them to the customer. A second
+  registration starts empty for every customer.
+- Next step: read the wire contract (`agentic-context` SDK and the product's fit tests on
+  git.soma) for how GetContext selects additional graphs. It needs a git.soma re-auth on the
+  operator's machine.
+
+**Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the
+console are unchanged, so nothing is redeployed. One new production registration exists
+(`A2ALab_Memory_Case_Graph`).

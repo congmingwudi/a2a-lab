@@ -13,8 +13,9 @@ three planted details after 45 seconds, while Jordan's control stayed empty (`pl
 `A2ALab_Memory_Customer360` was switched to `type: realtime` on 2026-11-04 and its lookups are
 served by the real-time layer. CRM edits reach it on the CRM connector's ingestion schedule
 (about 10 minutes, the expected cadence); measured 3.5 to more than 8 minutes from a Contact edit
-to Data Cloud (`plan/03-results.md`). The graph is still not attached
-to the memory configuration; a future Case real-time graph can now be built in this org.
+to Data Cloud (`plan/03-results.md`). The faces' registration still has
+no graph. It is attached only to the A/B arm `A2ALab_Memory_Case_Graph`, where GetContext does
+not serve it yet (D115). A future Case real-time graph can now be built in this org.
 
 The deployed demo now separates memory from action cleanly. **Teach Claude** stores the selected
 customer's facts/preferences without calling Agentforce. **OpenAI recalls** reads those memories
@@ -112,7 +113,7 @@ provenance and don't vendor their content.
 | The feature is provisioned in the org           | Standard sObjects `DataAgenticContext` (key `1lc`) and `DataAgenticContextAgent` (key `1lW`) exist; both createable/deletable; 0 rows each | Nothing registered yet; first registration also creates the agentic setup                                                                                       |
 | The UI "Agent Config" exists but stayed hidden until setup | Tabs `standard-Agents` ("Agent Config") and `standard-DataAgenticContextAgent` ("Data Agentic Context Agents", the raw object tab) exist. "Agent Config" became usable once the `default` setup went ACTIVE (Phase 1) | App Launcher → **"Agent Config"** (Agentforce Studio → Agent Configuration). The object tab errors (Phase 1); registration needs neither |
 | One data space                                  | `DataSpace`: `default` only                                                                                                                | Every lab agent lands in `default`; no data-space choice to make                                                                                                |
-| Identity Resolution (updated D104/D105)         | Ruleset `AM01` succeeded over 146 Individual profiles and produced `UnifiedssotIndividualAm01__dlm`                                      | Shared `A2ALab_Memory_Case` registers this profile DMO; `xid` is its unified key, never a synthetic lab user id |
+| Identity Resolution (updated D104/D105)         | Ruleset `AM01` succeeded over 146 Individual profiles and produced `UnifiedssotIndividualAm01__dlm`                                      | `xid` is this profile's unified key, never a synthetic lab user id. The live `A2ALab_Memory_Case` declares **no** profile DMO, so it defaults to `UnifiedIndividual__dlm`; `A2ALab_Memory_Case_Graph` declares AM01 (D115) |
 | Customer graph (deferred by D105)               | `A2ALab_Memory_Customer360` is a real-time graph (since 2026-11-04) rooted on the unified profile; its CRM input follows the ~10-min ingestion schedule | Keep it out of Agentic Memory configuration. The org now supports real-time graphs (D105 follow-up), so a future Case real-time graph can be built here; CRM-sourced fields stay within the ingestion window |
 | Data 360 tenant region                          | eu-central-1 tenant (D70)                                                                                                                  | GetContext latency from us-east-1 agents includes a transatlantic hop. Record it, don't hide it                                                                 |
 
@@ -763,7 +764,9 @@ each platform pair. That's where cross-platform recall actually lives.
   scope extraction/recall? This decides whether Phase 4.2 can pass at all.
    *Partly answered:* the Edit Agent dialog says "all configured agents have
    the same access to session and summary data" (Phase 1, "What the UI
-   shows"). Extracted memories are unconfirmed.
+   shows"). **Answered 2026-11-05 (D115): no.** Extracted facts and preferences belong to the
+   registration that holds them; a second registration with the same configuration lists none of
+   them for the same customer. Only conversation summaries are shared.
 5. **Is** `agentic-context` **on public PyPI**, or internal-only? Hosted images
   (Heroku, Agent Engine, AgentCore) need a resolvable install.
 6. **Billing after Limited GA:** extraction will consume flex credits. Gate it
