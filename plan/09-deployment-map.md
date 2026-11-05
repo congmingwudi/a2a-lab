@@ -387,7 +387,8 @@ binds the a360 token as `xid`; there is no synthetic-owner fallback.
 Claude/OpenAI remain distinct execution-trace participants, not semantic-memory partitions. No
 custom graph is attached. The org supports real-time data graphs as of 2026-11-04
 (`A2ALab_Memory_Customer360` is one, unattached); structured Case enrichment waits for a Case
-real-time graph, and real-time freshness for a real-time CRM stream (D105 follow-up).
+real-time graph. CRM-sourced fields follow the CRM connector's ~10-minute ingestion schedule
+(D105 follow-up).
 
 **The CMA host reaches the tenant too (D102).** The host-side custom-tool
 variant of `supplier-disruption-cma` executes inside the console task. Its

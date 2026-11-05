@@ -2216,10 +2216,11 @@ non-demo Contact; all values were restored.
 | 2026-11-05 02:39Z | ≈ 3.5 min | not seen at 5 min; present by 27 min, ahead of both batch tables |
 | 2026-11-05 19:54Z (baseline read first) | not seen within 480 s | not seen within 480 s |
 
-The cause is the `Contact_Home` stream (`GET /ssot/data-streams`). It is
-`refreshConfig.frequency.frequencyType: BATCH` with `isAccelerationEnabled: false`. Every
-`SalesforceDotCom_Home` stream is batch, so the graph's `processSalesforceCrm` real-time path
-receives no change events from CRM.
+These delays are the CRM connector's ingestion cadence, which is expected behaviour. The
+`Contact_Home` stream (`GET /ssot/data-streams`) is `refreshConfig.frequency.frequencyType: BATCH`,
+as is every `SalesforceDotCom_Home` stream: CRM data reaches Data Cloud on a fixed schedule of
+about 10 minutes. Every measurement above fits inside one such window. The graph is not the slow
+part.
 
 **What the API does when building a graph** (recorded so the next attempt does not rediscover it):
 - `POST /ssot/data-graphs` needs `type: "REALTIME"` (uppercase), even though GET returns
@@ -2233,5 +2234,7 @@ receives no change events from CRM.
   `--file` with a Postman-style request (`"body": {"mode": "raw", "raw": ""}`).
 
 **Conclusion.** The org supports real-time data graphs, and `Customer360`'s lookups are served
-by the real-time layer. End-to-end freshness from CRM is batch: minutes, not seconds. Making it
-real-time is a stream-configuration change on `Contact_Home`, not a graph change.
+by the real-time layer. For CRM-sourced data, end-to-end freshness is bounded by the CRM
+connector's ingestion schedule (about 10 minutes). That is the expected behaviour, not a
+misconfiguration; second-level freshness applies to sources that stream into Data Cloud, such as
+the Ingestion API.

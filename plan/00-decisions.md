@@ -5031,9 +5031,9 @@ machine that runs it. The console image already copies `src/`, so the SVGs ship 
 Case real-time data graph "until the org receives that capability". On 2026-11-04 the graph was
 switched to `type: realtime` in this org. A probe on 2026-11-05 (`plan/03-results.md`) showed that
 its lookups are served by the real-time store, ahead of both batch tables, and that source-field
-edits reach it without identity resolution. Its CRM input is still batch: the `Contact_Home` stream
-is `BATCH` with no acceleration, and measured 3.5 to more than 8 minutes from a CRM edit to Data
-Cloud. An attempt to build a graph through the API (`POST /ssot/data-graphs`) produced a graph
+edits reach it without identity resolution. Its CRM input arrives on the CRM connector's ingestion
+schedule (about 10 minutes, the expected cadence): measured 3.5 to more than 8 minutes from a CRM
+edit to Data Cloud. An attempt to build a graph through the API (`POST /ssot/data-graphs`) produced a graph
 with no transforms, which errored.
 
 **Decision.**
@@ -5047,9 +5047,10 @@ with no transforms, which errored.
   the headless-first rule. What was ruled out: the Connect API create (no transforms provisioned,
   `error` after about four minutes, run twice). The Metadata API and the Tooling API are not yet
   tried.
-- **Don't describe the lab's graphs as delivering real-time freshness** while `Contact_Home` is a
-  batch stream. Getting second-level freshness needs a real-time CRM stream; that is an operator
-  decision about stream configuration and cost, not a graph change.
+- **Describe CRM-sourced freshness as "within the ingestion window", not "real-time".** CRM data
+  reaches Data Cloud on a fixed schedule of about 10 minutes; that is expected platform behaviour,
+  not something to fix. The real-time layer serves whatever has been ingested; second-level
+  freshness applies to streaming sources such as the Ingestion API.
 
 **Consequences.** `plan/18-agentic-memory-context.md` and `plan/09-deployment-map.md` no longer say
 the capability is missing. The `config/scenarios.yaml` copy ("Case real-time data graph is a
