@@ -2537,6 +2537,43 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   source DMO is empty although saved memories are returned, and Slack reports the insight
   index-write flag being turned off in production. Together these say semantic search over
   memory is not live here.
+- **The extraction PATCH appears to replace the configuration (2026-11-06, read-only evidence).**
+  v67 `GET /ssot/agentic/agent/{name}` at 07:40Z:
+
+  | Registration | `lastModifiedDate` − `createdDate` | Configuration read back |
+  | --- | --- | --- |
+  | `A2ALab_Memory_Case` (live) | 15 s (the extraction-on PATCH) | `isMemoryGenerationEnabled` only |
+  | `A2ALab_Memory_Case_Graph` (B) | 35 min (extraction on, then off) | `isMemoryGenerationEnabled` only |
+  | `_Graph_Ind` / `_Graph_Plat` / `_Graph_RT` (E/F/G) | 0 (never PATCHed) | profile DMO and graph intact |
+
+  `setup_agentic_memory.py extraction` sent `{label, configuration: {isMemoryGenerationEnabled}}`.
+  Every registration it touched has lost `profileDmos` and `contextDataSources`, and every one it
+  did not touch kept them. So arm B's result is **unreliable**. Its 16 reads (22:09–22:39Z) ran
+  before the last modification, but we don't know when extraction was first switched on.
+  **Arm G is the clean control.** It is real-time, AM01-rooted, never PATCHed, and still serves
+  nothing. The live arm A's missing profile DMO may have the same cause; it is left untouched for
+  the demo. The script now re-sends the current configuration with the flag. The confirming test
+  (a partial PATCH on G, read back, then a full-config restore of G and B) was blocked by the auto
+  mode classifier and is left for the operator.
+- **`unifiedProfileDGs` cannot be set from outside (2026-11-06).** The off-core design (git.soma
+  `vishal-sood/claude-docs`, `design/agent-context/single_unified_dg_agent_registration_offcore.md`)
+  and the shipped code work like this:
+  - `a360/cdp-realtime-mgmt-service` `AgentRuntimeConfigCollectorService` appends a
+    `configuration.unifiedProfileDGs[{name}]` entry to the agent's cached profile-DG list as
+    `UNIFIED_INDIVIDUAL`.
+  - `a360/cdp-realtime-service` `OotbAgenticDgNameResolver` then **prefers** it for
+    `owner_type=individual` reads. Those reads go through `getUnifiedDgByLookupId` instead of the
+    regular graph read, but only behind the per-tenant gate `ENABLE_AGENT_RUNTIME_CONFIG_CACHE`,
+    which is off by default.
+  - Unlike the design doc, there is no `unified_individual` owner type.
+  - The design says **core** writes the key once the datakit deploys the unified graph.
+  - Core's Connect API agrees: `POST /ssot/agentic/agent` returns `JSON_PARSER_ERROR`
+    "Unrecognized field" for `unifiedProfileDGs` and `unifiedProfileDgs`, on v66, v67 and v68.
+    Nothing was created.
+
+  The platform-made `AgenticUnifiedIndividual` (AM01 root, created 2026-11-02 by the agentic
+  setup) is the graph that slot is meant for. The service code shows no way to tell whether core
+  has written it into any registration's off-core config: the v67 GET does not return the key.
 
 **For the calling agents.** Today Claude and OpenAI receive the shared registration's
 conversation summaries, its own Profile row and its saved facts and preferences. An attached graph

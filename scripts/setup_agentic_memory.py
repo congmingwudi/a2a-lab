@@ -395,8 +395,13 @@ def cmd_extraction(args) -> None:
     if real == want:
         print("already set — nothing to do")
         return
-    # The UI's updateAgentContext body; it re-sends `label`, so we do too.
-    body = {"label": a.label, "configuration": {"isMemoryGenerationEnabled": want}}
+    # The UI's updateAgentContext body; it re-sends `label`, so we do too. D115:
+    # re-send the WHOLE current configuration, not just the flag. Every registration
+    # this PATCH toggled (A2ALab_Memory_Case, _Graph) reads back with only
+    # isMemoryGenerationEnabled — profileDmos and contextDataSources gone — while
+    # the never-PATCHed arms keep theirs, so a partial body is treated as a replace.
+    current = dict(resp.get("configuration") or {})
+    body = {"label": a.label, "configuration": {**current, "isMemoryGenerationEnabled": want}}
     print(f"PATCH {V67}/agent/{a.name}\n{json.dumps(body, indent=2)}")
     if not args.apply:
         print("(dry run — re-run with --apply to send this to the production org)")

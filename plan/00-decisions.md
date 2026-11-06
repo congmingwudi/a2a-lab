@@ -5219,6 +5219,17 @@ data graph to an Agent Configuration") found four things:
   Individual id), not an Experience Cloud user. Both slots are stored as one
   `contextDataSources.dataGraphs` list (plan/03).
   Either change touches the faces' identity contract (D91/D104), so it gets its own ADR.
+- **Our own extraction PATCH probably erased arm B's graph (2026-11-06).** Every registration
+  `setup_agentic_memory.py extraction` PATCHed reads back with only `isMemoryGenerationEnabled`:
+  the live `A2ALab_Memory_Case` and arm B. Every registration it never touched (E/F/G) still has
+  its profile DMO and graph. So arm B's "not served" result is unreliable. The "real-time graph is
+  not served" conclusion rests on arm G alone, the clean control. The script now re-sends the
+  current configuration. A confirming PATCH test is left for the operator (plan/03).
+- **`unifiedProfileDGs` is core-written, not caller-set.** In the off-core service, the key makes
+  the agent's individual reads use a unified graph through a lookup by id, behind the tenant gate
+  `ENABLE_AGENT_RUNTIME_CONFIG_CACHE`. Core's Connect API refuses the field on v66–v68. It is
+  populated by the datakit deploy that made `AgenticUnifiedIndividual`, so it is not a seam we can
+  point at `Customer360` (plan/03).
 
 **Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the
 console are unchanged, so nothing is redeployed. Four new production registrations exist:
