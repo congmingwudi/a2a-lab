@@ -2581,6 +2581,28 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   setup) is the graph that slot is meant for. The service code shows no way to tell whether core
   has written it into any registration's off-core config: the v67 GET does not return the key.
 
+- **The real-time `Customer360` graph IS served, by Contact id (2026-11-06 15:18Z).** With B's
+  configuration restored (07:47Z), a plain GetContext with `owner_id` = the customer's **Contact
+  id** returned a `Profile` entry holding the full CRM record as TOON. That is Unified Individual
+  AM01 → Unified Link (`DataSourceObjectId: Contact`) → Individual (name, title) → Contact Point
+  Email: 584 chars for Erin, 579 for Maya. Raw: `traces/graph-probe/reread-20261106T1518Z.json`
+  (local, gitignored).
+
+  | Owner (Contact id) | B `Customer360` (RT on, caching off) | F `AgenticUnifiedIndividual` | G `RT_UnifiedIndividual` (RT on, caching on) |
+  | --- | --- | --- | --- |
+  | Erin | CRM record, unified id `6bd4371e…` (batch) | Ir1 link to provisional `dc2d0a86…`, pipeline conversations | root `Id` only (`dc2d0a86…`) |
+  | Maya | CRM record, unified id `e0402f35…` | Ir1 link `965ff449…`, pipeline conversations | nothing |
+
+  This corrects "an operator-built real-time graph is not served". B failed earlier for two
+  separate reasons that hid each other:
+  - From 22:40Z its configuration had been wiped by the partial PATCH.
+  - The probes keyed `owner_id` on the faces' customer map, which resolves to the memory
+    pipeline's own Individual rather than the CRM Contact.
+
+  Fixing only one of the two still read as "not served". Erin's AM01 unified id is now the batch
+  one (`6bd4371e…`), so the provisional real-time identity has cleared, within about 24 h as
+  reported. G's remaining difference from B is `isRecordCachingDisabled: false`.
+
 **For the calling agents.** Today Claude and OpenAI receive the shared registration's
 conversation summaries, its own Profile row and its saved facts and preferences. An attached graph
 **does** reach the prompt, as TOON text inside the `userContext` `Profile` entry (arms E and F).

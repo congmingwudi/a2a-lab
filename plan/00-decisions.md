@@ -5231,6 +5231,19 @@ data graph to an Agent Configuration") found four things:
   populated by the datakit deploy that made `AgenticUnifiedIndividual`, so it is not a seam we can
   point at `Customer360` (plan/03).
 
+- **Correction, 2026-11-06 15:18Z: the real-time graph IS served when `owner_id` is the Contact
+  id.** With arm B's configuration restored, GetContext returned Erin's and Maya's full
+  `Customer360` CRM records (name, title, email, the unified link to the Contact) in the `Profile`
+  entry. The earlier "not served" result came from two failures that hid each other: our wiped
+  configuration, and an owner id that resolves to the memory pipeline's own Individual. So the
+  path to give Claude and OpenAI CRM context is:
+  - the faces send the customer's **Contact id** as `owner_id`, which is a D91/D104
+    identity-contract change and needs its own ADR;
+  - the live registration gets `profileDmos` + the graph through a **full-configuration**
+    v67 PATCH;
+  - `render_context` stops dropping `Profile` rows and stops sharing the 4000-character cap
+    (plan/03).
+
 **Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the
 console are unchanged, so nothing is redeployed. Four new production registrations exist:
 `A2ALab_Memory_Case_Graph`, plus the controls `_Graph_Ind`, `_Graph_Plat` and `_Graph_RT`, all with
