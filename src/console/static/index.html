@@ -1734,6 +1734,21 @@
             <div id="infraSide"></div>
           </div>
         </details>
+        <!-- Memory Back End (D115) — what the Agentic Memory API is built on in
+             Data 360: the AgenticConnector_* streams and lake objects, the memory
+             DMOs with live row counts, and the two HYBRID search indexes. Read
+             live from the org on open (not at boot: one read is ~20 queries). -->
+        <details class="acc sub" id="accMemBackend">
+          <summary onclick="memBackendNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="3.6" rx="5.2" ry="1.8"/><path d="M2.8 3.6v8.8c0 1 2.3 1.8 5.2 1.8s5.2-.8 5.2-1.8V3.6"/><path d="M2.8 8c0 1 2.3 1.8 5.2 1.8s5.2-.8 5.2-1.8"/></svg>Memory Back End <span class="count" id="memBackendCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools">
+              <span class="hint">The Data 360 streams, objects and search indexes behind the Agentic Memory API.</span>
+              <button class="ghost" onclick="refreshMemBackend(event)"
+                title="Re-read the org now (GET /api/memory/backend?refresh=true). Reads are otherwise cached for 10 minutes.">Refresh</button>
+            </div>
+            <div id="memBackendSide"></div>
+          </div>
+        </details>
       </div>
     </details>
     <!-- DevOps category (WS17, D60). Its own expandable section like every
@@ -7806,6 +7821,226 @@ of the agent-log harvest, not a sixth platform column.`
     )}</div>`;
 }
 
+// ---- Memory Back End (D115) -------------------------------------------------
+// What the Agentic Memory API (plan/18-agentic-memory-context.md, D91) is built on
+// in Data 360, read live from the org through /api/memory/backend: the
+// AgenticConnector_* streams and the lake objects they land in, the memory DMOs
+// with row counts, and the two HYBRID search indexes. One canvas per thing (D57):
+// Streams & Objects | Search Indexes, each with a Details sub-tab. Loaded when
+// the section opens, never at boot: one read is ~20 Data Cloud queries, cached
+// server-side for 10 minutes.
+let memBackend = null;
+let memBackendLoading = false;
+let memBackendTab = "objects";            // objects | indexes
+let memBackendSub = "run";                // run | details
+const MEM_BACKEND_TABS = [["objects", "Streams & Objects"], ["indexes", "Search Indexes"]];
+
+async function loadMemBackend(refresh) {
+  memBackendLoading = true;
+  renderMemBackendSide();
+  if (view && view.type === "mem-backend") renderMain(true);
+  try {
+    const r = await fetch(apiUrl("/api/memory/backend" + (refresh ? "?refresh=true" : "")));
+    if (r.status === 404 || r.status === 403) { memBackend = { error: r.status === 403
+      ? "Signed-in role cannot read the memory back end." : "This console build has no /api/memory/backend route." }; return; }
+    memBackend = await r.json();
+    const count = document.getElementById("memBackendCount");
+    if (count) count.textContent = memBackend.error ? "" : ((memBackend.streams || []).length || "");
+  } catch (e) {
+    memBackend = { error: "Read failed: " + e };
+  } finally {
+    memBackendLoading = false;
+    renderMemBackendSide();
+    if (view && view.type === "mem-backend") renderMain(true);
+  }
+}
+
+function memRows(c) {
+  if (!c) return `<span class="hint">—</span>`;
+  if (c.rows == null) return `<span class="hint" title="${esc(c.error || "")}">error</span>`;
+  return c.rows.toLocaleString();
+}
+
+function renderMemBackendSide() {
+  const el = document.getElementById("memBackendSide");
+  if (!el) return;
+  if (memBackendLoading && !memBackend) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">Reading the org…</div>`; return;
+  }
+  if (!memBackend) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">Open to read the streams, objects and indexes live from the org.</div>`; return;
+  }
+  if (memBackend.error) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">${esc(memBackend.error)}</div>`; return;
+  }
+  const idx = memBackend.indexes || [];
+  el.innerHTML = `
+    <div class="obs-plat" onclick="setMemBackendTab('objects')"><span>Streams &amp; objects</span>
+      <span class="count">${(memBackend.streams || []).length}</span></div>
+    <div class="obs-plat" onclick="setMemBackendTab('indexes')"><span>Search indexes</span>
+      <span class="count">${idx.length}</span></div>`;
+}
+
+window.memBackendNav = ev => {
+  const here = !!(view && view.type === "mem-backend");
+  if (!sectionHeaderClick(ev, "accMemBackend", here) || here) return;
+  pushNav();
+  view = { type: "mem-backend" };
+  renderSidebar(); renderMain(true);
+  if (!memBackend && !memBackendLoading) loadMemBackend(false);
+};
+window.setMemBackendTab = id => {
+  if (!(view && view.type === "mem-backend")) { pushNav(); view = { type: "mem-backend" }; renderSidebar(); }
+  memBackendTab = id;
+  memBackendSub = "run";   // a new tab opens on its content, never on its Details
+  renderMain(true);
+  if (!memBackend && !memBackendLoading) loadMemBackend(false);
+};
+window.setMemBackendSub = s => { memBackendSub = s; renderMain(true); };
+window.refreshMemBackend = ev => {
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  loadMemBackend(true);
+};
+
+function memBackendTabbar() {
+  const b = memBackend || {};
+  const stamp = memBackendLoading ? "reading the org…"
+    : b.read_at ? `read ${b.read_at.replace("T", " ")}${b.cached ? " (cached)" : ""}` : "";
+  const label = memBackendTab === "indexes" ? "Indexes" : "Objects";
+  return `
+    <div class="tabbar">
+      <h2>Memory Back End</h2>
+      ${stamp ? `<span class="obs-updated">${esc(stamp)}</span>` : ""}
+      <div class="tabs">
+        ${MEM_BACKEND_TABS.map(([id, l]) =>
+          `<button class="tab ${memBackendTab === id ? "on" : ""}" onclick="setMemBackendTab('${id}')">${l}</button>`).join("")}
+      </div>
+    </div>
+    <div class="tabs" style="margin:10px 0 4px">
+      <button class="tab ${memBackendSub !== "details" ? "on" : ""}" onclick="setMemBackendSub('run')">${label}</button>
+      <button class="tab ${memBackendSub === "details" ? "on" : ""}" onclick="setMemBackendSub('details')">Details</button>
+    </div>`;
+}
+
+function memBackendHtml() {
+  if (memBackendSub === "details") {
+    return memBackendTabbar() + (memBackendTab === "indexes" ? memIndexDetailsHtml() : memObjectsDetailsHtml());
+  }
+  if (!memBackend) return memBackendTabbar() + `<div class="empty">Reading the org…</div>`;
+  if (memBackend.error) {
+    return memBackendTabbar() + `<div class="hint" style="margin-top:12px">${esc(memBackend.error)}</div>
+      <div class="hint" style="margin-top:8px">The section reads the org through the observability
+      identity (client credentials, the same as the OTel routes). See Details for what it calls.</div>`;
+  }
+  return memBackendTabbar() + (memBackendTab === "indexes" ? memIndexesHtml() : memObjectsHtml());
+}
+
+function memObjectsHtml() {
+  const rows = memBackend.streams || [];
+  if (!rows.length) return `<div class="hint" style="margin-top:12px">No AgenticConnector_* streams or lake
+    objects on this tenant, so the agentic memory setup has not been provisioned here (plan/18-agentic-memory-context.md).</div>`;
+  const hidden = memBackend.streams_hidden
+    ? `<p class="hint">The reading identity cannot see data stream records: the stream list reported
+       ${memBackend.streams_hidden} streams but returned none. The lake objects below come from
+       <code>/ssot/metadata</code> instead, so stream status and last refresh are not shown.</p>` : "";
+  return `
+    <p class="hint" style="margin-top:12px">One Ingestion API stream per memory object. Compare the two
+    row counts: the real-time layer writes the DMO directly, so the lake object is not where memory
+    lives (D115, plan/03-results.md).</p>
+    ${hidden}
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><thead><tr><th>memory object</th><th>stream lake object (DLO)</th>
+      <th class="num">DLO rows</th><th>data model object (DMO)</th><th class="num">DMO rows</th>
+      ${memBackend.streams_hidden ? "" : `<th>last run</th>`}</tr></thead>
+    <tbody>${rows.map(s => `
+      <tr><td>${esc(s.object)}</td>
+          <td><code>${esc(s.dlo || "—")}</code></td>
+          <td class="num">${memRows(s.dlo_count)}</td>
+          <td>${s.dmo ? `<code>${esc(s.dmo)}</code>` : `<span class="hint" title="ssot__Individual__dlm holds every Individual in the org, CRM included, so its count says nothing about memory">shared Individual DMO, not counted</span>`}</td>
+          <td class="num">${s.dmo ? memRows(s.dmo_count) : ""}</td>
+          ${memBackend.streams_hidden ? "" : `<td>${esc(s.last_run_status || "")} ${esc((s.last_refresh || "").slice(0, 16).replace("T", " "))}</td>`}
+      </tr>`).join("")}</tbody></table></div></div>`;
+}
+
+function memIndexesHtml() {
+  const idx = memBackend.indexes || [];
+  if (!idx.length) return `<div class="hint" style="margin-top:12px">No search index is built over a memory
+    DMO on this tenant. See Details for the two the agentic setup normally creates.</div>`;
+  const row = (k, v) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`;
+  return `
+    <p class="hint" style="margin-top:12px">Two HYBRID (vector + keyword) indexes were created with the agentic
+    setup. No retriever is registered on either, because they back the memory API's own search
+    endpoints. The chunk count is what the index actually holds.</p>
+    ${idx.map(i => `
+      <h4 style="margin:14px 0 0">${esc(i.label || i.name)}</h4>
+      <div class="tbl-card"><div class="tbl-scroll"><table class="obs-table"><tbody>
+        ${row("status", `${esc(i.status || "")} · ${esc(i.search_type || "")}`)}
+        ${row("last refreshed", esc((i.refreshed || "never").slice(0, 16).replace("T", " ")))}
+        ${row("source", `<code>${esc(i.source_dmo || "")}</code> · ${(i.source_fields || []).map(f => `<code>${esc(f)}</code>`).join(", ")}`)}
+        ${row("embedding", `${esc(i.embedding_model || "")} · ${esc(i.dimension || "?")} dims · ${esc(i.chunk_tokens || "?")}-token chunks`)}
+        ${row("vector index", `${esc(i.algorithm || "")} (M=${esc(i.hnsw_m || "?")}, efConstruction=${esc(i.hnsw_ef_construction || "?")}) · ${esc((i.similarity || "").toLowerCase())}`)}
+        ${row("chunk / vector DMO", `<code>${esc(i.chunk_dmo || "")}</code> · <code>${esc(i.vector_dmo || "")}</code>`)}
+        ${row("chunks held", memRows(i.chunk_count))}
+      </tbody></table></div></div>`).join("")}`;
+}
+
+function memObjectsDetailsHtml() {
+  return `<div class="flow">${mdToHtml(
+`### What produces this
+
+\`GET /api/memory/backend\` in the console calls \`src/observability/memory_backend.py\`. It
+lists the org's data streams (\`/ssot/data-streams\`), keeps the \`AgenticConnector_*\` ones, and
+runs one \`SELECT COUNT(*)\` per lake object and per memory DMO through \`/ssot/query\`. Nothing is
+stored: the read is cached in the console process for 10 minutes, and **Refresh** forces a new one.
+
+### Identity
+
+The observability client-credentials app (\`SF_CLIENT_ID_OBS\`), the same identity the OTel trace
+routes use. It reads metadata and counts only and never opens a memory record. That identity
+cannot see data stream *records*, so the lake objects are found through \`/ssot/metadata\`
+instead. Their names are truncated (\`AgenticConnector_AiAgentInterac_…\` covers three objects),
+so each is named by the full object prefix its fields carry.
+
+### What the numbers say
+
+The memory API (plan/18-agentic-memory-context.md, D91) writes through a real-time layer
+straight into the DMOs. So the DMO counts measure memory, and the stream lake objects mostly
+stay empty. \`ssot__Conversation__dlm\` and \`AiParticipantInsight_std__dlm\` read 0 even though
+saved facts are returned by the API, so curated facts are not served from those DMOs on this
+tenant. Measured and explained in plan/03-results.md under D115.
+
+### Caveats
+
+- Counts are for the \`default\` dataspace, across every lab registration and owner.
+- \`ssot__Individual__dlm\` is shared with CRM, so it is listed but not counted.`)}</div>`;
+}
+
+function memIndexDetailsHtml() {
+  return `<div class="flow">${mdToHtml(
+`### What produces this
+
+The same read as Streams & Objects: \`/ssot/search-index\`, filtered to indexes whose source DMO
+is a memory DMO, plus a \`COUNT(*)\` on each chunk DMO. The embedding and HNSW settings come
+straight from the index definition.
+
+### What uses these indexes
+
+No retriever is registered on them, because they back the memory API's own search endpoints:
+\`POST /api/v1/agentic/search/conversations\` and \`/search/learnings\`. GetContext's
+\`insight_query\` runs a memory search too. As measured on 2026-11-06 (plan/03-results.md, D115):
+
+- **Conversation search** needs an \`agent_id\` header, then returns 400 because it prefilters on
+  \`IndividualId__c\`, a column the message index lacks. The same \`hybrid_search\` in Data Cloud SQL
+  returns 0 rows without the filter.
+- **Learnings search** returns 404.
+- **GetContext \`mode=deep\`** returned the same entries as a plain read, and \`insight_query\`
+  added no hits.
+
+Both indexes were refreshed once, on the setup day, and hold no chunks. So semantic search over
+memory is not live on this tenant, and everything an agent receives comes from the fast,
+non-search path.`)}</div>`;
+}
+
 // ---- Architecture (plan/09-deployment-map.md) ------------------------------
 // Progressive levels, L0 (the whole estate) down to L6 (repo file -> deployed
 // artifact). The markdown file is the source; this renders it. Diagrams go
@@ -11108,6 +11343,13 @@ function renderMain(force) {
     el.innerHTML = monitoringHtml();
     linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
     if (monTab === "details") renderMonDiagram();   // async: lazy mermaid, like creds
+    return;
+  }
+
+  if (view.type === "mem-backend") {
+    mainKey = `mem-backend:${memBackendTab}:${memBackendSub}:${memBackend ? (memBackend.read_at || "err") : "none"}:${memBackendLoading}`;
+    el.innerHTML = memBackendHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
     return;
   }
 

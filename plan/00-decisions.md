@@ -5200,12 +5200,21 @@ data graph to an Agent Configuration") found four things:
   - **An Individual-rooted CRM graph**, which skips unification the way arm E does.
   - **Try `unifiedProfileDGs`.** This registration key is preferred over `AgenticIndividual` when
     set, per engineering on Slack; we have never sent it.
-- **Governance contradicts point 3.** The governance doc says "Curated memory is scoped to the
-  customer (`xid`) and is available to any agent serving that customer". We measured facts and
-  preferences as registration-scoped. A cross-registration test has not been run. It would save a
-  fact through `A2ALab_Memory_Case`, read it through `_Graph_Ind`, and then read the same owner
-  with a mismatched `xid` to confirm fail-closed. Until that runs, point 3 stands as measured and
-  the doc's claim is recorded as unverified.
+- **Governance, measured 2026-11-06 (`scripts/memory_governance_probe.py`, plan/03).** The
+  governance doc says "Curated memory is scoped to the customer (`xid`) and is available to any
+  agent serving that customer", and "A missing or mismatched identity returns no data". Neither
+  held for our caller:
+  - **Point 3 stands.** A fact saved through `A2ALab_Memory_Case` was visible there at once and
+    was still not visible through `_Graph_Ind` after 300 s. Curated memory is registration-scoped
+    here.
+  - **`xid` is not enforced on the Memory API for an internal caller.** The a360 token carries
+    `custom_attributes.xid`, `aid` and `is-internal: true`. A token whose `xid` was Maya's Contact,
+    or a synthetic id, still listed a fact saved for Erin's Contact. `aid` IS enforced: an
+    unregistered agent's exchange is refused (`access_denied`). Our integration identity is
+    `is-internal`, and the doc defines `xid` for internal callers as the user id. So the
+    customer-binding check may apply only to external callers. Whichever it is, for our faces the
+    owner a caller can read is decided by the `profile_id` the caller sends, not by the token.
+    That makes the faces' owner mapping (D91/D104) the effective isolation boundary.
 - **"External User" in Edit Agent means the customer** (`owner_type=individual`, `xid` = an
   Individual id), not an Experience Cloud user. Both slots are stored as one
   `contextDataSources.dataGraphs` list (plan/03).

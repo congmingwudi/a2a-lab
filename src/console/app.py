@@ -5083,6 +5083,35 @@ and console never present a combined dollar total across tools (WS12/D44).
         results = await asyncio.get_event_loop().run_in_executor(None, run)
         return {"ok": all(r.get("status") != "error" for r in results), "results": results}
 
+    @app.get("/api/memory/backend")
+    async def memory_backend(refresh: bool = False):
+        """The Agentic Memory back end, read live from the org (D115): the
+        AgenticConnector_* streams and their lake objects, the memory DMOs with
+        row counts, and the HYBRID search indexes. Uses the obs client-credentials
+        identity and caches for 10 minutes, since one read is about 20 Data Cloud
+        queries. Honest states, never a 500."""
+
+        def _pull():
+            import os
+
+            import httpx
+
+            from observability.memory_backend import cached_snapshot
+
+            if not os.environ.get("SF_MY_DOMAIN") or not os.environ.get("SF_CLIENT_ID"):
+                return {"error": "SF_MY_DOMAIN / SF_CLIENT_ID not set — obs identity unavailable"}
+            try:
+                return cached_snapshot(refresh=refresh)
+            except httpx.HTTPStatusError as exc:
+                return {
+                    "error": f"Data 360 refused the read — HTTP {exc.response.status_code}: "
+                    f"{(exc.response.text or '')[:200]}"
+                }
+            except Exception as exc:  # noqa: BLE001 - report, don't 500
+                return {"error": f"{type(exc).__name__}: {exc}"[:300]}
+
+        return await asyncio.to_thread(_pull)
+
     @app.get("/api/infra-metrics")
     async def infra_metrics(hours: int | None = None):
         """The Track B cross-cloud infrastructure grid (Infrastructure Metrics).

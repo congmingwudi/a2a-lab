@@ -2475,13 +2475,48 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
 - **REST and the service's lookup disagree.** The REST lookup returns `ITEM_NOT_FOUND` for both
   platform graphs at every id we tried, including the resolved id. Yet the service read them.
   Use GetContext to verify a graph, not the REST lookup.
+- **Governance probe (2026-11-06, `scripts/memory_governance_probe.py`, run `5afef5f575`, plus a
+  Contact-id variant).** Each test wrote one fact and deleted it again afterwards.
+
+  | Test | Result |
+  | --- | --- |
+  | Save through `A2ALab_Memory_Case`, read through the same registration | visible after 0.3 s |
+  | Same fact, read through `A2ALab_Memory_Case_Graph_Ind` | not visible after 300 s: **registration-scoped** |
+  | Read owner P with a token whose `xid` is owner Q (synthetic ids) | 200, **fact returned** |
+  | Read Erin's Contact with a token whose `xid` is Maya's Contact, or a synthetic id | 200, **fact returned** |
+  | Read with Maya's token and no `profile_id` | 400 "does not satisfy partitionKeyRules" |
+  | GetContext for P with Q's token | 200, empty (P has no conversation, so inconclusive) |
+  | Token exchange for an unregistered `aid` | refused, `access_denied` |
+  | Delete, then list | gone |
+
+  The decoded a360 token carries `custom_attributes` = {`xid`, `aid`, `is-internal: true`,
+  `dataspace`, `user-id`}. So `aid` gates the exchange, but `xid` does not restrict which
+  `profile_id` the Memory API returns for an internal caller. The governance doc's "a mismatched
+  identity returns no data" did not hold for this identity (D115).
+- **GetContext `mode=deep` adds nothing here (2026-11-06, Maya, `A2ALab_Memory_Case`).** The
+  internal usage guide documents `mode=fast|deep`, where deep means "LLM agent assembles
+  query-driven context", plus `query`, `token_budget` and `latency_sensitivity`. Here are the four
+  reads:
+
+  | Read | `userContext` |
+  | --- | --- |
+  | Baseline (no mode) | Conversation, Conversation, Profile (3,860 bytes) |
+  | `mode=deep` + `query` | the same three entries, reordered, byte-identical sizes |
+  | `mode=deep` + `token_budget=800` | the same, so the budget was not applied |
+  | `mode=fast` + `insight_query` | the two Conversation entries only: Profile dropped, no search hits |
+
+  This fits the empty search indexes below. Nothing query-driven reaches the prompt on this
+  tenant.
 - **The memory back end, read headlessly (2026-11-06).** Eight `AgenticConnector_*` Ingestion API
   streams, one per memory object (Conversation, AiAgentSession, AiAgentSessionParticipant,
   AiAgentInteraction, AiAgentInteractionMessage, AiAgentInteractionStep, AiParticipantInsight,
-  Individual). Their lake objects hold **0 rows**, while `ssot__AiAgentInteractionMessage__dlm`
-  holds 1,446, `ssot__AiAgentSession__dlm` 543 and `ssot__AiAgentInteraction__dlm` 1,443. The
-  real-time layer writes the DMOs directly, so a stream's "Total records" counts what was
-  ingested, not what the lake holds. Two HYBRID search indexes were created with the agentic
+  Individual). Six of their eight lake objects hold **0 rows**, while
+  `ssot__AiAgentInteractionMessage__dlm` holds 1,446, `ssot__AiAgentSession__dlm` 543 and
+  `ssot__AiAgentInteractionStep__dlm` 3,305. The two exceptions also fall far short of their DMOs:
+  Interaction holds 97 against 1,443, and SessionParticipant 232 against 2,221 (live read,
+  2026-11-06 07:3xZ). The real-time layer writes the DMOs directly, so neither a stream's "Total
+  records" nor its lake object measures what memory holds; the DMO does. The console's Memory Back
+  End section reads these counts live (`src/observability/memory_backend.py`). Two HYBRID search indexes were created with the agentic
   setup:
 
   | Index | Source DMO · field | Embedding | Chunk / vector DMO | Rows |

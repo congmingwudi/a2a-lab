@@ -298,8 +298,11 @@ class MemoryClient:
                 "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
                 # a360 refuses an UNREGISTERED aid with access_denied (plan/18)
                 "aid": agent_id,
-                # Governed reads fail closed unless the token is bound to the
-                # external Individual ID (or Salesforce User ID for employees).
+                # The governance guide says reads fail closed unless the token is
+                # bound to the end user (Individual id, or User id for employees).
+                # Measured 2026-11-06 (D115): for our is-internal caller the Memory
+                # API does NOT check xid against profile_id, so the owner we send
+                # is the real isolation boundary. Keep xid = owner anyway.
                 "xid": owner_id,
             },
         )
