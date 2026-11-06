@@ -1040,17 +1040,23 @@ def test_agent_memory_presentation_mode_is_eight_scene_evidence_only_handoff():
 
     assert scenes.count("\n    title:") == 8
     assert 'g.id === "agent-memory"' in html
-    assert 'id="memory-presentation-section"' in html
+    for launcher_id in (
+        "memory-presentation-section",
+        "memory-presentation-${esc(s.name)}",
+        "memory-presentation-tab-${esc(view.name)}",
+    ):
+        assert f'id="{launcher_id}"' in html
     assert '"customer-memory-claude", "customer-memory-openai"' in html
-    assert html.count("openMemoryPresentation(") == 3
     assert html.count('view = { type: "memory-presentation"') == 1
     assert 'aria-current="step"' in html
     assert 'aria-live="polite"' in html
     assert "prefers-reduced-motion: reduce" in html
     assert "memory-present-layout" in html and "memory-scene-rail" in html
     assert "main.presentation-mode #side" in html
-    assert 'mainKey = `memory-presentation:${scene}`' in html
+    assert 'const key = `memory-presentation:${scene}`' in html
+    assert "if (!force && mainKey === key) return" in html
     assert "ev.stopImmediatePropagation(); exitMemoryPresentation()" in html
+    assert "input, select, textarea, [contenteditable='true']" in html
     assert 'document.querySelector(".dpopover, .dgmask")' in html
 
     launch_start = html.index("window.launchMemoryExperiment = name =>")
@@ -1064,6 +1070,8 @@ def test_agent_memory_presentation_mode_is_eight_scene_evidence_only_handoff():
 
     assert "saved facts/preferences reads are intentionally skipped" in scenes
     assert "Platform-made graph controls returned their record" in scenes
+    assert "real-time graph returned Customer360 when the owner was a Contact id" in scenes
+    assert "faces currently send the memory pipeline's own Individual" in scenes
     assert "The live registration has no attached graph" in scenes
     assert "fixed number of seconds" in scenes
 
@@ -1074,6 +1082,8 @@ def test_agent_memory_presentation_mode_is_eight_scene_evidence_only_handoff():
     assert "not loaded · inspect observed hops only" in presentation
     assert "announceMemoryPresentationScene()" in presentation
     assert 'role="region" aria-labelledby="memory-present-title"' in presentation
+    assert "view = null; navStack = []" in html
+
 
 def test_config_exposes_safe_customer_personas_without_profile_ids(tmp_path, monkeypatch):
     monkeypatch.setenv("A2ALAB_MEMORY_DATA_SPACE", "customer-memory-space")

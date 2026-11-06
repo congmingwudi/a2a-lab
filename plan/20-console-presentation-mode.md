@@ -29,8 +29,11 @@ The first implementation covers **Agent Memory — customer continuity**. Its ei
   reads are skipped. It does not ask a presenter to find hops that should not exist.
 - Extraction is asynchronous. Evidence comes from a later recall or management read, never a
   fixed wait promise or the teaching response alone.
-- Graph language distinguishes the working attached-graph controls from the current CRM-backed
-  profile mismatch. It does not generalize one failed CRM lookup into a product-wide failure.
+- Graph language distinguishes the working attached-graph controls from the live demo registration.
+  The operator-built real-time graph returned Customer360 when keyed by a customer Contact id;
+  the live registration has no graph attached and the faces currently send the memory pipeline's
+  own Individual. Changing that identity contract remains pending work, so the tour makes no live
+  CRM-graph claim.
 - Unavailable or unpublished future capabilities have no scene, alternate route, served copy,
   deployable asset, source reference, or hidden markup. Publishing them later requires a separate
   decision and review.

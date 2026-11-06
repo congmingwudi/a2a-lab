@@ -4,8 +4,8 @@
   "proposer": "codex",
   "critic": "claude",
   "implementer": "codex",
-  "station": "review",
-  "holder": "claude",
+  "station": "respond",
+  "holder": "codex",
   "round": 1,
   "verdict": "request-changes",
   "adr": "D116",
@@ -46,6 +46,14 @@
       "action": "built",
       "file": "build-notes/codex/reviews/ws31-b1.md",
       "commit": "80df5b6"
+    },
+    {
+      "ts": "2026-11-06T15:25:42+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws31-b1.md",
+      "round": 1
     }
   ]
 }

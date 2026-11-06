@@ -1,5 +1,5 @@
 import process from "node:process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE);
 
@@ -42,7 +42,8 @@ async function signIn(page, username, password) {
 }
 
 async function enterFromSection(page) {
-  await page.locator("#memory-presentation-section").click();
+  await page.locator("#memory-presentation-section").focus();
+  await page.keyboard.press("Enter");
   await page.waitForSelector(".memory-present");
   check(await page.locator('.memory-scene-link[aria-current="step"]').count() === 1,
     "Exactly one scene must be current");
@@ -98,17 +99,33 @@ try {
 
   await operator.locator(".memory-present-controls .next").click();
   check(await currentScene(operator) === 1, "Next must advance to scene 2");
+  check(await operator.locator("#memoryPresentationStatus").textContent()
+    .then(text => text.startsWith("Scene 2:")), "Scene change must update the live-region text");
+  check(await operator.locator("#memoryPresentationStatus").getAttribute("aria-atomic") === "true",
+    "Scene live region must announce atomically");
   await setScene(operator, 7);
   await operator.locator("#memoryPresentationStage").focus();
   await operator.keyboard.press("ArrowLeft");
   check(await currentScene(operator) === 6, "ArrowLeft must move to scene 7");
   await operator.keyboard.press("ArrowRight");
   check(await currentScene(operator) === 7, "ArrowRight must move to scene 8");
+  await operator.waitForTimeout(50); // let the scene-change focus frame settle
+  await operator.locator(".memory-scene-link").nth(7).focus();
+  await operator.evaluate(() => renderMain());
+  check(await operator.locator(".memory-scene-link").nth(7)
+    .evaluate(el => document.activeElement === el),
+  "An unforced background render must preserve presentation focus");
   check(await operator.locator(".memory-present-controls .next").isDisabled(),
     "Next must be disabled at the last scene");
   results.scene_controller = "pass";
 
   await setScene(operator, 0);
+  await operator.locator("#guideBtn").click();
+  await operator.locator("#gdInput").focus();
+  await operator.keyboard.press("Escape");
+  check(await currentScene(operator) === 0,
+    "Escape in a text-entry control must not leave the presentation");
+  await operator.locator("#guideDrawer .x").click();
   const decisionChip = operator.locator(".memory-present .dchip").first();
   await decisionChip.waitFor({ state: "visible" });
   await decisionChip.click();
@@ -131,8 +148,35 @@ try {
   }
   results.reentry = "pass";
 
-  await enterFromSection(operator);
+  const memoryGroup = operator.locator(".nav-group").filter({ hasText: "Agent Memory" });
+  if (!await memoryGroup.evaluate(el => el.classList.contains("open"))) {
+    await memoryGroup.locator(".gtitle").click();
+  }
+  await operator.waitForSelector("#memory-presentation-customer-memory-claude");
+  await operator.locator("#memory-presentation-customer-memory-claude").click();
+  await operator.waitForSelector(".memory-present");
+  await operator.keyboard.press("Escape");
+  check(await operator.locator("#memory-presentation-customer-memory-claude")
+    .evaluate(el => document.activeElement === el),
+  "Scenario shortcut exit must restore focus to its launcher");
+  results.scenario_shortcut = "pass";
+
+  await operator.evaluate(() => openExperiment("scenario", "customer-memory-claude"));
+  await operator.waitForSelector('select[aria-label="Customer persona"]');
+  await operator.selectOption('select[aria-label="Customer persona"]', "jordan");
+  await operator.locator("#memory-presentation-tab-customer-memory-claude").click();
+  await operator.waitForSelector(".memory-present");
+  await operator.keyboard.press("Escape");
+  check(await operator.locator("#memory-presentation-tab-customer-memory-claude")
+    .evaluate(el => document.activeElement === el),
+  "Experiment-tab exit must restore focus to its launcher");
+  await operator.locator("#memory-presentation-tab-customer-memory-claude").click();
+  await operator.waitForSelector(".memory-present");
+  check(await operator.locator("#memoryPresentationStatus").count() === 1,
+    "Persistent presentation live region must remain attached");
   await setScene(operator, 7);
+  check(await operator.locator(".memory-ready-row").first().textContent()
+    .then(text => text.includes("Jordan")), "Presentation must preserve the selected Jordan customer");
   const turnsBefore = await operator.locator(".turn.user").count();
   await operator.locator(".memory-launchers .primary").click();
   await operator.waitForFunction(() => view && view.type === "experiment"
@@ -141,12 +185,15 @@ try {
     "Claude handoff must load the seeded prompt");
   check(await operator.locator('input[name="memoryMode"][value="on"]').isChecked(),
     "Claude handoff must enable Memory");
+  check(await operator.locator('select[aria-label="Customer persona"]').inputValue() === "jordan",
+    "Claude handoff must preserve the non-default Jordan customer");
   check(await operator.locator(".turn.user").count() === turnsBefore,
     "Claude handoff must not send automatically");
   await operator.evaluate(() => goBack());
   await operator.waitForFunction(() => view && view.type === "memory-presentation"
     && Number(view.scene) === 7);
   results.claude_handoff_and_back = "pass";
+  results.experiment_tab_shortcut = "pass";
 
   await operator.locator(".memory-launchers .ghost").click();
   await operator.waitForFunction(() => view && view.type === "experiment"
@@ -159,7 +206,12 @@ try {
 
   await operator.evaluate(() => goBack());
   await operator.waitForSelector(".memory-present");
-  await operator.evaluate(() => { labUser = null; renderUserBtn(); });
+  await operator.evaluate(() => {
+    localStorage.setItem("a2a-side-open", "1");
+    labUser = null;
+    renderUserBtn();
+    applyAuthGating();
+  });
   check(await operator.locator("main.presentation-mode").count() === 1,
     "Session expiry must not leave presentation suppression stale");
   await operator.evaluate(() => {
@@ -170,9 +222,28 @@ try {
   await operator.locator(".memory-present-top button").click();
   check(await operator.locator("main.presentation-mode").count() === 0,
     "Leaving after auth restoration must remove presentation suppression");
+  check(await operator.evaluate(() => localStorage.getItem("a2a-side-open")) === "1",
+    "Presentation/auth transitions must preserve the saved panel preference");
+  check(!await operator.locator("main").evaluate(el => el.classList.contains("side-closed")),
+    "Leaving after sign-in restoration must restore the saved open panel preference");
   results.auth_transition = "pass";
 
   await enterFromSection(operator);
+  await operator.emulateMedia({ reducedMotion: "reduce" });
+  const reducedMotion = await operator.locator(".memory-present-stage").evaluate(el => {
+    const style = getComputedStyle(el);
+    return {
+      matched: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      transition: style.transitionDuration,
+      animation: style.animationDuration,
+    };
+  });
+  const allNearZero = value => value.split(",").every(item => Number.parseFloat(item) <= 0.001);
+  check(reducedMotion.matched && allNearZero(reducedMotion.transition)
+    && allNearZero(reducedMotion.animation),
+    `Reduced-motion preference must remove transitions and animations: ${JSON.stringify(reducedMotion)}`);
+  results.reduced_motion_and_live_region = "pass";
+  await operator.emulateMedia({ reducedMotion: "no-preference" });
   await setScene(operator, 7);
   await operator.screenshot({ path: `${outDir}/implementation-canvas-light-desktop.png` });
   await operator.locator("#themeDark").click();
@@ -238,7 +309,15 @@ try {
   results.signed_out = "pass";
   await signedOutContext.close();
 
-  process.stdout.write(`${JSON.stringify({ ok: true, base, results }, null, 2)}\n`);
+  const report = {
+    ok: true,
+    base,
+    viewport: { desktop: "1440x1024", narrow: "390x844", device_scale_factor: 1 },
+    results,
+    sent_experiment_turns: false,
+  };
+  writeFileSync("build-notes/codex/ws31-browser-check.json", `${JSON.stringify(report, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 } finally {
   await browser.close();
 }

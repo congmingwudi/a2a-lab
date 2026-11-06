@@ -1660,6 +1660,8 @@
     <button id="gdSendBtn" onclick="gdSend()">Ask</button>
   </div>
 </div>
+<div class="memory-sr-status" id="memoryPresentationStatus" role="status"
+     aria-live="polite" aria-atomic="true"></div>
 <main>
   <!-- Mobile: tapping the dimmed backdrop closes the overlay drawer. Hidden on
        desktop (the sidebar is a grid column there, never an overlay). -->
@@ -3406,11 +3408,11 @@ const MEMORY_PRESENTATION_SCENES = [
       ["GetContext", "Returns eligible conversation/profile context for the current owner and generation."],
       ["Memory API", "Reads curated facts and preferences unless fresh-generation isolation suppresses the merge."],
       ["Attached graph controls", "Platform-made graph controls returned their record, proving the path works."],
-      ["CRM graph controls", "The current CRM-backed controls returned no CRM record for the resolved profile."],
+      ["CRM graph control", "The operator-built real-time graph returned Customer360 when the owner was a Contact id."],
     ],
     points: [
-      "The memory pipeline's profile differs from Maya's CRM-backed AM01 profile; this is not a caller-governance mismatch.",
-      "The live registration has no attached graph, so the demo makes no live CRM graph claim.",
+      "The faces currently send the memory pipeline's own Individual, not the customer's Contact id.",
+      "The live registration has no attached graph, so this demo makes no live CRM graph claim.",
       "After Start fresh, profile rows are quarantined and saved facts/preferences reads are intentionally skipped.",
     ],
   },
@@ -3422,7 +3424,7 @@ const MEMORY_PRESENTATION_SCENES = [
       ["Configured", "Registration, data space, extraction flag, and runtime budgets."],
       ["Measured", "Cross-agent recall, customer isolation, registration scope, and graph controls."],
       ["Observable", "Tenant trace hops, Memory API reads, GetContext, ingest, and later recall."],
-      ["Open", "Exact cross-registration semantics and CRM graph identity alignment."],
+      ["Open", "The live graph attachment, Contact-id identity contract, and Profile rendering budget."],
     ],
     points: [
       "Extraction is asynchronous; availability lag is demonstrated, never guaranteed.",
@@ -3487,7 +3489,7 @@ function memoryPresentationHtml() {
   const narration = scene.live ? memoryPresentationReadinessHtml() : `
     <ul>${scene.points.map(point => `<li>${esc(point)}</li>`).join("")}</ul>`;
   return `
-    <section class="memory-present" aria-labelledby="memory-present-title">
+    <section class="memory-present" aria-label="Agent Memory presentation">
       <div class="memory-present-top">
         <button class="ghost" onclick="exitMemoryPresentation()">Exit presentation</button>
         <b>Agent Memory</b>
@@ -3506,7 +3508,6 @@ function memoryPresentationHtml() {
           role="region" aria-labelledby="memory-present-title">
           <div class="memory-present-kicker">Agent Memory · scene ${sceneIndex + 1}</div>
           <h2 id="memory-present-title">${esc(scene.title)}</h2>
-          <div class="memory-sr-status" id="memoryPresentationStatus" role="status" aria-live="polite"></div>
           <p class="memory-present-lede">${esc(scene.lede)}</p>
           <div class="memory-present-grid">
             <div class="memory-system-map"><h3>How this part works</h3><div class="memory-flow">${flow}</div></div>
@@ -3575,6 +3576,7 @@ document.addEventListener("keydown", ev => {
   if (ev.key === "Escape") {
     if (document.querySelector(".dpopover, .dgmask") || document.fullscreenElement
         || document.querySelector(".arch-fsfallback")) return;
+    if (ev.target.closest?.("input, select, textarea, [contenteditable='true']")) return;
     ev.preventDefault(); ev.stopImmediatePropagation(); exitMemoryPresentation(); return;
   }
   if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
@@ -10721,7 +10723,7 @@ function landingHtml() {
   </div>`;
 }
 
-window.goHome = () => { view = null; renderSidebar(); renderMain(); };
+window.goHome = () => { view = null; navStack = []; renderSidebar(); renderMain(); };
 
 window.browseCells = () => {
   // Protocol calls is a LIST that lives inside the Control Panel, so this one
@@ -11666,7 +11668,9 @@ function renderMain(force) {
 
   if (view.type === "memory-presentation") {
     const scene = Math.max(0, Math.min(MEMORY_PRESENTATION_SCENES.length - 1, Number(view.scene) || 0));
-    mainKey = `memory-presentation:${scene}`;
+    const key = `memory-presentation:${scene}`;
+    if (!force && mainKey === key) return;
+    mainKey = key;
     el.innerHTML = memoryPresentationHtml();
     linkifyRepoFiles(el);
     return;

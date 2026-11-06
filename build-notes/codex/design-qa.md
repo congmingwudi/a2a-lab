@@ -24,9 +24,11 @@ but the text labels are clear and the existing icon registry should be used if t
 - [x] Desktop Canvas light and dark captures.
 - [x] Narrow Canvas light and dark captures.
 - [x] Eight-scene rail, title hierarchy, split stage, readiness rows, and persistent controls.
-- [x] Section entry, direct scenes, Previous/Next, arrows, popover Escape precedence, Exit focus,
-  repeated entry, experiment Back, operator/viewer handoff, auth transition, and signed-out gate.
+- [x] Keyboard section entry, both contextual launchers, direct scenes, Previous/Next, arrows,
+  background-render focus, text-entry and popover Escape precedence, Exit focus, repeated entry,
+  experiment Back, operator/viewer handoff, auth/panel restoration, and signed-out gate.
 - [x] Seeded prompts loaded, Memory enabled, and no automatic send.
+- [x] Non-default customer preservation, reduced motion, and persistent live-region announcement.
 - [x] No uncaught browser console or page errors in the final run.
 
 **Follow-up Polish**
@@ -53,7 +55,7 @@ Viewport and density:
 - Desktop implementation: 1440 × 1024 CSS px, deviceScaleFactor 1.
 - Narrow implementation: 390 × 844 CSS px, deviceScaleFactor 1.
 
-State: scene 8, Canvas light/dark, operator and viewer-safe copy, Maya selected, fixed registration,
+State: scene 8, Canvas light/dark, operator and viewer-safe copy, Jordan selected, fixed registration,
 configured data space, generation not preloaded.
 
 Full-view comparison evidence: the combined artifact was opened and reviewed. Overall composition,
@@ -87,10 +89,11 @@ Comparison history:
 4. Final browser harness passed every interaction, reported zero uncaught console/page errors, and
    generated the combined comparison artifact.
 
-Primary interactions tested: section entry; scene rail; Previous/Next boundaries; Left/Right;
-popover-first Escape; second Escape exit; focus restoration; repeated re-entry; Claude handoff and
-Back; OpenAI handoff; auth expiry/restoration; operator/viewer/signed-out roles; narrow controls;
-light/dark themes.
+Primary interactions tested: keyboard section entry; both contextual launchers; scene rail;
+Previous/Next boundaries; Left/Right; background redraw; text-entry and popover-first Escape;
+second Escape exit; focus restoration; repeated re-entry; Jordan-preserving Claude handoff and
+Back; OpenAI handoff; auth expiry/panel restoration; reduced motion/live region;
+operator/viewer/signed-out roles; narrow controls; light/dark themes.
 
 Browser console errors checked: yes; final run reported none.
 
