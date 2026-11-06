@@ -5187,11 +5187,13 @@ data graph to an Agent Configuration") found four things:
   demo registers graphs with the same body we send, but its owner is a Salesforce User. The QA fit
   suite never attaches a graph. So no product caller we can see exercises a customer graph. Two
   ways forward, neither run yet:
-  - **Send the CRM Individual id as `owner_id`.** It resolves to the profile `Customer360` holds.
-    But the first conversation write creates a pipeline Individual with the same Id as the CRM
-    one, so try it on a non-demo Contact, never on Maya.
-  - **Have the pipeline's Individual unify with the CRM one.** That needs a match field the
-    ruleset can use on the agentic Individual. Today it has none.
+  - ~~**Send the CRM Individual id as `owner_id`.**~~ Tested 2026-11-06 on Erin and Maya: every
+    owner kind resolves to a new provisional profile, because AM01 matches only on email and the
+    pipeline's Individual has none (plan/03).
+  - **Have the pipeline's Individual unify with the CRM one.** An AM01 rule matching exactly on
+    Individual Id would do it when the CRM id is the owner. This is a production ruleset change,
+    awaiting a go-ahead.
+  - **An Individual-rooted CRM graph**, which skips unification the way arm E does.
   Either change touches the faces' identity contract (D91/D104), so it gets its own ADR.
 
 **Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the

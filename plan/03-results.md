@@ -2423,13 +2423,33 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   failing graphs have opposite caching settings. The identity explanation covers B and G without
   the toggle. Separating the two would need an operator-made graph with the toggle off, whose
   record is keyed on the pipeline's own Individual.
-- **A test we did not run.** We did not send Maya's CRM Individual id (`003KB…`) as `owner_id`.
-  Its unified id is the one the graph holds, so in principle it would resolve there. Reads with
-  an owner that has no conversation return an empty `userContext` (B, F and G, 2026-11-06), so
-  the test needs a conversation opened first. Opening one makes the memory pipeline write an
-  Individual whose `Id` is `owner_id`. That Id already belongs to Maya's CRM Individual in
-  `ssot__Individual__dlm`, so the write could overwrite the demo customer's record. It needs a
-  non-demo Contact, or the product team's word on what `owner_id` a customer-keyed graph expects.
+- **Changing the kind of `owner_id` does not help** (2026-11-06, 06:01–06:17Z). For three owners
+  (Erin Walsh's CRM Individual id, Erin's AM01 unified id, and Maya's CRM Individual id), a
+  conversation was opened on each of B, E, F and G, then each arm was read every 60 s for 15 min:
+
+  | owner_id sent | resolves to (F's `UnifiedRecordId`) | B (`Customer360`) | G (`RT_UnifiedIndividual`) |
+  | --- | --- | --- | --- |
+  | Erin, CRM Individual id | a new provisional id | empty | root `Id` only |
+  | Erin, AM01 unified id | another new provisional id | empty | empty |
+  | Maya, CRM Individual id | a new provisional id | empty | empty |
+
+  E and F served each owner's pipeline Individual and its sessions on every read. B never served
+  anything. The pipeline's Individual has the same `Id` as the CRM Individual when `owner_id` is
+  the CRM id, yet E's record carries none of the CRM Individual's fields. The two stay separate
+  records, from different data sources (`AgenticConnector_*` against `Salesforce_Home`).
+- **Why the pipeline's Individual never joins the CRM profile.** AM01 has one match rule, exact
+  normalized email. The pipeline's Individual has no email, so real-time resolution gives every
+  owner a new profile. The batch `ssot__Individual__dlm` holds only the 146 `Salesforce_Home`
+  Contacts. The pipeline's Individuals exist only in the real-time layer, so a batch
+  identity-resolution run never sees them. The REST lookup confirms the split for Erin: `Customer360`
+  holds her CRM profile (name, title, email) and has no record at the provisional id, while
+  `RT_UnifiedIndividual` holds both ids.
+- **Not yet tested: an AM01 rule matching on Individual Id.** With the CRM id as owner, such a rule
+  would merge the pipeline's Individual with the CRM one (same `Id`), if real-time resolution
+  applies ruleset rules. It changes a production ruleset that re-clusters all 146 profiles, so it
+  waits for an explicit go-ahead. The ruleset and the 146 links were snapshotted first. The
+  other route is an Individual-rooted CRM graph, which needs no unification (that is why E
+  works). This org has no data-graph metadata type, so it is a Data Builder or Data Kit build.
 - **REST and the service's lookup disagree.** The REST lookup returns `ITEM_NOT_FOUND` for both
   platform graphs at every id we tried, including the resolved id. Yet the service read them.
   Use GetContext to verify a graph, not the REST lookup.
