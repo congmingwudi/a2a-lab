@@ -5094,10 +5094,13 @@ data graph to an Agent Configuration") found four things:
 - **Correct D105's premise.** One shared registration is the right design, but the reason is that
   memories are registration-scoped, not that the platform scopes them to the customer. A second
   registration starts empty for every customer.
-- **Next step: settle which of the two causes it is.** Read how registration
-  `contextDataSources` becomes the realtime management service's `additionalDatasources`
-  (the product's fit tests and the ACE demo app on git.soma register graphs). If that does not
-  settle it, ask the product team for the two log counts on arm B's reads (quote the `contextId`).
+- **Next step: ask the product team which of the two causes it is.** Reading code has gone as
+  far as it can. The ACE demo registers graphs with the same body we send, but it reads as a
+  Salesforce User. The QA fit suite never attaches a graph. So no product caller we can see
+  exercises a customer-keyed graph. Ask for the two service log counts on arm B's reads (quote
+  the `contextId` from `traces/graph-probe/`). The cheap local experiment is a second graph arm
+  rooted on `UnifiedIndividual__dlm` (the default profile DMO), to see whether only AM01-rooted
+  graphs fail.
 
 **Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the
 console are unchanged, so nothing is redeployed. One new production registration exists

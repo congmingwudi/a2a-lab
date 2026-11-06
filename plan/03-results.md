@@ -2329,3 +2329,15 @@ adds nothing to their prompt in this tenant. If it ever does, the record arrives
   conversation summaries, so a large record pushes memory out of the prompt.
 
 Both need a change in `render_context` before the graph is adopted (D115).
+- **What the product's own callers do** (git.soma, read 2026-11-05):
+  - **The ACE demo app sends the same body we do.** `a360/ace-demo`
+    (`server/ace_demo/agents_api.py`) registers graphs as
+    `configuration.contextDataSources.dataGraphs: [{"name": ...}]` with no profile DMO. So our
+    registration shape is not the difference.
+  - **It reads with a different kind of owner.** The demo's `owner_id` is the signed-in
+    Salesforce User id (`server/ace_demo/runtime.py`), which makes it an employee, User-rooted
+    case. Ours is a customer graph keyed by a Unified Individual.
+  - **The QA fit suite never attaches a graph.** `a360-quality/jarlsberg-fit-tests`
+    (`afc/agenticContextEngine/agent/AgenticAgent.java`) always creates agents with an empty
+    `dataGraphs`, and marks the element type "unverified". No product test we could find covers
+    a customer-keyed graph reaching GetContext.
