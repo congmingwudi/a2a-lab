@@ -64,3 +64,26 @@ Look at the PNG before you stamp. Fix overlapping nodes, clipped labels and edge
 cross nodes, then look again. A drawing is done when it reads better than the mermaid
 at a glance. `/architecture-sweep` runs this loop for every level `status` reports as
 stale.
+
+## Console figures (D114)
+
+The same contract covers every other mermaid figure in the console. These are the
+`*_DIAGRAM` constants in `src/console/static/index.html` (the Details-pane figures)
+and the insight-chip diagrams in `config/diagrams.yaml`. A figure's drawing is
+`docs/diagrams/<id>.drawio`. It builds to `src/console/static/diagrams/<id>.svg`, and
+its stamp lives in `src/console/static/diagrams/manifest.json`. The id is the
+diagrams.yaml `id`, or for a constant its name kebab-cased without `_DIAGRAM`
+(`COST_SENTINEL_DIAGRAM` → `cost-sentinel`). `src/console/figures.py` extracts both
+sources. The browser hashes the mermaid it is about to render, so editing a constant
+or a diagrams.yaml entry turns its drawing stale with no server round trip, and the
+figure opens on Mermaid until it is redrawn and stamped. The loop is the same, with
+the figure id in place of the level:
+
+```sh
+drawio -x -f png -s 1 -b 10 -o /tmp/cost-sentinel.png docs/diagrams/cost-sentinel.drawio
+uv run python scripts/arch_drawio.py build cost-sentinel && \
+  uv run python scripts/arch_drawio.py stamp cost-sentinel
+```
+
+A figure constant must be a literal template. A real `${...}` interpolation is refused,
+because its value is only known at run time and no stamp could match it.

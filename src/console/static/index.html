@@ -6124,12 +6124,127 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
   PG <--> MCP
   PG --> UI["Console — Coding Agents Telemetry"]`;
 
-// Render a mermaid source into an element, or hand over the source. Same
-// honesty rule as every other diagram here: say what broke, and still give you
-// the text you can paste elsewhere.
-async function renderMermaidInto(elId, src, svgId) {
+// Render a console figure into an element (D114, extending D113 beyond plan/09).
+// A figure with a stamped draw.io twin opens on the drawing; its mermaid — the
+// SOURCE, kept in this file or config/diagrams.yaml — is one tab away. The
+// browser decides staleness itself: it hashes the mermaid it is about to render
+// and compares that with the digest the drawing was stamped against, so an edit
+// to a *_DIAGRAM constant flips its figure back to mermaid with no redraw step
+// anyone can forget. `figKey` names the figure; omitted, it is looked up from
+// the source (the *_DIAGRAM constants), which keeps every call site unchanged.
+async function renderMermaidInto(elId, src, svgId, figKey) {
   const fig = document.getElementById(elId);
   if (!fig || !src) return;
+  fig.dataset.mermaidSrc = src;
+  fig.dataset.figKey = figKey || figKeyForSource(src) || "";
+  fig.dataset.svgId = svgId || (elId + "-svg");
+  await paintFigure(elId);
+}
+
+// Figure id per *_DIAGRAM constant: the constant's name kebab-cased, minus the
+// suffix — the same id src/console/figures.py derives, which a unit test holds
+// in step. Built lazily: every constant is initialised by first render.
+let figKeyMap = null;
+function figKeyForSource(src) {
+  if (!figKeyMap) {
+    figKeyMap = new Map([
+      [AF_ASYNC_DIAGRAM, "af-async"], [OBS_HARVEST_DIAGRAM, "obs-harvest"],
+      [OTEL_TRACE_DIAGRAM, "otel-trace"], [INFRA_DIAGRAM, "infra"],
+      [OBS_ANALYST_DIAGRAM, "obs-analyst"], [TABLEAU_NEXT_DIAGRAM, "tableau-next"],
+      [COST_SENTINEL_DIAGRAM, "cost-sentinel"], [BEHAVIOUR_DIAGRAM, "behaviour"],
+      [MON_DIAGRAM, "mon"], [CRED_AGENT_DIAGRAM, "cred-agent"],
+      [CRED_SCHEDULED_DIAGRAM, "cred-scheduled"], [BRIEF_DELIVERY_DIAGRAM, "brief-delivery"],
+    ]);
+  }
+  return figKeyMap.get(src) || "";
+}
+
+// The stamp manifest scripts/arch_drawio.py writes for figures. Fetched once,
+// revalidated (no-cache) so a deploy's new stamps are seen without a hard reload.
+let figManifestP = null;
+function figManifest() {
+  if (!figManifestP) {
+    figManifestP = fetch("/static/diagrams/manifest.json", { cache: "no-cache" })
+      .then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+  }
+  return figManifestP;
+}
+
+async function sha256Hex(text) {
+  if (!(window.crypto && crypto.subtle)) return "";   // insecure origin: treat as stale
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// {url, stale} for a figure with a built drawing, else null.
+async function figDrawing(key, src) {
+  if (!key) return null;
+  const entry = (await figManifest())[key];
+  if (!entry || !entry.svg_sha256) return null;
+  return {
+    url: `/static/diagrams/${encodeURIComponent(key)}.svg?v=${entry.svg_sha256.slice(0, 10)}`,
+    stale: entry.mermaid_sha256 !== await sha256Hex(src.trim()),
+  };
+}
+
+// Same rule as the Architecture levels: draw.io by default, mermaid when the
+// drawing is stale, and a reader's explicit choice (per figure) wins either way.
+const FIG_VIEW_KEY = "a2a-fig-view-v1";
+let figViewSel = {};
+try { figViewSel = JSON.parse(localStorage.getItem(FIG_VIEW_KEY) || "{}") || {}; } catch (e) {}
+function figViewFor(key, drawing) {
+  if (!drawing) return "mermaid";
+  const picked = figViewSel[key];
+  if (picked === "drawio" || picked === "mermaid") return picked;
+  return drawing.stale ? "mermaid" : "drawio";
+}
+
+window.figSetView = (elId, v) => {
+  const fig = document.getElementById(elId);
+  if (!fig) return;
+  figViewSel[fig.dataset.figKey] = v;
+  try { localStorage.setItem(FIG_VIEW_KEY, JSON.stringify(figViewSel)); } catch (e) {}
+  // Re-entrant by construction: paintFigure restores tabs, the source button and
+  // the source/diagram toggle from state rather than only switching things on.
+  fig.dataset.showingSource = "0";
+  paintFigure(elId);
+};
+
+async function paintFigure(elId) {
+  const fig = document.getElementById(elId);
+  if (!fig) return;
+  const src = fig.dataset.mermaidSrc || "";
+  const key = fig.dataset.figKey || "";
+  const drawing = await figDrawing(key, src);
+  const v = figViewFor(key, drawing);
+  const tabs = document.getElementById("figviews-" + elId);
+  if (tabs) {
+    tabs.style.display = drawing ? "" : "none";
+    tabs.innerHTML = drawing ? [["drawio", "draw.io"], ["mermaid", "Mermaid"]].map(([t, lab]) => `
+      <button class="tab ${v === t ? "on" : ""}" role="tab" aria-selected="${v === t}"
+        onclick="figSetView('${esc(elId)}','${t}')"
+        title="${t === "drawio" ? "Hand-drawn draw.io rendering of this figure (D114)"
+                                : "The mermaid this figure is drawn from — its source"}">${lab}${
+        t === "drawio" && drawing.stale ? " ⚠" : ""}</button>`).join("") : "";
+  }
+  const btn = document.getElementById("figsrc-" + elId);
+  // style, not the hidden attribute: button.ghost sets display and wins over it.
+  if (btn) { btn.style.display = v === "mermaid" ? "" : "none"; btn.textContent = "mermaid source"; }
+  fig.dataset.showingSource = "0";
+  fig.classList.toggle("arch-drawio", v === "drawio");
+  if (v === "drawio") {
+    try {
+      const svg = await archDrawioSvg(drawing.url);
+      if (fig.dataset.mermaidSrc !== src) return;   // re-rendered while in flight
+      fig.innerHTML = (drawing.stale
+        ? `<p class="hint arch-stale">This drawing predates the latest change to this figure's
+             mermaid, so it may show an older shape — the Mermaid view is current. Redraw with
+             <code>scripts/arch_drawio.py</code> (D114).</p>` : "") + svg;
+      return;
+    } catch (e) {
+      fig.classList.remove("arch-drawio");   // fall back to the source of truth
+    }
+  }
   try {
     const mermaid = await ensureMermaid();
     const dark = document.documentElement.getAttribute("data-theme") === "dark";
@@ -6137,11 +6252,12 @@ async function renderMermaidInto(elId, src, svgId) {
       startOnLoad: false, theme: dark ? "dark" : "default",
       securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
     });
-    const { svg } = await mermaid.render(svgId || (elId + "-svg"), src);
+    const { svg } = await mermaid.render(fig.dataset.svgId || (elId + "-svg"), src);
+    if (fig.dataset.mermaidSrc !== src) return;
     fig.innerHTML = svg;
-    fig.dataset.mermaidSrc = src;
-    fig.dataset.showingSource = "0";
   } catch (e) {
+    // Same honesty rule as every other diagram here: say what broke, and still
+    // give you the text you can paste elsewhere.
     fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
       + `<pre>${esc(src)}</pre>`;
   }
@@ -8455,11 +8571,49 @@ function briefsReportHtml() {
     </div></div>`;
 }
 
+// How a scheduled account brief travels from Anthropic's cron to the org, for
+// the Scheduled Brief Delivery Details pane (D16/D52/D81/D90). The session
+// PAUSES on a custom tool the platform cannot run; the watcher is what answers it.
+const BRIEF_DELIVERY_DIAGRAM = `flowchart LR
+  subgraph ANT["Anthropic — Claude Managed Agents"]
+    CRON["Scheduled deployment<br/>platform cron (setup_brief_agent.py)"]
+    SESS["Research session<br/>web_search · web_fetch in the sandbox"]
+    CRON -->|fires one session per run| SESS
+  end
+
+  subgraph AWS["AWS — us-east-1"]
+    WATCH["Brief watcher<br/>ECS Fargate a2alab-briefs · faces image<br/>python -m briefs --watch · every 60s"]
+    LEDGER[("Delivery ledger<br/>lab.lab_state brief_serviced_sessions<br/>delivered · pending · failed")]
+    CON["Console — Scheduled Brief Delivery<br/>GET /api/briefs/outcomes (operator-only)"]
+  end
+
+  subgraph SF["Salesforce org"]
+    ECA["a2a_lab_app ECA · client credentials<br/>run-as a2alab.briefs (D90)<br/>A2ALab_Brief_Writer: object + field access"]
+    ACC["Resolve the Account<br/>trusted map → exact name → unique LIKE"]
+    BRIEF[("A2ALab_Account_Brief__c<br/>upsert on A2ALab_Delivery_Key__c")]
+    BELL["A2ALab_Brief_Alert bell<br/>on create only · best-effort"]
+    TASK[("Completed Task on the Account<br/>upsert on A2ALab_Delivery_Key__c")]
+  end
+
+  SESS -.->|"pauses on save_account_brief<br/>(custom tool)"| WATCH
+  WATCH -->|"deployment_runs.list → attach"| SESS
+  WATCH <-->|"re-read every tick · write before advancing"| LEDGER
+  WATCH -->|"BriefWriter — REST"| ECA
+  ECA --> ACC
+  ACC --> BRIEF
+  BRIEF --> BELL
+  BRIEF --> TASK
+  WATCH -->|"tool result (first time only)"| SESS
+  LEDGER --> CON
+  OP["Operator<br/>python -m briefs --requeue-failed"] -.->|"re-arms terminal failures"| LEDGER`;
+
 function briefsDetailsHtml() {
   return `
     <div class="detail">
     <div class="hint" style="margin:10px 0 16px">What produces this ledger, and what bounds it —
     the D57 Details contract. The delivery guarantees below are A4/F07, settled in D81.</div>
+
+    ${figureHtml("briefsfig", "How a scheduled brief is delivered")}
 
     <div class="arch-prose">
       <h4>What writes it</h4>
@@ -8493,6 +8647,23 @@ function briefsDetailsHtml() {
       brief never reached the org. The ledger write is committed <i>before</i> the in-memory entry
       is advanced, so a lost store write leaves the session eligible next tick rather than stranding
       it (A4/F07, D81).</p>
+
+      <h4>Re-arming failures once the cause is fixed</h4>
+      <p>A terminal row stays terminal until an operator says otherwise:
+      <code>python -m briefs --requeue-failed</code> flips every <code>failed</code> session back to
+      <code>pending</code> with zero attempts, keeping its per-call record so a call that already
+      landed is never re-written. The watcher re-reads the ledger every tick, so the next poll
+      replays only the failed save calls from the session's history (D81 direct replay).</p>
+
+      <h4>The failure this pane caught (2026-11-04)</h4>
+      <p>From the D90 identity move onward, every Task upsert failed with
+      <code>No such column 'WhatId' on sobject of type Task</code>. The <code>a2alab.briefs</code> user's
+      Integration profile grants no field-level security on Task's standard fields, so
+      <code>WhatId</code>, <code>ActivityDate</code> and <code>Description</code> were invisible
+      while Task itself stayed createable, which is all the D90 preflight checked. The brief record
+      landed; its Task did not. <code>A2ALab_Brief_Writer</code> now grants those fields, and
+      <code>scripts/identity_preflight.py</code> checks FLS on every field the writer sends
+      (<code>briefs.salesforce.WRITTEN_FIELDS</code>).</p>
     </div>
     </div>`;
 }
@@ -8808,9 +8979,13 @@ window.archFullscreen = id => figFullscreen("archfig-" + id);
 // The header strip every embedded diagram gets: a label, Full screen, and the
 // mermaid source. One helper so a new diagram cannot ship without them.
 function figureHtml(elId, label) {
+  // The draw.io | Mermaid tabs start hidden: whether this figure HAS a drawing
+  // is known only once paintFigure has read the stamp manifest (D114).
   return `
     <div class="arch-head">
       ${label ? `<h3>${esc(label)}</h3>` : "<span></span>"}
+      <div class="tabs arch-views" role="tablist" aria-label="Diagram rendering"
+        id="figviews-${esc(elId)}" style="display:none"></div>
       <button class="ghost" onclick="figFullscreen('${esc(elId)}')"
         title="Full screen (Esc to exit)">Full screen</button>
       <button class="ghost" onclick="figToggleSource('${esc(elId)}')"
@@ -9195,7 +9370,7 @@ async function openDiagram(id) {
   // renderMermaidInto stashes the source on the figure, which is what
   // figToggleSource and the Full screen zoom read. Its own honest-failure path
   // (say what broke, still show the source) covers a render error here too.
-  await renderMermaidInto(figId, d.mermaid || "");
+  await renderMermaidInto(figId, d.mermaid || "", undefined, d.id);
 }
 
 document.addEventListener("click", ev => {
@@ -10963,6 +11138,7 @@ function renderMain(force) {
     mainKey = `briefs:${briefsTab}`;
     el.innerHTML = briefsHtml();
     linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
+    if (briefsTab === "details") renderMermaidInto("briefsfig", BRIEF_DELIVERY_DIAGRAM, "briefsfig-svg");
     return;
   }
 

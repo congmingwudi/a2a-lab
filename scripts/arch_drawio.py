@@ -14,6 +14,13 @@ drawing does not redraw itself. This script is what keeps that honest:
                        labels in the mermaid that the drawing does not contain?
   check                status, exiting 1 if any drawn level is stale or missing labels
 
+Every verb covers the console's other figures too (D114): the `*_DIAGRAM`
+constants in src/console/static/index.html and the insight diagrams in
+config/diagrams.yaml, by figure id (`cost-sentinel`, `platform-map`, ...). Their
+drawings live in docs/diagrams/, build to src/console/static/diagrams/, and
+stamp into that directory's manifest — which the BROWSER checks, by hashing the
+mermaid it is about to render.
+
 The console reads the manifest: a stale level opens on its mermaid, not its
 drawing, so a visitor is never shown a picture of the old shape by default.
 
@@ -24,6 +31,7 @@ drawing, so a visitor is never shown a picture of the old shape by default.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import re
@@ -44,6 +52,12 @@ from console.architecture import (  # noqa: E402
     MANIFEST_PATH,
     mermaid_digest,
     parse,
+)
+from console.figures import (  # noqa: E402
+    FIG_MANIFEST_PATH,
+    FIG_SRC_DIR,
+    FIG_SVG_DIR,
+    all_figures,
 )
 
 # A quoted mermaid label: node `ID["..."]`, `ID(["..."])`, `ID[("...")]`,
@@ -74,7 +88,9 @@ def drawio_text(path: Path) -> str:
     tree = ET.parse(path)
     values = [c.get("value", "") for c in tree.iter("mxCell")]
     values += [c.get("label", "") for c in tree.iter("object")]
-    return " | ".join(_norm(v) for v in values if v)
+    # Newline-joined: _norm collapses every whitespace run, so no label can
+    # contain one — unlike " | ", which a label may (`managed | sdk backend`).
+    return "\n".join(_norm(v) for v in values if v)
 
 
 def missing_labels(mermaid: str, drawio: Path) -> list[str]:
@@ -82,7 +98,7 @@ def missing_labels(mermaid: str, drawio: Path) -> list[str]:
     (a `<br/>` line each), because a drawing may legitimately re-flow a
     two-line label into a bold title and a muted detail line."""
     text = drawio_text(drawio)
-    flat = text.replace(" | ", " ")
+    flat = text.replace("\n", " ")
     missing = []
     for label in mermaid_labels(mermaid):
         if label in flat:
@@ -94,15 +110,42 @@ def missing_labels(mermaid: str, drawio: Path) -> list[str]:
     return missing
 
 
+class Target:
+    """One drawable diagram: a plan/09 level, or a console figure (D114)."""
+
+    def __init__(self, tid: str, mermaid: str, src_dir: Path, svg_dir: Path, manifest: Path):
+        self.id, self.mermaid = tid, mermaid
+        self.drawio = src_dir / f"{tid}.drawio"
+        self.svg = svg_dir / f"{tid}.svg"
+        self.manifest = manifest
+
+
+def _load(path: Path) -> dict:
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
 def _manifest() -> dict:
-    if MANIFEST_PATH.exists():
-        return json.loads(MANIFEST_PATH.read_text())
-    return {}
+    return _load(MANIFEST_PATH)
 
 
 def _levels() -> dict[str, str]:
     doc = parse((ROOT / DOC_PATH).read_text(encoding="utf-8"))
     return {lv["id"]: lv["mermaid"] for lv in doc["levels"] if lv["mermaid"]}
+
+
+def _targets() -> dict[str, Target]:
+    out = {lid: Target(lid, m, DRAWIO_SRC_DIR, ARCH_SVG_DIR, MANIFEST_PATH)
+           for lid, m in _levels().items()}  # fmt: skip
+    for fid, m in all_figures().items():
+        if fid in out:
+            sys.exit(f"figure id {fid} collides with a plan/09 level id")
+        out[fid] = Target(fid, m, FIG_SRC_DIR, FIG_SVG_DIR, FIG_MANIFEST_PATH)
+    return out
+
+
+def _write_manifest(path: Path, man: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(man, indent=2, sort_keys=True) + "\n")
 
 
 def _drawio_cli() -> str:
@@ -137,62 +180,74 @@ def _slim(svg: str) -> str:
 
 def build(ids: list[str]) -> None:
     cli = _drawio_cli()
-    ARCH_SVG_DIR.mkdir(parents=True, exist_ok=True)
-    sources = sorted(DRAWIO_SRC_DIR.glob("*.drawio"))
-    wanted = {p.stem: p for p in sources if not ids or p.stem in ids}
-    unknown = set(ids) - set(wanted)
+    targets = _targets()
+    drawn = {t.id: t for t in targets.values() if t.drawio.exists()}
+    unknown = set(ids) - set(drawn)
     if unknown:
-        sys.exit(f"no docs/architecture/<id>.drawio for: {', '.join(sorted(unknown))}")
-    for lid, src in wanted.items():
+        sys.exit(f"no .drawio source (docs/architecture or docs/diagrams) for: "
+                 f"{', '.join(sorted(unknown))}")  # fmt: skip
+    for tid, t in drawn.items():
+        if ids and tid not in ids:
+            continue
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out.svg"
             subprocess.run(
-                [cli, "-x", "-f", "svg", "--theme", "light", "-b", "10", "-o", str(out), str(src)],
+                [cli, "-x", "-f", "svg", "--theme", "light", "-b", "10", "-o", str(out),
+                 str(t.drawio)],
                 check=True,
                 capture_output=True,
-            )
+            )  # fmt: skip
             raw = out.read_text(encoding="utf-8")
-        dest = ARCH_SVG_DIR / f"{lid}.svg"
-        dest.write_text(_slim(raw), encoding="utf-8")
+        t.svg.parent.mkdir(parents=True, exist_ok=True)
+        t.svg.write_text(_slim(raw), encoding="utf-8")
         print(
-            f"{lid}: {src.relative_to(ROOT)} → {dest.relative_to(ROOT)} "
-            f"({len(raw) // 1024} KB → {dest.stat().st_size // 1024} KB)"
+            f"{tid}: {t.drawio.relative_to(ROOT)} → {t.svg.relative_to(ROOT)} "
+            f"({len(raw) // 1024} KB → {t.svg.stat().st_size // 1024} KB)"
         )
 
 
 def stamp(ids: list[str]) -> None:
-    levels = _levels()
-    man = _manifest()
-    for lid in ids:
-        if lid not in levels:
-            sys.exit(f"{lid}: no such level with a mermaid diagram in {DOC_PATH}")
-        if not (DRAWIO_SRC_DIR / f"{lid}.drawio").exists():
-            sys.exit(f"{lid}: docs/architecture/{lid}.drawio does not exist")
-        miss = missing_labels(levels[lid], DRAWIO_SRC_DIR / f"{lid}.drawio")
+    targets = _targets()
+    for tid in ids:
+        t = targets.get(tid)
+        if t is None or not t.mermaid:
+            sys.exit(f"{tid}: no such level ({DOC_PATH}) or console figure with a mermaid diagram")
+        if not t.drawio.exists():
+            sys.exit(f"{tid}: {t.drawio.relative_to(ROOT)} does not exist")
+        miss = missing_labels(t.mermaid, t.drawio)
         if miss:
             sys.exit(
-                f"{lid}: refusing to stamp — the drawing lacks {len(miss)} mermaid "
+                f"{tid}: refusing to stamp — the drawing lacks {len(miss)} mermaid "
                 f"label(s): {miss[:5]}"
             )
-        man[lid] = {"mermaid_sha256": mermaid_digest(levels[lid])}
-        print(f"{lid}: stamped against mermaid {man[lid]['mermaid_sha256'][:12]}")
-    MANIFEST_PATH.write_text(json.dumps(man, indent=2, sort_keys=True) + "\n")
+        man = _load(t.manifest)
+        entry = man.setdefault(tid, {})
+        entry["mermaid_sha256"] = mermaid_digest(t.mermaid)
+        if t.manifest == FIG_MANIFEST_PATH:
+            # The browser fetches figure SVGs by URL with no server in between, so
+            # the manifest carries the content hash that cache-busts them. Written
+            # here, not in `build`: builds run in parallel (the sweep), stamps run
+            # once, serially — the manifest is read-modify-write.
+            if not t.svg.exists():
+                sys.exit(f"{tid}: build it first — {t.svg.relative_to(ROOT)} does not exist")
+            entry["svg_sha256"] = hashlib.sha256(t.svg.read_bytes()).hexdigest()
+        _write_manifest(t.manifest, man)
+        print(f"{tid}: stamped against mermaid {man[tid]['mermaid_sha256'][:12]}")
 
 
 def status() -> list[dict]:
-    levels = _levels()
-    man = _manifest()
     rows = []
-    for lid, src in levels.items():
-        drawio = DRAWIO_SRC_DIR / f"{lid}.drawio"
-        svg = ARCH_SVG_DIR / f"{lid}.svg"
-        row = {"level": lid, "drawn": drawio.exists(), "built": svg.exists()}
-        if drawio.exists():
-            stamped = (man.get(lid) or {}).get("mermaid_sha256")
-            row["stale"] = stamped != mermaid_digest(src)
-            row["missing_labels"] = missing_labels(src, drawio)
+    mans: dict[Path, dict] = {}
+    for tid, t in _targets().items():
+        kind = "level" if t.manifest == MANIFEST_PATH else "figure"
+        row = {"level": tid, "kind": kind, "drawn": t.drawio.exists(), "built": t.svg.exists()}
+        if t.drawio.exists():
+            man = mans.setdefault(t.manifest, _load(t.manifest))
+            stamped = (man.get(tid) or {}).get("mermaid_sha256")
+            row["stale"] = stamped != mermaid_digest(t.mermaid)
+            row["missing_labels"] = missing_labels(t.mermaid, t.drawio)
             row["svg_older_than_source"] = (
-                not svg.exists() or svg.stat().st_mtime < drawio.stat().st_mtime
+                not t.svg.exists() or t.svg.stat().st_mtime < t.drawio.stat().st_mtime
             )
         rows.append(row)
     return rows
@@ -221,7 +276,7 @@ def main() -> None:
         else:
             for r in rows:
                 if not r["drawn"]:
-                    print(f"{r['level']:6} not drawn (console shows mermaid only)")
+                    print(f"{r['level']:22} not drawn (console shows mermaid only)")
                     continue
                 flags = []
                 if r["stale"]:
@@ -232,7 +287,7 @@ def main() -> None:
                     )
                 if r["svg_older_than_source"]:
                     flags.append("svg not rebuilt since the .drawio changed")
-                print(f"{r['level']:6} {'; '.join(flags) or 'ok'}")
+                print(f"{r['level']:22} {'; '.join(flags) or 'ok'}")
         if args.cmd == "check" and any(
             r["drawn"] and (r["stale"] or r["missing_labels"] or r["svg_older_than_source"])
             for r in rows

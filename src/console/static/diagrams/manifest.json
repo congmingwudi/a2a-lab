@@ -1,0 +1,90 @@
+{
+  "a2a-version-spectrum": {
+    "mermaid_sha256": "5332a9153067032ed1c975fb45cb7f9c6052b0a8a016f311678f09d471c44c28",
+    "svg_sha256": "12b0d6411cb4fb182ed3ea092dc433c25664945ac13e5fa3458b34b6efea7182"
+  },
+  "af-async": {
+    "mermaid_sha256": "ddad5924d1769c132a449d37a1068b1af6ee60b127c4109d507ba245748fad99",
+    "svg_sha256": "ca6bc529baba935ee7ab1583790b28f1af91d82254ed18a3b7d23585b4038de8"
+  },
+  "behaviour": {
+    "mermaid_sha256": "d59895ef03dfc78f1fe513effc77b8577030a4cc7a84697a8b042ce9120d889e",
+    "svg_sha256": "5957f3340fe38a2bbdbc5d8a82f0a1fab60109a8a743e5e3c382f3d5c9c2b012"
+  },
+  "behaviour-signal-content-off": {
+    "mermaid_sha256": "7a298e8630f15bd83d437accaa14898fac632844779cf62ad83085435dd8e60a",
+    "svg_sha256": "be31a014fe0e0e3ce14ef3dfcf8149ccc4a6e3cd64b5c21b29f5c5a27ac10e88"
+  },
+  "brief-delivery": {
+    "mermaid_sha256": "0c1a740daa5ea834b7669c67928d3cfa92083de0ffc85840c19cd97ff7b09765",
+    "svg_sha256": "fa972bc9937b25ab56cdaf44f627d66326b48ec2f61007c2fa62c20096ece8c3"
+  },
+  "claude-pair-detail": {
+    "mermaid_sha256": "b2bc3962778be29c867b14930b6f78571050bc5018cf702ee7e214d1442c4d10",
+    "svg_sha256": "c483efb7264c48032bbf29cff9357db882925c1be745a71eaa9e25a15613f101"
+  },
+  "console-two-mints": {
+    "mermaid_sha256": "f507b75457f574ac9e7f86d5428c5add26fca2ad4435159e976b6e3b46291531",
+    "svg_sha256": "21a1c29e30b82d4aeb32758e72c86558a0bc7f84cf1fdbc00ce9d51c6c7a94fc"
+  },
+  "cost-sentinel": {
+    "mermaid_sha256": "a16fc8c81276949bfbe16ea2b4acdc41341c05d12cfe821a42d0d150218b9cac",
+    "svg_sha256": "afa1c61b1c00aa1b33e8dd1abf36432619904f11c0b38fdd3a8f7676ab41d026"
+  },
+  "cred-agent": {
+    "mermaid_sha256": "4d1b2b399a5f467c81a68d61fdb4ecf96b5d0d3648a212dd8ea16abb3feccd2a",
+    "svg_sha256": "e9ff9d9a629355821fc2cb05403534359095355b0ccbc8ec569fb276ca0abde2"
+  },
+  "cred-scheduled": {
+    "mermaid_sha256": "aa710b4ffc1ec3f211803fbe71c9b4764b03a7a6c56c816b845c2a44aaf9bc7b",
+    "svg_sha256": "3ffc296c7152bfefb9174aa05ed1c36a22383c43aeb1f95ea8d26c28cc1eb05f"
+  },
+  "customer-memory-continuity": {
+    "mermaid_sha256": "c84e6c611083a97132bd9e9a4e027f8d2d3f6f9a96c94dcf87d9c033f582fa37",
+    "svg_sha256": "defcdd8cabd9f5fd63008bdedd3d4ef3adddff637306d62f1745fd7f2b86daf2"
+  },
+  "delegation-guard": {
+    "mermaid_sha256": "cbbcde529a48f5e6e8d8aa134b3de5ac22a07a3f6567bb9df254b5519ece5471",
+    "svg_sha256": "2e51002be281ab2e398cc642d54389843d93b2b2cbb54b8a173a9d0684ae9e39"
+  },
+  "fan-out-orchestration": {
+    "mermaid_sha256": "0822fc652f7903fb11fb3fe2dc1a894cc636169890cce7525080e2a8e0c5501b",
+    "svg_sha256": "5a3ae878a5737d737e277ee32979f8fe23d4cf183885e43de164f4b43895b97f"
+  },
+  "identity-and-secrets": {
+    "mermaid_sha256": "0245e883ce91ce2e870cf412b790498f129733033e4e04f0233a4b7c2fd3727e",
+    "svg_sha256": "bb6ec71ca9e6a4c8cdb3dcb715cfabaf6c4efcadae75104bb06825f7ccd175b1"
+  },
+  "infra": {
+    "mermaid_sha256": "e4b657fcedfc6d4af5c2e6e4550c5034f0edb425f05ae74d0c7d1746e3a21d02",
+    "svg_sha256": "8bebfa589d388f3f2d47def53f1d0e58609a1f9ae6f525115950841451940eb4"
+  },
+  "mon": {
+    "mermaid_sha256": "0bbf2430b6e63d04d1bf913a58fea44fc90e52bb100a8339bd8b1e885a99c858",
+    "svg_sha256": "839d41824765b2285032a03dad55e2b9746289746af74e7359267b0a420595b3"
+  },
+  "obs-analyst": {
+    "mermaid_sha256": "233cb6225dfdc13e1000629552f0c8c1d1435d8a8248e12babdddad045f7a990",
+    "svg_sha256": "911f7917e3c1817a092d78af390e17e0e4142fcf3298816b05b576dc19188893"
+  },
+  "obs-harvest": {
+    "mermaid_sha256": "5f763a390e656834cd2e83d1d73d20a74e56bf40504f8a7ae7d02368803ccbd1",
+    "svg_sha256": "790c72879560d780686479262ab58bf3e5e6cacfb49ca0bbee42aea9bcfd1a21"
+  },
+  "otel-trace": {
+    "mermaid_sha256": "23e6005015ed80d6c54691503e721958534a53cc13853c543750c8609c49d07c",
+    "svg_sha256": "f4204e93aa9b9689d0278ce65f7137d4d030bb624fb4629684cf0673d7d8bd8e"
+  },
+  "platform-map": {
+    "mermaid_sha256": "bd6948c5601067a1d9c69f88fe9bcd80715f430338c398fd12dfa1f044eb3072",
+    "svg_sha256": "25f2a2c6f93d2ae845c41ccd9fad530b86eea34a96e47ef2c64d71a65ea7e95f"
+  },
+  "supplier-disruption-case-memory": {
+    "mermaid_sha256": "4b91b2957eb219fa5b2052dee1ede8da8084a15c83ba3cd86882d4f3313e4150",
+    "svg_sha256": "533be88a65ac59cce3bc8aaff245a83da7a50d1660074b09fad38037d1c0f869"
+  },
+  "tableau-next": {
+    "mermaid_sha256": "4dc2aa00365c8a7c8e2e99b492f32036925d5099dbfc17e2c7f0bb68bff7f6bb",
+    "svg_sha256": "03a8dfe9cce17d5878fb4326dccce65657efb082a36a22fac759ae91e1bbb7d4"
+  }
+}

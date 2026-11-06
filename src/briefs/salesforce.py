@@ -36,6 +36,24 @@ SOURCE_LABEL = "Claude managed agent (A2A interop lab)"
 # existing record instead of creating a duplicate.
 DELIVERY_KEY_FIELD = "A2ALab_Delivery_Key__c"
 
+# Every field save_brief() writes, per sObject. The run-as user (a2alab.briefs,
+# D90) needs FLS edit on EACH of these — the Integration profile grants none on
+# standard fields, so a missing grant reads "No such column 'WhatId'" while the
+# object itself stays createable (2026-11-04). The permission set
+# A2ALab_Brief_Writer, identity_preflight.py and the unit suite all read this
+# one list, so a new field cannot ship without its grant.
+WRITTEN_FIELDS: dict[str, tuple[str, ...]] = {
+    "A2ALab_Account_Brief__c": (
+        "Account__c",
+        "Brief__c",
+        "Brief_Date__c",
+        "Source__c",
+        "Research_Session_Id__c",
+        DELIVERY_KEY_FIELD,
+    ),
+    "Task": ("Subject", "WhatId", "Status", "ActivityDate", "Description", DELIVERY_KEY_FIELD),
+}
+
 # Operator-authored, trusted name -> Account Id map (A5/F03). JSON env value (not
 # a delimiter — account names contain commas). A model-provided name that matches
 # a key here is resolved to the mapped Id directly, with a binding check.
@@ -186,6 +204,24 @@ class BriefWriter:
             )
         return {"id": rec_id, "created": bool((data or {}).get("created", False))}
 
+    async def _create_once_by_external_id(
+        self, sobject: str, ext_field: str, key: str, body: dict
+    ) -> dict:
+        """First write wins: return the row already holding `key` untouched, and
+        upsert only when there is none. The upsert alone stops DUPLICATES but
+        overwrites — and a resumed session re-researches and issues a new save
+        call the watcher's per-call replay record cannot recognise, which on
+        2026-11-05 rewrote 21 historical briefs with the replay day's content
+        (plan/03-results.md). The check-then-upsert is not atomic: two writers
+        racing the same key can both see "absent", and the org's upsert still
+        keeps that to one row (the later write's content), exactly as before."""
+        rows = await self._query(
+            f"SELECT Id FROM {sobject} WHERE {ext_field} = '{_soql_str(key)}' LIMIT 1"
+        )
+        if rows:
+            return {"id": rows[0]["Id"], "created": False, "kept": True}
+        return await self._upsert_by_external_id(sobject, ext_field, key, body)
+
     async def _resolve_account(self, account_name: str, trace_id: str) -> dict:
         """Deterministic Account resolution (A5/F03). Preference order:
         the trusted name->Id map (with a binding check), then an exact-name
@@ -293,7 +329,7 @@ class BriefWriter:
             transport_detail=f"PATCH upsert A2ALab_Account_Brief__c ({DELIVERY_KEY_FIELD})",
             request_payload={**body, "Brief__c": f"({len(brief_markdown)} chars) {headline}"},
         ) as hop:
-            upserted = await self._upsert_by_external_id(
+            upserted = await self._create_once_by_external_id(
                 "A2ALab_Account_Brief__c", DELIVERY_KEY_FIELD, delivery_key, body
             )
             brief_id = upserted["id"]
@@ -337,7 +373,7 @@ class BriefWriter:
             transport_detail=f"PATCH upsert Task ({DELIVERY_KEY_FIELD}) — activity on the Account",
             request_payload=task_body,
         ) as hop:
-            task = await self._upsert_by_external_id(
+            task = await self._create_once_by_external_id(
                 "Task", DELIVERY_KEY_FIELD, delivery_key, task_body
             )
             hop.response_payload = task

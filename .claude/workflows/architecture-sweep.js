@@ -231,27 +231,34 @@ log(`drawings: ${needs.length} to redraw · ${undrawn.length} undrawn (mermaid-o
 const redraws = await parallel(
   needs.map(l => () =>
     agent(`
-Bring ONE draw.io architecture drawing back in line with its mermaid source.
+Bring ONE draw.io drawing back in line with its mermaid source.
 
-LEVEL: ${l.level}
+${l.kind === 'figure' ? 'FIGURE' : 'LEVEL'}: ${l.level}
 STATUS: ${JSON.stringify(l)}
 
-1. Read docs/architecture/STYLE.md — the style contract. Follow it exactly.
-2. Read the "## ${l.level} —" level of plan/09-deployment-map.md; its FIRST mermaid
-   fence is the source of facts. Read docs/architecture/${l.level}.drawio.
+1. Read docs/architecture/STYLE.md — the style contract (incl. "Console figures", D114). Follow it exactly.
+2. ${l.kind === 'figure'
+    ? `The source of facts is this figure's mermaid — print it with
+   \`PYTHONPATH=src uv run python -c "from console.figures import all_figures; print(all_figures()['${l.level}'])"\`.
+   Read docs/diagrams/${l.level}.drawio.`
+    : `Read the "## ${l.level} —" level of plan/09-deployment-map.md; its FIRST mermaid
+   fence is the source of facts. Read docs/architecture/${l.level}.drawio.`}
 3. Edit the .drawio so it carries exactly the mermaid's nodes, edges, edge labels
    and subgraph titles — add what is new, REMOVE what the mermaid no longer has,
    relabel what changed. Preserve the existing hand layout wherever the facts did
    not change: this is a redraw of a diff, not a fresh drawing.
 ${(l.missing_labels || []).length ? `   The checker reports these mermaid labels missing from the drawing: ${JSON.stringify(l.missing_labels)}
-` : ''}4. Render and LOOK: \`drawio -x -f png -s 1 -b 10 -o /tmp/arch-${l.level}.png docs/architecture/${l.level}.drawio\`,
+` : ''}4. Render and LOOK: \`drawio -x -f png -s 1 -b 10 -o /tmp/arch-${l.level}.png ${l.kind === 'figure' ? 'docs/diagrams' : 'docs/architecture'}/${l.level}.drawio\`,
    then Read the PNG. Fix overlaps, clipped labels, edges crossing nodes. Look again.
 5. \`uv run python scripts/arch_drawio.py build ${l.level}\`
 6. \`uv run python scripts/arch_drawio.py status --json\` — confirm missing_labels is
    empty for ${l.level}. (It will still say stale: stamping happens after you.)
 
-Do NOT run \`stamp\`. Do NOT edit plan/09 or any file other than
-docs/architecture/${l.level}.drawio and src/console/static/arch/${l.level}.svg.
+Do NOT run \`stamp\`. Do NOT edit the mermaid source or any file other than
+${l.kind === 'figure'
+  ? `docs/diagrams/${l.level}.drawio and src/console/static/diagrams/${l.level}.svg (build also
+updates that figure's svg_sha256 in static/diagrams/manifest.json — expected).`
+  : `docs/architecture/${l.level}.drawio and src/console/static/arch/${l.level}.svg.`}
 If the mermaid itself looks wrong, say so in notes — the drawing follows it anyway.
 `, { schema: REDRAW, label: `redraw:${l.level}`, phase: 'Drawings', agentType: 'general-purpose' }),
   ),

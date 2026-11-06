@@ -27,8 +27,13 @@ from __future__ import annotations
 import os
 import sys
 
+from pathlib import Path
+
 import httpx
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from briefs.salesforce import WRITTEN_FIELDS  # noqa: E402  — the writer's own field list
 
 AGENT_API = "https://api.salesforce.com/einstein/ai-agent/v1"
 
@@ -254,6 +259,14 @@ def _check_briefs(http: httpx.Client, dom: str, headers: dict, _r) -> str | None
         missing = [f for f in flags if not d.get(f)]
         if missing:
             return f"brief writer may not {'/'.join(missing)} {sobject} (HTTP {r.status_code})"
+        # The object flag is not enough: a field without FLS is simply absent from
+        # the describe, and the upsert fails "No such column" (2026-11-04).
+        fields = {f["name"]: f for f in d.get("fields", [])}
+        hidden = [n for n in WRITTEN_FIELDS[sobject]
+                  if not all(fields.get(n, {}).get(fl) for fl in flags)]  # fmt: skip
+        if hidden:
+            return (f"brief writer lacks FLS edit on {sobject}.{', '.join(hidden)} — grant it "
+                    "in A2ALab_Brief_Writer")  # fmt: skip
     return None
 
 

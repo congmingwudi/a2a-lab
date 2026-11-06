@@ -2179,6 +2179,44 @@ without recalled. Console ECS task `a2alab-console:149`, image digest
 with ALB health 200; faces remained on the accepted generation-isolation image
 `sha256:c77ce2229bc84bf845880ee75a529c00855b61221703081ca24f8d517c878c07`.
 
+
+## 2026-11-04 — Scheduled Brief Delivery: 27 terminal failures traced to missing Task FLS
+
+The console's Scheduled Brief Delivery pane showed 88 delivered, 0 retrying and **27 failed**. Every
+failure was the same Salesforce 400: `No such column 'WhatId' on sobject of type Task` (INVALID_FIELD)
+on the delivery-keyed Task upsert. The brief record itself was written in each of these sessions;
+only the follow-up Task failed. Root cause: the D90 run-as move to `a2alab.briefs` without FLS on
+standard Task fields. The fix is the D90 follow-up in plan/00-decisions.md. A check-only validate of
+the permission set against the org succeeded. The production deploy and the requeue of the 27
+sessions are operator steps. Record the replay outcome here when they run.
+
+**Replay outcome (2026-11-05).** The permission set deployed to production, and
+`identity_preflight.py` then passed all seven identities, including the new field-level check on
+the brief writer. The hosted watcher `a2alab-briefs` was scaled to 0. `python -m briefs
+--requeue-failed` ran against the Aurora ledger and re-armed **28** sessions: the 27 above plus
+that morning's daily run, which failed the same way before the deploy. The watcher was then scaled
+back to 1. It served the sessions one at a time from 18:35 to 22:40 UTC. The first four logged
+94–602s each, with 7–10 web lookups and 0 failed calls.
+
+Measured in the org afterwards:
+- **All 28 requeued sessions now have their delivery-keyed Task.** That is 28 Tasks, one per
+  session id, and none is duplicated.
+- **21 existing `A2ALab_Account_Brief__c` records were overwritten.** These are the records
+  created 2026-10-16 through 11-05. Each now holds that day's re-researched content and has
+  `Brief_Date__c` = 2026-11-05. The upsert matched the delivery key, so no duplicate was created,
+  but the original daily briefs were replaced.
+  - Cause: each resumed session ran its research again and issued a NEW `save_account_brief`
+    call. Calls are keyed by `tool_use_id`, so the kept `calls` map does not cover a new call.
+  - So the D90 follow-up's "a save that already landed is never re-written" holds per call, not
+    per session.
+- **7 brief records were created new.** These are the oldest sessions, and none of them had a
+  prior brief record. So the earlier statement that "the brief record itself was written in each"
+  was true for only 21 of the 28.
+
+The per-session watcher log totals after the fourth session were not collected, because the AWS
+SSO session expired. The Salesforce counts above are the record of this replay.
+
+
 ## 2026-11-05 — Real-time data graph probe: the graph serves real-time lookups, but its CRM input is batch
 
 **Question.** Does the A2A Lab org have a real-time data graph (RTDG), and are its lookups served
@@ -2302,6 +2340,18 @@ Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile da
     resolves nothing for these ids. The service writes both counts to its own logs
     (`configured_additional_datasource_dgs=N`, `additional_datasource_results=N`), and only the
     product team can read those logs.
+- **What the product's own callers do** (git.soma, read 2026-11-05):
+  - **The ACE demo app sends the same body we do.** `a360/ace-demo`
+    (`server/ace_demo/agents_api.py`) registers graphs as
+    `configuration.contextDataSources.dataGraphs: [{"name": ...}]` with no profile DMO. So our
+    registration shape is not the difference.
+  - **It reads with a different kind of owner.** The demo's `owner_id` is the signed-in
+    Salesforce User id (`server/ace_demo/runtime.py`), which makes it an employee, User-rooted
+    case. Ours is a customer graph keyed by a Unified Individual.
+  - **The QA fit suite never attaches a graph.** `a360-quality/jarlsberg-fit-tests`
+    (`afc/agenticContextEngine/agent/AgenticAgent.java`) always creates agents with an empty
+    `dataGraphs`, and marks the element type "unverified". No product test we could find covers
+    a customer-keyed graph reaching GetContext.
 - **A graph's root must be a declared profile DMO.** Registering D returned `INVALID_API_INPUT`:
   "The data graph must be rooted on User, Individual, or a Unified DMO declared in profileDmos
   (UnifiedIndividual__dlm)". A registration with no profile DMO therefore defaults to
@@ -2329,15 +2379,3 @@ adds nothing to their prompt in this tenant. If it ever does, the record arrives
   conversation summaries, so a large record pushes memory out of the prompt.
 
 Both need a change in `render_context` before the graph is adopted (D115).
-- **What the product's own callers do** (git.soma, read 2026-11-05):
-  - **The ACE demo app sends the same body we do.** `a360/ace-demo`
-    (`server/ace_demo/agents_api.py`) registers graphs as
-    `configuration.contextDataSources.dataGraphs: [{"name": ...}]` with no profile DMO. So our
-    registration shape is not the difference.
-  - **It reads with a different kind of owner.** The demo's `owner_id` is the signed-in
-    Salesforce User id (`server/ace_demo/runtime.py`), which makes it an employee, User-rooted
-    case. Ours is a customer graph keyed by a Unified Individual.
-  - **The QA fit suite never attaches a graph.** `a360-quality/jarlsberg-fit-tests`
-    (`afc/agenticContextEngine/agent/AgenticAgent.java`) always creates agents with an empty
-    `dataGraphs`, and marks the element type "unverified". No product test we could find covers
-    a customer-keyed graph reaching GetContext.

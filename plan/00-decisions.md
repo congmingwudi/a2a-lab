@@ -5025,6 +5025,82 @@ to the old mermaid view rather than to a wrong picture. Redrawing needs draw.io 
 machine that runs it. The console image already copies `src/`, so the SVGs ship with a normal
 **full** console rebuild. `--skip-build` keeps the old image and the old drawings.
 
+## 2026-11-04 — D114: every console mermaid figure gets a draw.io twin (extends D113)
+
+**Context.** D113 made the Architecture section open on hand-laid-out draw.io drawings, with the
+mermaid one tab away, and the drawings read better. The console has about twenty more mermaid
+figures:
+- the Details-pane `*_DIAGRAM` constants in `src/console/static/index.html` (cost sentinel,
+  credentials, OTel trace, infra harvest, brief delivery, …);
+- the insight-chip diagrams in `config/diagrams.yaml`, which open in a modal.
+
+All of them still rendered mermaid's generic layout.
+
+**Decision.** D113's mechanism now applies to every console figure.
+- **Drawings and ids.** A figure's drawing is `docs/diagrams/<id>.drawio`, built to
+  `src/console/static/diagrams/<id>.svg` and stamped in `src/console/static/diagrams/manifest.json`.
+  `src/console/figures.py` is the single extractor of the two sources. The id is the
+  diagrams.yaml `id`, or the constant's name kebab-cased. Ids share one namespace, and a collision
+  is refused.
+- **Tooling.** `scripts/arch_drawio.py` treats plan/09 levels and figures as one target list, so
+  `status | check | build | stamp` cover both. The stamp still refuses a drawing that is missing a
+  mermaid label.
+- **Where staleness is decided.** For figures this happens **in the browser**, not by an API. The
+  page hashes (sha256, `crypto.subtle`) the exact mermaid string it is about to render and compares
+  it with the manifest.
+  - A mismatch opens the figure on Mermaid, with the draw.io tab marked ⚠, the same honesty rule as
+    D113.
+  - This means an edit to a constant degrades safely even if nobody runs `arch_drawio.py`.
+  - It is also why a figure constant must be a literal: an interpolated `${...}` is refused by the
+    extractor.
+- **The reader's choice.** Draw.io or Mermaid is remembered per figure.
+
+**Consequences.**
+- Redrawing a figure joins the "architectural change updates its diagrams" upkeep (CLAUDE.md). As
+  with D113, skipping it falls back to mermaid rather than to a wrong picture.
+- The SVGs live under `src/`, so they ship with a normal **full** console rebuild. `--skip-build`
+  keeps the old drawings.
+- `tests/unit/test_figures.py` pins three things: the extractor and the browser's id map agree;
+  the manifest names only real figures; and the digest equals what the browser hashes.
+
+## 2026-11-04 — D90 follow-up: the brief writer had object access but no FLS on Task fields
+
+**Context.** The Scheduled Brief Delivery ledger showed 27 sessions terminal `failed` (D81), every
+one with `PATCH /sobjects/Task/A2ALab_Delivery_Key__c/... -> 400: No such column 'WhatId' on sobject
+of type Task`. D90 (2026-10-15) moved the client-credentials run-as user of `a2a_lab_app` from the
+admin to the integration user `a2alab.briefs` (Minimum Access - API Only). Its permission set
+`A2ALab_Brief_Writer` granted Task create/edit and FLS on the custom delivery key. It granted **no
+FLS on the standard Task fields the writer sets** (`WhatId`, `ActivityDate`, `Description`). REST
+reports a field the caller cannot see as "No such column", so the error reads like a schema bug and
+not a permission gap. The `A2ALab_Account_Brief__c` records still landed: the brief upsert runs first,
+and only the follow-up Task failed. The D90 preflight checked object-level `createable`/`updateable`
+only, so it passed.
+
+**Decision.**
+- **Grant the missing FLS.** `A2ALab_Brief_Writer` grants edit FLS on `Task.WhatId`,
+  `Task.ActivityDate` and `Task.Description`.
+- **One list of written fields.** The fields the writer sets are declared once, in
+  `briefs.salesforce.WRITTEN_FIELDS`, and two checks hold to it:
+  - a unit test requires that every upserted field is in the contract and that the permission set
+    grants FLS on each, apart from the always-editable `Subject`/`Status`;
+  - `scripts/identity_preflight.py` now describes each written sobject **as the brief writer** and
+    fails on any field it cannot both create and update. That is the field-level check D90's
+    preflight lacked.
+- **Re-arming failures.** `python -m briefs --requeue-failed` re-arms terminal failures once a
+  cause is fixed. It sets `attempts` to 0 and keeps each session's `calls`, so a save CALL that
+  already landed is never replayed.
+  - That guarantee is per call, not per session. The 2026-11-05 replay (plan/03-results.md)
+    showed the gap: a resumed session re-researches and issues a new `save_account_brief` call
+    under a new `tool_use_id`, and that call's upsert overwrote 21 historical briefs with the
+    replay day's content.
+- **First write wins, per delivery key.** `BriefWriter` now checks for an existing brief or Task
+  with the delivery key before upserting. If one exists, it returns that row untouched
+  (`_create_once_by_external_id`), so the org-side record is protected no matter which call
+  produced the write. A race between two writers can still slip past this check; the upsert then
+  keeps it to one row, as before (D81).
+- **The watcher re-reads its ledger every tick**, so an operator edit is not overwritten by its
+  in-memory copy.
+
 ## 2026-11-05 — D105 follow-up: the org now supports real-time data graphs, but CRM input is batch
 
 **Context.** D105 kept `A2ALab_Memory_Customer360` out of the memory configuration and deferred a

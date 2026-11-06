@@ -3,6 +3,7 @@
     uv run python -m briefs --run-now "Omega, Inc."   # fire the daily job now
     uv run python -m briefs --watch                    # service scheduled runs
     uv run python -m briefs --push-state               # local serviced set -> Aurora
+    uv run python -m briefs --requeue-failed           # re-arm terminal failures
 
 --watch is the lab-host half of the scheduled-deployment pattern: Anthropic's
 cron fires sessions autonomously; this loop finds each deployment run,
@@ -172,11 +173,15 @@ async def watch() -> None:
         print("[briefs] no deployment_id in .a2alab/brief.json — nothing to watch")
         return
     client = AsyncAnthropic()
-    ledger = _load_ledger()
     print(f"[briefs] watching deployment {deployment_id} every {POLL_S:.0f}s", flush=True)
 
     while True:
         try:
+            # Re-read every tick, not once at boot: the stored ledger is the
+            # truth, and an operator edit to it (`--requeue-failed`) must not be
+            # overwritten by a stale in-memory copy written back below. A failed
+            # read skips the tick rather than servicing against unknown state.
+            ledger = _load_ledger()
             runs = client.beta.deployment_runs.list(deployment_id=deployment_id)
             async for run in runs:
                 session_id = getattr(run, "session_id", None)
@@ -243,6 +248,22 @@ async def _service_once(client, session_id: str, prior: dict | None) -> dict:
             flush=True,
         )
     return entry
+
+
+def requeue_failed(ledger: dict[str, dict]) -> tuple[dict[str, dict], list[str]]:
+    """Re-arm every terminal `failed` session for the watcher: status back to
+    `pending`, attempts to 0. `calls` is KEPT, so a save call that already
+    landed (`ok`) is still never re-written — only the failed ones replay (D81
+    direct replay). For after the cause of a failure is fixed (e.g. the
+    2026-11-04 Task FLS grant); a persistent failure just re-terminates after
+    another A2ALAB_BRIEF_MAX_ATTEMPTS ticks."""
+    out, requeued = dict(ledger), []
+    for sid, entry in ledger.items():
+        if entry.get("status") == "failed":
+            out[sid] = {**entry, "status": "pending", "attempts": 0,
+                        "requeued_at": _now_iso()}  # fmt: skip
+            requeued.append(sid)
+    return out, requeued
 
 
 def push_state() -> None:
@@ -317,7 +338,20 @@ def main() -> None:
         action="store_true",
         help="seed the hosted store from .a2alab/brief_state.json (run once, before --watch)",
     )
+    group.add_argument(
+        "--requeue-failed",
+        action="store_true",
+        help="re-arm terminal `failed` sessions so the watcher retries them",
+    )
     args = parser.parse_args()
+    if args.requeue_failed:
+        ledger, requeued = requeue_failed(_load_ledger())
+        if requeued:
+            _save_ledger(ledger)
+        print(f"[briefs] requeued {len(requeued)} failed session(s)")
+        for sid in requeued:
+            print(f"  {sid}")
+        return
     if args.watch:
         asyncio.run(watch())
     elif args.push_state:
