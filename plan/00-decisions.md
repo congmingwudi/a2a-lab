@@ -5190,10 +5190,25 @@ data graph to an Agent Configuration") found four things:
   - ~~**Send the CRM Individual id as `owner_id`.**~~ Tested 2026-11-06 on Erin and Maya: every
     owner kind resolves to a new provisional profile, because AM01 matches only on email and the
     pipeline's Individual has none (plan/03).
-  - **Have the pipeline's Individual unify with the CRM one.** An AM01 rule matching exactly on
-    Individual Id would do it when the CRM id is the owner. This is a production ruleset change,
-    awaiting a go-ahead.
+  - ~~**Have the pipeline's Individual unify with the CRM one** via an AM01 Individual Id
+    rule.~~ Refused 2026-11-06: "criteria are too weak" (plan/03).
+  - **Re-read Erin and Maya by Contact id after 2026-11-07 06:00Z.** The real-time link maps
+    each Contact to a provisional unified id, while batch AM01 maps it to the CRM profile. An
+    internal ACE demo was served a CRM-rooted graph with exactly this `owner_id` shape. A
+    reported real-time identity lock (real-time identity created before the lakehouse ID-map
+    sync, up to about 24 h) would explain the difference.
   - **An Individual-rooted CRM graph**, which skips unification the way arm E does.
+  - **Try `unifiedProfileDGs`.** This registration key is preferred over `AgenticIndividual` when
+    set, per engineering on Slack; we have never sent it.
+- **Governance contradicts point 3.** The governance doc says "Curated memory is scoped to the
+  customer (`xid`) and is available to any agent serving that customer". We measured facts and
+  preferences as registration-scoped. A cross-registration test has not been run. It would save a
+  fact through `A2ALab_Memory_Case`, read it through `_Graph_Ind`, and then read the same owner
+  with a mismatched `xid` to confirm fail-closed. Until that runs, point 3 stands as measured and
+  the doc's claim is recorded as unverified.
+- **"External User" in Edit Agent means the customer** (`owner_type=individual`, `xid` = an
+  Individual id), not an Experience Cloud user. Both slots are stored as one
+  `contextDataSources.dataGraphs` list (plan/03).
   Either change touches the faces' identity contract (D91/D104), so it gets its own ADR.
 
 **Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the

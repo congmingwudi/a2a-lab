@@ -2444,15 +2444,64 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   identity-resolution run never sees them. The REST lookup confirms the split for Erin: `Customer360`
   holds her CRM profile (name, title, email) and has no record at the provisional id, while
   `RT_UnifiedIndividual` holds both ids.
-- **Not yet tested: an AM01 rule matching on Individual Id.** With the CRM id as owner, such a rule
-  would merge the pipeline's Individual with the CRM one (same `Id`), if real-time resolution
-  applies ruleset rules. It changes a production ruleset that re-clusters all 146 profiles, so it
-  waits for an explicit go-ahead. The ruleset and the 146 links were snapshotted first. The
-  other route is an Individual-rooted CRM graph, which needs no unification (that is why E
-  works). This org has no data-graph metadata type, so it is a Data Builder or Data Kit build.
+- **An AM01 rule matching on Individual Id is refused** (2026-11-06). The PATCH adding an
+  `Exact Individual Id` rule (`ssot__Individual__dlm.ssot__Id__c`, exact) returns `INVALID_INPUT`:
+  "criteria are too weak". Individual Id is not a match key on its own, and the pipeline's
+  Individual carries nothing else to match on (no email, name or party identification). AM01 is
+  unchanged. The other route is an Individual-rooted CRM graph, which needs no unification (that
+  is why E works). This org has no data-graph metadata type, so it is a Data Builder or Data Kit
+  build.
+- **The same Contact resolves to two unified ids, one real-time and one batch.** A re-read at
+  06:50Z (arms B, F, G; Erin and Maya by Contact id) matched the 06:17Z reads. F's TOON shows the
+  real-time link `UnifiedLinkssotIndividualIr1` mapping Erin's Contact to a provisional unified id.
+  Batch AM01 maps the same Contact to her CRM profile. G serves the provisional id's root `Id` and
+  nothing else, and B serves nothing. So the graphs are read; they are read at the wrong profile.
+  An internal ACE demo did get a CRM-rooted graph (rooted on Unified Individual) back as the
+  `Profile` item, with `owner_id` = the Contact id and `owner_type=individual`. The difference
+  between that demo and ours is not yet known. One candidate is a reported real-time issue: a CRM
+  event can create a real-time identity before the lakehouse ID-map sync. The lookup then stays
+  on the session cache, with no lakehouse fallback, for up to about 24 h. Re-read the same owners
+  after 2026-11-07 06:00Z: if the link moves to the batch unified id, B should serve Erin's CRM
+  record.
+- **The two graph slots in Edit Agent are one list.** The product team describes them as data
+  for external users (Individuals / Unified Individuals) and for Employees (Users). The governance
+  doc uses the same words: `xid` is "the Individual ID of the end user (external customers) or the
+  user ID (internal employees)". The UI stores both as one `contextDataSources.dataGraphs` list
+  (max 2), so the runtime cannot tell which slot a graph came from. "External user" means the
+  customer (`owner_type=individual`), not an Experience Cloud user. Engineering also says, on
+  Slack: an attached graph "serves profile attributes but never carries memory insights",
+  `profileDmos[].associatedDataGraph` is not read by GetContext, and a separate `unifiedProfileDGs`
+  key, when set, is preferred over `AgenticIndividual`.
 - **REST and the service's lookup disagree.** The REST lookup returns `ITEM_NOT_FOUND` for both
   platform graphs at every id we tried, including the resolved id. Yet the service read them.
   Use GetContext to verify a graph, not the REST lookup.
+- **The memory back end, read headlessly (2026-11-06).** Eight `AgenticConnector_*` Ingestion API
+  streams, one per memory object (Conversation, AiAgentSession, AiAgentSessionParticipant,
+  AiAgentInteraction, AiAgentInteractionMessage, AiAgentInteractionStep, AiParticipantInsight,
+  Individual). Their lake objects hold **0 rows**, while `ssot__AiAgentInteractionMessage__dlm`
+  holds 1,446, `ssot__AiAgentSession__dlm` 543 and `ssot__AiAgentInteraction__dlm` 1,443. The
+  real-time layer writes the DMOs directly, so a stream's "Total records" counts what was
+  ingested, not what the lake holds. Two HYBRID search indexes were created with the agentic
+  setup:
+
+  | Index | Source DMO · field | Embedding | Chunk / vector DMO | Rows |
+  | --- | --- | --- | --- | --- |
+  | AI Agent Interaction Message | `ssot__AiAgentInteractionMessage__dlm` · `ssot__ContentText__c` | multilingual-e5-large | `AI_Agent_Interaction_Message_chunk/_index__dlm` | 0 |
+  | AI Participant Insight | `AiParticipantInsight_std__dlm` · `InsightPayloadTxt__c` | e5_large_v2 | `AI_Participant_Insight_chunk/_index__dlm` | 0 |
+
+  Both use 1024 dimensions, HNSW (M=64, efConstruction=2000), cosine, and 512-token passage
+  chunks. Both are READY but were refreshed only once, on 2026-10-13, the setup day. No
+  retriever is registered on them because they back the memory API's own search endpoints,
+  `POST /api/v1/agentic/search/conversations` and `/search/learnings` (service
+  `a360/cdp-realtime-service`, `ConversationSearchHandler` / `MemorySearchHandler`).
+
+  On this tenant, conversation search requires an `agent_id` header. It then returns 400 "Search
+  query could not be executed" because it prefilters on `IndividualId__c`, which our message
+  index lacks. The same `hybrid_search` in Data Cloud SQL reproduces the error, and without the
+  filter it returns 0 rows. Learnings search returns 404. Two more points: the insight index's
+  source DMO is empty although saved memories are returned, and Slack reports the insight
+  index-write flag being turned off in production. Together these say semantic search over
+  memory is not live here.
 
 **For the calling agents.** Today Claude and OpenAI receive the shared registration's
 conversation summaries, its own Profile row and its saved facts and preferences. An attached graph
