@@ -3791,3 +3791,21 @@ the shim and bridge as comparison arms. Inbound first, on `A2ALab_Research_Assis
 10. ⏳ Full-rebuild and deploy the console, verify owner inline embed + in-org link + non-owner
     snapshot/owner-only copy, record the first measured dashboard refresh and wallet delivery lag
     in `plan/03-results.md`, and close the awaiting-data state only after live evidence passes.
+
+## WS31 — Agent Memory presentation mode (raised 2026-11-06, D116)
+
+1. ✅ Select and approve a verified-only visual target for an eight-scene, console-native tour.
+2. ✅ Run two read-only Claude critiques and reconcile memory scope, graph, generation, governance,
+   confidentiality, navigation, role, and trace-evidence findings into the implementation plan.
+3. ⏳ Add a keyboard-reachable Agent Memory section launcher plus shortcuts on both customer-memory
+   experiments, with no signed-out entry point.
+4. ⏳ Build the declarative eight-scene presentation controller, responsive scene rail, semantic
+   system map, evidence labels, reduced-motion behavior, and focus-safe Exit/Escape navigation.
+5. ⏳ Build the role-aware Claude-teaches/OpenAI-recalls handoff: preserve the valid customer,
+   enable Memory, load the existing prompt, expose generation-aware trace guidance, and never send.
+6. ⏳ Correct the authoritative scenario and Details copy to the measured registration ×
+   server-resolved customer owner × category boundary and the face-owned isolation result (D115).
+7. ⏳ Browser interaction evidence and Product Design QA pass against the approved target in Canvas
+   light/dark at desktop and narrow widths; retain pending until cross-review/deploy closes the batch.
+8. ⏳ Cross-review the implementation with Claude, then full-rebuild/deploy the console and smoke
+   section entry, both handoffs, viewer behavior, and narrow layout. Deployment is operator-owned.

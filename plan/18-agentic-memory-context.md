@@ -28,10 +28,12 @@ Agentforce agent. That terminal action is `A2ALabCreateFollowUpCase`; it was pub
 v3 and passed live exact-Account, Case-number, unknown-Account, and no-callback acceptance. Recalled
 memory can motivate the requested action but cannot authorize it by itself.
 
-D105 corrects the original D104 scope model: semantic facts/preferences belong to the Individual,
-not to the model platform. Both faces use one registered memory-service identity, so saved reads
-are `customer profile × category`. Episodic conversation/session participation and standard Data
-360 governance still apply. The Details and trace UI render
+D115 corrects the original D104/D105 scope model. Both faces use one registered memory-service
+identity, and deployment configuration resolves the verified demo customer to the owner id sent
+by the face. For this internal caller, that face-owned mapping—not the token's customer claim—is
+the effective isolation boundary measured by the lab. Saved reads are therefore described as
+`registration × server-resolved customer owner × category`; cross-registration semantics remain
+open because the measured result conflicts with current guidance. The Details and trace UI render
 `Maya → shared case memory → facts/preferences`; Claude and OpenAI appear separately as execution
 provenance rather than storage partitions.
 
@@ -74,7 +76,7 @@ final pricing unannounced) gives an agent persistent cross-session memory:
 parameters, results);
 - Data 360 **extracts** facts, preferences and session summaries with an LLM
 (the only part that will consume flex credits);
-- a **GetContext** call returns an LLM-ready context pack for a conversation
+- a **GetContext** call returns LLM-ready context for a conversation
 owner, assembled from profile memory, conversation history and any extra
 real-time data graphs the agent is associated with.
 
@@ -738,7 +740,7 @@ first.** Reasons:
 
 - **The orchestrator is built to *not* remember.** Its instructions forbid
 answering from its own knowledge; every section must come from a business-unit
-leg (D61). Injecting a context pack contradicts that contract, and a memory
+leg (D61). Injecting a context payload contradicts that contract, and a memory
 win or loss would be confounded with the fan-out.
 - **There is no real end user to remember.** The orchestrator is driven by the
 console/bridge through API callers. Memory is keyed by conversation *owner*, so

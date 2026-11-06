@@ -2337,10 +2337,9 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   and `DataAgntcCntxtAddlDgLst`). It is not served.
 - **Where the graph would appear: service code** (`d360-personalization/decisioning-pipeline` on
   git.soma, sha `864b9bd`, read 2026-11-05):
-  - **Plain reads fetch the graph.** A read with no `purpose_id` resolves to
-    `ContextPack.DEFAULT`, and that pack carries the `CUSTOM_PROFILE` need "to preserve backward
-    compatibility" (`profile/models/contextpack/ContextPack.java`). `isInitialContextPack()` is
-    also true (`ContextMetadata.java`). So `FastContextRequestHandler.fetchAdditionalDatasourceData`
+  - **Plain reads fetch the graph.** A read with no `purpose_id` resolves to the default request,
+    which carries the `CUSTOM_PROFILE` need "to preserve backward compatibility". The request is
+    also treated as initial (`ContextMetadata.java`). So `FastContextRequestHandler.fetchAdditionalDatasourceData`
     runs whenever `owner_id` is set and the agent config lists additional graphs. The plain reads
     the faces make already qualify.
   - **The config path.** `AgentConfigLoader` fills `additionalDatasourceDgs` from the realtime
@@ -2353,7 +2352,7 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
     turned into null, so a failed lookup and an empty one look the same on the wire.
   - **The response.** `AdditionalDatasourceToonContextComposer` converts each record to TOON text
     and adds it with `addProfileContext`. **Graph data lands in the `userContext` `Profile` entry,
-    not in `ontology`.** `ontology` is filled only by the reserved `ontology` context pack.
+    not in `ontology`.** `ontology` is filled only by the reserved `ontology` result.
   - **`mode` and `token_budget` are ignored.** `ContextRestController` reads neither, so the reads
     that set them were plain reads.
   - **Conclusion.** B's missing `Profile` entry means `additionalDatasourceDg` came back empty.
@@ -2364,15 +2363,13 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
     *Answered 2026-11-06 by arms E–G:* the config does arrive, because E and F are registered with
     the same body and serve. It is the lookup that resolves nothing for B (see "identity" below).
 - **What the product's own callers do** (git.soma, read 2026-11-05):
-  - **The ACE demo app sends the same body we do.** `a360/ace-demo`
-    (`server/ace_demo/agents_api.py`) registers graphs as
+  - **An internal product demo sends the same body we do.** Its agent registration path registers graphs as
     `configuration.contextDataSources.dataGraphs: [{"name": ...}]` with no profile DMO. So our
     registration shape is not the difference.
   - **It reads with a different kind of owner.** The demo's `owner_id` is the signed-in
-    Salesforce User id (`server/ace_demo/runtime.py`), which makes it an employee, User-rooted
+    Salesforce User id, which makes it an employee, User-rooted
     case. Ours is a customer graph keyed by a Unified Individual.
-  - **The QA fit suite never attaches a graph.** `a360-quality/jarlsberg-fit-tests`
-    (`afc/agenticContextEngine/agent/AgenticAgent.java`) always creates agents with an empty
+  - **The QA fit suite never attaches a graph.** The internal fit suite always creates agents with an empty
     `dataGraphs`, and marks the element type "unverified". No product test we could find covers
     a customer-keyed graph reaching GetContext.
 - **A graph's root must be a declared profile DMO.** Registering D returned `INVALID_API_INPUT`:
@@ -2456,7 +2453,7 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   real-time link `UnifiedLinkssotIndividualIr1` mapping Erin's Contact to a provisional unified id.
   Batch AM01 maps the same Contact to her CRM profile. G serves the provisional id's root `Id` and
   nothing else, and B serves nothing. So the graphs are read; they are read at the wrong profile.
-  An internal ACE demo did get a CRM-rooted graph (rooted on Unified Individual) back as the
+  An internal product demo did get a CRM-rooted graph (rooted on Unified Individual) back as the
   `Profile` item, with `owner_id` = the Contact id and `owner_type=individual`. The difference
   between that demo and ours is not yet known. One candidate is a reported real-time issue: a CRM
   event can create a real-time identity before the lakehouse ID-map sync. The lookup then stays

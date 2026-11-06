@@ -5141,9 +5141,9 @@ data graph to an Agent Configuration") found four things:
 1. The attachment is accepted and stored, but GetContext never served it. Arm B returned no
    `userContext` `Profile` entry for 30 minutes, whichever owner id kind it was given. The service
    code (`d360-personalization/decisioning-pipeline`; plan/03 has the file-by-file reading) shows
-   that a plain read does fetch attached graphs: `ContextPack.DEFAULT` carries `CUSTOM_PROFILE`.
+   that a plain read does fetch attached graphs: the default request carries `CUSTOM_PROFILE`.
    The service merges graph records into that `Profile` entry, not into `ontology`; `ontology`
-   belongs to the separate `ontology` context pack. So the fetch is returning nothing. Either
+   belongs to the separate `ontology` result. So the fetch is returning nothing. Either
    the registration's graph is not in the config the service loads, or `getDgInstance` resolves
    no record for these ids. Lookup errors are swallowed to null, and only the product team can
    read the service log counts that would tell the two apart. Maya's graph record does resolve
@@ -5183,8 +5183,8 @@ data graph to an Agent Configuration") found four things:
 - **Correct D105's premise.** One shared registration is the right design, but the reason is that
   memories are registration-scoped, not that the platform scopes them to the customer. A second
   registration starts empty for every customer.
-- **Next step: ask the product team what `owner_id` a customer-keyed graph expects.** The ACE
-  demo registers graphs with the same body we send, but its owner is a Salesforce User. The QA fit
+- **Next step: ask the product team what `owner_id` a customer-keyed graph expects.** An internal
+  product demo registers graphs with the same body we send, but its owner is a Salesforce User. The QA fit
   suite never attaches a graph. So no product caller we can see exercises a customer graph. Two
   ways forward, neither run yet:
   - ~~**Send the CRM Individual id as `owner_id`.**~~ Tested 2026-11-06 on Erin and Maya: every
@@ -5194,7 +5194,7 @@ data graph to an Agent Configuration") found four things:
     rule.~~ Refused 2026-11-06: "criteria are too weak" (plan/03).
   - **Re-read Erin and Maya by Contact id after 2026-11-07 06:00Z.** The real-time link maps
     each Contact to a provisional unified id, while batch AM01 maps it to the CRM profile. An
-    internal ACE demo was served a CRM-rooted graph with exactly this `owner_id` shape. A
+    internal product demo was served a CRM-rooted graph with exactly this `owner_id` shape. A
     reported real-time identity lock (real-time identity created before the lakehouse ID-map
     sync, up to about 24 h) would explain the difference.
   - **An Individual-rooted CRM graph**, which skips unification the way arm E does.
@@ -5235,3 +5235,31 @@ data graph to an Agent Configuration") found four things:
 console are unchanged, so nothing is redeployed. Four new production registrations exist:
 `A2ALab_Memory_Case_Graph`, plus the controls `_Graph_Ind`, `_Graph_Plat` and `_Graph_RT`, all with
 extraction off.
+
+## 2026-11-06 — D116: Agent Memory presentation mode teaches only current, evidenced behavior
+
+**Context.** The customer-memory experiment is demoable, but a first-time viewer has to infer its
+configuration, ingest, extraction, storage, retrieval, generation-isolation, and cross-agent
+handoff from the Run and Details panes. A guided mode can make that path legible without turning
+unobserved product direction into a lab claim. D57 normally keeps explanatory material in Details;
+this is a narrow exception because the temporary teaching sequence spans two experiments and then
+hands the presenter back to their authoritative Run/Details panes.
+
+**Decision.** Add one console-native, eight-scene Agent Memory presentation mode. Every scene is
+limited to configured, observed, measured, or explicitly open behavior in D104/D105/D107/D112/D115.
+Unavailable or unpublished future capabilities are excluded from served copy, assets, routes, and
+docs. The mode is a transient view: its scene lives in normal navigation state, panel suppression
+is derived only from that view, and Exit/Escape use console Back. It preserves the selected demo
+customer, enables memory when opening either existing experiment, loads the existing prompt, and
+never sends a turn automatically. Viewers remain read-only and signed-out visitors retain the
+existing landing-only boundary.
+
+The presentation's map is semantic application UI, not a Mermaid architecture figure, so D114's
+draw.io twin rule does not apply. The current experiment and trace surfaces remain the source of
+live answers, actions, timing, and wire evidence.
+
+**Consequences.** `plan/20-console-presentation-mode.md` owns the durable scene and extension
+contract. Any later publication of future-product material requires a separate decision. Console
+deployment requires a full image rebuild because the implementation lives in the baked static
+shell. The existing browser-visible memory owner-id field is not consumed by this mode and remains
+a separate follow-up.

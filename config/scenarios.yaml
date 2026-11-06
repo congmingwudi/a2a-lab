@@ -54,7 +54,7 @@ scenarios:
     title: "Customer memory — teach Claude"
     summary: >-
       Tell Claude a durable customer constraint or preference, save it under
-      the selected customer's unified Data 360 profile, ready for another agent.
+      the selected customer's server-resolved memory owner, ready for another agent.
     description: |-
       THE STORY. The first half of the cross-agent continuity experiment. Select Maya or
       Jordan, then teach Claude a durable fact or preference. Claude reads that
@@ -62,14 +62,13 @@ scenarios:
       agents without calling CRM. Start here, then open the OpenAI sibling
       experiment with the same customer and use its recall-and-act prompt.
 
-      MEMORY SCOPE. Data 360 supplies a common customer-centered substrate, not one
-      unrestricted memory bucket. The data space and Unified Individual form the shared
-      identity spine, so Maya and Jordan remain separate across agents, sessions, and channels.
-      Semantic facts and preferences belong to that customer profile, not to Claude or OpenAI.
-      Both platforms use the shared A2ALab_Memory_Case registration, so the saved-memory path is
-      customer profile × category. Claude and OpenAI remain execution/provenance participants,
-      while episodic conversation/session access and Data 360 governance still apply. A custom
-      Case real-time data graph is a future enhancement and is not attached in this experiment.
+      MEMORY SCOPE. Both platforms use the shared A2ALab_Memory_Case registration. The verified
+      lab user selects an allow-listed demo customer; server configuration resolves that customer
+      to the owner id the face sends. In this lab caller, that mapping—not the token's customer
+      claim—is the effective Maya/Jordan isolation boundary measured by D115. Curated facts and
+      preferences are registration × server-resolved customer owner × category; Claude and OpenAI
+      remain execution/provenance participants. Cross-registration semantics remain open because
+      the measured result conflicts with current guidance. No custom Case graph is attached.
 
       CURATION. Operators can inspect and permanently delete this selected customer's curated
       facts/preferences. Start fresh also advances the demo to a tenant-backed conversation
@@ -116,9 +115,9 @@ scenarios:
         target: data-360-agentic-memory
         protocol: rest
         detail: >-
-          The face exchanges a governed token with the selected customer's
-          unified Individual id as xid, reads context before inference, and closes the written
-          conversation turn afterward so profile extraction can run.
+          The face exchanges its service token, resolves the selected customer to the configured
+          memory owner, reads context before inference, and closes the written conversation turn
+          afterward so asynchronous extraction can run.
     agents:
       - title: Claude customer-memory agent
         target: claude-a2a
@@ -132,19 +131,17 @@ scenarios:
       interaction and turns a remembered next step into an Agentforce CRM action.
     description: |-
       THE STORY. The second half of the experiment. Select the same customer used in Teach
-      Claude. OpenAI uses the same shared memory-service registration and its governed token carries
-      the same unified customer xid, so its face reads the same
-      owner conversation before answering. The prompt requires visible source
+      Claude. OpenAI uses the same shared memory-service registration and server-side customer
+      mapping, so its face reads the same owner conversation before answering. The prompt requires visible source
       attribution so memory and live CRM context cannot blur together.
 
-      MEMORY SCOPE. Data 360 supplies a common customer-centered substrate, not one
-      unrestricted memory bucket. The data space and Unified Individual form the shared
-      identity spine, so Maya and Jordan remain separate across agents, sessions, and channels.
-      Semantic facts and preferences belong to that customer profile, not to Claude or OpenAI.
-      Both platforms use the shared A2ALab_Memory_Case registration, so the saved-memory path is
-      customer profile × category. Claude and OpenAI remain execution/provenance participants,
-      while episodic conversation/session access and Data 360 governance still apply. A custom
-      Case real-time data graph is a future enhancement and is not attached in this experiment.
+      MEMORY SCOPE. Both platforms use the shared A2ALab_Memory_Case registration. The verified
+      lab user selects an allow-listed demo customer; server configuration resolves that customer
+      to the owner id the face sends. In this lab caller, that mapping—not the token's customer
+      claim—is the effective Maya/Jordan isolation boundary measured by D115. Curated facts and
+      preferences are registration × server-resolved customer owner × category; Claude and OpenAI
+      remain execution/provenance participants. Cross-registration semantics remain open because
+      the measured result conflicts with current guidance. No custom Case graph is attached.
 
       CURATION. The same selected-customer management panel applies here. Permanent semantic-memory
       deletion and Start fresh affect the shared customer scope, while retained historical

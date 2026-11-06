@@ -135,7 +135,7 @@ for GetContext but was wrong for extraction: a closed session does extract, as t
    off from the agentic stores.
 3. Check the `enablePerAgentMemoryGenerationConfig` gate state for this cell
    (precedent: `#cdp-realtime-service`, 2026-10-06, W-23936246) and
-   decisioning-pipeline PR #2151 / W-24459714 (Context Pack layered cache).
+   decisioning-pipeline PR #2151 / W-24459714 (internal layered cache).
 4. ~~Secondary: the empty `AiParticipantInsight` DMO.~~ Withdrawn 2026-10-27: the
    demo kit's org shows 0 insight rows while its memory works, so it is not evidence.
 

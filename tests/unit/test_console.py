@@ -962,15 +962,17 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert '.split("\\n")' in html
     assert "memory: stored" in html and "memory: recalled" in html
     for scenario in (claude, openai):
-        assert "common customer-centered substrate" in scenario["description"]
-        assert "customer profile × category" in scenario["description"]
+        assert "registration × server-resolved customer owner × category" in scenario["description"]
+        assert "effective Maya/Jordan isolation boundary" in scenario["description"]
+        assert "Cross-registration semantics remain open" in scenario["description"]
         assert "A2ALab_Memory_Case" in scenario["description"]
     assert "Shared customer memory, platform provenance" in html
+    assert "registration × server-resolved customer owner × category" in html
     assert "provenance, not storage partitions" in html
     assert "function memoryHopScope(h, personaLabel)" in html
     assert "function memoryScopeMapHtml(hops, personaLabel, participants)" in html
     assert "memory-hop-path" in html
-    assert "Unified Individual · shared identity spine" in html
+    assert "face-owned mapping · effective demo isolation boundary" in html
     assert '["Claude", "OpenAI"]' in html
     assert "Shared case memory" in html
     assert "real-time</i> data graphs" in html
@@ -1026,9 +1028,52 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     guide_source = corpus.read_doc(
         "config/scenarios.yaml"
     )
-    assert "customer profile × category" in guide_source
+    assert "registration × server-resolved customer owner × category" in guide_source
     assert "A2ALab_Memory_Case" in guide_source
 
+
+def test_agent_memory_presentation_mode_is_eight_scene_evidence_only_handoff():
+    html = Path("src/console/static/index.html").read_text()
+    start = html.index("const MEMORY_PRESENTATION_SCENES = [")
+    end = html.index("function ensureMemoryPresentationCustomer()", start)
+    scenes = html[start:end]
+
+    assert scenes.count("\n    title:") == 8
+    assert 'g.id === "agent-memory"' in html
+    assert 'id="memory-presentation-section"' in html
+    assert '"customer-memory-claude", "customer-memory-openai"' in html
+    assert html.count("openMemoryPresentation(") == 3
+    assert html.count('view = { type: "memory-presentation"') == 1
+    assert 'aria-current="step"' in html
+    assert 'aria-live="polite"' in html
+    assert "prefers-reduced-motion: reduce" in html
+    assert "memory-present-layout" in html and "memory-scene-rail" in html
+    assert "main.presentation-mode #side" in html
+    assert 'mainKey = `memory-presentation:${scene}`' in html
+    assert "ev.stopImmediatePropagation(); exitMemoryPresentation()" in html
+    assert 'document.querySelector(".dpopover, .dgmask")' in html
+
+    launch_start = html.index("window.launchMemoryExperiment = name =>")
+    launch_end = html.index("document.addEventListener(\"keydown\"", launch_start)
+    launch = html[launch_start:launch_end]
+    assert 'memoryModes[key] = "on"' in launch
+    assert "drafts[key] = expDefaultPrompt(spec)" in launch
+    assert 'openExperiment("scenario", name)' in launch
+    assert "setMemoryCustomer" not in launch
+    assert "sendChat" not in launch
+
+    assert "saved facts/preferences reads are intentionally skipped" in scenes
+    assert "Platform-made graph controls returned their record" in scenes
+    assert "The live registration has no attached graph" in scenes
+    assert "fixed number of seconds" in scenes
+
+    presentation_end = html.index("function obsMsg(text, isErr)", start)
+    presentation = html[start:presentation_end]
+    assert not re.search(r"\b(?:003|0PK)[A-Za-z0-9]{12,15}\b", presentation)
+    assert "SF_ORG" not in presentation and "AWS_ACCOUNT" not in presentation
+    assert "not loaded · inspect observed hops only" in presentation
+    assert "announceMemoryPresentationScene()" in presentation
+    assert 'role="region" aria-labelledby="memory-present-title"' in presentation
 
 def test_config_exposes_safe_customer_personas_without_profile_ids(tmp_path, monkeypatch):
     monkeypatch.setenv("A2ALAB_MEMORY_DATA_SPACE", "customer-memory-space")
