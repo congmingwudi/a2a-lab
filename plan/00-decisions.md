@@ -5132,7 +5132,7 @@ with no transforms, which errored.
 the capability is missing. The `config/scenarios.yaml` copy ("Case real-time data graph is a
 future enhancement") stays accurate.
 
-## 2026-11-05 — D115: an attached data graph is not served by GetContext yet; memories are registration-scoped
+## 2026-11-05 — D115: GetContext serves an attached graph keyed on the pipeline's own Individual, so our CRM graph returns nothing; memories are registration-scoped
 
 **Context.** The next WS27 question after the D105 follow-up: what happens when the real-time
 `A2ALab_Memory_Customer360` graph is attached to an Agent Configuration, and how does it reach
@@ -5148,6 +5148,17 @@ data graph to an Agent Configuration") found four things:
    no record for these ids. Lookup errors are swallowed to null, and only the product team can
    read the service log counts that would tell the two apart. Maya's graph record does resolve
    through the REST data-graph lookup.
+   **Answered 2026-11-06 by three more arms (E, F, G):** the attached-graph path works. Arms
+   registered with the platform-made `AgenticIndividual` and `AgenticUnifiedIndividual` graphs
+   return the graph record as TOON text in the `Profile` entry. So the config arrives, and it is the
+   lookup that comes back empty for our graph. The cause is **identity**. The service resolves
+   `owner_id` (`resolveId=true`) as an Individual id. The memory API wrote an Individual with that
+   Id itself, the first time it opened the owner's conversation. That Individual unifies to its
+   own profile, which holds agent sessions and conversations. Maya's CRM-backed AM01 profile is a
+   different id. The operator-made `RT_UnifiedIndividual` (arm G) fails like `Customer360`. The two
+   failing graphs differ in caching, so caching is not the cause. Both failing graphs have the
+   real-time toggle on and both working ones have it off. The toggle goes with who made the
+   graph, and the identity explanation does not need it.
 2. The graph's root must be a declared profile DMO. Undeclared, the profile DMO defaults to
    `UnifiedIndividual__dlm`, which is how the live `A2ALab_Memory_Case` runs. D105 and plan/18
    describe it as running over AM01.
@@ -5159,9 +5170,11 @@ data graph to an Agent Configuration") found four things:
 - **Leave `A2ALab_Memory_Case` unchanged for the Nov 15 demo.** Attaching the graph would also
   change its profile DMO (point 2), and it would add no measured context (point 1).
 - **Keep `A2ALab_Memory_Case_Graph` as the standing graph arm.** It has the AM01 profile DMO, the
-  `Customer360` graph and extraction off. Re-run `scripts/graph_context_probe.py` after each change
-  to the graph or the platform. Change the live registration only once arm B returns a
-  `Profile` entry carrying the graph record.
+  `Customer360` graph and extraction off. Re-run `scripts/graph_context_probe.py --arms A B E F G`
+  after each change to the graph, to the identity setup, or to the platform. Change the live
+  registration only once arm B returns a `Profile` entry carrying Maya's CRM record. Arms E, F and
+  G (`A2ALab_Memory_Case_Graph_Ind`, `_Plat`, `_RT`) are the controls. Delete them when they stop
+  being useful.
 - **Before adopting the graph, change `render_context`.** The graph text arrives inside the
   `Profile` entry, which the D107 reset filter drops, and it shares the 4000-character cap with
   memory.
@@ -5170,14 +5183,18 @@ data graph to an Agent Configuration") found four things:
 - **Correct D105's premise.** One shared registration is the right design, but the reason is that
   memories are registration-scoped, not that the platform scopes them to the customer. A second
   registration starts empty for every customer.
-- **Next step: ask the product team which of the two causes it is.** Reading code has gone as
-  far as it can. The ACE demo registers graphs with the same body we send, but it reads as a
-  Salesforce User. The QA fit suite never attaches a graph. So no product caller we can see
-  exercises a customer-keyed graph. Ask for the two service log counts on arm B's reads (quote
-  the `contextId` from `traces/graph-probe/`). The cheap local experiment is a second graph arm
-  rooted on `UnifiedIndividual__dlm` (the default profile DMO), to see whether only AM01-rooted
-  graphs fail.
+- **Next step: ask the product team what `owner_id` a customer-keyed graph expects.** The ACE
+  demo registers graphs with the same body we send, but its owner is a Salesforce User. The QA fit
+  suite never attaches a graph. So no product caller we can see exercises a customer graph. Two
+  ways forward, neither run yet:
+  - **Send the CRM Individual id as `owner_id`.** It resolves to the profile `Customer360` holds.
+    But the first conversation write creates a pipeline Individual with the same Id as the CRM
+    one, so try it on a non-demo Contact, never on Maya.
+  - **Have the pipeline's Individual unify with the CRM one.** That needs a match field the
+    ruleset can use on the agentic Individual. Today it has none.
+  Either change touches the faces' identity contract (D91/D104), so it gets its own ADR.
 
 **Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the
-console are unchanged, so nothing is redeployed. One new production registration exists
-(`A2ALab_Memory_Case_Graph`).
+console are unchanged, so nothing is redeployed. Four new production registrations exist:
+`A2ALab_Memory_Case_Graph`, plus the controls `_Graph_Ind`, `_Graph_Plat` and `_Graph_RT`, all with
+extraction off.

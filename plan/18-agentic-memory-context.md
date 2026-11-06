@@ -14,8 +14,11 @@ three planted details after 45 seconds, while Jordan's control stayed empty (`pl
 served by the real-time layer. CRM edits reach it on the CRM connector's ingestion schedule
 (about 10 minutes, the expected cadence); measured 3.5 to more than 8 minutes from a Contact edit
 to Data Cloud (`plan/03-results.md`). The faces' registration still has
-no graph. It is attached only to the A/B arm `A2ALab_Memory_Case_Graph`, where GetContext does
-not serve it yet (D115). A future Case real-time graph can now be built in this org.
+no graph. It is attached only to the A/B arm `A2ALab_Memory_Case_Graph`, where GetContext
+returns nothing from it. Platform-made graphs attached the same way are served, as TOON text in
+the `Profile` entry. The service keys them on the memory pipeline's own Individual for
+`owner_id`, not on the CRM profile (D115). A future Case real-time graph can now be built in
+this org.
 
 The deployed demo now separates memory from action cleanly. **Teach Claude** stores the selected
 customer's facts/preferences without calling Agentforce. **OpenAI recalls** reads those memories

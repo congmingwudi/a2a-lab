@@ -47,7 +47,15 @@ from interop.memory import (  # noqa: E402
 )
 from interop.models import new_trace_id  # noqa: E402
 
-ARMS = {"A": "A2ALab_Memory_Case", "B": "A2ALab_Memory_Case_Graph"}
+ARMS = {
+    "A": "A2ALab_Memory_Case",
+    "B": "A2ALab_Memory_Case_Graph",
+    # D115 isolation arms: E/F attach the platform-made AgenticIndividual /
+    # AgenticUnifiedIndividual graphs (served); G an operator-made one (not served).
+    "E": "A2ALab_Memory_Case_Graph_Ind",
+    "F": "A2ALab_Memory_Case_Graph_Plat",
+    "G": "A2ALab_Memory_Case_Graph_RT",
+}
 OUT = ROOT / "traces" / "graph-probe"
 
 
@@ -67,13 +75,14 @@ async def conversation_for(mem: MemoryClient, trace_id: str, owner: str) -> tupl
     return owner_conversation(owner), False
 
 
-async def probe(customer: str, owner: str, reads: int, stamp: str) -> dict:
+async def probe(customer: str, owner: str, reads: int, stamp: str, arms: list[str]) -> dict:
     mem = MemoryClient(source="graph-probe")
     trace_id = new_trace_id()
     try:
         conv, has_gen = await conversation_for(mem, trace_id, owner)
         out: dict = {"customer": customer, "generation": has_gen, "trace_id": trace_id}
-        for arm, agent in ARMS.items():
+        for arm in arms:
+            agent = ARMS[arm]
             times, body = [], {}
             for _ in range(reads):
                 t0 = time.perf_counter()
@@ -111,13 +120,14 @@ async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--customers", nargs="+", default=["maya", "jordan"])
     ap.add_argument("--reads", type=int, default=3)
+    ap.add_argument("--arms", nargs="+", default=["A", "B"], choices=sorted(ARMS))
     args = ap.parse_args()
     load_dotenv(ROOT / ".env")
     cmap = json.loads(os.environ["A2ALAB_MEMORY_CUSTOMER_MAP"])
     OUT.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     for c in args.customers:
-        print(json.dumps(await probe(c, cmap[c], args.reads, stamp), indent=1))
+        print(json.dumps(await probe(c, cmap[c], args.reads, stamp, args.arms), indent=1))
     print(f"raw bodies: {OUT.relative_to(ROOT)}/{stamp}-*.json")
     return 0
 

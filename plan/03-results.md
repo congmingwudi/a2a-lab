@@ -2296,6 +2296,19 @@ Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile da
 | B | `A2ALab_Memory_Case_Graph` | `UnifiedssotIndividualAm01__dlm` | `A2ALab_Memory_Customer360` | off (on briefly to isolate) |
 | C | `A2ALab_Memory_Case_Twin` | none (A's live shape) | none (then PATCHed to add both) | off |
 | D | graph with no profile DMO | refused at registration | | |
+| E | `A2ALab_Memory_Case_Graph_Ind` | none (Individual root) | `AgenticIndividual` (platform-made) | off |
+| F | `A2ALab_Memory_Case_Graph_Plat` | `UnifiedssotIndividualAm01__dlm` | `AgenticUnifiedIndividual` (platform-made) | off |
+| G | `A2ALab_Memory_Case_Graph_RT` | `UnifiedssotIndividualAm01__dlm` | `RT_UnifiedIndividual` (operator-made) | off |
+
+E, F and G were added on 2026-11-06 (05:30–05:40Z) to isolate why B serves nothing. The graphs
+compare as follows (`GET /services/data/v66.0/ssot/data-graphs/{name}`):
+
+| Graph | Root | Made by | Real-time toggle | Record caching disabled | Served (arm) |
+| --- | --- | --- | --- | --- | --- |
+| `A2ALab_Memory_Customer360` | AM01 unified | operator | on | yes | no (B) |
+| `RT_UnifiedIndividual` | AM01 unified | operator | on | no | no (G) |
+| `AgenticUnifiedIndividual` | AM01 unified | agentic setup | off | yes | **yes** (F) |
+| `AgenticIndividual` | `ssot__Individual__dlm` | agentic setup | off | yes | **yes** (E) |
 
 **Results.**
 
@@ -2306,7 +2319,15 @@ Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile da
 | GetContext `ontology` | `{}` | `{}` | `{}` |
 | GetContext median latency | 240–410 ms | 200–400 ms (first read ≈1 s) | — |
 
-- **The graph never reached GetContext.** B returned no `Profile` entry in `userContext` on
+| Read 2026-11-06 (Maya) | A | B | E | F | G |
+| --- | --- | --- | --- | --- | --- |
+| `userContext` sourceTypes | Conversation ×2, Profile | Conversation ×2 | Conversation ×2, **Profile** | Conversation ×2, **Profile** | Conversation ×2 |
+| `Profile` entry length (chars) | 1195–1244 | — | 1193 | 1447–1496 | — |
+| `Profile` entry content | curated `SYS_PROFILE_FACT` / `PREFERENCES` | — | graph record (TOON) | graph record (TOON) | — |
+
+Jordan got no `Profile` entry on any arm except A's curated one, which is empty for him today.
+
+- **Arm B's graph never reached GetContext.** B returned no `Profile` entry in `userContext` on
   16 reads spread over 30 minutes (22:09–22:39Z). `ontology` was `{}` throughout, but that was the
   wrong field to watch (see the code reading below). The lookup itself works:
   `GET /ssot/data-graphs/data/A2ALab_Memory_Customer360/{xid}` returns Maya's record (760 bytes:
@@ -2340,6 +2361,8 @@ Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile da
     resolves nothing for these ids. The service writes both counts to its own logs
     (`configured_additional_datasource_dgs=N`, `additional_datasource_results=N`), and only the
     product team can read those logs.
+    *Answered 2026-11-06 by arms E–G:* the config does arrive, because E and F are registered with
+    the same body and serve. It is the lookup that resolves nothing for B (see "identity" below).
 - **What the product's own callers do** (git.soma, read 2026-11-05):
   - **The ACE demo app sends the same body we do.** `a360/ace-demo`
     (`server/ace_demo/agents_api.py`) registers graphs as
@@ -2367,10 +2390,56 @@ Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile da
 - **A new registration takes about 2.4 minutes to reach the tenant.** Until then, tenant calls
   return 404 "Agent not found", although the core API already reports `ACTIVE`.
 
+- **The attached-graph path works: E and F serve the graph record.** Two new arms with no
+  memories of their own and extraction off returned a `Profile` entry for Maya. The entry is the
+  graph record as TOON text. F's entry, abridged:
+  ```
+  UnifiedLinkssotIndividualIr1[1]:
+    - SourceRecordId: <owner_id>
+      UnifiedRecordId: <a different unified id>
+      Individual[1]:
+        - Id: <owner_id>
+          Conversation[1]{ConvInitiatorIndividualId,isUserInitiated,...}: ...
+          AiAgentSession[2]{SessionOwnerId,...}: ...
+          AiParticipantInsight_std[0]
+  ```
+  That confirms the code reading: the record comes back in `userContext` as `sourceType: Profile`,
+  and `ontology` stays `{}`. No memory leaked across registrations either. E and F list
+  `AiParticipantInsight_std[0]`, and none of A's case facts appear.
+- **What E and F serve is the memory pipeline's own Individual, not Maya's CRM record.** The
+  `Individual.Id` in F's record equals the `owner_id` the faces send, and its `Conversation` and
+  `AiAgentSession` rows come from `AgenticConnector_*` data sources. The memory API wrote that
+  Individual itself, from `owner_id`, the first time it opened Maya's conversation. That
+  Individual is unified into its own profile, a different id from the CRM-backed AM01 profile
+  that `owner_id` names. The service looks the graph up with `resolveId=true`, which treats
+  `owner_id` as an Individual id and resolves it to that profile. The REST lookup on
+  `Customer360` and `RT_UnifiedIndividual` finds no record at the resolved id. It finds Maya's
+  CRM record only at the AM01 id the faces send, which the service never uses as the key. So B
+  and G fail because of **identity**: the key the service resolves to is not a profile those
+  graphs hold.
+- **The real-time toggle is the only setting that separates the graphs, and it goes with who made
+  them.** All four have the same root. The two that serve are platform-made with the toggle off.
+  The two that don't are operator-made with the toggle on. Caching is not the cause: the two
+  failing graphs have opposite caching settings. The identity explanation covers B and G without
+  the toggle. Separating the two would need an operator-made graph with the toggle off, whose
+  record is keyed on the pipeline's own Individual.
+- **A test we did not run.** We did not send Maya's CRM Individual id (`003KB…`) as `owner_id`.
+  Its unified id is the one the graph holds, so in principle it would resolve there. Reads with
+  an owner that has no conversation return an empty `userContext` (B, F and G, 2026-11-06), so
+  the test needs a conversation opened first. Opening one makes the memory pipeline write an
+  Individual whose `Id` is `owner_id`. That Id already belongs to Maya's CRM Individual in
+  `ssot__Individual__dlm`, so the write could overwrite the demo customer's record. It needs a
+  non-demo Contact, or the product team's word on what `owner_id` a customer-keyed graph expects.
+- **REST and the service's lookup disagree.** The REST lookup returns `ITEM_NOT_FOUND` for both
+  platform graphs at every id we tried, including the resolved id. Yet the service read them.
+  Use GetContext to verify a graph, not the REST lookup.
+
 **For the calling agents.** Today Claude and OpenAI receive the shared registration's
-conversation summaries, its own Profile row and its saved facts and preferences. Attaching a graph
-adds nothing to their prompt in this tenant. If it ever does, the record arrives inside the
-`userContext` `Profile` entry, as TOON text. That has two consequences for the faces:
+conversation summaries, its own Profile row and its saved facts and preferences. An attached graph
+**does** reach the prompt, as TOON text inside the `userContext` `Profile` entry (arms E and F).
+It holds the record for the profile the service resolves `owner_id` to. With today's `owner_id`,
+that profile is the memory pipeline's own Individual, which holds agent sessions and
+conversations, not Maya's CRM data, so attaching `Customer360` adds nothing. That has two consequences for the faces:
 - **The D107 reset filter would remove it.** When a generation marker exists, the filter drops
   `sourceType: Profile` rows, and the graph's CRM data would go with them. That data is not a stale
   memory.

@@ -148,6 +148,32 @@ AGENTS = {
         label="A2ALab Case Memory Twin",
         description="A2A lab A/B arm: same live configuration as A2ALab_Memory_Case (no profile DMO, no graph).",
     ),
+    # D115 root-isolation arms, both read-only (extraction off) against the
+    # platform-made graphs the agentic setup created. E: an
+    # Individual root, legal with no profile DMO. F: the same AM01 root as
+    # case-graph, but a platform-built graph instead of ours.
+    "case-graph-ind": Agent(
+        name="A2ALab_Memory_Case_Graph_Ind",
+        label="A2ALab Case Memory + AgenticIndividual",
+        description="A2A lab D115 arm: platform AgenticIndividual graph, no profile DMO.",
+        data_graphs=("AgenticIndividual",),
+    ),
+    "case-graph-plat": Agent(
+        name="A2ALab_Memory_Case_Graph_Plat",
+        label="A2ALab Case Memory + AgenticUnifiedIndividual",
+        description="A2A lab D115 arm: platform AgenticUnifiedIndividual graph on the AM01 DMO.",
+        profile_dmos=("UnifiedssotIndividualAm01__dlm",),
+        data_graphs=("AgenticUnifiedIndividual",),
+    ),
+    # G: an operator-built real-time graph with the real-time toggle ON (like
+    # Customer360), to test whether that toggle is what the service cannot read.
+    "case-graph-rt": Agent(
+        name="A2ALab_Memory_Case_Graph_RT",
+        label="A2ALab Case Memory + RT_UnifiedIndividual",
+        description="A2A lab D115 arm: RT_UnifiedIndividual graph (real-time toggle on), AM01 DMO.",
+        profile_dmos=("UnifiedssotIndividualAm01__dlm",),
+        data_graphs=("RT_UnifiedIndividual",),
+    ),
     # The fourth corner (graph, no profile DMO) cannot exist: registration 400s
     # INVALID_API_INPUT "The data graph must be rooted on User, Individual, or a
     # Unified DMO declared in profileDmos (UnifiedIndividual__dlm)" (2026-11-05).
