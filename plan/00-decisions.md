@@ -5276,3 +5276,51 @@ contract. Any later publication of future-product material requires a separate d
 deployment requires a full image rebuild because the implementation lives in the baked static
 shell. The existing browser-visible memory owner-id field is not consumed by this mode and remains
 a separate follow-up.
+
+## 2026-11-06 — D117: the memory owner is the customer's CRM Contact id, and the live registration carries the real-time Customer360 graph
+
+**Context.** D115's 15:18Z correction showed that the real-time `A2ALab_Memory_Customer360` graph
+*is* served into GetContext. Two conditions must hold: the registration still carries its
+`profileDmos` (`UnifiedssotIndividualAm01__dlm`) and `contextDataSources.dataGraphs`, and the
+caller's `owner_id` is the CRM Contact id that the AM01 identity link resolves. The faces broke
+both conditions. The live `A2ALab_Memory_Case` had lost its configuration to a partial PATCH
+(D115), and `A2ALAB_MEMORY_CUSTOMER_MAP` (D104) mapped each persona to a unified individual id.
+
+A probe of the same registration on 2026-11-06 isolated the owner id as the deciding variable:
+
+- With the unified id as owner, GetContext returned Maya's prior conversation history but no graph.
+- With her Contact id as owner, it returned the graph record (name, title, identity link, email)
+  but no history.
+
+The unified id is also unstable: Erin's moved from a provisional to a batch id within a day,
+when identity resolution re-ran (plan/03-results.md, D115).
+
+**Decision.**
+
+1. `A2ALAB_MEMORY_CUSTOMER_MAP` maps each allow-listed persona to its **CRM Contact id**, and
+   that id becomes the Agentic Memory `owner_id`. `memory_adapter.owner_of` is unchanged,
+   because the identifier is deployment configuration, as D104 already required. The fail-closed
+   rules and "raw ids never reach the browser" still hold.
+2. The live `A2ALab_Memory_Case` carries the AM01 profile DMO and the Customer360 graph. It is
+   brought to that shape by `setup_agentic_memory.py configure case-memory`, a **full-configuration**
+   v67 PATCH that re-sends the registration's current `isMemoryGenerationEnabled`. That keeps the
+   memories, unlike delete + register (D115). Applied 2026-11-06.
+3. `memory.render_context` treats a data-graph record as the customer's system of record, not as
+   memory. The record arrives tagged `sourceType: Profile`, like curated facts; it is recognised by
+   shape, as a TOON object rooted on the unified individual and not an upper-case memory-category
+   table. It renders first, as `dataGraph`, on its own 2000-character budget, so a long
+   conversation history cannot crowd it out. It also survives D107's post-reset Profile
+   quarantine, because it is read live from Data 360 rather than re-materialized from pre-reset
+   history.
+
+**Consequences.**
+
+- Memory accrued before this change sits under the old unified-id owners. It is not deleted, but
+  the faces no longer read it, so Maya and Jordan restart with clean memory history. This is
+  acceptable for lab personas and is the same outcome as a D107 reset.
+- Any calling agent that knows the Contact id now receives the CRM record through the one memory
+  seam: the Claude and OpenAI faces today, and an Agentforce service agent through the same
+  registration. This is the base for the real-time engagement demo: web product views and
+  in-store POS orders join the same graph, so every agent sees them on its next turn.
+- The shape-based classifier is a heuristic over an undocumented payload. A new graph whose root
+  is not the unified individual needs its own test fixture before it is trusted.

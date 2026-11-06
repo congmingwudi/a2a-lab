@@ -619,3 +619,59 @@ def test_memory_turn_checks_the_bridge_token(bridge, monkeypatch):
     client, _ = bridge
     monkeypatch.setenv("BRIDGE_TOKEN", "secret")
     assert client.post("/memory/turn", json=IDS).status_code == 401
+
+
+# ---------------------------------------------------------------- D117 data-graph record
+
+GRAPH_ENTRY = (
+    "LastName: Chen\n"
+    "UnifiedLinkssotIndividualAm01[1]:\n"
+    "  - SourceRecordId: 003000000000001AAA\n"
+    "    DataSourceObjectId: Contact\n"
+    "    Individual[1]:\n"
+    "      - FirstName: Maya\n"
+    "        TitleName: VP, Supply Chain\n"
+    "Id: 0123456789abcdef0123456789abcdef"
+)
+
+
+def test_graph_record_is_told_apart_from_curated_profile_facts():
+    assert memory_mod.is_graph_record({"entry": GRAPH_ENTRY, "sourceType": "Profile"})
+    assert not memory_mod.is_graph_record(
+        {"entry": "SYS_PROFILE_FACT[1]{CREATED,VALUE}\n  2026-11-03Z,Fact", "sourceType": "Profile"}
+    )
+    assert not memory_mod.is_graph_record({"entry": GRAPH_ENTRY, "sourceType": "Conversation"})
+    assert not memory_mod.is_graph_record({"entry": "Prefers aisle seats.", "sourceType": "Profile"})
+
+
+def test_graph_record_survives_the_generation_quarantine_and_renders_first():
+    ctx = {
+        "userContext": [
+            {"entry": "SYS_PROFILE_FACT[1]{CREATED,VALUE}\n  2026-11-03Z,Old fact",
+             "sourceType": "Profile"},
+            {"entry": "CONVERSATION_SUMMARY[1]{CREATED,VALUE}\n  2026-11-04Z,New turn",
+             "sourceType": "Conversation"},
+            {"entry": GRAPH_ENTRY, "sourceType": "Profile"},
+        ]
+    }  # fmt: skip
+
+    rendered = render_context(ctx, include_profile=False)
+
+    assert rendered.startswith("- dataGraph: LastName: Chen")
+    assert "TitleName: VP, Supply Chain" in rendered
+    assert "New turn" in rendered and "Old fact" not in rendered
+
+
+def test_graph_record_has_its_own_budget():
+    ctx = {
+        "userContext": [
+            {"entry": "CONVERSATION_SUMMARY[1]{CREATED,VALUE}\n  " + "x" * 5000,
+             "sourceType": "Conversation"},
+            {"entry": GRAPH_ENTRY, "sourceType": "Profile"},
+        ]
+    }  # fmt: skip
+
+    rendered = render_context(ctx, limit=100, graph_limit=1000)
+
+    assert GRAPH_ENTRY.splitlines()[-1] in rendered  # the graph is whole
+    assert len(rendered) <= 100 + 1000 + 1

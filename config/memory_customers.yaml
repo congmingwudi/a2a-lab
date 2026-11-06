@@ -1,5 +1,5 @@
 # Safe, display-only demo customer personas for D104 memory experiments.
-# Org-specific unified profile ids live only in A2ALAB_MEMORY_CUSTOMER_MAP.
+# Org-specific CRM Contact ids (the memory owner, D117) live only in A2ALAB_MEMORY_CUSTOMER_MAP.
 customers:
   maya:
     name: Maya Chen

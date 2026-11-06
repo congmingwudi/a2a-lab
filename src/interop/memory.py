@@ -711,12 +711,50 @@ async def write_turn(
 ENVELOPE_KEYS = frozenset({"contextId", "sessionId", "createdAt"})
 
 
-def render_context(ctx: dict, limit: int = 4000, *, include_profile: bool = True) -> str:
+# D117: a context data graph attached to the registration (the real-time
+# Customer360 graph) is served as a `sourceType: Profile` userContext entry —
+# the same tag curated profile facts carry. The two differ in shape: curated
+# facts are upper-case memory-category tables (`SYS_PROFILE_FACT[1]{CREATED,
+# VALUE}`), a graph record is a TOON object rooted on the unified individual
+# (`UnifiedLink…[n]:` / `Id: <unified id>`).
+_GRAPH_RECORD_RE = re.compile(r"(?m)^(?:UnifiedLink\w*\[\d+\]:|Id: [0-9a-fA-F]{32}\s*$)")
+_MEMORY_TABLE_RE = re.compile(r"(?m)^[A-Z][A-Z0-9_]*\[\d+\]\{")
+GRAPH_LIMIT = 2000
+
+
+def is_graph_record(item: Any) -> bool:
+    """True for a userContext entry that is a data-graph record (D117), not a memory."""
+    if not isinstance(item, dict) or str(item.get("sourceType") or "").casefold() != "profile":
+        return False
+    entry = item.get("entry")
+    return (
+        isinstance(entry, str)
+        and bool(_GRAPH_RECORD_RE.search(entry))
+        and not _MEMORY_TABLE_RE.search(entry)
+    )
+
+
+def render_context(
+    ctx: dict,
+    limit: int = 4000,
+    *,
+    include_profile: bool = True,
+    graph_limit: int = GRAPH_LIMIT,
+) -> str:
     """The context payload as prompt text: every non-empty string leaf,
     labelled by its key path, minus the top-level envelope (`ENVELOPE_KEYS`).
-    Deliberately generic, because the service has added fields before."""
+    Deliberately generic, because the service has added fields before.
+
+    Data-graph records (D117) render first, as `dataGraph`, on their own
+    `graph_limit` budget — a long conversation history cannot crowd the
+    customer's system-of-record out — and survive `include_profile=False`:
+    they are read from Data 360 on every call, not re-materialized memory."""
     lines: list[str] = []
     ctx = {k: v for k, v in ctx.items() if k not in ENVELOPE_KEYS}
+    graph: list[str] = []
+    if isinstance(ctx.get("userContext"), list):
+        graph = [str(i["entry"]).strip() for i in ctx["userContext"] if is_graph_record(i)]
+        ctx["userContext"] = [i for i in ctx["userContext"] if not is_graph_record(i)]
     if not include_profile and isinstance(ctx.get("userContext"), list):
         # A reset rotates the conversation, but Data 360 can immediately
         # re-materialize profile facts from retained pre-reset history. Their
@@ -749,4 +787,6 @@ def render_context(ctx: dict, limit: int = 4000, *, include_profile: bool = True
                 lines.append(f"- {path}: {clean}")
 
     walk(ctx, "")
-    return "\n".join(lines)[:limit]
+    head = "\n".join(f"- dataGraph: {g}" for g in graph if g)[:graph_limit]
+    body = "\n".join(lines)[:limit]
+    return "\n".join(part for part in (head, body) if part)

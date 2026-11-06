@@ -111,10 +111,10 @@ AGENTS = {
     ),
     # D105: Claude and OpenAI are execution participants, not semantic-memory
     # partitions. New customer-memory turns use this shared domain identity.
-    # D115: the LIVE registration carries no profile DMO (it was registered
-    # before profile_dmos was declared here), so it defaults to
-    # UnifiedIndividual__dlm. Change it with a v67 PATCH, which keeps its
-    # memories; never delete and recreate it.
+    # D115: the LIVE registration was registered without a profile DMO and
+    # defaulted to UnifiedIndividual__dlm. D117 attaches the AM01 profile DMO and
+    # the real-time Customer360 graph with `configure` (a FULL-configuration v67
+    # PATCH, which keeps its memories); never delete and recreate it.
     "case-memory": Agent(
         name="A2ALab_Memory_Case",
         label="A2ALab Shared Case Memory",
@@ -123,6 +123,7 @@ AGENTS = {
             "Platform identity remains in execution traces, not memory storage partitions."
         ),
         profile_dmos=("UnifiedssotIndividualAm01__dlm",),
+        data_graphs=("A2ALab_Memory_Customer360",),
     ),
     # D105 follow-up: the graph-attached A/B twin of case-memory. Same profile
     # DMO, plus the real-time Customer360 graph as an additional context source,
@@ -416,6 +417,38 @@ def cmd_extraction(args) -> None:
         sys.exit("the PATCH returned but the setting did not change")
 
 
+def cmd_configure(args) -> None:
+    """Bring a LIVE registration's configuration to its declared shape (D117).
+
+    A v67 PATCH replaces the whole configuration (D115), so the body is the
+    declared profileDmos + contextDataSources PLUS the registration's current
+    isMemoryGenerationEnabled — configuring a graph must not toggle extraction.
+    Memories survive a PATCH; they would not survive delete + register."""
+    a = AGENTS[args.agent]
+    resp = api("GET", f"/agent/{a.name}", base=V67)
+    if error_code(resp):
+        sys.exit(f"{a.name}: {resp}")
+    current = dict(resp.get("configuration") or {})
+    want = dict(register_body(a).get("configuration") or {})
+    want["isMemoryGenerationEnabled"] = bool(current.get("isMemoryGenerationEnabled"))
+    print(f"{a.name} now:\n{json.dumps(current, indent=2)}")
+    if all(current.get(k) == v for k, v in want.items()):
+        print("already configured — nothing to do")
+        return
+    body = {"label": a.label, "configuration": want}
+    print(f"PATCH {V67}/agent/{a.name}\n{json.dumps(body, indent=2)}")
+    if not args.apply:
+        print("(dry run — re-run with --apply to send this to the production org)")
+        return
+    resp = api("PATCH", f"/agent/{a.name}", body, base=V67)
+    if error_code(resp):
+        sys.exit(f"PATCH refused: {resp}")
+    got = api("GET", f"/agent/{a.name}", base=V67).get("configuration") or {}
+    print(f"{a.name} after:\n{json.dumps(got, indent=2)}")
+    if any(got.get(k) != v for k, v in want.items()):
+        sys.exit("the PATCH returned but the configuration does not match")
+
+
 # ---------------------------------------------------------------- tenant probe
 
 def tenant_session(a: Agent, owner_id: str):
@@ -656,6 +689,9 @@ def main() -> None:
     sp.add_argument("agent", choices=sorted(AGENTS))
     sp.add_argument("state", choices=("on", "off"))
     sp.add_argument("--apply", action="store_true", help="send it (default: dry run)")
+    sp = sub.add_parser("configure")
+    sp.add_argument("agent", choices=sorted(AGENTS))
+    sp.add_argument("--apply", action="store_true", help="send it (default: dry run)")
     sp = sub.add_parser("probe")
     sp.add_argument("agent", choices=sorted(AGENTS))
     sp.add_argument("--owner", required=True, help="real profile-DMO xid (never a synthetic id)")
@@ -679,7 +715,7 @@ def main() -> None:
     args = ap.parse_args()
     verbs = {"status": cmd_status, "setup": cmd_setup, "register": cmd_register,
              "delete": cmd_delete,
-             "wait": cmd_wait, "extraction": cmd_extraction, "probe": cmd_probe,
+             "wait": cmd_wait, "extraction": cmd_extraction, "configure": cmd_configure, "probe": cmd_probe,
              "context": cmd_context,
              "user": cmd_user, "ungrant": cmd_ungrant, "native": cmd_native}  # fmt: skip
     verbs[args.verb](args)
