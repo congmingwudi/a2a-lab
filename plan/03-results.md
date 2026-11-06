@@ -2537,7 +2537,7 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   source DMO is empty although saved memories are returned, and Slack reports the insight
   index-write flag being turned off in production. Together these say semantic search over
   memory is not live here.
-- **The extraction PATCH appears to replace the configuration (2026-11-06, read-only evidence).**
+- **A partial v67 PATCH replaces the configuration (2026-11-06, confirmed).**
   v67 `GET /ssot/agentic/agent/{name}` at 07:40Z:
 
   | Registration | `lastModifiedDate` − `createdDate` | Configuration read back |
@@ -2552,9 +2552,18 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   before the last modification, but we don't know when extraction was first switched on.
   **Arm G is the clean control.** It is real-time, AM01-rooted, never PATCHed, and still serves
   nothing. The live arm A's missing profile DMO may have the same cause; it is left untouched for
-  the demo. The script now re-sends the current configuration with the flag. The confirming test
-  (a partial PATCH on G, read back, then a full-config restore of G and B) was blocked by the auto
-  mode classifier and is left for the operator.
+  the demo. The script now re-sends the current configuration with the flag.
+
+  **Confirmed by the operator at 07:47Z** (`/tmp/dg/unified/patch_sem.py`, local). A PATCH of
+  `{label, configuration: {isMemoryGenerationEnabled: false}}` on G returned ok, and G read back
+  as `{isMemoryGenerationEnabled: false}` with no profile DMO and no graph. A full-config PATCH
+  restored G. B's first restore PATCH errored; a retry restored it
+  (`lastModifiedDate` 07:47:44Z), so B carries `Customer360` again for the first time since
+  2026-11-05 22:40Z. **Re-probed restored B at 07:51Z** (Maya, 3 reads,
+  `scripts/graph_context_probe.py --arms B F G`, raw `traces/graph-probe/20261106T075116Z-*`): B
+  and G returned `Conversation ×2` with no `Profile` entry, and F returned its graph record (1,447
+  chars). So the earlier B result stands. It is now measured on a configuration known to be
+  intact, and two clean arms (B and G) agree that an operator-built real-time graph is not served.
 - **`unifiedProfileDGs` cannot be set from outside (2026-11-06).** The off-core design (git.soma
   `vishal-sood/claude-docs`, `design/agent-context/single_unified_dg_agent_registration_offcore.md`)
   and the shipped code work like this:
