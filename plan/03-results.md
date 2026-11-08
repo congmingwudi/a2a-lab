@@ -2603,6 +2603,40 @@ Jordan got no `Profile` entry on any arm except A's curated one, which is empty 
   one (`6bd4371e…`), so the provisional real-time identity has cleared, within about 24 h as
   reported. G's remaining difference from B is `isRecordCachingDisabled: false`.
 
+- **The scheduled re-read (2026-11-07 06:18Z): the provisional id expired; it did not merge.**
+  Same owners, same Contact ids, same arms. Raw: `traces/graph-probe/reread-20261107T0618Z.json`
+  (local, gitignored).
+
+  | Owner (Contact id) | B `Customer360` | F `AgenticUnifiedIndividual` | G `RT_UnifiedIndividual` |
+  | --- | --- | --- | --- |
+  | Erin | CRM record (584 chars), AM01 `6bd4371e…`, unchanged | no `Profile`; `userContext` empty | registration deleted in the 11-06 cleanup; exchange refused (`access_denied`) |
+  | Maya | CRM record, AM01 `e0402f35…`, plus two conversations | no `Profile`; two conversations | as Erin |
+
+  - B's configuration was checked first (`GET v67 /ssot/agentic/agent/A2ALab_Memory_Case_Graph`):
+    `dataGraphs` = `A2ALab_Memory_Customer360`, `profileDmos` = AM01, extraction off. So B's row
+    is a clean read, and the 15:18Z result holds a day later.
+  - **`Ir1` is not a ruleset.** The org has one identity ruleset, AM01, and nothing deleted one.
+    `Ir1` is the *projected name* of AM01's objects inside `AgenticUnifiedIndividual`: its
+    definition maps `UnifiedssotIndividualAm01__dlm` → `UnifiedssotIndividualIr1__dlm` and the
+    link likewise. That graph was created by the Automated Process user on 2026-11-02 17:17Z,
+    seven minutes after our `Customer360`, so it came with the platform's agentic setup (the
+    memory datakit), not from us. `DataGraph` lists it as `REALTIME` and `ACTIVE`, though
+    its definition reads back `isRealTimeToggleEnabled: false`. Its Individual node carries the memory pipeline's own objects
+    (Conversation, AiAgentSession, AiParticipantInsight).
+  - **The provisional ids were never in the lakehouse.** A SQL read today finds one Individual per
+    Contact (data source `Salesforce_Home`, object `Contact`) and one AM01 link each: Erin →
+    `6bd4371e…`, Maya → `e0402f35…`. `dc2d0a86…` and `965ff449…` are not in the unified table.
+    F's 11-06 entries (the Conversation and AiAgentSession rows the memory pipeline wrote at
+    06:01Z) were therefore served from the real-time layer only. About 24 h later they are no
+    longer served. So the provisional identity *expired*; it did not move to the batch id.
+  - That is the behaviour the reported real-time issue describes: a real-time identity created
+    before the lakehouse sync lives on the session cache for up to about 24 h. Our reading of the
+    mechanism is an inference from two reads, not a documented TTL. It does not affect the
+    faces, which read B's shape (AM01 by Contact id, D117).
+  - The earlier draft of this entry (written the same morning) said the `Ir1` ruleset had been
+    deleted. That was wrong: an `identity-resolutions` list showing only AM01 and a SQL
+    "does not exist" on a projected name were read as a deletion.
+
 **For the calling agents.** Today Claude and OpenAI receive the shared registration's
 conversation summaries, its own Profile row and its saved facts and preferences. An attached graph
 **does** reach the prompt, as TOON text inside the `userContext` `Profile` entry (arms E and F).
@@ -2617,3 +2651,61 @@ conversations, not Maya's CRM data, so attaching `Customer360` adds nothing. Tha
   conversation summaries, so a large record pushes memory out of the prompt.
 
 Both need a change in `render_context` before the graph is adopted (D115).
+
+## 2026-11-06 — D117 live: hosted Claude and OpenAI faces answer from the customer's graph record
+
+- **Setup.** Live `A2ALab_Memory_Case` reconfigured with one full-configuration v67 PATCH
+  (`setup_agentic_memory.py configure case-memory --apply`): `profileDmos` AM01 plus
+  `contextDataSources.dataGraphs` `A2ALab_Memory_Customer360`. Its memories are kept. Faces were
+  full-rebuilt; the console was redeployed with `--skip-build` to pick up the new
+  `A2ALAB_MEMORY_CUSTOMER_MAP` (the CRM Contact id per demo customer, D117).
+- **Propagation.** The first local read after the PATCH came back empty. The graph record then
+  appeared within about 2–3 minutes (Jordan first) and stayed stable for both customers.
+- **Hosted acceptance.** `claude-rest-hosted` and `openai-rest-hosted` received
+  `metadata.memory=true`, `memory_customer=maya` and a lab user JWT, with the question "what is my
+  last name and which store channel do I use?". Both read 592 characters of GetContext and
+  answered "Chen" from the graph record. Both also said correctly that the record holds no store
+  channel; that is the gap the POS stream (WS32) fills.
+- **What this does not show.** Freshness. The graph serves the record that was current at its
+  last refresh. How soon a new row reaches GetContext is measured separately in WS32.
+
+## 2026-11-07 — WS32: POS orders reach a new real-time graph only through the identity link, on the 30-minute refresh
+
+The question: does hanging the POS order DMO off the AM01 Unified Link (by
+`SourceRecordId__c` = the Contact id) avoid the error that every new real-time graph with the
+source Individual node has hit since 2026-11-06? The link is meant to be the identity join
+object, so this tests a route, not a recommended design.
+
+- **Relationship.** `A2ALab_POS_Order__dlm.contact_id__c` → `UnifiedLinkssotIndividualAm01__dlm.SourceRecordId__c`
+  (FieldSrcTrgtRelationship, ManyToOne). A check-only deploy passed, the real deploy passed,
+  and the relationship reads `ACTIVE` next to the existing one to `ssot__Individual__dlm`.
+- **Graph A, root → link → POS (no Individual node): ACTIVE.** Built in about 5 min, 146
+  records. Maya's live lookup returned her unified record, her Contact link, and the order
+  posted on 11-06 nested under the link.
+- **Graph B, the full `Customer360` shape plus POS under the link: ERROR.** About 4.9 min, no
+  message. That is the same signature as every new graph with the Individual node. Where POS
+  hangs does not matter; the Individual node does.
+- **Latency, one order (Maya, `pos-f2b907cc5599`).** The Ingestion API accepted it in 0.68 s
+  (HTTP 202). The graph's live lookup (`live=true`) first showed it at **1875 s (31.3 min)**,
+  after 98 lookups. That is close to the graph's 30-minute full-refresh schedule, but it does not
+  prove the refresh delivered it. The 2026-11-05 probe showed this org's real-time graphs
+  picking up source edits through per-node streaming transforms, ahead of the batch tables, and
+  the DMO was not polled here. So the split between stream ingestion and graph pickup is
+  unmeasured. One sample.
+- **The 31 min was the lookup key, not the join.** The lookup above used the unified-root key
+  `UnifiedssotIndividualAm01__dlm.ssot__Id__c`. The operator's earlier retail demo measured the
+  same order path on three keys of a real-time graph (POS under Individual on `contact_id`, the
+  same join as ours). A purchase showed up in 1.7 s on the identity-link key `SourceRecordId__c`
+  (= the Contact id), which is the streaming fragment. Both batch keys, `Individual.ssot__Id__c`
+  and the unified root, took up to the 30-minute refresh (18.6 min measured there).
+  - Here, on the identity-link key, `Customer360` serves Maya (726 chars), and graph A returns no
+    rows. Graph A has no Individual node.
+  - `Customer360`'s definition now carries the operator's POS node under Individual (version 1,
+    2026-11-07 16:31Z). That activation errored, and every key still serves the version-0 shape
+    without POS. So the streaming-key latency for a POS order is still unmeasured here.
+  - A unified-id join would hang POS off the root. Lookups there land on the batch key, so going
+    by the retail demo it would not be faster.
+- **Not yet tested:** GetContext through an Agent Configuration attached to graph A. No
+  registration points at it.
+
+Graph A remains in the org (`A2ALab_Probe_POSLink`); graph B was deleted.

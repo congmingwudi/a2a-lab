@@ -5197,6 +5197,10 @@ data graph to an Agent Configuration") found four things:
     internal product demo was served a CRM-rooted graph with exactly this `owner_id` shape. A
     reported real-time identity lock (real-time identity created before the lakehouse ID-map
     sync, up to about 24 h) would explain the difference.
+    **Re-read 2026-11-07 06:18Z: the provisional ids expired from the real-time layer**
+    (they were never in the lakehouse), so they did not merge, and arm F no longer returns a
+    `Profile`. `Ir1` is the platform graph's projected name for AM01, not a second ruleset. Arm
+    B (configuration checked first) still serves the CRM record by Contact id (plan/03).
   - **An Individual-rooted CRM graph**, which skips unification the way arm E does.
   - **Try `unifiedProfileDGs`.** This registration key is preferred over `AgenticIndividual` when
     set, per engineering on Slack; we have never sent it.
@@ -5243,6 +5247,11 @@ data graph to an Agent Configuration") found four things:
     v67 PATCH;
   - `render_context` stops dropping `Profile` rows and stops sharing the 4000-character cap
     (plan/03).
+- **2026-11-07 06:18Z re-read: B's result is stable; the provisional identity expired.** B
+  returned the same CRM records with the same AM01 ids. F's 11-06 entries came from the memory
+  pipeline's real-time writes under a provisional unified id that never reached the lakehouse;
+  a day later they are no longer served. `AgenticUnifiedIndividual` (where the `Ir1` names come
+  from) was created by the platform's agentic setup, not by us (plan/03).
 
 **Consequences.** plan/18's identity row and open question 4 are corrected. The faces and the
 console are unchanged, so nothing is redeployed. Four new production registrations exist:

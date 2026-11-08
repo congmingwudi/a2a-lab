@@ -54,7 +54,7 @@
       {
         "name": "UnifiedLinkssotIndividualAm01__dlm",
         "label": "A2A Lab Individual Identity Link",
-        "type": "derived",
+        "type": "bridge",
         "path": [
           {
             "fieldName": "UnifiedRecordId__c",
@@ -89,6 +89,12 @@
           },
           {
             "sourceFieldName": "ssot__DataSourceObjectId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "NONE"
+          },
+          {
+            "sourceFieldName": "PriorityBucket__c",
             "isKeyColumn": false,
             "isProjected": true,
             "usageTag": "NONE"
@@ -197,9 +203,27 @@
                 },
                 "relatedObjects": []
               }
-            ]
+            ],
+            "topKFilterCriteria": {
+              "limit": 100,
+              "orderCriteria": [
+                {
+                  "fieldApiName": "ssot__Id__c",
+                  "sortOrder": "DESC"
+                }
+              ]
+            }
           }
-        ]
+        ],
+        "topKFilterCriteria": {
+          "limit": 100,
+          "orderCriteria": [
+            {
+              "fieldApiName": "PriorityBucket__c",
+              "sortOrder": "DESC"
+            }
+          ]
+        }
       }
     ]
   }

@@ -175,6 +175,16 @@ AGENTS = {
         profile_dmos=("UnifiedssotIndividualAm01__dlm",),
         data_graphs=("RT_UnifiedIndividual",),
     ),
+    # WS32 freshness arm, read-only: Customer360 + in-store POS orders (the
+    # A2ALab_Memory_CustomerPOS graph, built by scripts/setup_pos_stream.py). It
+    # measures POST-to-GetContext latency before the live registration moves.
+    "case-pos": Agent(
+        name="A2ALab_Memory_Case_POS",
+        label="A2ALab Case Memory + Customer POS",
+        description="A2A lab WS32 arm: Customer360 + POS orders real-time graph, AM01 DMO.",
+        profile_dmos=("UnifiedssotIndividualAm01__dlm",),
+        data_graphs=("A2ALab_Memory_CustomerPOS",),
+    ),
     # The fourth corner (graph, no profile DMO) cannot exist: registration 400s
     # INVALID_API_INPUT "The data graph must be rooted on User, Individual, or a
     # Unified DMO declared in profileDmos (UnifiedIndividual__dlm)" (2026-11-05).
@@ -451,6 +461,7 @@ def cmd_configure(args) -> None:
 
 # ---------------------------------------------------------------- tenant probe
 
+
 def tenant_session(a: Agent, owner_id: str):
     """An httpx client on the Data 360 tenant, as the memory ECA bound to `a` (aid)."""
     import httpx
@@ -682,7 +693,8 @@ def main() -> None:
     sp = sub.add_parser("delete")
     sp.add_argument("agents", nargs="+", choices=sorted(AGENTS))
     sp.add_argument(
-        "--apply", action="store_true",
+        "--apply",
+        action="store_true",
         help="irreversibly delete registrations and their memories (default: dry run)",
     )
     sp = sub.add_parser("extraction")
