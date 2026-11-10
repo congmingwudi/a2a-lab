@@ -12,15 +12,17 @@ Salesforce Agentforce (custom Service agent; Apex action → Named Credential)
    claude servers  REST :8001 | MCP :8002 | A2A :8003    (openai :8011/12/13, M9)
    agentforce shims        MCP :8021 | A2A :8023          (proxy → Agent API)
    guide servers   REST :8031 | MCP :8032 | A2A :8033    (the lab docent, D35)
-   strands servers REST :8041 | MCP :8042 | A2A :8043    (WS5; hosted twin → AgentCore)
+   strands servers REST :8041 | MCP :8042 | A2A :8043    (WS5; hosted twin → faces-lab stub; real agent → AgentCore strands-agentcore, D66/D68)
    langgraph srvrs REST :8051 | MCP :8052 | A2A :8053    (WS4; hosted → Heroku, D77)
-   lab console :8200 (trace viewer, SSE live tail)
+   lab console :8200 (trace viewer over JSONL + Aurora; SSE tail of local JSONL)
    cloudflared tunnel → claude-*-lab.agenticthings.com  (local dev stack; run_local.sh)
 
 Hosted (the deployed topology): bridge, console & the 14 protocol faces → ECS
 Fargate behind one ALB (bridge-lab / console-lab / faces-lab, host-header rules;
-the brief watcher a2alab-briefs also on Fargate); claude/openai/strands agents →
-Bedrock AgentCore. The ports above are the local dev stack; hosted, the faces are
+the brief watcher a2alab-briefs also on Fargate); the self-hosted Claude/OpenAI/
+Strands SDK agents → Bedrock AgentCore (a2alab_claude / a2alab_openai /
+a2alab_strands, reached directly by IAM invoke, not via the hosted remap — D55/D68;
+the three strands faces on faces-lab still run the stub backend, WS5/D66). The ports above are the local dev stack; hosted, the faces are
 reached via faces-lab (A2ALAB_MODE=hosted, WS13). See plan/09-deployment-map.md.
 ```
 
@@ -59,8 +61,13 @@ response_payload_raw, status, latency_ms, ts}` to `traces/YYYY-MM-DD.jsonl`.
 Raw payloads are the actual wire bytes: handler-level for REST (body is the
 payload), and a WireTap ASGI middleware for MCP/A2A (the JSON-RPC envelopes
 live inside the frameworks, so the middleware tees the real request/response
-bytes). The console (:8200) groups events by trace_id and live-tails the
-JSONL over SSE.
+bytes). The console (:8200) groups events by trace_id across both stores — the
+local `traces/*.jsonl` and a recent window of Aurora `lab.trace_events` (D23),
+deduped — plus a windowless single-trace lookup at `/api/traces/{id}`. The SSE
+live tail (`/api/stream`) watches only the local JSONL. The hosted console (WS13)
+has no traces/ directory (`A2ALAB_TRACE_SINK=postgres`), so hosted, new hops
+appear when the UI re-reads `/api/traces` from Aurora (on stream connect and
+during or after a run), not over SSE.
 
 ## Platform plugin convention
 

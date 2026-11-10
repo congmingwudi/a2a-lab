@@ -1450,3 +1450,1353 @@ throwaway owner `a2alab-recall-smoke-1017` (a lab JWT minted for it).
   the tenant between 10-15 and 10-17 is not yet known.
 - **Next:** re-run the control first; when it recalls again, re-run sessions
   2–3 for the smoke owner. No lab change is needed for that.
+
+## 2026-10-18 — WS27 tenant re-probe, and the native arms built (D84 → D92)
+
+**Re-probe (read-only, then one fresh explicit-arm run).** GetContext now
+requires `conversation_id` (400 "Required parameter 'conversation_id' is not
+present" without it), so each read uses a fresh conversation id.
+
+| Check | Result |
+|---|---|
+| Control persona `a2alab-recall-9c030a89` (concierge; recalled 10-14 and 10-15) | 200, `contextId` only, **empty `ontology`** |
+| Smoke owner `a2alab-recall-smoke-1017` (`A2ALab_Memory_Claude`) | 200, empty `ontology` |
+| `GET /api/v1/agentic/memory` with `ctx-agent-id` (memory CRUD) | **403** "Access forbidden" for both agents, the same as 2026-10-13 without the header |
+| Registrations (v67) and the `default` setup | both agents ACTIVE, `isMemoryGenerationEnabled: true`; setup ACTIVE, unchanged since 10-13 |
+| `AiParticipantInsight_std__dlm` (+ its chunk/index DMOs) | **0 rows** |
+| `memory_arms.py explicit --wait 150`: concierge v1, NEW owner `a2alab-arms-eb12d11f`, plant "dinghy named Silver Glacier" + bullet-point preference | within session 1 the second reply restates the fact (conversation history); **session 2: "I do not have anything remembered about you yet"**; GetContext empty for the persona and the agent-caller user; no insight rows |
+
+**Reading.** Recall is still blocked tenant-side, and it now fails for a fresh
+write, not just the old personas. The same protocol recalled all three facts
+after 90 s on 10-14. Nothing on the lab side changed between 10-14 and today
+(registrations, setup, ECA identity and the v1 path are all unchanged). The
+first registration change since 10-13 is `A2ALab_Memory_Claude`, created
+2026-10-17T17:55Z. Whether the control went empty before or after that time
+is the next question (the bridge's GetContext hops in Aurora would date it;
+AWS SSO had expired, so that query wasn't run).
+
+**Native arms (D92).** `A2ALab_Memory_Native_Flag` and
+`A2ALab_Memory_Native_Action` validate (`sf agent validate authoring-bundle`, 0
+errors each).
+
+| Native-action preview (live actions, admin) | Result |
+|---|---|
+| Start, `standardInvocableAction://manageUserMemory` with no `source` | refused: "Please specify a source when using an OOTB target" (validate had passed) |
+| With `source: "EmployeeCopilot__ManageUserMemory"` | session starts; both turns run the hook with no binding error |
+| `manageUserMemory` outputs, both turns | `resultMessage` **"No Agent or User found"**, `wasMemoryOperationPerformed: false`, `userMemoryEnabled: false`, `userMemories` empty |
+| In-session "what do you remember?" | correct, but from chat history: `memory_context` was empty |
+
+So the native action needs a published agent before it can be measured.
+`userMemoryEnabled: false` may also mean memory is off per user and agent until
+`updateAgentMemoryPreference` turns it on; that is to be measured on the
+published agent.
+
+**Later the same day: onset dated, and the arms published and run.** With AWS
+SSO renewed, the bridge's and adapter's GetContext hops in `lab.trace_events`
+date the break. **Correction to the 10-17 and 10-18 readings:** recalled memory
+comes back in `userContext` entries, not `ontology`. `ontology` is `{}` even on
+a read that recalled (trace `f1f870e6c726f6777ee5532723d7cdfd`, 10-15). Those
+readings still stand, because they also saw `contextId` only, with no
+`userContext`. `scripts/memory_arms.py` now reports `userContext`.
+
+| Window (hosted GetContext hops) | `userContext` |
+|---|---|
+| 2026-10-13 19:46Z → 2026-10-16 02:48Z (26 reads) | present on every read of a written owner |
+| 2026-10-17 18:23Z → 2026-10-18 20:42Z (8 reads) | absent on every read, bridge and adapter alike |
+
+So the break falls between 10-16 02:48Z and 10-17 18:23Z. That window holds
+the D90 ECA-policy deploys (from 10-16 15:31Z) and the `A2ALab_Memory_Claude`
+registration (10-17 17:55Z); the traces can't separate them. The memory ECA's
+own identity is not the cause: it moved off the admin on 10-14 (D86), and
+recall kept working through 10-16.
+
+The native arms were then published, activated and registered, and
+`memory_arms.py native-flag native-action` was run (120 s wait, 300 s total):
+
+| Arm | Session 1 | Session 2, new session | Tenant `userContext` (persona, caller username, caller Id) | Insight rows |
+|---|---|---|---|---|
+| `native-flag` (Silver Otter) | both turns answered in-session | "I do not have anything remembered about you yet" | none ×3 | 0 |
+| `native-action` (Silver Lantern) | both turns answered in-session | "I do not have anything remembered about you yet" | none ×3 | 0 |
+| Control `a2alab-recall-9c030a89` (concierge) | — | — | none ×3 | — |
+
+**Reading.** All three routes fail the same way: the explicit hook, the platform
+flag and the platform action. The native routes don't go through our
+registration or our bridge at all, so the fault is in the tenant's memory
+pipeline (extraction or retrieval), not in the lab's seam. The next step is
+the tenant side: check extraction status and the D90-window changes against
+the memory DMOs, and raise it with the Agentic Memory team if neither
+explains it.
+
+## 2026-10-18 — WS27 diagnosis: the tenant acknowledges memory writes and does not keep them (defect, not client)
+
+The question was whether recall is blocked by something the lab does wrong, or by
+a defect in Data 360 Agentic Memory. All checks ran against the production tenant
+as the memory integration user, bound to `A2ALab_Memory_Concierge`.
+
+| Lab-side variable | Checked | Result |
+|---|---|---|
+| Request shape | GetContext and write hops, 10-15 (recalled) vs 10-18, in `lab.trace_events` | identical params, headers and bodies |
+| `conversation_id` on GetContext | git history of `interop.memory.get_context` | sent since the first commit, including on reads that recalled |
+| Agent memory generation | v67 `GET agent` + `DataAgenticContextAgent` | `isMemoryGenerationEnabled` true for the concierge and Claude, unchanged since 10-13 / 10-17 |
+| Agentic setup | `GET /ssot/agentic/setups/default` | `enabled`, ACTIVE, unchanged since 10-13 |
+| Memory user's grants | `PermissionSetAssignment` since 10-15 | unchanged since 10-15 03:07Z; recall worked after that |
+| Token | CDP exchange | memory integration user, `aid` = the concierge, data space `default`, same tenant |
+| Call sequence | the product team's smoke driver (`#agent-conversation-script-results`) | same five calls; no extraction trigger, flush or close required |
+
+| Controlled probe (fresh owner, explicit preferences) | Result |
+|---|---|
+| Writes: conversation, session, participant, entries | 201 / 201 / 202 / 202 |
+| GetContext, same and new conversation id, at +60 / +180 / +360 s | 200, `contextId` + `{}` `ontology`, **no `userContext`** |
+| `GET /conversations/{id}?scope=all` at +6 min and +10 min | **404 "Conversation not found"** |
+| Agentic stream counts (Conversation / Message / Insight) before → after | 51 / 51 / 59 → **51 / 51 / 59** |
+| A/B: distinct `sessionId`, then `POST …/sessions/{sid}/close` | close 202 `"closed"`; GetContext empty and the conversation 404 at +20 / +90 / +240 s |
+| Re-create either conversation id | **201 `created`** again (not 409); owner's conversation list `[]` |
+
+Baseline: on 10-15 the same probe read its conversation back at once (200, above),
+and on 10-17 it was readable after a few minutes (404 at +15 s, then 200). Today it
+never is. So the service has degraded in steps: extraction stopped first (last
+`userContext` 10-16 02:48Z), then storage.
+
+**Reading.** The tenant acknowledges every write, including closing a session it
+never stored, and keeps none of them. Retrieval has nothing to return, and old
+owners are empty too. No client sequence can fix that. The Setup Audit Trail shows
+system-initiated platform changes inside the onset window, none of them ours:
+`Customer 360 Data Platform Integration` was converted to the integration
+permission set `sfdc_a360` (10-16 22:00Z), standard groups were recalculated with
+`Data Space default` removed and re-added (22:02Z), Data Cloud object/field and
+record-level policies were regenerated (10-17 01:00Z), there was an org-wide
+provisioning push (04:32Z), and new agentic connector DLO fields were created
+(07:52Z). The product's own 6-hourly smoke test last produced memory at 10-15
+19:00Z, and every run since 10-16 19:00Z has failed with `500 "[AgentConversation]
+Failed to create conversation"`. A separate observation: the AiParticipantInsight
+stream holds 59 records but has no DLO→DMO mapping, and a `COUNT(*)` on its DLO
+scans 59 rows and returns 0 for this identity, so the DMO has never shown rows.
+
+Filed as a defect (the draft is in `build-notes/ws27/agentic-memory-defect-2026-10-18.md`). The
+native arms also have `isMemoryGenerationEnabled` false (registration's default),
+to turn on before their rerun once the tenant is fixed.
+
+## 2026-10-27 — WS27 rerun, nine days after the defect was filed: still broken, same signature
+
+The explicit route was rerun end to end. The two native arms were not: their
+`isMemoryGenerationEnabled` is still false, so a miss there would prove nothing. The
+probe was also run directly against the tenant (`setup_agentic_memory.py probe concierge`).
+
+| Check | Result |
+| --- | --- |
+| Control persona `a2alab-recall-9c030a89` (recalled 10-15), and `a2alab-recall-smoke-1017` | GetContext 200, **no `userContext`** |
+| Tenant probe writes (conversation / session / participant / entries) | all acknowledged (`participantsAdded`, 202 `entriesAdded`) |
+| Probe GetContext at +5 / +10 / +15 s | 200, `contextId` + `{}` `ontology`, no `userContext` |
+| `GET /conversations/a2alab-probe-50071f62` at +15 s and at about +5 min | **404 "Conversation not found"** |
+| `memory_arms.py explicit` (run `2b6b2fae`, wait 150 s) | session 1 planted "Ochre Cactus"; session 2: "I do not have anything remembered about you yet"; `recalled: false` |
+| Arm tenant reads (persona, caller username, caller Id) | 200, no `userContext` for all three |
+| AiParticipantInsight rows since run start | 0 |
+
+**Reading.** Nothing has changed since the 10-18 diagnosis: writes are acknowledged
+and not stored, so there is nothing to recall. The lab side is unchanged since then
+too. A working demo elsewhere fits a fault in this tenant (or its cell), not in the
+feature. Open: set the native arms' extraction on
+(`setup_agentic_memory.py extraction native-flag|native-action on --apply`) before
+their rerun.
+
+## 2026-10-27 (later) — the Memory API holds what GetContext will not serve, and the close is what extracts
+
+Prompted by the governed-mcp-demo-kit's agent-memory playbook (an internal Salesforce
+demo repo; its org's memory worked from 10-23 to 10-26). The kit reads extracted memories
+from the **Memory API** (`GET /api/v1/agentic/memory?profile_id&profile_type&category`,
+`agent_id` header), not GetContext, and closes every session. Rerun here against the
+concierge registration:
+
+| Check | Result |
+| --- | --- |
+| Memory API, control persona `a2alab-recall-9c030a89`, as Concierge | **2 facts** (Porto half marathon, lapsang souchong) + **1 preference** (short bullet points) — the 10-14 memories are intact |
+| Same persona, as `A2ALab_Memory_Claude` | 0 — facts and preferences are stored **per agent** |
+| `a2alab-recall-smoke-1017` (never closed) | 0 |
+| Fresh probe, two owners, kit's wire shape and ours | create 201, session 201, entries 202, **close 202** |
+| `GET /conversations/{cid}` for the probe | 400 without `owner_id`, 404 with it; re-create 201; owner's list `[]` |
+| Memory API at +6 min after close | **extracted in both shapes**: a fact about two beehives in Lisbon, a preference for Portuguese |
+| GetContext, every variant (incl. `insight_query`, `unfiltered_insights`) | 200, no `userContext` |
+| A closed session: more entries, then re-close | 202 `entriesAdded`, 202 `closed`; **re-extracted** at about +7 min (the new fact about a greyhound named Biscuit, as two overlapping facts) |
+| New `open_and_read` (as Claude, control persona, no start) | the Concierge's 3 lines; 3.7 s cold, 0.5–0.7 s warm — inside the 8 s adapter budget |
+
+**Reading.** The 10-18 diagnosis was too broad. Extraction works and the store is intact:
+what is broken is that conversations are not persisted (so no summary) and that
+GetContext serves no `userContext` even while the Memory API holds facts for the same
+owner. One gap was ours: no seam ever closed a session, and the close is the extraction
+trigger, so every owner written since 10-17 had nothing to extract. The fix (D93) closes
+after every write and reads saved memories from the Memory API across the shared agents.
+
+## 2026-10-27 — D93 seam, two-session recall against the live tenant (before deploy)
+
+The D93 helpers (`write_turn`, `open_and_read`) were driven directly from the
+operator's machine as `A2ALab_Memory_Claude`, for a fresh owner `a2alab-d93-2145e1a5`.
+The hosted bridge and faces are not yet rebuilt: the image build stopped at Docker
+Desktop's enforced organization sign-in.
+
+| Step | Result |
+| --- | --- |
+| Session 1: start, ingest a planted fact plus the reply, close | no errors, 3.0 s |
+| Session 2 at +60 s: a NEW conversation, `open_and_read` | no recall, no errors |
+| Session 2 at +120 s: another new conversation | **recalled**: two saved facts (a kayak named "Saffron Otter 2145e1a5", paddled on the Tagus), no errors |
+| GetContext hops | 200, no `userContext`; `contextId` recorded as `platform_ref` on both |
+
+**Reading.** First recall since 2026-10-16, and all of it came through the Memory API.
+GetContext still serves nothing. Extraction took 1–2 minutes after the close, in line
+with the ~64 s measured 2026-10-14.
+
+## 2026-10-27 — D93 deployed: hosted recall through the explicit arm
+
+The bridge and the faces were fully rebuilt and deployed (commit `7540607`); both
+services are stable, and `/healthz` returns 200 on both hostnames. Then
+`memory_arms.py explicit --wait 180` (run `f07c03ca`, persona `a2alab-arms-f07c03ca`):
+the concierge's `before_reasoning` hook goes to the hosted bridge's `/memory/turn`.
+
+| Check | Result |
+| --- | --- |
+| Session 1 | planted "Saffron Lantern" and asked for short bullet points |
+| Session 2 (new Agent API session, +180 s) | "Your dinghy is named Saffron Lantern … You prefer answers in short bullet points." **`recalled: true`** |
+| GetContext for persona, caller username, caller Id | 200, no `userContext` for all three |
+| AiParticipantInsight rows | 0 |
+
+**Reading.** The first hosted recall since 2026-10-16. The tenant's GetContext still
+serves nothing, so the recall came entirely through the D93 path: close on write,
+then a Memory API read. The two native arms still have extraction off and were not run.
+
+## 2026-10-28 — WS27 item 32: hosted Claude recalls behind the seam, and the first three-arm run with extraction on
+
+**Claude, hosted.** Two turns against `claude-rest-hosted` with the Memory toggle on
+(`metadata.memory`) and a locally minted token for the new test user `memprobe`
+(owner `a2alab-memprobe`, `listed: false` in `config/users.yaml`). Each turn ran in its
+own lab session, so each had its own derived conversation.
+
+| Turn | Memory metadata | Reply |
+| --- | --- | --- |
+| Session 1: plant "my telescope is named Cobalt Heron efeaa6, I observe from Sintra" | `ok`, `context_chars` 0, read 3.8 s (cold), ingest 0.5 s | acknowledged |
+| Session 2 at +150 s, a new conversation: "What do you remember about me?" | `ok`, `context_chars` 111, read 1.5 s, ingest 0.4 s | "…an observer based in Sintra, and you have a telescope called Cobalt Heron efeaa6" — **recalled** |
+
+**Three arms, extraction on.** The two native arms' `isMemoryGenerationEnabled`
+was set true at about 11:57Z, and `memory_arms.py explicit native-flag native-action
+--wait 180` started at 11:58Z.
+
+| Arm | Session 2 | Tenant GetContext | Memory API (Native agents, every candidate owner) |
+| --- | --- | --- | --- |
+| explicit (`f81239a6`) | "Your dinghy is named Ochre Falcon … short bullet points" — **recalled** | no `userContext` | — |
+| native-flag (`2c66824b`) | "I have nothing remembered yet" — not recalled | no `userContext` | 0 for persona and username; the user **Id** as `profile_id` is refused, 400 "request does not satisfy partitionKeyRules" |
+| native-action (`92f4dabb`) | "I have nothing remembered yet" — not recalled | no `userContext` | same |
+
+**Reading.** Claude and Agentforce now share the D93 path, and both recall. The native
+routes left nothing in the Data 360 Memory API for any owner they could key to. That fits
+the demo kit's claim that GA `context: memory` uses a separate store. This run was
+inside the 15–20 minutes a config change can take to apply, so the arms are rerun after it.
+
+**Settled rerun, 15:40Z (about 3.7 h after the flag change), `--wait 300`.** native-flag
+(`3bd1c872`) and native-action (`6001d172`) both answer "I have nothing remembered yet".
+GetContext shows no `userContext` for the persona, the caller username or the caller Id, and
+there are 0 insight rows. The Memory API, as each native agent, holds 0 facts and 0
+preferences for the personas and the username, under both `individual` and `employee`.
+So the miss is not the settle window. Neither native route writes to the Data 360 Memory
+API store that the explicit seam reads and writes, or it writes under an owner key that
+this API cannot be asked for.
+
+### 2026-10-28 — GetContext answers per conversation; both filed defects fail to reproduce (WS27, D93)
+
+**Where the idea came from.** The internal demo kit's `AgentMemoryClient.cls` keeps **one long-lived
+conversation per owner** (`<prefix>-<ownerId>`) and opens one session per chat. Its comment says
+GetContext "only returns memory for the conversation id it is given", so every agent sharing memory
+must use the same id. The lab does the opposite. `memory_adapter._derived_conversation` and the bridge's
+`/memory/turn` open a **new conversation for every session**, so each session-2 read asked about a
+conversation with no history yet. The kit also sets `context: memory: enabled: False` on both of its
+agents and does all memory through explicit Apex actions. It is no evidence that the native route works.
+
+**Read-only probe** as `A2ALab_Memory_Claude`, owner `a2alab-memprobe` (the item 32 run, about 3.5 h earlier):
+
+| GetContext `conversation_id` | Result |
+| --- | --- |
+| session-1 conversation (`…b6404102…`) | 200, `userContext` = `CONVERSATION_SUMMARY`: "…their telescope is named Cobalt Heron efeaa6, and they observe from Sintra" |
+| session-2 conversation (`…ddf4f488…`) | 200, `userContext` = that session's summary, the recall included |
+| an id never used | 200, `contextId` + `ontology`, **no `userContext`** — the shape filed as the defect |
+
+`GET /conversations/{cid}?scope=all` (it needs `owner_id`, `owner_type` and the `agent_id` header) returns
+200 for both conversations, with their entries, and each session is `CLOSED`.
+
+**Reading.** GetContext is not broken. It summarises the conversation it is asked about, and the
+lab never asked about one that had history. Conversations persist again. The 10-17/18 non-persistence was corroborated
+by the product smoke driver failing in the same window. It is **intermittent, not over**: see the 17:45Z A/B below. `build-notes/ws27/agentic-memory-defect-2026-10-18.md` withdraws the GetContext defect. The same scoping is a
+candidate explanation for the native arms' misses: every Agent API session is a new conversation. That is a hypothesis
+and has not been tested. It also does not explain why no Memory API facts appear under any owner.
+
+**17:45Z — the D94 probe, and an A/B on the id shape.** The first one-conversation-per-owner write
+(`a2alab-o-0e3c…`, session `a2alab-ce93…`, written as `A2ALab_Memory_Claude`) was acknowledged
+end to end: conversation 201, session 201, participants 202, entries 202, close 202 `closed`.
+GetContext then stayed empty for 7 minutes, and `GET /conversations/{cid}` returned 404. The A/B ran at 17:55Z
+with two fresh owners. One had session id = conversation id (the old shape), the other had different ids (D94):
+
+| Shape | GET conversation at +15 / +45 / +120 / +240 s |
+| --- | --- |
+| session id = conversation id | 404 / 404 / 404 / 404 |
+| session id ≠ conversation id | 404 / 404 / 404 / 404 |
+
+The shape makes no difference. The tenant was persisting no new conversation in that window, though the
+ones written at about 12:00Z read back fine. So the defect is intermittent. While it lasts, GetContext can
+summarise nothing new, and recall falls back to the Memory API facts already extracted (D93).
+
+**~20:00Z — the D94 two-chat proof (after the reboot).** The 17:45Z conversation (`a2alab-o-0e3c…`, owner
+`a2alab-d94-f6e80374`, chat 1 as `A2ALab_Memory_Claude`) now reads back 200, with a `CONVERSATION_SUMMARY`
+naming the canoe "Indigo Lark" on the Douro. So the earlier 404s were **lag of some hours, not loss**. The
+planted key in chat 1 is stored as `[REDACTED_TOKEN]`, so `memory.redact` holds on the live wire. Chat 2 then ran
+as the **other** agent (`A2ALab_Memory_Concierge`) in a new session (`a2alab-3578…`) under the same owner:
+
+| Step | Result |
+| --- | --- |
+| chat 2 `open_and_read`, before any chat-2 write | GetContext `userContext` = chat 1's summary (Indigo Lark): **cross-chat, cross-agent recall through GetContext** |
+| chat 2 `write_turn` (green Hilleberg tent "Basalt Wren") | ingest + close acknowledged, no errors |
+| Memory API facts, +15 min | Concierge: tent named Basalt Wren, green Hilleberg. Claude: the canoe facts from chat 1 |
+| `GET /conversations/{cid}`, +15 min | still lists chat 1's session only. Chat 2's session is not persisted yet |
+| GetContext summary naming both chats, polled 15 min | not yet: it waits on the same persistence lag |
+
+**Reading.** The D94 claim holds live. A new chat, opened by a different agent, recalls the earlier chat from the
+owner's one conversation. Before D94 that read always came back empty. Extraction runs ahead of conversation
+persistence: chat 2's facts were listed while its session was still missing. So D93's Memory API read covers the lag
+window. A summary naming both chats is the one check still open. Re-read GetContext for this owner once chat 2's
+session appears.
+
+**~20:40Z — native arms, with reads that ask about the right conversation.** Until today `memory_arms.py`'s
+tenant reads asked GetContext about a **fresh** `conversation_id`. After D94 that is known to be empty
+whatever is stored, so every earlier native-arm "no `userContext`" was uninformative. The reads now ask about
+each arm's two **Agent API session ids**. Those are the conversations a per-session native route would write.
+They cover every candidate owner (the run persona, the agent-caller username, the caller's user Id). Both arms
+ran at `--wait 240`:
+
+| Arm | Session-2 recall | GetContext at either session id, any owner | AiParticipantInsight rows |
+| --- | --- | --- | --- |
+| native-flag (`A2ALab_Memory_Native_Flag`) | no: "nothing remembered yet" | 200, no `userContext` (6/6) | 0 |
+| native-action (`A2ALab_Memory_Native_Action`) | no: "no memories about you yet" | 200, no `userContext` (6/6) | 0 |
+
+**Reading.** The per-session-conversation hypothesis is **refuted**. The native routes write nothing GetContext can
+read, not even under the conversation their own session ran in. With 0 Memory API facts (earlier today) and 0
+insight rows, the lab's reads find no trace of the native routes in the Data 360 agentic store at all. That fits
+the demo kit's warning that GA `context: memory` is likely a separate store (D92). Next is the platform's own
+surface for that store (the agent's memory, per user), not more Data 360 reads.
+
+**~23:10Z — D94 deployed (bridge `:20`, faces `:20`, full rebuild), and the summary now spans both chats.** One hosted
+`POST /memory/turn` (`bridge-lab`, as `A2ALab_Memory_Concierge`, owner `a2alab-d94-f6e80374`, no id sent) opened a
+third session (`a2alab-e9ab…`) inside the owner's conversation. It returned one `CONVERSATION_SUMMARY` covering
+**both** earlier chats: the canoe "Indigo Lark" on the Douro (chat 1, Claude) and the green Hilleberg tent "Basalt
+Wren" (chat 2, Concierge). The Memory API facts of both agents came back beside it. That closes the one check left open
+at 20:00Z. The summary dates the tent at 23:10:33Z, though chat 2 was written at about 20:00Z. So the tenant timestamps
+the summarised entry when it finally persists, not when it was ingested, which fits the persistence lag.
+
+**~00:45Z (10-29) — why the native arms never remember: "No Agent or User found".** The Session Trace (WS23, OTel
+API) for native-action session 1 (`01a184e1-8971-…`) shows both `manage_user_memory` steps returning
+`__action_execution_status__: success` with `userMemoryEnabled: false`, `wasMemoryOperationPerformed: false`,
+`userMemories: ""` and `resultMessage: "No Agent or User found"`. The help docs (Salesforce Help, *Agent Memory*,
+`ai.agent_memory*.htm`, read 10-28) say what that means:
+
+- Agentforce **Agent Memory** is a store of its own, **per agent and per Salesforce user**: 50 per agent per user,
+  plus 50 user-level memories. It is not Data 360 Agentic Memory, which is why no Data 360 read ever saw it (D92).
+- It needs three switches: the org's conversational-memory setting (on by default), `context: memory: enabled: True`
+  in Agent Script, and, for **Employee agents in Lightning only**, a user opt-in. Other surfaces need no opt-in.
+- For **Service** agents, memories key on the **authenticated participant** (User, Contact, Lead or Account:
+  `getUserMemories.authParticipantId`). Both native arms are `EinsteinServiceAgent`, reached over the Agent API with
+  a client-credentials token, so the session has no authenticated participant, and nothing is ever stored.
+- `getUserMemories`, invoked outside an agent session, fails with "Agent context not established". Native memory can
+  be read only from inside an agent turn: `GetAgentMemoryPreference`, `getUserMemories`, or the session trace.
+
+**Reading.** The native arms' misses are an **identity gap, not a store or wiring defect.** To test the native route,
+the arm needs a session that carries a user: an Employee agent (the run-as user is the memory owner), or a Service
+session with a verified participant. Either way the native store stays per agent and per Salesforce user, so it can
+never be the cross-platform memory D83/D91 builds on Data 360. It is a within-Agentforce comparison arm.
+
+**~01:30Z (10-29) — the native arms, given a user (D95).** Two routes to a session that carries a user.
+
+*B: keep the Service agent and give the session a user.* Each shape got one `A2ALab_Memory_Native_Action` turn
+over the Agent API as the agent-caller. Each was read back from the Session Trace once the spans landed (~1 h lag):
+
+| Session start | `manage_user_memory` output |
+|---|---|
+| `bypassUser: false` | `userMemoryEnabled: false`, "No Agent or User found" |
+| `bypassUser: true` + `$Context.EndUserId` = the caller's User Id (`type: Text`; `Id` is refused, 400 `InvalidTypeIdException`) | the same |
+| `bypassUser: false` + `$Context.EndUserId` | the same |
+
+No Agent API lever gives a Service agent's session a participant that Agent Memory accepts.
+
+*A: rebuild the arms as Employee agents.* `A2ALab_Memory_Employee_{Action,Flag}` are the native bundles with
+`agent_type: "AgentforceEmployeeAgent"`; `validate` rejects any other value, and any unknown config key. Three
+refusals on the way, each with its real cause:
+
+| Step | Refusal | Cause |
+|---|---|---|
+| `sf agent publish` | `AgentApiNotFound` (404) | the CLI's host fallback hides the real answer. Replaying the POST gives **401 "User doesn't have access to agent"**: an Employee agent must not carry `default_agent_user`. Removing it published v1 |
+| Agent API session as the agent-caller, `bypassUser: false` | **412 "No access to Einstein Copilot"** | the token user lacks `EinsteinCopilotUser` |
+| Assign `A2ALab_Employee_Agent_User` to the agent-caller | "The user license doesn't allow the permission: EinsteinCopilotUser" | the **Salesforce Integration licence cannot run an Employee agent**, so no D90 identity can |
+
+The arms therefore run as the admin, through programmatic `sf agent preview start|send|end -n <agent>`.
+`scripts/memory_arms.py employee-action employee-flag` (wait 120 s, 350 s total):
+
+| Arm | Session 2 recalls the planted name? | `manageUserMemory` (from the preview planner traces) | Data 360 GetContext (admin username and Id × both session ids) | `AiParticipantInsight` rows |
+|---|---|---|---|---|
+| employee-action | **yes**: "Cobalt Glacier", plus "Probe Employee" from a one-turn preview an hour earlier | `userMemoryEnabled: true`; "I updated the user memory"; 3 memories at 0.95 confidence (canoe, dinghy, Sundays). The bullet-point preference was not stored | `userContext` NONE ×4 | 0 |
+| employee-flag | **no**: "I have nothing remembered yet" | no action runs | `userContext` NONE ×4 | 0 |
+
+**Reading.**
+- **Agent Memory works once the session has a user.** Agent-scoped native memory recalls across sessions. It is
+  written only when something calls `manageUserMemory`.
+- **The flags alone write nothing.** `context.memory` and `past_conversations` gave no recall here, even on an
+  Employee agent.
+- **The native store never reaches Data 360**, under any owner or session id.
+- So the native route is a **within-Agentforce, per-user** memory. Its owner is whoever is signed in, which is
+  why no non-Salesforce seam can share it. The cross-platform memory stays the explicit Data 360 route
+  (D83/D91/D94).
+
+**~02:00Z (10-29) — the Employee arms as a dedicated lab user (D96).** The `employee` lab user
+(Salesforce licence, `Minimum Access - Salesforce`) was created by `integration_users.py employee --apply`.
+Assigning `A2ALab_Employee_Agent_User` first failed, "The user license doesn't allow the permission:
+EinsteinCopilotUser". **The full Salesforce licence refuses it too.** The admin holds it through the
+`EinsteinGPTCopilotPsl` (Agentforce (Default)) permission set licence, and assigning that first fixed it.
+`setup_jwt_eca.py create employee` (validated check-only, then deployed: 4 components) made the
+`a2a_lab_employee` JWT-bearer app with named-user JWT tokens on. The minted token is JWT-shaped. An Agent API
+session on `A2ALab_Memory_Employee_Action` with `bypassUser: false` started (200) and answered on the first
+try.
+
+`memory_arms.py employee-action employee-flag` (Agent API as the lab user, wait 120 s, 305 s total), then
+`memory_arms.py employee-flag --preview` (the admin, through preview):
+
+| Arm (session user, path) | Session 2 recalls the planted name? | Data 360 GetContext (user's username and Id × both session ids) | `AiParticipantInsight` rows |
+|---|---|---|---|
+| employee-action (lab user, Agent API) | **yes**: "Saffron Falcon" | `userContext` NONE ×4 | 0 |
+| employee-flag (lab user, Agent API) | **yes**: "Amber Quokka" | `userContext` NONE ×4 | 0 |
+| employee-flag (admin, preview) | **yes**: "Silver Lantern"; the planner traces show no `manageUserMemory` call | `userContext` NONE ×4 | 0 |
+
+**Reading.**
+- **A dedicated lab user can run an Employee agent over the GA Agent API.** It needs a Salesforce licence +
+  Agentforce (Default) PSL, and a JWT-bearer app issuing named-user JWT tokens. No preview, no admin.
+- **Correction to ~01:30Z: the flags alone do recall.** The flag arm's single miss did not reproduce in three
+  runs, across both users and both paths. Recall came with no `manageUserMemory` call, so the flag route
+  stores and injects memory platform-side. The one miss was the arm's first run after publish; the cause is
+  not measured.
+- **Neither the bullet-point preference nor any native write reaches Data 360.** No session-2 reply used
+  bullets, and every GetContext read is empty. The reading above stands: native memory is per agent and per
+  Salesforce user, within Agentforce only.
+
+## 2026-11-02 — WS27 supplier-disruption case memory: Seed passes, Recall unavailable (D102)
+
+The D102 implementation passed Claude's second headless review and was deployed
+with a full console image rebuild. The public health check returned 200. All
+four supplier-memory registrations were ACTIVE, automatic profile extraction
+read back off, and the dedicated memory ECA completed its core and Data 360
+token exchanges for every exact agent API name.
+
+Hosted controls passed. An unsigned memory run returned 401, an invalid case
+key returned 400, and the memory-Off run completed in 69,792 ms with state
+`off`, no memory errors and 3/3 business-unit coverage (trace
+`e57ebf20e4b2412881a60379e32399c7`).
+
+The fresh case `ws27-live-20261102` then ran in Seed mode. It completed in
+84,780 ms with two nominated and two written observations, no memory errors,
+and 2/3 business-unit coverage because the independent Logistics leg failed
+(trace `148ef9a05157498b956f10c3ba0f3efb`). The archived memory hops prove that
+Data 360 returned 201/202 for both conversation creates, session creates,
+participant additions, entry writes and session closes. The two accepted ids
+were `obs-9cde147377477c8b` from Commercial and `obs-206673de01c4caa6` from
+Customer Operations.
+
+Recall was not promoted to a pass. The unique provenance probe polled for seven
+minutes and the hosted case polled for ten; GetContext stayed successfully
+empty through the Coordinator and both writer registrations. Raw conversation
+reads with `scope=all` subsequently returned 404 through Logistics,
+Commercial, Customer Operations and Coordinator, despite the archived write
+acknowledgements. The provenance result is therefore **undetermined**, not
+NO-GO: there was no context in which the exact id/source could survive or be
+lost. The coordinator/specialists/both Recall arms and different-case/owner
+controls were deliberately not run because the runbook requires observed
+non-empty context first.
+
+The measured boundary is precise: console identity, four-agent preflight,
+candidate extraction, Data 360 write calls and honest evidence all work;
+conversation persistence/GetContext materialization does not currently expose
+the accepted entries. WS27 items 39, 40 and 43 remain open on that external
+read boundary.
+
+## 2026-11-02 — WS27 customer continuity passes Claude → OpenAI (D104)
+
+The new customer arm uses an actual unified profile rather than `a2alab-<user>`.
+Ryan resolves to demo Contact Maya Chen's `UnifiedssotIndividualAm01__dlm` id;
+Ana resolves to Jordan Alvarez as the isolation control. Both a360 exchanges
+carry the platform registration as `aid` and the unified customer key as `xid`.
+
+After full faces and console rebuilds, the hosted **Teach Claude** run succeeded
+(trace `3faf462162814e8bbc1fa8068270e7df`). Its first GetContext was correctly
+empty (`context_chars=0`, 4,223 ms); the turn then ingested and closed in 605 ms.
+The input taught three durable details: increasing the supplier API timeout was
+already tried, concise checklists are preferred, and rollout must complete in
+90 days. Claude separately labelled the Agentforce CRM contribution.
+
+After 45 seconds, the hosted **OpenAI recalls** run passed (trace
+`cc08cb64a08746819fed51cae957903c`). OpenAI used its own registration but
+Maya's same owner conversation. GetContext returned 281 rendered context
+characters in 1,472 ms, and the response's explicit “From memory” section
+recalled all three taught details. Its separate “From Agentforce” section
+reported the fresh CRM answer. Ingest/close took 615 ms.
+
+The Jordan negative control also passed (trace
+`f0a90c0703974d1fac5771f8c62c239c`): a distinct unified owner and conversation
+returned `context_chars=0` in 3,736 ms, and OpenAI stated that it had no
+remembered rollout constraints before presenting the Agentforce answer. This
+proves customer isolation as well as positive cross-agent continuity.
+
+The org's `A2ALab_Memory_Customer360` graph is ready, but the org has no
+sub-second/streaming permission-set licence. These runs prove governed profile
+identity, Data 360 memory persistence, and cross-platform recall; they do not
+claim source-key fast-mode graph serving. DC1 remains the licensed comparison.
+
+## 2026-11-02 — WS27 customer-memory recall can perform a terminal CRM action (D104)
+
+The approved `A2ALab_Research_Assistant_OpenAI` Agent Spec added one bounded
+write action: `create_follow_up_case`. The Apex implementation resolves one
+exact Account in user mode, performs one user-mode insert, returns safe errors,
+and exposes the generated Case number. A queue-routing automation immediately
+changes ownership of new Cases, so the first live run inserted Case `00001627`
+but its user-mode reread could not see the queued record and returned a false
+failure. The fix marks the successful `SaveResult` immediately and uses a
+scoped `without sharing` reader for only the generated Case number of those
+exact inserted ids; no other Case data is exposed.
+
+The focused Apex suite passed 3/3, including 251-request bulk invocation, with
+75% coverage on `A2ALabCreateFollowUpCase`. Live draft acceptance then created
+exactly one High-priority New Case on Acme Corp and returned `00001880` in both
+the action trace and direct agent response. The published v3 negative test
+returned “No Case was created” for a nonexistent exact Account. A delegated
+request then created `00001881`; its trace contains only
+`create_follow_up_case`, proving the terminal action did not call OpenAI back.
+
+The story boundary is intentional: Claude's teaching prompt stores Maya's
+facts/preferences without Agentforce. A later OpenAI turn reads Maya through a
+different memory registration, attributes the recalled context, and only then
+uses Agentforce when the current user explicitly asks to carry out the CRM
+next step. Memory informs the decision; it does not authorize the write.
+
+After the faces and console full rebuild, the revised two-turn hosted story also
+passed. **Teach Claude** as Maya (trace `6733d71013594f63a9d79394069142e1`)
+read 6,589 characters of existing governed context, stored the completed turn,
+and had no Agentforce target in its trace. **OpenAI recalls** (trace
+`e927eeddb48f403cb7c207269e6ff6bf`) used the OpenAI registration with Maya's
+same unified customer, read 6,967 context characters, and separately invoked
+Agentforce. The visible response attributed the recalled constraints and
+reported the action result as Case `00002134`; trace metadata marked both
+`recalled=true` and `stored=true`.
+
+## 2026-11-03 — WS27 shared case-memory identity replaces platform partitions (D105)
+
+Official governance and Memory API documentation corrected the lab's earlier
+interpretation: curated profile facts/preferences belong to the customer and
+are filtered by category; they are not inherently separate Claude and OpenAI
+stores. The org readiness classifier returned `harmonize: ready`, then
+`A2ALab_Memory_Case` registered ACTIVE over
+`UnifiedssotIndividualAm01__dlm` with no custom context graph. Automatic
+extraction is on for the shared registration and off for the superseded
+Claude/OpenAI registrations.
+
+After full faces and console rebuilds, **Teach Claude** passed under the shared
+identity (trace `7066fb9c530144bb9e4c026b6e09be5a`). Its only saved-memory
+reads were `sys_PROFILE_FACT` and `sys_PROFILE_PREFERENCES`, both through
+`A2ALab_Memory_Case`; wrapper evidence reported recalled/stored/ok true, and
+the trace contained no Agentforce target.
+
+**OpenAI recalls** then passed through the same registration (trace
+`3c87d2977f03482eba133298e003e509`). It made the same two category reads,
+reported recalled/stored/ok true, attributed Maya's constraints under “From
+memory,” and separately invoked Agentforce to create Case `00002136`. This is
+the intended hierarchy: customer → shared case memory → facts/preferences;
+Claude and OpenAI remain execution provenance.
+
+No custom graph participates in these results. Salesforce documents additional
+GetContext sources as real-time data graphs, so the existing standard
+`A2ALab_Memory_Customer360` graph is not attached as a substitute. A Case RTDG
+remains a future enhancement after the org receives that capability.
+
+## 2026-11-03 — WS27 Agent Configuration opens inside the A2A Lab app
+
+The `A2A_Lab` CustomApplication now includes Salesforce's `standard-Agents`
+navigation item after the targeted check-only deployment and one-component
+production deployment both succeeded. The customer-memory Details component
+uses the custom app developer name in its route:
+`/lightning/app/c__A2A_Lab/n/standard-Agents`. This selects the A2A Lab app and
+its Agent Configuration tab together instead of opening the same nav item in
+whichever Lightning app the operator used most recently.
+
+## 2026-11-03 — WS27 Agent Configuration cleanup
+
+The live Agent Configuration registry was reconciled against current runtime
+references. Eight completed or superseded experiment registrations were
+deleted, including all conversations and memories stored beneath them:
+`A2ALab_Memory_{Customer_Claude,Customer_OpenAI,Claude,Native_Flag,
+Native_Action,Employee_Flag,Employee_Action,Concierge}`. Their definitions
+remain in `scripts/setup_agentic_memory.py`, so they can be registered again as
+empty configurations if another experiment needs them.
+
+An independent post-delete Connect API listing returned exactly five ACTIVE
+registrations: shared customer `A2ALab_Memory_Case` plus the Logistics,
+Commercial, Customer Ops and Coordinator Supplier Disruption registrations.
+The cleanup added a dry-run-by-default `delete` verb whose applied path sends
+the endpoint's required empty JSON body and re-lists the registry before
+reporting success.
+
+## 2026-11-03 — WS29 first inbound run: Agentforce native A2A vs the AWS shim
+
+Target `agentforce-a2a-native` (D106) against `agentforce-a2a-shim` (D28). Both
+front `A2ALab_Research_Assistant_Script` v5, running as its own Digital Agent
+User. Caller: the lab A2A client on the operator laptop, interleaved, using the
+same two-sentence protocol question.
+
+| Target | n | median | range | envelope |
+|---|---|---|---|---|
+| `agentforce-a2a-native` | 3 | 6.0 s | 5.2–7.0 s | 1.0 `Message` (sync), via the pilot gateway |
+| `agentforce-a2a-shim` | 3 | 4.3 s | 4.0–4.7 s | shim → Agent API |
+
+- **Token mint:** 0.51–0.73 s per client-credentials mint at the org's My
+  Domain. The harness builds a client per call, so each native sample includes
+  one mint.
+- **Raw JSON-RPC `SendMessage`** (`/a2a/rpc/<bot_id>`): 200 in 3.2 s, returning
+  `result.message` with two text parts, the flagged welcome part and the answer.
+  A second turn on the returned `contextId` kept the same context, in 4.8 s,
+  with no welcome part.
+- **Envelopes kept local:** raw envelopes and the extended card are in
+  `traces/ws29/` (gitignored).
+- **Two lab-client fixes found by the first call, both with tests:**
+  `salesforce-cc` needed `requires_response_body` (an async client cannot
+  `.read()` inside an auth flow), and a bare `SF_MY_DOMAIN` host now gets
+  `https://`.
+
+## 2026-11-03 — D109: the a2a-native channel seam, one consult per paired twin
+
+`af_channel.consult_native` called from the operator laptop, once per platform's own
+twin (D25): the same seam the five backends' `ask_agentforce_a2a_native` tools use.
+Each call ran through the D27 rider, minted one client-credentials token, and sent one
+`SendMessage`. The question was one sentence on what the agent can help a customer with.
+
+| Calling platform → twin | latency | envelope |
+|---|---|---|
+| claude → `SF_AGENT_ID` | 7.1 s | 1.0 `Message` (sync) |
+| openai → `SF_OPENAI_AGENT_ID` | 6.0 s | 1.0 `Message` (sync) |
+| adk → `SF_ADK_AGENT_ID` | 9.0 s | 1.0 `Message` (sync) |
+| strands → `SF_STRANDS_AGENT_ID` | 5.1 s | 1.0 `Message` (sync) |
+
+- **Each twin answered as itself.** The ADK twin introduced itself as the ADK-paired
+  assistant, so the per-platform routing reaches distinct agents rather than collapsing
+  onto one.
+- **No Task above 5 s.** Every turn ran past 5 s, and each still came back as a
+  synchronous `Message` with no `GetTask` hop. The pilot guide's "a Message within 5 s,
+  otherwise a Task" did not apply to a blocking `SendMessage` at 9 s. The client's new
+  Task fallback (D109) is in place, but the live path stays unexercised (WS29 item 14).
+- **Not yet measured:** the console scenarios end to end on the `a2a-native` channel.
+  These wait on the hosted runtimes shipping the ECA pair (WS29 item 17).
+
+## 2026-11-03 — D109: the five toggle scenarios end to end on `a2a-native`, hosted
+
+One run per scenario through the hosted console (`POST /api/run`, `af_channel:
+a2a-native`, the scenario's default account question), after full-rebuild deploys of the
+faces, the three AgentCore runtimes and the ADK researcher, plus the managed agent's
+tool update (WS29 item 17). The calls ran as owner. Every run returned 200 with CRM
+figures (open pipeline, case load) in the answer.
+
+| Scenario | entry hop | native A2A hop | envelope |
+|---|---|---|---|
+| claude-to-agentforce (Managed Agents) | 15.9 s | 8.6 s | 1.0 `Task`, `COMPLETED` on arrival |
+| claude-aws-to-agentforce (AgentCore sdk) | 16.6 s | 7.3 s | 1.0 `Task`, `COMPLETED` on arrival |
+| chatgpt-to-agentforce (faces, openai) | 26.0 s | 8.7 s | 1.0 `Task`, `COMPLETED` on arrival |
+| strands-to-agentforce (AgentCore) | 13.3 s | 8.0 s | 1.0 `Task`, `COMPLETED` on arrival |
+| adk-to-agentforce (Agent Engine) | 12.4 s | ≈6.3 s † | not captured † |
+
+- **Every model chose the native tool** when the routing block named it (D28). For the
+  four runs whose hops reach the lab trace store, the native hop is
+  `client → agentforce-a2a-native` (a2a).
+- **The ADK twin routing held.** † Agent Engine writes its hops to the container's own
+  `/tmp/traces`, so the lab trace shows only the inbound ADK hop. Cloud Logging shows
+  the native call: a `GET …/a2a/<ADK twin>/v1/card` for the ADK-paired card, then a
+  `POST …/a2a/rpc/<ADK twin>` with a 200 6.3 s later. The envelope is not in the log.
+- **Hosted, the native endpoint answered with a Task.** The laptop calls above received a
+  synchronous `Message`. These account questions, which run a CRM action, received a 1.0
+  `Task` that was already `COMPLETED` inside the blocking `SendMessage`. The A2A client
+  records a Task digest (`taskId`, `state`, `artifacts`) and a Message as `{message}`, so
+  the difference is in what Agentforce sent, not in our recording. No `GetTask` hop ran.
+  The client's poll-a-WORKING-task fallback is still unexercised (WS29 item 14). What
+  decides Message vs Task is not established: the question and the twin both differ
+  from the laptop runs.
+
+## 2026-11-03 — WS27 D107 customer-memory management deployed by operator override
+
+The operator explicitly skipped the pending round-two Claude review and directed deployment of
+Codex implementation commit `8df42f6`. Both required images were rebuilt in a detached clean
+worktree, so unrelated working-tree changes were excluded. Faces task definition
+`a2alab-faces:28` and console task definition `a2alab-console:142` reached `COMPLETED`; both ALB
+health routes returned 200.
+
+Non-destructive hosted acceptance passed: Maya's operator-only management listing returned a
+complete 22-row response (trace `1fc33a2849b541f18d1126c506ef049d`), viewer and shared-token reads
+returned 403, and a bogus non-governed delete returned 400 without mutation. The deployed UI carries
+the manager, normalization badge and stale-chat fork copy. A deliberately stale customer-memory
+turn was refused at the face before Claude ran (trace `4b5bc448c6224150b1d432177464b997`).
+The console's remote REST client wraps the face's `StaleMemoryGeneration` HTTP 500, so that hosted
+result lacks the direct-adapter `error_code`, but the error text requires a new chat and the old
+platform session cannot execute.
+
+No destructive Maya/Jordan reset was run for smoke. The supported `sys_PROFILE_FACT` marker
+lifecycle and prompt filtering had already passed against `a2alab-memprobe`, with cleanup, under
+trace `e3c30627c7f945a99a54b6e7535f20a3`.
+
+## 2026-11-03 — D107 reset count-drift hotfix deployed
+
+Trace `bbc1c17a0c79434bb7696c12c438521e` explained the reported reset failure: the Memory API
+returned all 22 fact entries beside undocumented `totalCount: 1`, and one preference beside
+`totalCount: 0`. The previous equality guard therefore called a complete row set incomplete. The
+published Read Memories contract defines `memories[]` and no paging input; the hotfix retains the
+extra count for diagnosis, accepts under-counts, and still refuses a reported value greater than
+the returned rows.
+
+Exact clean source `1253cd1` was full-rebuilt into faces `a2alab-faces:29` and console
+`a2alab-console:144`; both rollouts completed 1/1 and both ALB health routes returned 200. A
+read-only hosted acceptance then returned `complete=true`, zero curated Maya facts/preferences,
+and a valid reset generation (trace `dbff59487c644796a697631582794b61`). The two customer-memory
+scenario documents both returned `default_memory: on`; Run All remains explicitly memory-off.
+No additional delete/reset was issued by the acceptance probe.
+
+## 2026-11-03 — D107 generation isolation accepted live
+
+Data 360 re-materialized deleted profile facts from retained conversation history, including rows
+created after the earlier reset marker. The final implementation therefore treats a valid reset
+generation as a source boundary: `sourceType: Profile` context and the saved profile-category merge
+are suppressed, while marker-derived `sourceType: Conversation` remains eligible. The management
+panel still lists re-materialized rows for honest curation.
+
+The final Start fresh returned `ok=true`, `complete=true`, an exact valid new marker,
+`profile_memory_suppressed=true`, and no errors even though two profile rows were immediately
+visible again (trace `13202e8bfc704b319a574a0dd15a23de`). The first Claude teaching turn in
+that generation then returned `context_chars=0`, `recalled=false`, `stored=true`,
+`profile_memory_suppressed=true`, and `normalized=false` (trace
+`91aa0a885567d41f16d27bcf5157c3b1`). This is the intended first-run badge combination: stored
+without recalled. Console ECS task `a2alab-console:149`, image digest
+`sha256:79974e6542a7b95e3f96bc0607f6745c38398995ea92a72e9e493bc4dc4bb1d3`, reached stable 1/1
+with ALB health 200; faces remained on the accepted generation-isolation image
+`sha256:c77ce2229bc84bf845880ee75a529c00855b61221703081ca24f8d517c878c07`.
+
+
+## 2026-11-04 — Scheduled Brief Delivery: 27 terminal failures traced to missing Task FLS
+
+The console's Scheduled Brief Delivery pane showed 88 delivered, 0 retrying and **27 failed**. Every
+failure was the same Salesforce 400: `No such column 'WhatId' on sobject of type Task` (INVALID_FIELD)
+on the delivery-keyed Task upsert. The brief record itself was written in each of these sessions;
+only the follow-up Task failed. Root cause: the D90 run-as move to `a2alab.briefs` without FLS on
+standard Task fields. The fix is the D90 follow-up in plan/00-decisions.md. A check-only validate of
+the permission set against the org succeeded. The production deploy and the requeue of the 27
+sessions are operator steps. Record the replay outcome here when they run.
+
+**Replay outcome (2026-11-05).** The permission set deployed to production, and
+`identity_preflight.py` then passed all seven identities, including the new field-level check on
+the brief writer. The hosted watcher `a2alab-briefs` was scaled to 0. `python -m briefs
+--requeue-failed` ran against the Aurora ledger and re-armed **28** sessions: the 27 above plus
+that morning's daily run, which failed the same way before the deploy. The watcher was then scaled
+back to 1. It served the sessions one at a time from 18:35 to 22:40 UTC. The first four logged
+94–602s each, with 7–10 web lookups and 0 failed calls.
+
+Measured in the org afterwards:
+- **All 28 requeued sessions now have their delivery-keyed Task.** That is 28 Tasks, one per
+  session id, and none is duplicated.
+- **21 existing `A2ALab_Account_Brief__c` records were overwritten.** These are the records
+  created 2026-10-16 through 11-05. Each now holds that day's re-researched content and has
+  `Brief_Date__c` = 2026-11-05. The upsert matched the delivery key, so no duplicate was created,
+  but the original daily briefs were replaced.
+  - Cause: each resumed session ran its research again and issued a NEW `save_account_brief`
+    call. Calls are keyed by `tool_use_id`, so the kept `calls` map does not cover a new call.
+  - So the D90 follow-up's "a save that already landed is never re-written" holds per call, not
+    per session.
+- **7 brief records were created new.** These are the oldest sessions, and none of them had a
+  prior brief record. So the earlier statement that "the brief record itself was written in each"
+  was true for only 21 of the 28.
+
+The per-session watcher log totals after the fourth session were not collected, because the AWS
+SSO session expired. The Salesforce counts above are the record of this replay.
+
+
+## 2026-11-05 — Real-time data graph probe: the graph serves real-time lookups, but its CRM input is batch
+
+**Question.** Does the A2A Lab org have a real-time data graph (RTDG), and are its lookups served
+from the real-time layer? D105 had recorded that the org lacked the capability.
+
+**Inventory** (`GET /ssot/data-graphs/metadata`). Five graphs, all `Ready`.
+`A2ALab_Memory_Customer360` (Unified Individual AM01 → Unified Link → Individual → Contact Point
+Email) is `type: realtime` with the real-time toggle on, CRM and Ingestion API processing on, a
+30-minute session window, and a 30-minute full batch refresh. The switch to real-time happened on
+2026-11-04, and the graph was edited again at 01:49 and 02:50 GMT on 2026-11-05. The four
+auto-provisioned `Agentic*` graphs report `isRT: true` with the toggle off.
+
+**The lookup reads the real-time store.**
+- `GET /ssot/data-graphs/data/A2ALab_Memory_Customer360/{unifiedId}` returns the nested profile as
+  one HTML-entity-escaped `json_blob__c`. Consumers must `html.unescape` it before `json.loads`.
+- Adding `?live=true` is refused by the query service with "Live lookup is not supported for real
+  time DGs". Live lookup is the standard-graph mode.
+- At 03:07Z the lookup returned a Contact Title edit, at both the unified root and the nested
+  Individual, while both batch tables still held the old value: the identity-resolution output
+  `UnifiedssotIndividualAm01__dlm` and the graph's VALUE DMO (`last_refreshed_on` null,
+  `version 0`).
+- Each graph node has its own `STREAMING` fragment transform, plus one `BATCH` transform. The
+  Individual and Contact Point Email streams run continuously. The unified-root and link streams
+  have been idle since 2026-11-04 11:19, because they only have work when identity resolution
+  changes those tables.
+- So a source-field edit reaches the graph without identity resolution. A new or merged person
+  would not appear until identity resolution runs.
+
+**Freshness is bounded by ingestion, not by the graph.** Three reversible Title edits to a
+non-demo Contact; all values were restored.
+
+| Run | CRM write → `ssot__Individual__dlm` | CRM write → graph lookup |
+|---|---|---|
+| 2026-11-04 23:44Z | (overwritten before it could be timed) | not seen within 180 s |
+| 2026-11-05 02:39Z | ≈ 3.5 min | not seen at 5 min; present by 27 min, ahead of both batch tables |
+| 2026-11-05 19:54Z (baseline read first) | not seen within 480 s | not seen within 480 s |
+
+These delays are the CRM connector's ingestion cadence, which is expected behaviour. The
+`Contact_Home` stream (`GET /ssot/data-streams`) is `refreshConfig.frequency.frequencyType: BATCH`,
+as is every `SalesforceDotCom_Home` stream: CRM data reaches Data Cloud on a fixed schedule of
+about 10 minutes. Every measurement above fits inside one such window. The graph is not the slow
+part.
+
+**What the API does when building a graph** (recorded so the next attempt does not rediscover it):
+- `POST /ssot/data-graphs` needs `type: "REALTIME"` (uppercase), even though GET returns
+  `realtime`. It also needs `primaryObjectName` and `isKeyColumn` on every field. The parser
+  reports the position *after* the bad token.
+- The created graph (`A2ALab_RTDG_Probe`, a single `ssot__Individual__dlm` node, made twice) was
+  registered with **no streaming or batch transforms**. It went to `status: error` about four
+  minutes later, and every lookup returned 404. The UI-built `Customer360` graph does have its
+  transforms and its `dayZero*` mapping. The probe was deleted.
+- `sf api request rest -X DELETE` fails with "No 'mode' found in 'body' entry". It works through
+  `--file` with a Postman-style request (`"body": {"mode": "raw", "raw": ""}`).
+
+**Conclusion.** The org supports real-time data graphs, and `Customer360`'s lookups are served
+by the real-time layer. For CRM-sourced data, end-to-end freshness is bounded by the CRM
+connector's ingestion schedule (about 10 minutes). That is the expected behaviour, not a
+misconfiguration; second-level freshness applies to sources that stream into Data Cloud, such as
+the Ingestion API.
+
+## 2026-11-05 — Attaching a data graph to an Agent Configuration: what GetContext returns (D115)
+
+The question: when `A2ALab_Memory_Customer360` (a real-time graph rooted on
+`UnifiedssotIndividualAm01__dlm`) is attached to an Agentic Memory registration, does GetContext
+return it to the calling agents (Claude, OpenAI), and how do the registration's settings change
+what they get? The test was read-only on the demo path. The faces' registration
+(`A2ALab_Memory_Case`, constant in `src/interop/memory_adapter.py`) was never changed. Sibling
+registrations served as the experimental arms. Script: `scripts/graph_context_probe.py`; arms in
+`scripts/setup_agentic_memory.py` (`case-graph`, and `case-twin`, which was deleted afterwards).
+Raw bodies are under `traces/graph-probe/` (gitignored: they hold CRM profile data).
+
+**Arms** (v67 `GET /ssot/agentic/agent/{name}` + `DataAgenticContextAgent` row):
+
+| Arm | Registration | Profile DMO | Graph | Extraction |
+| --- | --- | --- | --- | --- |
+| A | `A2ALab_Memory_Case` (live, faces) | **none declared**; `ProfileObjectList` is null | none | on |
+| B | `A2ALab_Memory_Case_Graph` | `UnifiedssotIndividualAm01__dlm` | `A2ALab_Memory_Customer360` | off (on briefly to isolate) |
+| C | `A2ALab_Memory_Case_Twin` | none (A's live shape) | none (then PATCHed to add both) | off |
+| D | graph with no profile DMO | refused at registration | | |
+| E | `A2ALab_Memory_Case_Graph_Ind` | none (Individual root) | `AgenticIndividual` (platform-made) | off |
+| F | `A2ALab_Memory_Case_Graph_Plat` | `UnifiedssotIndividualAm01__dlm` | `AgenticUnifiedIndividual` (platform-made) | off |
+| G | `A2ALab_Memory_Case_Graph_RT` | `UnifiedssotIndividualAm01__dlm` | `RT_UnifiedIndividual` (operator-made) | off |
+
+E, F and G were added on 2026-11-06 (05:30–05:40Z) to isolate why B serves nothing. The graphs
+compare as follows (`GET /services/data/v66.0/ssot/data-graphs/{name}`):
+
+| Graph | Root | Made by | Real-time toggle | Record caching disabled | Served (arm) |
+| --- | --- | --- | --- | --- | --- |
+| `A2ALab_Memory_Customer360` | AM01 unified | operator | on | yes | no (B) |
+| `RT_UnifiedIndividual` | AM01 unified | operator | on | no | no (G) |
+| `AgenticUnifiedIndividual` | AM01 unified | agentic setup | off | yes | **yes** (F) |
+| `AgenticIndividual` | `ssot__Individual__dlm` | agentic setup | off | yes | **yes** (E) |
+
+**Results.**
+
+| Read (Maya; Jordan in brackets) | A | B | C |
+| --- | --- | --- | --- |
+| Memory API `sys_PROFILE_FACT` / `sys_PROFILE_PREFERENCES` | 11 / 1 (7 / 1) | 0 / 0 (0 / 0) | 0 / 0 (0 / 0) |
+| GetContext `userContext` sourceTypes | Conversation ×2, Profile | Conversation ×2 | Conversation ×2 |
+| GetContext `ontology` | `{}` | `{}` | `{}` |
+| GetContext median latency | 240–410 ms | 200–400 ms (first read ≈1 s) | — |
+
+| Read 2026-11-06 (Maya) | A | B | E | F | G |
+| --- | --- | --- | --- | --- | --- |
+| `userContext` sourceTypes | Conversation ×2, Profile | Conversation ×2 | Conversation ×2, **Profile** | Conversation ×2, **Profile** | Conversation ×2 |
+| `Profile` entry length (chars) | 1195–1244 | — | 1193 | 1447–1496 | — |
+| `Profile` entry content | curated `SYS_PROFILE_FACT` / `PREFERENCES` | — | graph record (TOON) | graph record (TOON) | — |
+
+Jordan got no `Profile` entry on any arm except A's curated one, which is empty for him today.
+
+- **Arm B's graph never reached GetContext.** B returned no `Profile` entry in `userContext` on
+  16 reads spread over 30 minutes (22:09–22:39Z). `ontology` was `{}` throughout, but that was the
+  wrong field to watch (see the code reading below). The lookup itself works:
+  `GET /ssot/data-graphs/data/A2ALab_Memory_Customer360/{xid}` returns Maya's record (760 bytes:
+  Unified Link → Individual → Contact Point Email). Reading B with `owner_id` set to the unified
+  id, the Individual id, or the Unified Link's source record id gave no `Profile` entry with any of
+  them. The attachment is stored on both surfaces (`configuration.contextDataSources.dataGraphs`
+  and `DataAgntcCntxtAddlDgLst`). It is not served.
+- **Where the graph would appear: service code** (`d360-personalization/decisioning-pipeline` on
+  git.soma, sha `864b9bd`, read 2026-11-05):
+  - **Plain reads fetch the graph.** A read with no `purpose_id` resolves to the default request,
+    which carries the `CUSTOM_PROFILE` need "to preserve backward compatibility". The request is
+    also treated as initial (`ContextMetadata.java`). So `FastContextRequestHandler.fetchAdditionalDatasourceData`
+    runs whenever `owner_id` is set and the agent config lists additional graphs. The plain reads
+    the faces make already qualify.
+  - **The config path.** `AgentConfigLoader` fills `additionalDatasourceDgs` from the realtime
+    management service's `GetAgentConfiguration` response
+    (`getAdditionalDatasources().getDgsList()`, by graph name). That service is outside this repo,
+    so whether our registration's `contextDataSources.dataGraphs` arrives there is not visible from
+    here.
+  - **The lookup.** `AdditionalDatasourceSupplier` calls realtime gRPC
+    `getDgInstance(dgTypeId=<graph name>, id=owner_id, resolveId=true)`. A failure is logged and
+    turned into null, so a failed lookup and an empty one look the same on the wire.
+  - **The response.** `AdditionalDatasourceToonContextComposer` converts each record to TOON text
+    and adds it with `addProfileContext`. **Graph data lands in the `userContext` `Profile` entry,
+    not in `ontology`.** `ontology` is filled only by the reserved `ontology` result.
+  - **`mode` and `token_budget` are ignored.** `ContextRestController` reads neither, so the reads
+    that set them were plain reads.
+  - **Conclusion.** B's missing `Profile` entry means `additionalDatasourceDg` came back empty.
+    Either the registration's graph is not in the config the service loads, or `getDgInstance`
+    resolves nothing for these ids. The service writes both counts to its own logs
+    (`configured_additional_datasource_dgs=N`, `additional_datasource_results=N`), and only the
+    product team can read those logs.
+    *Answered 2026-11-06 by arms E–G:* the config does arrive, because E and F are registered with
+    the same body and serve. It is the lookup that resolves nothing for B (see "identity" below).
+- **What the product's own callers do** (git.soma, read 2026-11-05):
+  - **An internal product demo sends the same body we do.** Its agent registration path registers graphs as
+    `configuration.contextDataSources.dataGraphs: [{"name": ...}]` with no profile DMO. So our
+    registration shape is not the difference.
+  - **It reads with a different kind of owner.** The demo's `owner_id` is the signed-in
+    Salesforce User id, which makes it an employee, User-rooted
+    case. Ours is a customer graph keyed by a Unified Individual.
+  - **The QA fit suite never attaches a graph.** The internal fit suite always creates agents with an empty
+    `dataGraphs`, and marks the element type "unverified". No product test we could find covers
+    a customer-keyed graph reaching GetContext.
+- **A graph's root must be a declared profile DMO.** Registering D returned `INVALID_API_INPUT`:
+  "The data graph must be rooted on User, Individual, or a Unified DMO declared in profileDmos
+  (UnifiedIndividual__dlm)". A registration with no profile DMO therefore defaults to
+  `UnifiedIndividual__dlm`, and that is how the live `A2ALab_Memory_Case` runs, not over AM01.
+- **Curated memories belong to the registration, not to the customer.** C has A's exact live
+  configuration and listed none of Maya's 11 facts. A synthetic fact written through C was then
+  listed by C and not by A. B with extraction switched on still received no `Profile` row. Only
+  `Conversation` summaries are shared across registrations, which is what the Agent Config dialog
+  says ("same access to session and summary data"). This answers plan/18 open question 4.
+- **Configuration can be changed in place without losing memories.** A v67 PATCH of
+  `{label, configuration: {profileDmos, contextDataSources}}` on C was accepted, and C's synthetic
+  fact was still listed immediately and 150 s later.
+- **A new registration takes about 2.4 minutes to reach the tenant.** Until then, tenant calls
+  return 404 "Agent not found", although the core API already reports `ACTIVE`.
+
+- **The attached-graph path works: E and F serve the graph record.** Two new arms with no
+  memories of their own and extraction off returned a `Profile` entry for Maya. The entry is the
+  graph record as TOON text. F's entry, abridged:
+  ```
+  UnifiedLinkssotIndividualIr1[1]:
+    - SourceRecordId: <owner_id>
+      UnifiedRecordId: <a different unified id>
+      Individual[1]:
+        - Id: <owner_id>
+          Conversation[1]{ConvInitiatorIndividualId,isUserInitiated,...}: ...
+          AiAgentSession[2]{SessionOwnerId,...}: ...
+          AiParticipantInsight_std[0]
+  ```
+  That confirms the code reading: the record comes back in `userContext` as `sourceType: Profile`,
+  and `ontology` stays `{}`. No memory leaked across registrations either. E and F list
+  `AiParticipantInsight_std[0]`, and none of A's case facts appear.
+- **What E and F serve is the memory pipeline's own Individual, not Maya's CRM record.** The
+  `Individual.Id` in F's record equals the `owner_id` the faces send, and its `Conversation` and
+  `AiAgentSession` rows come from `AgenticConnector_*` data sources. The memory API wrote that
+  Individual itself, from `owner_id`, the first time it opened Maya's conversation. That
+  Individual is unified into its own profile, a different id from the CRM-backed AM01 profile
+  that `owner_id` names. The service looks the graph up with `resolveId=true`, which treats
+  `owner_id` as an Individual id and resolves it to that profile. The REST lookup on
+  `Customer360` and `RT_UnifiedIndividual` finds no record at the resolved id. It finds Maya's
+  CRM record only at the AM01 id the faces send, which the service never uses as the key. So B
+  and G fail because of **identity**: the key the service resolves to is not a profile those
+  graphs hold.
+- **The real-time toggle is the only setting that separates the graphs, and it goes with who made
+  them.** All four have the same root. The two that serve are platform-made with the toggle off.
+  The two that don't are operator-made with the toggle on. Caching is not the cause: the two
+  failing graphs have opposite caching settings. The identity explanation covers B and G without
+  the toggle. Separating the two would need an operator-made graph with the toggle off, whose
+  record is keyed on the pipeline's own Individual.
+- **Changing the kind of `owner_id` does not help** (2026-11-06, 06:01–06:17Z). For three owners
+  (Erin Walsh's CRM Individual id, Erin's AM01 unified id, and Maya's CRM Individual id), a
+  conversation was opened on each of B, E, F and G, then each arm was read every 60 s for 15 min:
+
+  | owner_id sent | resolves to (F's `UnifiedRecordId`) | B (`Customer360`) | G (`RT_UnifiedIndividual`) |
+  | --- | --- | --- | --- |
+  | Erin, CRM Individual id | a new provisional id | empty | root `Id` only |
+  | Erin, AM01 unified id | another new provisional id | empty | empty |
+  | Maya, CRM Individual id | a new provisional id | empty | empty |
+
+  E and F served each owner's pipeline Individual and its sessions on every read. B never served
+  anything. The pipeline's Individual has the same `Id` as the CRM Individual when `owner_id` is
+  the CRM id, yet E's record carries none of the CRM Individual's fields. The two stay separate
+  records, from different data sources (`AgenticConnector_*` against `Salesforce_Home`).
+- **Why the pipeline's Individual never joins the CRM profile.** AM01 has one match rule, exact
+  normalized email. The pipeline's Individual has no email, so real-time resolution gives every
+  owner a new profile. The batch `ssot__Individual__dlm` holds only the 146 `Salesforce_Home`
+  Contacts. The pipeline's Individuals exist only in the real-time layer, so a batch
+  identity-resolution run never sees them. The REST lookup confirms the split for Erin: `Customer360`
+  holds her CRM profile (name, title, email) and has no record at the provisional id, while
+  `RT_UnifiedIndividual` holds both ids.
+- **An AM01 rule matching on Individual Id is refused** (2026-11-06). The PATCH adding an
+  `Exact Individual Id` rule (`ssot__Individual__dlm.ssot__Id__c`, exact) returns `INVALID_INPUT`:
+  "criteria are too weak". Individual Id is not a match key on its own, and the pipeline's
+  Individual carries nothing else to match on (no email, name or party identification). AM01 is
+  unchanged. The other route is an Individual-rooted CRM graph, which needs no unification (that
+  is why E works). This org has no data-graph metadata type, so it is a Data Builder or Data Kit
+  build.
+- **The same Contact resolves to two unified ids, one real-time and one batch.** A re-read at
+  06:50Z (arms B, F, G; Erin and Maya by Contact id) matched the 06:17Z reads. F's TOON shows the
+  real-time link `UnifiedLinkssotIndividualIr1` mapping Erin's Contact to a provisional unified id.
+  Batch AM01 maps the same Contact to her CRM profile. G serves the provisional id's root `Id` and
+  nothing else, and B serves nothing. So the graphs are read; they are read at the wrong profile.
+  An internal product demo did get a CRM-rooted graph (rooted on Unified Individual) back as the
+  `Profile` item, with `owner_id` = the Contact id and `owner_type=individual`. The difference
+  between that demo and ours is not yet known. One candidate is a reported real-time issue: a CRM
+  event can create a real-time identity before the lakehouse ID-map sync. The lookup then stays
+  on the session cache, with no lakehouse fallback, for up to about 24 h. Re-read the same owners
+  after 2026-11-07 06:00Z: if the link moves to the batch unified id, B should serve Erin's CRM
+  record.
+- **The two graph slots in Edit Agent are one list.** The product team describes them as data
+  for external users (Individuals / Unified Individuals) and for Employees (Users). The governance
+  doc uses the same words: `xid` is "the Individual ID of the end user (external customers) or the
+  user ID (internal employees)". The UI stores both as one `contextDataSources.dataGraphs` list
+  (max 2), so the runtime cannot tell which slot a graph came from. "External user" means the
+  customer (`owner_type=individual`), not an Experience Cloud user. Engineering also says, on
+  Slack: an attached graph "serves profile attributes but never carries memory insights",
+  `profileDmos[].associatedDataGraph` is not read by GetContext, and a separate `unifiedProfileDGs`
+  key, when set, is preferred over `AgenticIndividual`.
+- **REST and the service's lookup disagree.** The REST lookup returns `ITEM_NOT_FOUND` for both
+  platform graphs at every id we tried, including the resolved id. Yet the service read them.
+  Use GetContext to verify a graph, not the REST lookup.
+- **Governance probe (2026-11-06, `scripts/memory_governance_probe.py`, run `5afef5f575`, plus a
+  Contact-id variant).** Each test wrote one fact and deleted it again afterwards.
+
+  | Test | Result |
+  | --- | --- |
+  | Save through `A2ALab_Memory_Case`, read through the same registration | visible after 0.3 s |
+  | Same fact, read through `A2ALab_Memory_Case_Graph_Ind` | not visible after 300 s: **registration-scoped** |
+  | Read owner P with a token whose `xid` is owner Q (synthetic ids) | 200, **fact returned** |
+  | Read Erin's Contact with a token whose `xid` is Maya's Contact, or a synthetic id | 200, **fact returned** |
+  | Read with Maya's token and no `profile_id` | 400 "does not satisfy partitionKeyRules" |
+  | GetContext for P with Q's token | 200, empty (P has no conversation, so inconclusive) |
+  | Token exchange for an unregistered `aid` | refused, `access_denied` |
+  | Delete, then list | gone |
+
+  The decoded a360 token carries `custom_attributes` = {`xid`, `aid`, `is-internal: true`,
+  `dataspace`, `user-id`}. So `aid` gates the exchange, but `xid` does not restrict which
+  `profile_id` the Memory API returns for an internal caller. The governance doc's "a mismatched
+  identity returns no data" did not hold for this identity (D115).
+- **GetContext `mode=deep` adds nothing here (2026-11-06, Maya, `A2ALab_Memory_Case`).** The
+  internal usage guide documents `mode=fast|deep`, where deep means "LLM agent assembles
+  query-driven context", plus `query`, `token_budget` and `latency_sensitivity`. Here are the four
+  reads:
+
+  | Read | `userContext` |
+  | --- | --- |
+  | Baseline (no mode) | Conversation, Conversation, Profile (3,860 bytes) |
+  | `mode=deep` + `query` | the same three entries, reordered, byte-identical sizes |
+  | `mode=deep` + `token_budget=800` | the same, so the budget was not applied |
+  | `mode=fast` + `insight_query` | the two Conversation entries only: Profile dropped, no search hits |
+
+  This fits the empty search indexes below. Nothing query-driven reaches the prompt on this
+  tenant.
+- **The memory back end, read headlessly (2026-11-06).** Eight `AgenticConnector_*` Ingestion API
+  streams, one per memory object (Conversation, AiAgentSession, AiAgentSessionParticipant,
+  AiAgentInteraction, AiAgentInteractionMessage, AiAgentInteractionStep, AiParticipantInsight,
+  Individual). Six of their eight lake objects hold **0 rows**, while
+  `ssot__AiAgentInteractionMessage__dlm` holds 1,446, `ssot__AiAgentSession__dlm` 543 and
+  `ssot__AiAgentInteractionStep__dlm` 3,305. The two exceptions also fall far short of their DMOs:
+  Interaction holds 97 against 1,443, and SessionParticipant 232 against 2,221 (live read,
+  2026-11-06 07:3xZ). The real-time layer writes the DMOs directly, so neither a stream's "Total
+  records" nor its lake object measures what memory holds; the DMO does. The console's Memory Back
+  End section reads these counts live (`src/observability/memory_backend.py`). Two HYBRID search indexes were created with the agentic
+  setup:
+
+  | Index | Source DMO · field | Embedding | Chunk / vector DMO | Rows |
+  | --- | --- | --- | --- | --- |
+  | AI Agent Interaction Message | `ssot__AiAgentInteractionMessage__dlm` · `ssot__ContentText__c` | multilingual-e5-large | `AI_Agent_Interaction_Message_chunk/_index__dlm` | 0 |
+  | AI Participant Insight | `AiParticipantInsight_std__dlm` · `InsightPayloadTxt__c` | e5_large_v2 | `AI_Participant_Insight_chunk/_index__dlm` | 0 |
+
+  Both use 1024 dimensions, HNSW (M=64, efConstruction=2000), cosine, and 512-token passage
+  chunks. Both are READY but were refreshed only once, on 2026-10-13, the setup day. No
+  retriever is registered on them because they back the memory API's own search endpoints,
+  `POST /api/v1/agentic/search/conversations` and `/search/learnings` (service
+  `a360/cdp-realtime-service`, `ConversationSearchHandler` / `MemorySearchHandler`).
+
+  On this tenant, conversation search requires an `agent_id` header. It then returns 400 "Search
+  query could not be executed" because it prefilters on `IndividualId__c`, which our message
+  index lacks. The same `hybrid_search` in Data Cloud SQL reproduces the error, and without the
+  filter it returns 0 rows. Learnings search returns 404. Two more points: the insight index's
+  source DMO is empty although saved memories are returned, and Slack reports the insight
+  index-write flag being turned off in production. Together these say semantic search over
+  memory is not live here.
+- **A partial v67 PATCH replaces the configuration (2026-11-06, confirmed).**
+  v67 `GET /ssot/agentic/agent/{name}` at 07:40Z:
+
+  | Registration | `lastModifiedDate` − `createdDate` | Configuration read back |
+  | --- | --- | --- |
+  | `A2ALab_Memory_Case` (live) | 15 s (the extraction-on PATCH) | `isMemoryGenerationEnabled` only |
+  | `A2ALab_Memory_Case_Graph` (B) | 35 min (extraction on, then off) | `isMemoryGenerationEnabled` only |
+  | `_Graph_Ind` / `_Graph_Plat` / `_Graph_RT` (E/F/G) | 0 (never PATCHed) | profile DMO and graph intact |
+
+  `setup_agentic_memory.py extraction` sent `{label, configuration: {isMemoryGenerationEnabled}}`.
+  Every registration it touched has lost `profileDmos` and `contextDataSources`, and every one it
+  did not touch kept them. So arm B's result is **unreliable**. Its 16 reads (22:09–22:39Z) ran
+  before the last modification, but we don't know when extraction was first switched on.
+  **Arm G is the clean control.** It is real-time, AM01-rooted, never PATCHed, and still serves
+  nothing. The live arm A's missing profile DMO may have the same cause; it is left untouched for
+  the demo. The script now re-sends the current configuration with the flag.
+
+  **Confirmed by the operator at 07:47Z** (`/tmp/dg/unified/patch_sem.py`, local). A PATCH of
+  `{label, configuration: {isMemoryGenerationEnabled: false}}` on G returned ok, and G read back
+  as `{isMemoryGenerationEnabled: false}` with no profile DMO and no graph. A full-config PATCH
+  restored G. B's first restore PATCH errored; a retry restored it
+  (`lastModifiedDate` 07:47:44Z), so B carries `Customer360` again for the first time since
+  2026-11-05 22:40Z. **Re-probed restored B at 07:51Z** (Maya, 3 reads,
+  `scripts/graph_context_probe.py --arms B F G`, raw `traces/graph-probe/20261106T075116Z-*`): B
+  and G returned `Conversation ×2` with no `Profile` entry, and F returned its graph record (1,447
+  chars). So the earlier B result stands. It is now measured on a configuration known to be
+  intact, and two clean arms (B and G) agree that an operator-built real-time graph is not served.
+- **`unifiedProfileDGs` cannot be set from outside (2026-11-06).** The off-core design (git.soma
+  `vishal-sood/claude-docs`, `design/agent-context/single_unified_dg_agent_registration_offcore.md`)
+  and the shipped code work like this:
+  - `a360/cdp-realtime-mgmt-service` `AgentRuntimeConfigCollectorService` appends a
+    `configuration.unifiedProfileDGs[{name}]` entry to the agent's cached profile-DG list as
+    `UNIFIED_INDIVIDUAL`.
+  - `a360/cdp-realtime-service` `OotbAgenticDgNameResolver` then **prefers** it for
+    `owner_type=individual` reads. Those reads go through `getUnifiedDgByLookupId` instead of the
+    regular graph read, but only behind the per-tenant gate `ENABLE_AGENT_RUNTIME_CONFIG_CACHE`,
+    which is off by default.
+  - Unlike the design doc, there is no `unified_individual` owner type.
+  - The design says **core** writes the key once the datakit deploys the unified graph.
+  - Core's Connect API agrees: `POST /ssot/agentic/agent` returns `JSON_PARSER_ERROR`
+    "Unrecognized field" for `unifiedProfileDGs` and `unifiedProfileDgs`, on v66, v67 and v68.
+    Nothing was created.
+
+  The platform-made `AgenticUnifiedIndividual` (AM01 root, created 2026-11-02 by the agentic
+  setup) is the graph that slot is meant for. The service code shows no way to tell whether core
+  has written it into any registration's off-core config: the v67 GET does not return the key.
+
+- **The real-time `Customer360` graph IS served, by Contact id (2026-11-06 15:18Z).** With B's
+  configuration restored (07:47Z), a plain GetContext with `owner_id` = the customer's **Contact
+  id** returned a `Profile` entry holding the full CRM record as TOON. That is Unified Individual
+  AM01 → Unified Link (`DataSourceObjectId: Contact`) → Individual (name, title) → Contact Point
+  Email: 584 chars for Erin, 579 for Maya. Raw: `traces/graph-probe/reread-20261106T1518Z.json`
+  (local, gitignored).
+
+  | Owner (Contact id) | B `Customer360` (RT on, caching off) | F `AgenticUnifiedIndividual` | G `RT_UnifiedIndividual` (RT on, caching on) |
+  | --- | --- | --- | --- |
+  | Erin | CRM record, unified id `6bd4371e…` (batch) | Ir1 link to provisional `dc2d0a86…`, pipeline conversations | root `Id` only (`dc2d0a86…`) |
+  | Maya | CRM record, unified id `e0402f35…` | Ir1 link `965ff449…`, pipeline conversations | nothing |
+
+  This corrects "an operator-built real-time graph is not served". B failed earlier for two
+  separate reasons that hid each other:
+  - From 22:40Z its configuration had been wiped by the partial PATCH.
+  - The probes keyed `owner_id` on the faces' customer map, which resolves to the memory
+    pipeline's own Individual rather than the CRM Contact.
+
+  Fixing only one of the two still read as "not served". Erin's AM01 unified id is now the batch
+  one (`6bd4371e…`), so the provisional real-time identity has cleared, within about 24 h as
+  reported. G's remaining difference from B is `isRecordCachingDisabled: false`.
+
+- **The scheduled re-read (2026-11-07 06:18Z): the provisional id expired; it did not merge.**
+  Same owners, same Contact ids, same arms. Raw: `traces/graph-probe/reread-20261107T0618Z.json`
+  (local, gitignored).
+
+  | Owner (Contact id) | B `Customer360` | F `AgenticUnifiedIndividual` | G `RT_UnifiedIndividual` |
+  | --- | --- | --- | --- |
+  | Erin | CRM record (584 chars), AM01 `6bd4371e…`, unchanged | no `Profile`; `userContext` empty | registration deleted in the 11-06 cleanup; exchange refused (`access_denied`) |
+  | Maya | CRM record, AM01 `e0402f35…`, plus two conversations | no `Profile`; two conversations | as Erin |
+
+  - B's configuration was checked first (`GET v67 /ssot/agentic/agent/A2ALab_Memory_Case_Graph`):
+    `dataGraphs` = `A2ALab_Memory_Customer360`, `profileDmos` = AM01, extraction off. So B's row
+    is a clean read, and the 15:18Z result holds a day later.
+  - **`Ir1` is not a ruleset.** The org has one identity ruleset, AM01, and nothing deleted one.
+    `Ir1` is the *projected name* of AM01's objects inside `AgenticUnifiedIndividual`: its
+    definition maps `UnifiedssotIndividualAm01__dlm` → `UnifiedssotIndividualIr1__dlm` and the
+    link likewise. That graph was created by the Automated Process user on 2026-11-02 17:17Z,
+    seven minutes after our `Customer360`, so it came with the platform's agentic setup (the
+    memory datakit), not from us. `DataGraph` lists it as `REALTIME` and `ACTIVE`, though
+    its definition reads back `isRealTimeToggleEnabled: false`. Its Individual node carries the memory pipeline's own objects
+    (Conversation, AiAgentSession, AiParticipantInsight).
+  - **The provisional ids were never in the lakehouse.** A SQL read today finds one Individual per
+    Contact (data source `Salesforce_Home`, object `Contact`) and one AM01 link each: Erin →
+    `6bd4371e…`, Maya → `e0402f35…`. `dc2d0a86…` and `965ff449…` are not in the unified table.
+    F's 11-06 entries (the Conversation and AiAgentSession rows the memory pipeline wrote at
+    06:01Z) were therefore served from the real-time layer only. About 24 h later they are no
+    longer served. So the provisional identity *expired*; it did not move to the batch id.
+  - That is the behaviour the reported real-time issue describes: a real-time identity created
+    before the lakehouse sync lives on the session cache for up to about 24 h. Our reading of the
+    mechanism is an inference from two reads, not a documented TTL. It does not affect the
+    faces, which read B's shape (AM01 by Contact id, D117).
+  - The earlier draft of this entry (written the same morning) said the `Ir1` ruleset had been
+    deleted. That was wrong: an `identity-resolutions` list showing only AM01 and a SQL
+    "does not exist" on a projected name were read as a deletion.
+
+**For the calling agents.** Today Claude and OpenAI receive the shared registration's
+conversation summaries, its own Profile row and its saved facts and preferences. An attached graph
+**does** reach the prompt, as TOON text inside the `userContext` `Profile` entry (arms E and F).
+It holds the record for the profile the service resolves `owner_id` to. With today's `owner_id`,
+that profile is the memory pipeline's own Individual, which holds agent sessions and
+conversations, not Maya's CRM data, so attaching `Customer360` adds nothing. That has two consequences for the faces:
+- **The D107 reset filter would remove it.** When a generation marker exists, the filter drops
+  `sourceType: Profile` rows, and the graph's CRM data would go with them. That data is not a stale
+  memory.
+- **It shares the 4000-character cap with memory.** `render_context` (`src/interop/memory.py`)
+  truncates the whole rendered text at that cap. The record sits in `userContext` next to the
+  conversation summaries, so a large record pushes memory out of the prompt.
+
+Both need a change in `render_context` before the graph is adopted (D115).
+
+## 2026-11-06 — D117 live: hosted Claude and OpenAI faces answer from the customer's graph record
+
+- **Setup.** Live `A2ALab_Memory_Case` reconfigured with one full-configuration v67 PATCH
+  (`setup_agentic_memory.py configure case-memory --apply`): `profileDmos` AM01 plus
+  `contextDataSources.dataGraphs` `A2ALab_Memory_Customer360`. Its memories are kept. Faces were
+  full-rebuilt; the console was redeployed with `--skip-build` to pick up the new
+  `A2ALAB_MEMORY_CUSTOMER_MAP` (the CRM Contact id per demo customer, D117).
+- **Propagation.** The first local read after the PATCH came back empty. The graph record then
+  appeared within about 2–3 minutes (Jordan first) and stayed stable for both customers.
+- **Hosted acceptance.** `claude-rest-hosted` and `openai-rest-hosted` received
+  `metadata.memory=true`, `memory_customer=maya` and a lab user JWT, with the question "what is my
+  last name and which store channel do I use?". Both read 592 characters of GetContext and
+  answered "Chen" from the graph record. Both also said correctly that the record holds no store
+  channel; that is the gap the POS stream (WS32) fills.
+- **What this does not show.** Freshness. The graph serves the record that was current at its
+  last refresh. How soon a new row reaches GetContext is measured separately in WS32.
+
+## 2026-11-07 — WS32: POS orders reach a new real-time graph only through the identity link, on the 30-minute refresh
+
+The question: does hanging the POS order DMO off the AM01 Unified Link (by
+`SourceRecordId__c` = the Contact id) avoid the error that every new real-time graph with the
+source Individual node has hit since 2026-11-06? The link is meant to be the identity join
+object, so this tests a route, not a recommended design.
+
+- **Relationship.** `A2ALab_POS_Order__dlm.contact_id__c` → `UnifiedLinkssotIndividualAm01__dlm.SourceRecordId__c`
+  (FieldSrcTrgtRelationship, ManyToOne). A check-only deploy passed, the real deploy passed,
+  and the relationship reads `ACTIVE` next to the existing one to `ssot__Individual__dlm`.
+- **Graph A, root → link → POS (no Individual node): ACTIVE.** Built in about 5 min, 146
+  records. Maya's live lookup returned her unified record, her Contact link, and the order
+  posted on 11-06 nested under the link.
+- **Graph B, the full `Customer360` shape plus POS under the link: ERROR.** About 4.9 min, no
+  message. That is the same signature as every new graph with the Individual node. Where POS
+  hangs does not matter; the Individual node does.
+- **Latency, one order (Maya, `pos-f2b907cc5599`).** The Ingestion API accepted it in 0.68 s
+  (HTTP 202). The graph's live lookup (`live=true`) first showed it at **1875 s (31.3 min)**,
+  after 98 lookups. That is close to the graph's 30-minute full-refresh schedule, but it does not
+  prove the refresh delivered it. The 2026-11-05 probe showed this org's real-time graphs
+  picking up source edits through per-node streaming transforms, ahead of the batch tables, and
+  the DMO was not polled here. So the split between stream ingestion and graph pickup is
+  unmeasured. One sample.
+- **The 31 min was the lookup key, not the join.** The lookup above used the unified-root key
+  `UnifiedssotIndividualAm01__dlm.ssot__Id__c`. The operator's earlier retail demo measured the
+  same order path on three keys of a real-time graph (POS under Individual on `contact_id`, the
+  same join as ours). A purchase showed up in 1.7 s on the identity-link key `SourceRecordId__c`
+  (= the Contact id), which is the streaming fragment. Both batch keys, `Individual.ssot__Id__c`
+  and the unified root, took up to the 30-minute refresh (18.6 min measured there).
+  - Here, on the identity-link key, `Customer360` serves Maya (726 chars), and graph A returns no
+    rows. Graph A has no Individual node.
+  - `Customer360`'s definition now carries the operator's POS node under Individual (version 1,
+    2026-11-07 16:31Z). That activation errored, and every key still serves the version-0 shape
+    without POS. So the streaming-key latency for a POS order is still unmeasured here.
+  - A unified-id join would hang POS off the root. Lookups there land on the batch key, so going
+    by the retail demo it would not be faster.
+- **Not yet tested:** GetContext through an Agent Configuration attached to graph A. No
+  registration points at it.
+
+Graph A remains in the org (`A2ALab_Probe_POSLink`); graph B was deleted.
+
+## 2026-11-10 — WS32 re-test: the real-time layer now serves the graphs created 2026-11-07
+
+Last week every real-time data graph created on 2026-11-07 was batch-only, in this org and in the
+Pandora demo org. The identity-link `SourceRecordId__c` key (the streaming fragment) returned an
+empty 51 B body. Ingestion API orders appeared only on a batch refresh, 934–2101 s after ingest
+(entries above). An RT on-call request was filed in `#cdp-realtime-service` on 11-07. It had no
+reply as of this re-test, so the change was made on the platform side without notice. Other orgs
+reportedly showed the same symptom, which fits a platform fix rather than anything in our
+metadata.
+
+- **Static check (read-only, both orgs).** The link key now returns the same body as the root
+  unified-id key on every 11-07 graph:
+
+  | Graph | Org | Created | Link key 11-07 | Link key 11-10 |
+  |---|---|---|---|---|
+  | `A2ALab_Test_C360Copy` | lab | 11-07 | 51 B (empty) | 6003 B (= root key) |
+  | `A2ALab_POS_RootLink` | lab | 11-07 | 51 B (empty) | 4804 B (= root key) |
+  | `A2ALab_Test_C360NoPOS` | lab | 11-07 | — | 1167 B (= root key) |
+  | `A2ALab_Test_AccountViewCopy` | Pandora | 11-07 | 51 B (empty) | 703 B (original: 695 B) |
+
+- **Ingest → visible, two orders for Maya** (`traces/ws32/scripts/measure4.py`, connector
+  `A2ALab_POS`, object `pos_purchase`):
+
+  | Order | Ingest (HTTP 202) | Graph | First visible on the link key |
+  |---|---|---|---|
+  | `pos-4de584924293` | 0.30 s | `A2ALab_POS_RootLink`, `A2ALab_Test_C360Copy` | 6.5 s, 6.6 s |
+  | `pos-52d6dd5e0a36` | 0.33 s | `A2ALab_Test_C360Copy` | 5.3 s |
+
+  Both orders showed up on the **first** lookup. Each `sf api request` round trip takes about
+  3–5 s, so these numbers are a ceiling set by the probe: "≤ ~6 s end to end", not a measured
+  sub-second latency. Pandora's original graph shows ~200 ms. The batch-routed root key still lags: the same
+  order `pos-4de584924293` first appeared on `A2ALab_POS_RootLink`'s root key at 1050.8 s
+  (17.5 min), and on `A2ALab_Test_C360Copy`'s root key at 1169.5 s (19.5 min). So the real-time fix covers the link key only, and an agent has to look up by
+  Contact id to get the fast path. A direct-HTTP poller would be
+  needed to resolve the true figure.
+- **Still open.** The live `A2ALab_Memory_Customer360` still serves its version-0 shape without
+  the POS node (the operator's 11-07 POS edit errored). For real-time POS orders to reach
+  GetContext, a POS-bearing graph has to be attached to an Agent Configuration: WS32 step 5,
+  a new `A2ALab_Memory_Case_POS` registration. That ingest → GetContext latency is not measured
+  yet.
+
+## 2026-11-10 — WS32: a POS order reaches Agent Memory's GetContext, and the agent's prompt, ~2 s after ingest (D118)
+
+`scripts/pos_context_probe.py` rings up one Ingestion API order for Maya (owner = her CRM Contact
+id, D117; conversation = her D94 owner conversation). It then polls GetContext and records when the
+order id first appears in the body (`in_context`) and when it first survives the faces'
+`render_context` budget (`in_prompt`, what Claude/OpenAI are actually shown).
+
+| Registration | Graph attached | Orders | Ingest (202) | `in_context` = `in_prompt` | Reads |
+|---|---|---|---|---|---|
+| `A2ALab_Memory_Case_POS` (test arm) | `A2ALab_Test_C360Copy` | 4 (`pos-7e7b8a8f189a` + three at 18:51Z) | 0.27–0.30 s | 1.8–2.0 s | 1 each |
+| `A2ALab_Memory_Case` (live, after the D118 PATCH) | `A2ALab_Test_C360Copy` | `pos-91accc32294d` | 0.30 s | 2.1 s | 1 |
+
+- **GetContext takes the real-time path.** Every order was present on the first read after
+  ingest, so ~2 s is a ceiling set by one GetContext round trip from this laptop (the tenant is
+  eu-central-1, D70), not a measured platform latency. The 30-minute batch refresh plays no part.
+- **The full-configuration PATCH applied at once.** The first read through the live registration,
+  seconds after `setup_agentic_memory.py configure case-memory --apply`, already served the POS
+  node. Memories were kept: the configuration re-sent `isMemoryGenerationEnabled` (D117).
+- **Budget.** With ten orders the rendered prompt was 2704–2910 characters. The graph record
+  renders whole on its 4000-character budget, with padded decimals (`29.000000000000000000`)
+  compacted to `29`.
+- **Window.** The POS node keeps the 10 most recent orders within 7 days, so each probe order
+  pushes out the oldest. Probe orders are synthetic and stay in Maya's record.
+- **Creating the tracked graph failed three times.** `A2ALab_Memory_CustomerPOS` (twice) and
+  `A2ALab_Memory_CustPOS` were created by `setup_pos_stream.py` from a body identical to
+  `A2ALab_Test_C360Copy`'s, apart from name, label, description and (on the second and third)
+  no refresh after the POST. Each reached `ready` with no `dayZeroMappingDevName` and went
+  `error` ~5 min after create, with no message on the `DataGraph` record or the API. A copy
+  made the same day through the GET → `clean_node` → POST path (`A2ALab_Test_C360Copy2`) had
+  its day-zero mapping as soon as it was ready and stayed READY. So the live registration
+  carries `A2ALab_Test_C360Copy`, the graph the latency was measured on.
+
+### Hosted proof (2026-11-10, after the full faces + console rebuild)
+
+The console's purchase route rang up `Day pack 22L` for Maya (`pos-d292868d63ed`,
+ingest accepted in 0.3 s), then the two customer-memory experiments were
+asked the recall prompt with memory on (`traces/ws32/live_proof.py`, gitignored).
+
+| Experiment | Turn | Purchase → answer | Named the item, price and time |
+|---|---|---|---|
+| `customer-memory-claude` | 10.6 s | 13.6 s | yes |
+| `customer-memory-openai` | 37.8 s | 51.3 s | yes |
+
+- Both answers come from the graph record in GetContext. OpenAI also called Agentforce for a CRM
+  lookup, which reported it cannot see POS orders. Memory was the only source of the order.
+- **Caveat:** OpenAI's answer quoted the customer's Contact id. That id is a field of the graph
+  record, and the purchase route keeping it out of the browser (D118) does not stop a model from
+  repeating it. Trimming the id from the rendered record is a follow-up.
+- Trace ids: purchase `9419a4b9cd6e4668ac53c419e573fbe3`, Claude `4e2170e142364aa49de261bb95e58fb8`, OpenAI `d8c8ff8121d44911b1d784a8263eb79f`.

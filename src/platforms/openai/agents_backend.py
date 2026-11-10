@@ -207,6 +207,45 @@ def _build_agentforce_a2a_tool(
     return ask_agentforce_a2a
 
 
+def _build_agentforce_a2a_native_tool(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
+    """The third channel (D106/WS29): same Agentforce twin, over A2A straight
+    at Agentforce's own inbound A2A server — no lab shim in the path."""
+    from agents import function_tool
+
+    from interop import af_channel
+
+    @function_tool(
+        name_override="ask_agentforce_a2a_native",
+        description_override=af_channel.NATIVE_TOOL_DESCRIPTION,
+    )
+    async def ask_agentforce_a2a_native(question: str) -> str:
+        timeout = float(
+            os.environ.get("OPENAI_AGENTFORCE_TOOL_TIMEOUT_S", DEFAULT_AGENTFORCE_TOOL_TIMEOUT_S)
+        )
+        try:
+            return await asyncio.wait_for(
+                af_channel.consult_native(
+                    question,
+                    caller="openai-agents-sdk-agent",
+                    platform="openai",
+                    inbound_depth=inbound_depth,
+                    trace_id=trace_id,
+                    user_context=user_context,
+                    user_token=user_token,
+                ),
+                timeout,
+            )
+        except TimeoutError:
+            return f"Native Agentforce A2A call failed: no answer within {timeout:.0f}s"
+
+    return ask_agentforce_a2a_native
+
+
 class AgentsSdkBackend:
     backend_name = "agents-sdk"
 
@@ -250,6 +289,9 @@ class AgentsSdkBackend:
             tools=[
                 _build_agentforce_tool(inbound_depth, trace_id, user_context, user_token),
                 _build_agentforce_a2a_tool(inbound_depth, trace_id, user_context, user_token),
+                _build_agentforce_a2a_native_tool(
+                    inbound_depth, trace_id, user_context, user_token
+                ),
             ],
         )
 

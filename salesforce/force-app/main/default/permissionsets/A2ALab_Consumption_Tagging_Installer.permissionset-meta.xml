@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- D108: direct, least-privilege grant for the operator who installs the
+     Digital Wallet Consumption Tagging app. The org's indirect profile/group
+     grants did not satisfy the setup prerequisite check. -->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>A2A lab: permits installation of the Digital Wallet Consumption Tagging app by managing template framework templates (D108).</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>A2ALab Consumption Tagging Installer</label>
+    <userPermissions>
+        <enabled>true</enabled>
+        <name>AppFrameworkManageTemplate</name>
+    </userPermissions>
+</PermissionSet>

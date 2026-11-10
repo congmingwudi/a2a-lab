@@ -16,6 +16,7 @@ Two shapes, both first-class (WS11):
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -43,8 +44,18 @@ from interop.trace import Hop
 DEFAULT_TIMEOUT = 45.0
 
 
+# Agentforce's native A2A (D106) opens each new context with the agent's welcome
+# turn as an extra text part, flagged with this metadata key; it is not the answer.
+WELCOME_PART_KEY = "urn:salesforce:agentforce:a2a:welcome-part"
+
+
+def _is_welcome(part) -> bool:
+    field = part.metadata.fields.get(WELCOME_PART_KEY)
+    return bool(field and field.bool_value)
+
+
 def _texts_from_parts(parts) -> list[str]:
-    return [p.text for p in parts if p.WhichOneof("content") == "text"]
+    return [p.text for p in parts if p.WhichOneof("content") == "text" and not _is_welcome(p)]
 
 
 # Terminal in the protocol's sense: no further events will arrive without a new
@@ -59,6 +70,9 @@ TERMINAL_STATES = frozenset(
         TaskState.TASK_STATE_REJECTED,
     }
 )
+
+# ask()'s Task fallback cadence (seconds between tasks/get reads).
+POLL_INTERVAL_S = 2.0
 
 # Stalled: the task is alive but needs something from outside before it moves.
 INTERRUPTED_STATES = frozenset(
@@ -97,6 +111,67 @@ class TaskSnapshot:
     @property
     def working(self) -> bool:
         return not self.done and not self.interrupted
+
+
+class _SalesforceClientCredentials(httpx.Auth):
+    """auth: {scheme: salesforce-cc, my_domain, client_id, client_secret} (D106).
+
+    The Agentforce A2A pilot's gateway takes only a Salesforce OrgJWT: a
+    client-credentials token from an External Client App that issues JWT-based
+    access tokens and carries the a2a_api_pilot custom scope (a2a_lab_af_a2a).
+    The token request is YIELDED from the auth flow, so httpx sends it on the same
+    client and transport as the A2A call: no blocking I/O on the event loop, and
+    one MockTransport serves both in tests. Cached on this object, so it lives as
+    long as the A2AClient's _httpx_auth() result (one per connection, see
+    _connected); a 401 mints once more, for a token revoked before it expired.
+    """
+
+    # client-credentials tokens don't carry expires_in reliably; same conservative
+    # window as AgentforceClient.
+    TTL_S = 25 * 60
+    # httpx reads each yielded response's body before handing it back, in whichever
+    # mode (sync/async) the client runs; a .read() here breaks the async client.
+    requires_response_body = True
+
+    def __init__(self, auth: dict[str, Any]):
+        for key in ("my_domain", "client_id", "client_secret"):
+            if not auth.get(key):
+                raise ValueError(f"auth scheme salesforce-cc needs {key}")
+        # SF_MY_DOMAIN is a bare host in .env; every other consumer prefixes it the same way.
+        domain = auth["my_domain"].rstrip("/")
+        domain = domain if domain.startswith("https://") else f"https://{domain}"
+        self._url = domain + "/services/oauth2/token"
+        self._form = {
+            "grant_type": "client_credentials",
+            "client_id": auth["client_id"],
+            "client_secret": auth["client_secret"],
+        }
+        self._token: str | None = None
+        self._expires = 0.0
+
+    def _token_request(self) -> httpx.Request:
+        return httpx.Request("POST", self._url, data=self._form)
+
+    def _take(self, response: httpx.Response) -> None:
+        import time as _time
+
+        response.raise_for_status()
+        self._token = response.json()["access_token"]
+        self._expires = _time.time() + self.TTL_S
+
+    def auth_flow(self, request):
+        import time as _time
+
+        if not self._token or _time.time() > self._expires - 60:
+            token_response = yield self._token_request()
+            self._take(token_response)
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        response = yield request
+        if response.status_code == 401:
+            token_response = yield self._token_request()
+            self._take(token_response)
+            request.headers["Authorization"] = f"Bearer {self._token}"
+            yield request
 
 
 class A2AClient(RemoteAgentClient):
@@ -192,6 +267,8 @@ class A2AClient(RemoteAgentClient):
                     yield request
 
             return _EntraAuth()
+        if scheme == "salesforce-cc":
+            return _SalesforceClientCredentials(self.auth)
         return None
 
     def _base_headers(self, adc_auth) -> dict[str, str]:
@@ -331,6 +408,25 @@ class A2AClient(RemoteAgentClient):
         poll after the task has been read once), so only a genuinely
         submit-only endpoint — one that never serves the task at all — records a
         red error."""
+        task = await self._get_task(task_id, trace_id, expect_transient=expect_transient)
+        texts: list[str] = []
+        for artifact in task.artifacts:
+            texts.extend(_texts_from_parts(artifact.parts))
+        detail = ""
+        if task.status.state == TaskState.TASK_STATE_FAILED:
+            detail = "\n".join(_texts_from_parts(task.status.message.parts)) or "task failed"
+        return TaskSnapshot(
+            task_id=task.id,
+            state=TaskState.Name(task.status.state),
+            text="\n".join(texts),
+            done=task.status.state in TERMINAL_STATES,
+            interrupted=task.status.state in INTERRUPTED_STATES,
+            detail=detail,
+        )
+
+    async def _get_task(self, task_id: str, trace_id: str | None, *, expect_transient: bool):
+        """One recorded `tasks/get`, returning the raw Task (poll() and ask()'s
+        Task fallback both build on it)."""
         trace_id = trace_id or new_trace_id()
         with Hop(
             trace_id,
@@ -347,27 +443,36 @@ class A2AClient(RemoteAgentClient):
         ) as hop:
             async with self._connected() as client:
                 task = await client.get_task(GetTaskRequest(id=task_id))
-
-            state = TaskState.Name(task.status.state)
             texts: list[str] = []
             for artifact in task.artifacts:
                 texts.extend(_texts_from_parts(artifact.parts))
-            detail = ""
-            if task.status.state == TaskState.TASK_STATE_FAILED:
-                detail = "\n".join(_texts_from_parts(task.status.message.parts)) or "task failed"
             hop.response_payload = {
                 "taskId": task.id,
-                "state": state,
+                "state": TaskState.Name(task.status.state),
                 "artifacts": texts,
             }
-            return TaskSnapshot(
-                task_id=task.id,
-                state=state,
-                text="\n".join(texts),
-                done=task.status.state in TERMINAL_STATES,
-                interrupted=task.status.state in INTERRUPTED_STATES,
-                detail=detail,
-            )
+            return task
+
+    async def _await_task(self, task, trace_id: str, start: float):
+        """ask()'s Task fallback: a blocking SendMessage may still come back with
+        a task that is not finished. The Agentforce A2A pilot (D106) answers
+        within 5 s with a Message and otherwise hands back a WORKING task to poll
+        for up to 120 s; without this, ask() read that task's empty artifacts as
+        "completed with no answer". Polls `tasks/get` inside the client's own
+        timeout budget; a task still unfinished at the deadline is returned as
+        is and fails loudly below."""
+        deadline = start + self.timeout
+        while (
+            task.status.state not in TERMINAL_STATES
+            and task.status.state not in INTERRUPTED_STATES
+            and time.perf_counter() < deadline
+        ):
+            await asyncio.sleep(POLL_INTERVAL_S)
+            try:
+                task = await self._get_task(task.id, trace_id, expect_transient=True)
+            except (TaskNotFoundError, VersionNotSupportedError, MethodNotFoundError):
+                continue  # eventually-consistent task store (WS11): ride it out
+        return task
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         req.trace_id = req.trace_id or new_trace_id()
@@ -433,7 +538,15 @@ class A2AClient(RemoteAgentClient):
                 finally:
                     await client.close()
 
+            if task is not None and task.status.state not in TERMINAL_STATES | INTERRUPTED_STATES:
+                task = await self._await_task(task, req.trace_id, start)
+
             if task is not None:
+                if task.status.state not in TERMINAL_STATES | INTERRUPTED_STATES:
+                    raise RuntimeError(
+                        f"A2A task on {self.target_name} did not finish within "
+                        f"{self.timeout:.0f}s (state {TaskState.Name(task.status.state)})"
+                    )
                 texts: list[str] = []
                 for artifact in task.artifacts:
                     texts.extend(_texts_from_parts(artifact.parts))

@@ -1595,6 +1595,15 @@ scheduled.
 
 ## WS10 — MuleSoft Agent Fabric comparison (AD3, approved 2026-07-25 — last)
 
+**ON HOLD (2026-11-04, operator decision).** The Production Omni Gateway
+`agent-network-shared-gw` has been **STOPPED since 2026-10-20** (live
+`status: STOPPED`, checked 2026-11-04), so `/broker1/` is not serving. The
+"RUNNING" status below is the 2026-09-01 record, kept as history. Agent
+context/memory experiments (WS27) and Agentforce's native inbound A2A pilot
+(WS29) take priority for the week-of-2026-11-15 demonstration. Resuming means
+starting the gateway, publishing and deploying the rewritten `broker1.agent`,
+then re-running `scripts/mule_broker_smoke.py` (plan/15).
+
 **Status: SP1 walking skeleton BUILT and DEPLOYED to Production; broker RUNNING;
 broker→face consult unproven end to end (2026-09-01).** Phase 0 passed, the
 managed-gateway entitlement was raised, and the Omni Gateway
@@ -3600,7 +3609,7 @@ and the experiment design: `plan/18-agentic-memory-context.md`.
 7. ✅ Tenant go/no-go: one `POST /memory/turn` on the hosted bridge with the probe owner (or `setup_agentic_memory.py probe concierge --apply`). Passed 2026-10-13: both read back 200 once GetContext sent the `ctx-agent-id` header. The 403 was that missing header, not a write precondition. The first cold hosted read took 27 s because Aurora was resuming; that's fixed in the trace sink (D85).
 8. ✅ Deployed 2026-10-13: bridge full rebuild (task definition :13, memory identity in its secret), `A2ALabMemoryTurn` (6/6 tests, 100% coverage), concierge v1 published and active.
 9. ✅ First recall across sessions, plus the reply side: do the `AgenticConnector_*` streams carry Agentforce replies into the memory conversation, or is a Session Trace replay (D73) needed? — Recall half done 2026-10-14 (`plan/03-results.md`): a new Agent API session for the same owner recalled all three facts from extracted profile memory, and a control owner got nothing. The reply side is still open.
-10. ⏳ Native-flag arm (D84): the same concierge with `context.memory` / `past_conversations` on and the explicit action removed, as its own published version.
+10. ✅ Native-flag arm (D84): the same concierge with `context.memory` / `past_conversations` on and the explicit action removed, built as the sibling agent `A2ALab_Memory_Native_Flag`, not a version (D92). Published, activated and registered 2026-10-18; first run: no recall in a new session and no tenant `userContext`, the same as the explicit arm during the tenant-side break (item 32, `plan/03-results.md`). Answered 2026-10-29 (D95/D96, `plan/03-results.md`): as the Employee sibling `A2ALab_Memory_Employee_Flag` the flags alone recall across sessions, with no `manageUserMemory` call (one early miss did not reproduce in three runs), and nothing reaches Data 360.
 
 **Phases 3–4 — every other platform, then the experiment.**
 
@@ -3610,8 +3619,8 @@ and the experiment design: `plan/18-agentic-memory-context.md`.
 **Phase 2b — two routes to one memory (D84).**
 
 13. ✅ Native memory-action inventory: `manageUserMemory`, `get/updateAgentMemoryPreference`, `getAgentContext` (v67 `/actions/standard`), reproducible with `setup_agentic_memory.py native [--org]`.
-14. ⏳ Native-action arm: `manageUserMemory` from a concierge hook, then read the tenant for the same owner. Does a native write reach Data 360 Agentic Memory, under which owner id, and can a non-Salesforce platform read it?
-15. ⏳ Data Cloud One arm: provision a companion org on this org's Data 360, run `native --org` there, and test both routes from it (native action vs Apex → bridge).
+14. ✅ Native-action arm: `manageUserMemory` from a concierge hook, then read the tenant for the same owner. Does a native write reach Data 360 Agentic Memory, under which owner id, and can a non-Salesforce platform read it? Built as the sibling agent `A2ALab_Memory_Native_Action` (D92), with `source: "EmployeeCopilot__ManageUserMemory"`, which preview requires and validate doesn't check. The hook runs live in preview, but the action answers "No Agent or User found" until the agent is published (`plan/03-results.md`, 2026-10-18). Published, activated and registered 2026-10-18; first run: no recall and no tenant `userContext`, matching the break in item 32. Answered 2026-10-29 (D95, `plan/03-results.md`): the Service agent never stores ("No Agent or User found": Agent Memory keys on a session user, and no Agent API lever supplies one). As the Employee sibling `A2ALab_Memory_Employee_Action` it recalls across sessions (`userMemoryEnabled: true`), but the write stays in Agentforce's per-user store and never reaches Data 360, so no non-Salesforce platform can read it.
+15. ⏳ Data Cloud One arm: provision a companion org on this org's Data 360, run `native --org` there, and test both routes from it (native action vs Apex → bridge). Blocked on the companion org: the lab has none, and provisioning one is a licensing step outside the repo. `native --org <alias>` and `memory_arms.py` are ready for it.
 
 **Phase 0b: a dedicated integration user (D86).**
 
@@ -3623,7 +3632,7 @@ and the experiment design: `plan/18-agentic-memory-context.md`.
 21. ✅ Reply ingest (D87): `agentResponse` on `A2ALabMemoryTurn` from `@system_variables.last_reply` in both hooks, deployed as concierge v2, then measure which reply `last_reply` holds at each hook. Measured 2026-10-15 (`plan/03-results.md`): `last_reply` is voice barge-in state, not the reply, so v2 failed every turn and v1 is active again (D89); the reply path is item 25.
 22. ✅ Idempotent memory entries (D87): content-derived entry ids in `interop.memory`, so a hook firing once per reasoning pass no longer double-ingests a turn. Live: both per-pass sends carry the same entry id, stored once (`plan/03-results.md`).
 23. ✅ ECA identifiers out of the repo: the six `extlClntAppOauthPolicies` files and the two `externalClientApps` files are gitignored and rendered from `.env` by `scripts/render_eca_metadata.py` (policies byte-identical to what is deployed), so no tracked file carries the run-as username, the contact email or the org id (`orgScopedExternalApp`, `oauthLink`); guarded by two new identifier checks, and left in history on purpose (D88).
-24. ⏳ Agent-user org id out of the repo: every agent's generated user (`…@<org id>….ext`) is named by `default_agent_user` in the 8 `.agent` bundles and `<botUser>` in the 7 `.bot-meta.xml` files; render them at publish time like the ECA files, then drop the guard's exemption (D88).
+24. ⏳ Agent-user org id out of the repo: every agent's generated user (`…@<org id>….ext`) is named by `default_agent_user` in the 10 `.agent` bundles (8, plus the two D92 native arms) and `<botUser>` in the 7 `.bot-meta.xml` files; render them at publish time like the ECA files, then drop the guard's exemption (D88).
 25. ⏳ Reply ingest out of band (D89): no Agent Script variable holds the reply, so it reaches memory from outside the hook — Session Trace replay (D73) first, the caller-side REST seam for lab traffic as the fallback.
 26. ✅ Agent caller integration user (D90): `a2a_lab_claude`, `_openai` and `_shim` run as one API-only user with an empty bundle behind the `A2ALab_Agent_Caller` gate. Preflight 3/3 Agent API sessions; LoginHistory shows every mint since the policy deploy as this user, none as the admin.
 27. ✅ Briefs integration user (D90): `a2a_lab_app` runs as its own API-only user holding the measured `A2ALab_Brief_Writer` bundle, behind the `A2ALab_Briefs_Integration` gate. Measured 2026-10-15: Task needs Access Activities, and `CustomNotificationType` is read through the Tooling API instead of granting View Setup.
@@ -3631,4 +3640,194 @@ and the experiment design: `plan/18-agentic-memory-context.md`.
 29. ✅ Tab embed integration user (D90): `a2a_lab_tab_embed` signs its JWT as a Salesforce Platform user holding Tableau Next Consumer, Data Cloud User and `A2A_Lab_Access`, behind the `A2ALab_Tab_Embed` gate. Proven 2026-10-16 (`plan/03-results.md`): the hosted inline dashboard renders and the "Open the live dashboard" link opens the tab, both as the new user, once the user changed its own first password.
 30. ⏳ Brief watcher ships the Tooling notification read (D90): a full faces rebuild plus `deploy/briefs/deploy_briefs.sh`, because the watcher reuses the faces image.
 31. ✅ Generic memory seam (D91): `MemoryAdapter` in `src/interop/memory_adapter.py` reads context before and ingests both sides of the turn after, keyed by the verified lab user, fail-open under a budget; dormant until a run asks: memory is a per-run **Memory** toggle on the experiment (`memory_toggle`, first on `claude-to-agentforce`), carried as `metadata["memory"]` over REST/A2A and a `memory` tool argument over MCP, with the choice stamped and badged on each turn; wired into the faces host and the Claude entrypoint; the bridge's `/memory/turn` shares its read/write helpers.
-32. ⏳ Claude behind the seam, live: register `A2ALab_Memory_Claude` (`setup_agentic_memory.py register claude --apply`), add the memory identity (`SF_CLIENT_ID_MEMORY`, `SF_MEMORY_RUNAS_USER`, `A2ALAB_MEMORY_JWT_KEY`) to the faces secret, full faces and console rebuild, then one recall across two sessions for one owner with the Memory toggle on. Registration, extraction, faces secret and both rebuilds DONE 2026-10-17 and the hosted turn ingests both sides; the recall itself is blocked tenant-side (GetContext returns an empty `ontology` for every owner, the 10-14 control persona included; `plan/03-results.md`).
+32. ✅ Claude behind the seam, live: register `A2ALab_Memory_Claude` (`setup_agentic_memory.py register claude --apply`), add the memory identity (`SF_CLIENT_ID_MEMORY`, `SF_MEMORY_RUNAS_USER`, `A2ALAB_MEMORY_JWT_KEY`) to the faces secret, full faces and console rebuild, then one recall across two sessions for one owner with the Memory toggle on. Registration, extraction, faces secret and both rebuilds DONE 2026-10-17 and the hosted turn ingests both sides; the recall itself is blocked tenant-side (GetContext returns an empty `ontology` for every owner, the 10-14 control persona included; `plan/03-results.md`). Re-probed 2026-10-18: still empty for the control and the smoke owner, and a brand-new explicit-arm owner (`memory_arms.py explicit`) doesn't recall either, so the block now covers fresh writes too (`plan/03-results.md`). Dated 2026-10-18 from the hosted GetContext hops: memory lives in `userContext`, which was present through 10-16 02:48Z and absent from 10-17 18:23Z on. The two native arms, published the same day, fail identically, so the break is tenant-side (`plan/03-results.md`). Diagnosed the same day as a service defect, not a client gap: the tenant acks every write (201/202, even closing a session) and persists none (conversation 404, re-create 201, stream counts flat); every lab-side variable is unchanged since recall last worked. Defect draft: `build-notes/ws27/agentic-memory-defect-2026-10-18.md`. Recalled 2026-10-28 once D93 was deployed: hosted `claude-rest` with the Memory toggle on, owner `a2alab-memprobe` (the `listed: false` test user), recalled a planted fact in a new conversation (`plan/03-results.md`).
+33. ✅ Close every session and read saved memories from the Memory API (D93): `write_turn` closes after each write (the close triggers extraction, and no seam had ever closed a session), and `open_and_read` merges every shared agent's facts and preferences from `GET /api/v1/agentic/memory`, which still answers while GetContext serves no `userContext`. Built, unit-tested and verified live 2026-10-27, then deployed (full bridge + faces rebuild). The hosted explicit arm recalls across two Agent API sessions (`memory_arms.py explicit`, `plan/03-results.md`), the first hosted recall since 10-16, with GetContext still empty.
+34. ✅ One memory conversation per owner (D94): each chat is a session inside the owner's derived conversation (`memory.owner_conversation`), so GetContext summarises earlier chats; Apex's `conversation_id` key now carries the session id (no org deploy); messages `redact`ed before ingest (the demo kit's patterns). Built and unit-tested 2026-10-28, then proven live the same day: a new chat as the Concierge recalled the Claude chat's GetContext summary before writing anything (`plan/03-results.md`). Deployed (bridge + faces, full rebuild) and checked hosted: one GetContext summary spans both chats.
+35. ✅ Native arms as Employee agents (D95): `A2ALab_Memory_Employee_{Flag,Action}` (`agent_type: AgentforceEmployeeAgent`, no `default_agent_user`), published, activated and registered for memory; `A2ALab_Employee_Agent_User` grants `EinsteinCopilotUser` plus access to the two agents. The Integration licence refuses that permission, so they ran first as the admin through programmatic `sf agent preview`, now `memory_arms.py --preview` (item 36 moved them to a lab user). Measured 2026-10-29: both arms recall across sessions (the flag arm's first miss did not reproduce), and neither reaches Data 360 (`plan/03-results.md`).
+36. ✅ Employee lab user (D96): the `employee` per-seam user (Salesforce licence, `Minimum Access - Salesforce`, `EinsteinGPTCopilotPsl` + `A2ALab_Employee_Agent_User`, gate `A2ALab_Employee_Caller`) and the JWT-bearer app `a2a_lab_employee` with named-user JWT tokens; `AgentforceClient` takes a `token_provider` and `bypass_user`, so the Employee arms run over the GA Agent API as that user with `bypassUser: false`. Created, deployed and measured 2026-10-29: both arms recall across sessions as the lab user, nothing in Data 360 (`plan/03-results.md`).
+37. ✅ Supplier-disruption case memory (D102): case conversation ids derive from verified owner + scenario + case key; operational reads exclude owner-profile saved memories and all four registrations keep automatic profile extraction off. Built and deployed 2026-11-01; all four registrations ACTIVE with extraction read back off.
+38. ✅ Specialist seed contract: ADK Logistics, Foundry Commercial/Legal and OpenAI Customer Operations each nominate one bounded observation; the console validates, redacts, source-labels and ingests valid candidates without changing the visible three-bullet hand-off. Hosted Seed accepted 2/2 available candidates on 2026-11-02 (`plan/03-results.md`).
+39. ⏳ Two-run recall arms: after observed Data 360 availability, give case context to the coordinator, specialists, or both; preserve an exact memory-off control and report empty/refused memory honestly.
+40. ⏳ Provenance go/no-go: prove whether an exact observation id/source survives a cross-agent Data 360 read; require valid citations when it does, otherwise report “provenance unavailable” without a host-cache join.
+41. ✅ Console identity and controls: verify the lab user before the early CMA fan-out branch, never accept owner ids from the browser, add Off/Seed/Recall + reader/case controls and browser accessibility evidence. Desktop/narrow evidence and auth/case isolation smokes passed 2026-11-01/02.
+42. ✅ Hosted console memory dependency: add the memory ECA identity/key to the console secret path, update deployment map/diagrams/Details, full rebuild, per-agent token preflight and off/auth/isolation smokes. Deployed healthy 2026-11-01; all four hosted preflights passed before the Seed run.
+43. ⏳ Live experiment: Off and Seed passed 2026-11-02, but Data 360 returned empty GetContext for 7–10 minutes and raw conversation reads returned 404 despite archived 201/202 write/close acknowledgements. Coordinator/specialists/both Recall and negative controls wait for observed non-empty context; evidence is in `plan/03-results.md`.
+44. ✅ Customer identity foundation (D104): `Contact_Home` maps CRM Contacts to Individual and Contact Point Email; exact-normalized-email ruleset `AM01` produced `UnifiedssotIndividualAm01__dlm`; two synthetic `.invalid` demo Contacts (Maya Chen and Jordan Alvarez) are materialized and isolated.
+45. ✅ Customer context graph: tracked definition `config/agentic_memory_customer_graph.json` created `A2ALab_Memory_Customer360`, rooted on the unified Individual and traversing identity link → source Individual → email. Status is ready and the initial run materialized its fragment/value DMOs. This org lacks the sub-second PSL, so claim batch graph availability, not source-key streaming.
+46. ✅ Governed identity correction: every a360 exchange carries `aid` + mandatory customer `xid`; token caching includes both; the generic face seam maps verified lab subjects through environment-only `A2ALAB_MEMORY_OWNER_MAP` to org-specific unified ids and fails closed when unmapped. Focused live GetContext returned 200 for Maya through both customer registrations.
+47. ✅ Cross-platform customer-memory pair: `A2ALab_Memory_Customer_Claude` and `_OpenAI` are ACTIVE against the unified profile DMO + Customer 360 graph with extraction on. The console adds an Agent Memory category, teach/correction/recall/negative-control prompt chips, and explicit memory-vs-Agentforce attribution.
+48. ✅ Publish and measure D104: full faces + console rebuild with the owner map in the faces secret; Teach Claude → Recall in OpenAI passed after 45 seconds with all three details recalled and source-labelled, while Jordan returned empty memory. Trace ids and latencies are in `plan/03-results.md`.
+49. ✅ Memory-scope explanation: both customer-memory Details panes now distinguish the shared data-space/Unified Individual identity spine from conversation-, agent- and category-scoped memory views; the same explanation lives in `config/scenarios.yaml` and D104 so the Lab Guide can retrieve it. Trace labels expose `category × registered agent`, making repeated Memory API reads identifiable rather than apparent retries.
+50. ✅ Memory-scope visualization: customer-memory Details and run traces render the hierarchy explicitly as customer persona → Claude/OpenAI registration → facts/preferences, using each hop's actual `aid` and category when available; inline hop paths explain why multiple GETs are independent governed reads, not retries.
+51. ✅ Recall-to-action Agentforce handoff: approved Agent Spec implemented `create_follow_up_case` with exact-Account resolution, user-mode write, bounded failures, Case permission, and loop guards. Three Apex tests pass at 75% focused class coverage; live action, unknown-Account, and delegated no-callback acceptance passed. The OpenAI-paired agent was published and activated as v3. The rebuilt hosted pair then proved Teach Claude stores without Agentforce and OpenAI recalls through its own registration before creating Case `00002134`; trace evidence is in `plan/03-results.md`.
+52. ✅ Shared memory-service correction (D105): registered ACTIVE `A2ALab_Memory_Case` over the unified customer profile with no custom context graph; enabled its extraction and disabled extraction on the superseded Claude/OpenAI registrations. Both platform adapters now use the shared identity and read facts/preferences once each. Hosted Claude and OpenAI traces proved the identical registration/category path; OpenAI then created Case `00002136`.
+53. ✅ Corrected teaching visualization (D105): Details and traces render customer → shared case memory → facts/preferences, with Claude/OpenAI labelled as execution provenance rather than storage partitions. Scenario text and the Lab Guide corpus state that a custom Case real-time data graph is deferred pending org support; the standard graph is not attached as a substitute.
+54. ✅ Memory evidence presentation: render the Data 360 context preview as compact escaped rows with explicit category/timestamp/value line breaks and no inherited whitespace gap; both customer-memory Details panes now include an authenticated deep link to the org's Agent Configuration page for the shared memory registration.
+55. ✅ In-org memory configuration navigation: add Salesforce's `standard-Agents` Agent Configuration tab to the A2A Lab Lightning app and scope the customer-memory Details component link to `/lightning/app/c__A2A_Lab/n/standard-Agents`, so it opens in the lab app rather than the user's previously active app.
+56. ✅ Customer-memory navigation polish: declare the Claude teaching scenario as a Managed Agents-backed experiment so its Details Components include the live Claude agent console link, while preserving the tag guard that excludes AgentCore variants; place Agent Memory after Fan-out orchestration in the shared control-panel group order.
+57. ✅ Agent Configuration cleanup: retain only the shared customer Case registration and four active Supplier Disruption registrations; permanently delete the eight superseded/finished registrations and their memories after an exact live audit. Add a guarded, dry-run-by-default `setup_agentic_memory.py delete` command and verify the post-delete registry is exactly five ACTIVE entries.
+58. ⏳ Content-refusal correction (D107): classify only the observed HTML/nginx entries 403, retry once with readable URL/API-path normalization, trace and badge the adaptation, and retain D94's one-session-per-chat lifecycle.
+59. ⏳ Typed Memory Management client (D107): preserve `memoryId` and the tenant's reported `totalCount`, use the documented `memories[]` response as the row set while conservatively refusing only a reported count above it, add create/delete operations for profile categories, handle 404 re-list/retry semantics, and keep prompt rendering backward-compatible.
+60. ⏳ Customer-scoped management API (D107): operator-only list/delete/reset routes resolve configured demo customers through the secret owner map, reject arbitrary ids/categories, and keep profile ids out of browser responses.
+61. ⏳ Tenant-backed Start fresh (D107): create and validate a shared generation marker, hash it into the effective conversation across Claude/OpenAI, verify the reset saga, and prevent archived pre-reset chats from silently continuing.
+62. ⏳ Memory-management UI and copy (D107): list the selected customer's complete facts/preferences, confirm permanent selected deletion or Start fresh, expose partial/error trace evidence, and distinguish curated deletion from retained conversation history.
+63. ⏳ Deploy and prove D107: add the customer map to the console secret path, update Details/runbooks/deployment map, full-rebuild faces and console, then prove correction, selective deletion, fresh teaching, cross-platform recall and Jordan isolation with recorded traces.
+64. ✅ D107 reset hotfix: tolerate the tenant's observed undocumented `totalCount` under-count without weakening the greater-than-row safety refusal; default Data 360 Agentic Memory on for the Claude/OpenAI customer-memory pair while Run All remains an explicit memory-off control; focused regressions passed and full-rebuild faces + console deployment reached healthy/stable state.
+65. ✅ D107 generation isolation: quarantine re-materialized `sourceType: Profile` rows and skip the saved-profile merge after Start fresh, retain only marker-derived `sourceType: Conversation` recall, expose the boundary in management/badge copy, fail deployment closed if the memory signing key is absent, and prove the first teaching turn is memory-empty then stored (`13202e8bfc704b319a574a0dd15a23de` → `91aa0a885567d41f16d27bcf5157c3b1`).
+66. ✅ D112 data-space visibility: replace the runtime/setup hard-code with required `A2ALAB_MEMORY_DATA_SPACE` deployment configuration, expose the public-safe name through `/api/config`, show it in customer-memory Run and Details panes, and keep profile ids plus environment selection server-side.
+67. ✅ D117 live graph context: the faces send the customer's CRM Contact id as the memory owner (`A2ALAB_MEMORY_CUSTOMER_MAP`), `setup_agentic_memory.py configure` attached the AM01 profile DMO and the real-time `A2ALab_Memory_Customer360` graph to the live `A2ALab_Memory_Case` with a full-configuration v67 PATCH (memories kept), and `render_context` keeps graph Profile rows under their own budget. Supersedes item 53's deferral. Full-rebuild faces + console secret redeploy 2026-11-06; both hosted Claude and OpenAI faces answered Maya's last name from her graph record (592 context chars) — `plan/03-results.md`.
+
+## WS28 — AXS-inspired local console design study (raised 2026-10-29, D97)
+
+An isolated local design route for comparing a smoother, lighter visual treatment against
+the released console without forking its behavior or disturbing current console work. The
+D79 proposal and critique are `build-notes/codex/axs-console-redesign-plan.md` and
+`build-notes/claude/reviews/ws28-b1-axs-console-theme.md`.
+
+1. ⏳ Serve `/design/axs` from the existing SPA with an isolated theme marker and stylesheet;
+   keep `/` and `/guide` unchanged, and exempt only the data-free shell from initial auth.
+2. ⏳ Apply the AXS-inspired visual system with responsive and reduced-motion behavior while
+   preserving protocol/platform semantics and all existing console interactions.
+3. ⏳ Add route, auth-boundary and theme-isolation tests; validate desktop and narrow layouts
+   locally and record the implementation evidence for cross-review.
+4. ⏳ Promote the study as the optional Skyline theme under D98: add a Default/Skyline header
+   selector with independent color mode, pre-paint persistence, accessible labels and explicit
+   `/design/axs` compatibility behavior.
+5. ⏳ Normalize experiment identity in the main canvas: reuse escaped platform title marks,
+   complete LangGraph matching and remove the inconsistent Claude-specific `aws` heading badge.
+6. ⏳ Add selector, persistence, alias-precedence, heading and responsive regressions; capture
+   Default/Skyline × light/dark evidence and hand the completed batch to Claude for cross-review.
+7. ⏳ Correct the shared `agentcore` tag-chip tooltip so Strands cards no longer describe a
+   nonexistent Claude end; keep the chip because it still identifies the hosting runtime.
+8. ⏳ Complete role-accurate scenario heading identity under D99: show Claude + Salesforce for
+   Account Intelligence Brief and the three fan-out unit marks for every Supplier Disruption
+   variant across the Control Panel, landing tiles and main canvas.
+9. ⏳ Add platform marks to protocol-cell target titles in both the Control Panel and main canvas,
+   consolidate the platform-mark registry, and remove the redundant `(AWS)` from the forward
+   `AWS Strands → Agentforce` title.
+10. ⏳ Add configuration-drift, escaping, accessibility and shared-renderer regressions; capture
+    Default/Skyline browser evidence and hand the completed D99 batch to Claude for cross-review.
+11. ✅ Add Canvas under D100: an original sparse monochrome theme inspired by the OpenAI site's
+    high-level spacing, surface and typography principles, without vendor assets or brand fonts.
+12. ✅ Add Parchment under D100: an original shifted warm-paper and editorial theme inspired by
+    the Anthropic site's high-level design principles, without exact brand colors or components.
+13. ✅ Consolidate optional skins into one scoped `themes.css`, generalize the persisted
+    four-theme allow-list and `/design/axs` precedence, and correct Skyline's light-token CSS
+    specificity defect found by the Claude Opus critique.
+14. ✅ Add allow-list, scoping, semantic-color, contrast and forced-alias regressions; capture
+    Canvas/Parchment light/dark desktop and narrow evidence plus computed Skyline tokens, then
+    hand the completed D100 batch to Claude for cross-review.
+15. ✅ Adopt the D101 A2A Exchange Mark: two deep-navy agent nodes and opposing message paths on
+    the compact Default blue/cyan-to-lavender field, identical across every theme and mode.
+16. ✅ Remove every optional-theme and responsive mark override, bump `themes.css` to version 2,
+    and add accessibility, fixed-geometry, stable-part and all-selector regression coverage.
+17. ✅ Capture actual-size Default/Skyline/Canvas/Parchment light/dark and narrow browser evidence,
+    then hand the completed shared-mark batch to Claude Opus for cross-review.
+18. ✅ Make every known `WS<n>` reference in console prose a clickable chip that opens the exact
+    `plan/07-workstreams.md` section, using the shared dynamic renderer rather than per-Details markup.
+19. ✅ Extend decision chips to all known `D<n>` ids, including three-digit decisions such as D102;
+    add source-parser, public-route and Supplier Disruption Details regressions under D103.
+20. ✅ Add keyboard-focusable hover help to every Case memory run setting: section purpose,
+    Off/Seed/Recall behavior, recall-reader placement and signed-in-user case-key isolation.
+
+## WS29 — Agentforce native A2A pilot: inbound and outbound cells beside the shim and bridge (raised 2026-11-02, D106)
+
+Salesforce's Agentforce A2A pilot ships both directions the lab built around: a native
+inbound A2A server (until now the D28 shim stood in for it) and a native outbound
+`connected_subagent` (the blocked `A2A (native)` cell in `plan/02-matrix.md`). D106 keeps
+the shim and bridge as comparison arms. Inbound first, on `A2ALab_Research_Assistant_Script`.
+
+1. ✅ Enable the inbound pilot permission (`AgentApiA2A`, BlackTab, 2026-11-03).
+2. ✅ Deploy the `a2a_api_pilot` OAuth custom scope and the empty `A2ALab_AF_A2A_Inbound` gate.
+3. ✅ Create the agent's own Digital Agent User (`integration_users.py af_a2a_agent`), replacing the user ten agents shared.
+4. ✅ Render and deploy the `a2a_lab_af_a2a` client-credentials ECA with the custom scope attached headlessly (`commaSeparatedCustomScopes`).
+5. ✅ Name the agent user by placeholder and publish through `scripts/publish_agent.py`; bundle validated.
+6. ✅ Add the `salesforce-cc` auth scheme to the A2A client and the `agentforce-a2a-native` target.
+7. ✅ Publish and activate `A2ALab_Research_Assistant_Script` on the new agent user (operator, 2026-11-03: v5 active; `publish_agent.py` restored the placeholder in the three files the publish retrieved).
+8. ✅ Fetch the `a2a_lab_af_a2a` consumer secret into `.env` (the one UI-only step).
+9. ✅ First wire-captured inbound run against the native cell and the shim side by side; record in `plan/03-results.md` and the `plan/02-matrix.md` ledger.
+14. ⏳ Inbound: exercise the Task fallback with a turn longer than 5 s, polled through `GetTask` up to 120 s. Short turns came back as synchronous Messages, so this path is unmeasured.
+10. ⏳ Outbound: `A2ARegistration` enabled by the pilot PM.
+11. ⏳ Outbound: make D27 hold on native outbound (no `metadata["delegation"]` on the wire) before any face is registered.
+12. ⏳ Outbound: a lab OAuth 2.0 client-credentials token endpoint the Agentforce Registry accepts, with its `plan/09-deployment-map.md` row.
+13. ⏳ Outbound: register a warm, Haiku-tier face in the Registry and wire a `connected_subagent` into the orchestrator (30 s remote-poll budget).
+15. ✅ Make the native endpoint the third Agentforce channel (`a2a-native`) on all five channel-toggle scenarios (D109). The `ask_agentforce_a2a_native` tool is in every backend, with D25 twin routing and the D27 guard; the console radio, flow step, routing exhibit and Details pane are updated.
+16. ✅ Add the A2A client's Task fallback: a WORKING task from a blocking `SendMessage` is polled through `tasks/get` within the client timeout instead of being read as an empty answer (D109).
+17. ✅ Ship the `a2a_lab_af_a2a` pair to the faces, AgentCore and ADK runtimes with full rebuilds, register the A2A tools on the managed agent, and record one measured run per scenario on the native channel.
+
+## WS30 — Digital Wallet consumption attribution (raised 2026-11-03, D108/D110/D111)
+
+1. ✅ Install Consumption Tagging with direct Data Cloud Architect plus the least-privilege
+   `AppFrameworkManageTemplate` grant (D108).
+2. ✅ Create the six-group, 38-tag taxonomy and assign 144 resource/tag pairs: all 12 current lab
+   bots, 18 custom actions resolved through active planner plugins, and `Individual_AM01` (D110).
+3. ⏳ **Resume checkpoint: 2026-11-05 or later.** Confirm that `TenantEnrichedUsageEvent` contains
+   events newer than the 2026-11-03 tag assignments. Record delivery/freshness timestamps and
+   inventory the emitted usage type, card, feature, credits, units, resource/root-resource ids and
+   types, custom tags, and `CorrelationIdentifier__c`. Do not interpret an empty first query as zero
+   usage until at least one daily ingestion cycle has completed.
+4. ✅ Put the Agentic Memory Limited GA billing boundary in every current memory Details pane:
+   ingestion/retrieval/GetContext are free, future LLM memory generation consumes Flex Credits,
+   final pricing is unannounced, and a zero wallet charge does not disprove execution.
+5. ✅ Scaffold Observability → Digital Wallet as a second Tableau Next dashboard using the existing
+   owner-gated embed session. It stays in an explicit awaiting-data state until
+   `TABLEAU_CONSUMPTION_DASHBOARD_API_NAME` is set (D111).
+6. ⏳ Run the attribution acceptance set after records land: one cross-platform research action,
+   one direct A2A action, one supply fan-out, and one customer-memory teach/recall pair. Verify the
+   expected Agentforce root/action and D110 dimensions on fresh events. Treat Agentic Memory's
+   Limited GA no-charge operations as execution evidence plus billed zero, not missing execution.
+7. ⏳ Audit Data 360 attribution separately: confirm `Individual_AM01` profile-unification events,
+   use `CorrelationIdentifier__c` to join Data Query charges to Agentforce session/trace ids, and
+   quantify an explicit unattributed bucket. Re-test tagging the eight managed
+   `AgenticConnector-*` streams, `A2ALab_Memory_Customer360`, and its two generated transforms;
+   each currently appears in the picker but Save returns `Unknown error`.
+8. ⏳ Build the **Agent & Data 360 Consumption** semantic model and Tableau Next dashboard with:
+   credits/units by usage type and day; agent and action; Data 360 resource; all six custom tag
+   groups; memory-arm comparison; attribution coverage; freshness; and unattributed consumption.
+   Keep this billing-event model separate from Agent Interop Traffic's Aurora wire-hop model.
+9. ⏳ Share the dashboard with the `a2alab.tabembed` run-as user and prove it renders with Tableau
+   Next Consumer + Data Cloud User. Set `TABLEAU_CONSUMPTION_DASHBOARD_API_NAME`; optionally create
+   and set `TABLEAU_CONSUMPTION_APP_TAB`; then capture
+   `src/console/static/components/tableau-next-consumption.png` as the non-owner fallback.
+10. ⏳ Full-rebuild and deploy the console, verify owner inline embed + in-org link + non-owner
+    snapshot/owner-only copy, record the first measured dashboard refresh and wallet delivery lag
+    in `plan/03-results.md`, and close the awaiting-data state only after live evidence passes.
+
+## WS31 — Agent Memory presentation mode (raised 2026-11-06, D116)
+
+1. ✅ Select and approve a verified-only visual target for an eight-scene, console-native tour.
+2. ✅ Run two read-only Claude critiques and reconcile memory scope, graph, generation, governance,
+   confidentiality, navigation, role, and trace-evidence findings into the implementation plan.
+3. ⏳ Add a keyboard-reachable Agent Memory section launcher plus shortcuts on both customer-memory
+   experiments, with no signed-out entry point.
+4. ⏳ Build the declarative eight-scene presentation controller, responsive scene rail, semantic
+   system map, evidence labels, reduced-motion behavior, and focus-safe Exit/Escape navigation.
+5. ⏳ Build the role-aware Claude-teaches/OpenAI-recalls handoff: preserve the valid customer,
+   enable Memory, load the existing prompt, expose generation-aware trace guidance, and never send.
+6. ⏳ Correct the authoritative scenario and Details copy to the measured registration ×
+   server-resolved customer owner × category boundary and the face-owned isolation result (D115).
+7. ⏳ Browser interaction evidence and Product Design QA pass against the approved target in Canvas
+   light/dark at desktop and narrow widths; retain pending until cross-review/deploy closes the batch.
+8. ⏳ Cross-review the implementation with Claude, then full-rebuild/deploy the console and smoke
+   section entry, both handoffs, viewer behavior, and narrow layout. Deployment is operator-owned.
+
+## WS32 — Real-time engagement in Agent Memory: in-store POS orders through the real-time data graph (raised 2026-11-07, D117, D118)
+
+A purchase rung up in a store should reach the next agent turn on any platform within seconds.
+The order enters Data 360 through the Ingestion API, joins the customer's real-time data graph,
+and is served by Agentic Memory's GetContext through the shared `A2ALab_Memory_Case` registration
+(D117), so Claude and OpenAI both see it without a CRM call. Measurements:
+`plan/03-results.md` (2026-11-07 and 2026-11-10 WS32 entries); memory seam: `plan/18-agentic-memory-context.md`.
+
+1. ✅ POS ingestion path: Ingestion API connector `A2ALab_POS`, object `pos_purchase`, stream to the `A2ALab_POS_Order__dlm` DMO, and its relationship to Individual, built headlessly by `scripts/setup_pos_stream.py`.
+2. ✅ POS client `src/interop/pos.py`: JWT-bearer → a360 exchange with no agent binding, every ingest a REST trace hop, 202 in ~0.3 s. It runs as the memory ECA (which carries `cdp_ingest_api`) until its own identity exists.
+3. ✅ Real-time latency measured: on 2026-11-07 new graphs had no real-time layer; re-tested 2026-11-10, the identity-link key serves a new order in ≤ ~6 s while the unified root key stays on the ~30-min batch refresh.
+4. ✅ GetContext is real-time: a test registration over a POS-bearing graph served a new order in GetContext and in the faces' rendered prompt 1.8–2.0 s after ingest (`scripts/pos_context_probe.py`).
+5. ✅ Prompt budget for orders: the graph record's budget rises to 4000 characters and padded decimals are compacted, so ten orders survive `render_context` beside the profile.
+6. ⏳ Tracked graph from `config/agentic_memory_customer_pos_graph.json` builds and replaces `A2ALab_Test_C360Copy` on the live registration. Three creates failed on 2026-11-10 (ERROR ~5 min after create, no day-zero mapping; not name length); copies of an existing graph build.
+7. ✅ POS-bearing graph attached to the live `A2ALab_Memory_Case` with a full-configuration v67 PATCH (`setup_agentic_memory.py configure case-memory`, `A2ALab_Test_C360Copy`); a live-registration probe served a new order in GetContext and the rendered prompt 2.1 s after ingest.
+8. ✅ Console purchase route: operator-only `POST /api/memory/customer/{key}/purchase` rings up one allow-listed catalog item (`config/memory_customers.yaml` `pos_catalog`) for the server-resolved customer; the Contact id never reaches the browser.
+9. ✅ Console purchase row and recall prompt on both customer-memory experiments, with Details copy citing D118.
+10. ✅ Full-rebuild faces and console, then prove live: ring up a purchase, ask Claude and OpenAI what was just bought, and record the purchase-to-answer timing.
+11. ⏳ The POS caller's own identity (D37): a `a2a_lab_pos` ECA and integration user with the measured ingest-only bundle, so `SF_CLIENT_ID_POS` / `SF_POS_RUNAS_USER` replace the memory-ECA fallback.
+12. ⏳ Keep the customer's Contact id out of the rendered graph record: the hosted proof showed OpenAI quoting it in an answer.

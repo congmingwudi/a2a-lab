@@ -91,7 +91,10 @@ SG_ID=$(aws ec2 describe-security-groups --region "$REGION" \
 # drift can only be caught by re-reading the article by hand. So --verify proves
 # the two things a script CAN prove: (1) the pins parse, and (2) every pinned CIDR
 # is actually authorized on the SG (a rule the connector needs but that is missing
-# is the failure that started WS19). It exits non-zero if any pin is not applied.
+# is the failure that started WS19), and (3) NO other CIDR is open on the port — the
+# "only the pinned set" claim. (3) exists because a D23-era lab-host /32 sat on this
+# SG unnoticed for three months while (2) alone kept passing (removed 2026-10-29).
+# It exits non-zero if any pin is missing (2) or any CIDR is unpinned (3).
 if [[ "$MODE" == "--verify" ]]; then
   echo "pinned ($DC_REGION): $CIDRS"
   echo "provenance: $PROVENANCE"
@@ -108,12 +111,22 @@ if [[ "$MODE" == "--verify" ]]; then
   for cidr in $CIDRS; do
     echo "$APPLIED" | grep -qx "$cidr" || MISSING="$MISSING $cidr"
   done
-  if [[ -z "$MISSING" ]]; then
-    echo "OK — all ${DC_REGION} pins are authorized on $SG_NAME:$PORT"
+  UNPINNED=""
+  for cidr in $APPLIED; do
+    echo " $CIDRS " | grep -q " $cidr " || UNPINNED="$UNPINNED $cidr"
+  done
+  if [[ -z "$MISSING" && -z "$UNPINNED" ]]; then
+    echo "OK — exactly the ${DC_REGION} pins are authorized on $SG_NAME:$PORT"
     exit 0
   fi
-  echo "MISSING from $SG_NAME:$PORT —$MISSING" >&2
-  echo "run this script with no args to apply the pinned set." >&2
+  if [[ -n "$MISSING" ]]; then
+    echo "MISSING from $SG_NAME:$PORT —$MISSING" >&2
+    echo "run this script with no args to apply the pinned set." >&2
+  fi
+  if [[ -n "$UNPINNED" ]]; then
+    echo "UNPINNED on $SG_NAME:$PORT —$UNPINNED" >&2
+    echo "not in config/salesforce_ip_ranges.yaml: pin it there or revoke it." >&2
+  fi
   exit 2
 fi
 

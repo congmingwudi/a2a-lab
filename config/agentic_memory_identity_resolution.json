@@ -1,0 +1,40 @@
+{
+  "label": "A2A Lab Memory Customer",
+  "description": "Unifies A2A Lab demo customers by normalized email for cross-agent memory experiments.",
+  "configurationType": "individual",
+  "dataSpaceName": "default",
+  "doesRunAutomatically": true,
+  "isCaseSensitive": false,
+  "rulesetId": "AM01",
+  "secondaryDmo": "ssot__Individual__dlm",
+  "matchRules": [
+    {
+      "label": "Exact Normalized Email",
+      "criteria": [
+        {
+          "entityName": "ssot__ContactPointEmail__dlm",
+          "fieldName": "ssot__EmailAddress__c",
+          "matchMethodType": "exactnormalized",
+          "caseSensitiveMatch": false,
+          "shouldMatchOnBlank": false
+        }
+      ]
+    }
+  ],
+  "reconciliationRules": [
+    {
+      "entityName": "ssot__Individual__dlm",
+      "ruleType": "lastupdated",
+      "shouldIgnoreEmptyValue": true,
+      "sources": [],
+      "fields": []
+    },
+    {
+      "entityName": "ssot__ContactPointEmail__dlm",
+      "ruleType": "lastupdated",
+      "shouldIgnoreEmptyValue": true,
+      "sources": [],
+      "fields": []
+    }
+  ]
+}

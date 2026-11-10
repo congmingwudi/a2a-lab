@@ -45,6 +45,8 @@ ENV_ID_ENV = "CLAUDE_MANAGED_ENV_ID"
 ANSWER_TIMEOUT_S = float(os.environ.get("CLAUDE_ANSWER_TIMEOUT_S", "40"))
 
 AGENTFORCE_TOOL_NAME = "ask_agentforce"
+AGENTFORCE_A2A_TOOL_NAME = "ask_agentforce_a2a"
+AGENTFORCE_A2A_NATIVE_TOOL_NAME = "ask_agentforce_a2a_native"
 
 
 def load_managed_ids() -> tuple[str, str]:
@@ -149,6 +151,41 @@ class ManagedBackend:
                     AgentRequest(message=message, trace_id=trace_id, metadata=meta)
                 )
                 result_text = resp.text
+        elif event.name == AGENTFORCE_A2A_NATIVE_TOOL_NAME:
+            # The third channel (D106/WS29): Agentforce's own inbound A2A
+            # server, host-side like ask_agentforce — the ECA secret never
+            # enters the managed sandbox.
+            from interop import af_channel
+
+            result_text = await af_channel.consult_native(
+                str(tool_input.get("question", "")),
+                caller="claude-managed-agent",
+                platform="claude",
+                inbound_depth=inbound_depth,
+                trace_id=trace_id,
+                user_context=user_context,
+                user_token=user_token,
+            )
+        elif event.name == AGENTFORCE_A2A_TOOL_NAME:
+            # The shim channel (D28), host-side for the same reason.
+            from interop import af_channel
+
+            if inbound_depth >= delegation.max_depth():
+                result_text = delegation.refusal(AGENTFORCE_A2A_TOOL_NAME)
+            else:
+                message, meta = delegation.delegate(
+                    str(tool_input.get("question", "")),
+                    caller="claude-managed-agent",
+                    platform="claude",
+                    inbound_depth=inbound_depth,
+                    trace_id=trace_id,
+                    user_context=user_context,
+                    user_token=user_token,
+                )
+                try:
+                    result_text = await af_channel.ask_via_shim(message, meta, trace_id=trace_id)
+                except Exception as exc:  # noqa: BLE001 - model-visible, not fatal
+                    result_text = f"A2A shim call failed: {type(exc).__name__}: {exc}"
         else:
             result_text = f"Unknown tool: {event.name}"
         await self._client.beta.sessions.events.send(

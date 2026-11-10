@@ -16,7 +16,7 @@ are RENDERED: both directories are gitignored, and this script writes them from
 .env before a deploy.
 
     uv run python scripts/render_eca_metadata.py show             # print, write nothing
-    uv run python scripts/render_eca_metadata.py write            # all six
+    uv run python scripts/render_eca_metadata.py write            # every preset
     uv run python scripts/render_eca_metadata.py write obs shim   # just these
 
 Then deploy as before, e.g.
@@ -41,6 +41,7 @@ META = ROOT / "salesforce/force-app/main/default"
 POLICY_DIR = META / "extlClntAppOauthPolicies"
 APP_DIR = META / "externalClientApps"
 SETTINGS_DIR = META / "extlClntAppOauthSettings"
+GLOBAL_DIR = META / "extlClntAppGlobalOauthSets"
 CONTACT_ENV = "SF_ECA_CONTACT_EMAIL"
 
 
@@ -59,6 +60,15 @@ class Policy:
     # The empty permission set the policy pre-authorizes instead of the System
     # Administrator profile (D86, D90); its integration user is the only holder.
     preauth_permission_set: str | None = None
+    # Render the global OAuth set too. Only for apps NOT yet in the org: once
+    # deployed, the org owns that file (it gains the generated consumerKey), so the
+    # six apps above never render it. A new app needs it for the flow flags.
+    global_oauth: bool = False
+    # OAuth custom scopes, by developer name. Measured 2026-11-03 (D106): the field
+    # is ExtlClntAppOauthSettings.commaSeparatedCustomScopes, and the deploy resolves
+    # each name ("Unable to find the CustomScopes x" otherwise), so the scope's own
+    # metadata must be deployed first.
+    custom_scopes: str | None = None
 
 
 POLICIES = {
@@ -101,6 +111,25 @@ POLICIES = {
             "the `web` scope). Owner-only, WS19/M10."
         ),
         preauth_permission_set="A2ALab_Tab_Embed",
+    ),
+    # D106: the caller app for the Agentforce INBOUND A2A pilot (native A2A server at
+    # api.salesforce.com/einstein/ai-agent/a2a/<bot_id>). The pilot's Service Agent
+    # recipe: client credentials, JWT-based access tokens, scopes api +
+    # offline_access + sfap_api, and the OAuth custom scope a2a_api_pilot (its own
+    # metadata, oauthcustomscopes/, deployed before this app). Its run-as is the target AGENT's own user (integration_users
+    # af_a2a_agent, used by that one agent only), because the pilot runs every A2A
+    # caller as that one identity.
+    "af_a2a": Policy(
+        "a2a_lab_af_a2a",
+        "SF_AF_A2A_RUNAS_USER",
+        "Api, RefreshToken, SFApiPlatform",
+        description=(
+            "A2A lab: caller app for the Agentforce inbound A2A pilot (D106). Client "
+            "credentials, JWT-based access tokens, run as the target agent's user."
+        ),
+        preauth_permission_set="A2ALab_AF_A2A_Inbound",
+        global_oauth=True,
+        custom_scopes="a2a_api_pilot",
     ),
 }
 
@@ -151,13 +180,47 @@ def render_app(p: Policy, contact_email: str) -> str:
 
 
 def render_settings(p: Policy) -> str:
+    custom = (
+        f"    <commaSeparatedCustomScopes>{p.custom_scopes}</commaSeparatedCustomScopes>\n"
+        if p.custom_scopes
+        else ""
+    )
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <ExtlClntAppOauthSettings xmlns="http://soap.sforce.com/2006/04/metadata">
-    <commaSeparatedOauthScopes>{p.scopes}</commaSeparatedOauthScopes>
+{custom}    <commaSeparatedOauthScopes>{p.scopes}</commaSeparatedOauthScopes>
     <externalClientApplication>{p.name}</externalClientApplication>
     <isFirstPartyAppEnabled>false</isFirstPartyAppEnabled>
     <label>{p.name}_oauth</label>
 </ExtlClntAppOauthSettings>
+"""
+
+
+def render_global(p: Policy) -> str:
+    # isNamedUserJwtEnabled is the one that is NOT optional: without it the app
+    # authenticates fine and every agent call 404s (plan/04-runbooks.md §"To add
+    # another"). The pilot calls the same box "Issue JWT-based access tokens".
+    # consumerKey is omitted on purpose; the org generates it on the first deploy.
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<ExtlClntAppGlobalOauthSettings xmlns="http://soap.sforce.com/2006/04/metadata">
+    <callbackUrl>https://login.salesforce.com/services/oauth2/callback</callbackUrl>
+    <externalClientApplication>{p.name}</externalClientApplication>
+    <isClientCredentialsFlowEnabled>true</isClientCredentialsFlowEnabled>
+    <isCodeCredFlowEnabled>false</isCodeCredFlowEnabled>
+    <isCodeCredPostOnly>false</isCodeCredPostOnly>
+    <isConsumerSecretOptional>false</isConsumerSecretOptional>
+    <isDeviceFlowEnabled>false</isDeviceFlowEnabled>
+    <isEnforceRefreshTokenTTL>true</isEnforceRefreshTokenTTL>
+    <isIntrospectAllTokens>false</isIntrospectAllTokens>
+    <isNamedUserJwtEnabled>true</isNamedUserJwtEnabled>
+    <isPkceRequired>true</isPkceRequired>
+    <isRefreshTokenRotationEnabled>false</isRefreshTokenRotationEnabled>
+    <isSecretRequiredForRefreshToken>true</isSecretRequiredForRefreshToken>
+    <isSecretRequiredForTokenExchange>false</isSecretRequiredForTokenExchange>
+    <isTokenExchangeEnabled>false</isTokenExchangeEnabled>
+    <label>{p.name}_glbloauth</label>
+    <shouldRotateConsumerKey>false</shouldRotateConsumerKey>
+    <shouldRotateConsumerSecret>false</shouldRotateConsumerSecret>
+</ExtlClntAppGlobalOauthSettings>
 """
 
 
@@ -176,6 +239,8 @@ def files_for(p: Policy) -> dict[Path, str]:
     }
     if p.description:
         out[app_path_for(p)] = render_app(p, os.environ[CONTACT_ENV])
+    if p.global_oauth:
+        out[GLOBAL_DIR / f"{p.name}_glbloauth.ecaGlblOauth-meta.xml"] = render_global(p)
     return out
 
 

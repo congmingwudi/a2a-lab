@@ -34,6 +34,7 @@ set -a; source .env; set +a
 : "${A2ALAB_TOKEN:?set A2ALAB_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 : "${BRIDGE_TOKEN:?set BRIDGE_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 : "${A2ALAB_FANOUT_MCP_TOKEN:?set A2ALAB_FANOUT_MCP_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
+: "${A2ALAB_MEMORY_DATA_SPACE:?set A2ALAB_MEMORY_DATA_SPACE in .env — Agentic Memory has no implicit data-space target (D112)}"
 source deploy/aws_preflight.sh
 
 REGION="${AWS_REGION:-us-east-1}"
@@ -81,18 +82,40 @@ keys = [
     # identity) and was missed on the first run: both landed in plaintext on
     # the task definition, which is exactly what this secret exists to prevent.
     "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+    # D106: the a2a-native channel's client-credentials pair (a2a_lab_af_a2a).
+    # One OrgJWT reaches every twin's native A2A endpoint.
+    "SF_AF_A2A_CLIENT_ID", "SF_AF_A2A_CLIENT_SECRET",
     "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
     "BRIDGE_TOKEN",
     "A2ALAB_FANOUT_MCP_TOKEN",   # bearer for the remote fan-out server (D41)
-    # WS27/D91: the Claude face's memory seam signs as the memory ECA's run-as
+    # WS27/D91: the Claude and OpenAI faces' memory seam (D91/D104) signs as the memory ECA's run-as
     # user, the same identity the bridge's /memory/turn holds (D86). JWT-bearer,
     # so no secret exists; the signing key rides as PEM text (below).
     "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER",
+    # Verified lab subject -> org-specific Data 360 customer profile id (xid).
+    "A2ALAB_MEMORY_OWNER_MAP",
+    # Selectable demo-customer key -> unified profile id. Keys are public-safe;
+    # ids remain in this runtime secret and never go to the browser.
+    "A2ALAB_MEMORY_CUSTOMER_MAP",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
+for map_key in ("A2ALAB_MEMORY_OWNER_MAP", "A2ALAB_MEMORY_CUSTOMER_MAP"):
+    if map_key in payload:
+        owner_map = json.loads(payload[map_key])
+        if not isinstance(owner_map, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and k and v
+            for k, v in owner_map.items()
+        ):
+            raise SystemExit(f"{map_key} must be a non-empty-string JSON object")
 _mem_key = pathlib.Path(os.environ.get("A2ALAB_JWT_DIR", ".a2alab")) / "memory_jwt_private.pem"
-if _mem_key.exists():  # the same file deploy_bridge.sh reads
+if os.environ.get("A2ALAB_MEMORY_JWT_KEY"):
+    payload["A2ALAB_MEMORY_JWT_KEY"] = os.environ["A2ALAB_MEMORY_JWT_KEY"]
+elif _mem_key.exists():  # the same file deploy_bridge.sh reads
     payload["A2ALAB_MEMORY_JWT_KEY"] = _mem_key.read_text()
+else:
+    raise SystemExit(
+        f"memory signing key is required: set A2ALAB_MEMORY_JWT_KEY or create {_mem_key}"
+    )
 
 # The lab JWT VERIFY key — public half ONLY. A face verifies lab JWTs (WS6 U1:
 # a signed per-user or machine credential accepted wherever the shared
@@ -246,6 +269,7 @@ for path in pathlib.Path("src").rglob("*.py"):
 
 SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+           "SF_AF_A2A_CLIENT_ID", "SF_AF_A2A_CLIENT_SECRET",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN",
            "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER"}
@@ -278,6 +302,7 @@ env = {k: os.environ[k] for k in sorted(referenced)
        if os.environ.get(k) and not is_secret(k) and k not in AMBIENT}
 env["A2ALAB_RUNTIME_SECRET_ARN"] = os.environ["A2ALAB_RUNTIME_SECRET_ARN"]
 env["AWS_REGION"] = os.environ["DEPLOY_REGION"]
+env["A2ALAB_MEMORY_DATA_SPACE"] = os.environ["A2ALAB_MEMORY_DATA_SPACE"]
 # Hosted console: no traces/ directory, no .a2alab. Aurora is the only source.
 env["A2ALAB_FACES_BASE"] = f"https://{os.environ['FACES_HOSTNAME']}"
 env["A2ALAB_TRACE_SINK"] = "postgres"

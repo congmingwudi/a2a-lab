@@ -7,7 +7,6 @@ import hashlib
 import math
 import re
 import statistics
-from pathlib import Path
 
 
 class CaseError(ValueError):
@@ -261,7 +260,7 @@ def experiment(actual, policy, root):
         failures.add('experiment.budget')
     if 'roles' in policy:
         legs = rows(actual.get('legs', []))
-        roles = [l.get('role') for l in legs]
+        roles = [leg.get('role') for leg in legs]
         if len(roles) != len(set(roles)) or set(roles) != set(policy['roles']):
             failures.add('experiment.coverage')
         for leg in legs:

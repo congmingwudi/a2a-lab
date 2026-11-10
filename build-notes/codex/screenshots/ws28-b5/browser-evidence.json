@@ -1,0 +1,23 @@
+{
+  "captured_at": "2026-11-01",
+  "url": "http://127.0.0.1:8200/design/axs",
+  "viewport": "1440x180",
+  "designs": ["default", "skyline", "canvas", "parchment"],
+  "modes": ["light", "dark"],
+  "shared_computed_mark": {
+    "width": "20px",
+    "height": "20px",
+    "transform": "none",
+    "background_image": "linear-gradient(135deg, rgb(9, 222, 203) 0%, rgb(63, 199, 216) 30%, rgb(125, 185, 232) 55%, rgb(168, 162, 236) 78%, rgb(201, 157, 240) 100%)",
+    "agent_parts": 2,
+    "message_parts": 2,
+    "outer_html_sha256": "62a023917ae7ca79b32f8adbb1d02ba62d0390c2cd95113821212eccca7bc506"
+  },
+  "all_eight_design_mode_pairs_match": true,
+  "skyline_light_narrow_390x180": {
+    "width": "20px",
+    "height": "20px",
+    "transform": "none"
+  },
+  "browser_console_errors": []
+}

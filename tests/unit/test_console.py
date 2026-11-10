@@ -1,7 +1,9 @@
 import pytest
+import yaml
 
 import importlib
 import json
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +13,7 @@ from fastapi.testclient import TestClient
 from interop.clients.base import RemoteAgentClient
 from interop.models import AgentRequest, AgentResponse
 from interop.registry import Registry, Target
+from orchestration.agents import LEG_AGENTS
 
 
 def make_app(trace_dir, monkeypatch, registry=None):
@@ -19,6 +22,21 @@ def make_app(trace_dir, monkeypatch, registry=None):
 
     importlib.reload(console_app)
     return console_app.create_console_app(registry)
+
+
+def unscoped_theme_selectors(css: str) -> list[str]:
+    without_comments = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    selectors = re.findall(r"([^{};]+)\{", without_comments)
+    bad_selectors = []
+    for selector_group in selectors:
+        selector_group = selector_group.strip()
+        if not selector_group or selector_group.startswith("@"):
+            continue
+        for selector in selector_group.split(","):
+            selector = selector.strip()
+            if selector and not selector.startswith('html[data-design="'):
+                bad_selectors.append(selector)
+    return bad_selectors
 
 
 class FakeClient(RemoteAgentClient):
@@ -83,10 +101,690 @@ def test_shell_asks_browsers_to_revalidate(tmp_path, monkeypatch):
     # (WS18) that deployed correctly yet stayed invisible behind a stale shell.
     app = make_app(tmp_path / "traces", monkeypatch)
     client = TestClient(app)
-    for path in ("/", "/guide"):
+    for path in ("/", "/guide", "/design/axs"):
         r = client.get(path)
         assert r.status_code == 200
         assert r.headers.get("cache-control") == "no-cache", path
+
+
+def test_optional_themes_are_available_from_every_public_shell(tmp_path, monkeypatch):
+    """Default stays unmarked while the compatibility alias forces Skyline.
+
+    Like /guide, the data-free shell must load before browser JavaScript can
+    attach the persona JWT held in localStorage. Live-data routes stay gated.
+    """
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch)
+    client = TestClient(app)
+
+    themed = client.get("/design/axs")
+    assert themed.status_code == 200
+    assert '<html lang="en" data-design="skyline" data-design-forced="skyline">' in themed.text
+    assert re.search(r'href="/static/themes\.css\?v=\d+"', themed.text)
+
+    for path in ("/", "/guide"):
+        normal = client.get(path)
+        assert normal.status_code == 200
+        assert '<html lang="en">' in normal.text
+        assert 'data-design-forced="skyline"' not in normal.text
+        assert re.search(r'href="/static/themes\.css\?v=\d+"', normal.text)
+
+    assert client.get("/api/traces").status_code == 401
+
+
+def test_optional_themes_are_scoped_accessible_and_keep_semantic_colors():
+    css = Path("src/console/static/themes.css").read_text()
+    for design in ("skyline", "canvas", "parchment"):
+        assert f'html[data-design="{design}"][data-theme="light"]' in css
+        assert f'html[data-design="{design}"][data-theme="dark"]' in css
+    assert "prefers-reduced-motion: reduce" in css
+
+    # Every concrete selector, including selectors nested in @media, must be
+    # rooted in one of the opt-in design markers. At-rules themselves are the
+    # only allowed unscoped block headers.
+    assert unscoped_theme_selectors(css) == []
+
+    semantic_tokens = (
+        "--rest:",
+        "--mcp:",
+        "--a2a:",
+        "--agentforce-api:",
+        "--chip-agentforce:",
+        "--chip-claude:",
+        "--chip-openai:",
+        "--chip-google:",
+        "--chip-aws:",
+        "--chip-foundry:",
+    )
+    assert not [token for token in semantic_tokens if token in css]
+
+
+def test_shared_lab_mark_is_fixed_accessible_and_not_theme_overridden():
+    html = Path("src/console/static/index.html").read_text()
+    css = Path("src/console/static/themes.css").read_text()
+
+    mark = re.search(r'<svg class="brandmark".*?</svg>', html, flags=re.S)
+    assert mark
+    markup = mark.group(0)
+    assert 'width="20"' in markup
+    assert 'height="20"' in markup
+    assert 'viewBox="0 0 20 20"' in markup
+    assert 'aria-hidden="true"' in markup
+    assert 'focusable="false"' in markup
+    assert markup.count('data-part="agent"') == 2
+    assert markup.count('data-part="message"') == 2
+    assert 'stroke="#0b1f33"' in markup
+    assert 'stroke-width="1.5"' in markup
+    assert 'stroke-linecap="round"' in markup
+
+    base_rule = re.search(r"\.brandmark\s*\{(.*?)\}", html, flags=re.S)
+    assert base_rule
+    declarations = base_rule.group(1)
+    for expected in ("display: block", "width: 20px", "height: 20px", "flex: none"):
+        assert expected in declarations
+    assert "#09decb 0%" in declarations
+    assert "#3fc7d8 30%" in declarations
+    assert "#7db9e8 55%" in declarations
+    assert "#a8a2ec 78%" in declarations
+    assert "#c99df0 100%" in declarations
+
+    # The mark is lab identity, not a theme surface. Inspect all selector
+    # headers so overrides nested in media queries and pseudo-elements fail.
+    without_comments = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    selector_groups = re.findall(r"([^{};]+)\{", without_comments)
+    mark_selectors = [
+        selector.strip()
+        for group in selector_groups
+        if not group.strip().startswith("@")
+        for selector in group.split(",")
+        if ".brandmark" in selector
+    ]
+    assert mark_selectors == []
+
+
+def test_landing_title_reuses_the_shared_lab_mark():
+    html = Path("src/console/static/index.html").read_text()
+
+    assert "function landingMarkHtml()" in html
+    assert 'document.querySelector("header .brandmark")' in html
+    assert 'mark.classList.add("landing-brandmark")' in html
+    assert '<div class="landing-title">${landingMarkHtml()}<h1 class="wordmark">' in html
+    assert html.count('<h1 class="wordmark">A2A Interop Lab</h1>') == 1
+
+    wrapper = re.search(r"\.landing-title\s*\{(.*?)\}", html, flags=re.S)
+    assert wrapper
+    for expected in (
+        "display: flex",
+        "align-items: baseline",
+        "gap: 12px",
+        "font-family: var(--font-head)",
+        "font-size: var(--landing-title-size)",
+    ):
+        assert expected in wrapper.group(1)
+
+    landing_mark = re.search(r"\.landing-title \.landing-brandmark\s*\{(.*?)\}", html, flags=re.S)
+    assert landing_mark
+    for expected in (
+        "width: 1cap",
+        "height: 1cap",
+    ):
+        assert expected in landing_mark.group(1)
+
+    assert "font-size: var(--landing-title-size)" in html
+
+
+def test_every_design_sizes_the_landing_mark_and_title_from_one_token():
+    html = Path("src/console/static/index.html").read_text()
+    css = Path("src/console/static/themes.css").read_text()
+
+    assert "--landing-title-size: clamp(30px, 4.4vw, 46px)" in html
+    for design, size in (
+        ("skyline", "clamp(40px, 6vw, 70px)"),
+        ("canvas", "clamp(44px, 7vw, 82px)"),
+        ("parchment", "clamp(45px, 6.7vw, 78px)"),
+    ):
+        rule = re.search(
+            rf'html\[data-design="{design}"\] \.landing-title\s*\{{(.*?)\}}',
+            css,
+            flags=re.S,
+        )
+        assert rule
+        assert f"--landing-title-size: {size}" in rule.group(1)
+
+    # Theme CSS may choose the shared size token, but never redraw or
+    # independently resize the lab mark itself.
+    assert ".brandmark" not in css
+
+
+def test_landing_intro_uses_a_responsive_logo_platform_list():
+    html = Path("src/console/static/index.html").read_text()
+
+    removed_inline_list = (
+        "— Salesforce Agentforce,\n"
+        "          Claude, OpenAI, Google Gemini on Vertex AI Agent Engine"
+    )
+    assert removed_inline_list not in html
+    assert "Agent platforms across the hyperscalers answer the same questions by" in html
+    assert "${landingPlatformListHtml()}" in html
+    assert '<ul class="hero-platforms" aria-label="Agent platforms">' in html
+
+    expected_platforms = (
+        '["salesforce", "Salesforce Agentforce"]',
+        '["anthropic", "Claude"]',
+        '["openai", "OpenAI"]',
+        '["gcloud", "Google Gemini on Vertex AI Agent Engine"]',
+        '["microsoft", "Microsoft Foundry"]',
+        '["aws", "AWS Strands on Bedrock AgentCore"]',
+        '["langgraph", "LangGraph on Heroku"]',
+    )
+    for platform in expected_platforms:
+        assert platform in html
+
+    list_rule = re.search(r"\.hero-platforms\s*\{(.*?)\}", html, flags=re.S)
+    assert list_rule
+    for expected in (
+        "display: grid",
+        "repeat(auto-fit, minmax(230px, 1fr))",
+        "list-style: none",
+    ):
+        assert expected in list_rule.group(1)
+
+
+def test_control_panel_uses_category_icons_without_disclosure_bullets():
+    html = Path("src/console/static/index.html").read_text()
+    css = Path("src/console/static/themes.css").read_text()
+
+    assert "details.acc > summary::before" not in html
+    assert "details.acc[open] > summary::before" not in html
+    assert "details.acc > summary::before" not in css
+    assert ".nav-group .caret" not in html
+
+    scenario_nav = re.search(
+        r"function renderScenarios\(\)\s*\{(.*?)\n\}\n\nfunction renderTargets",
+        html,
+        flags=re.S,
+    )
+    assert scenario_nav
+    assert 'class="caret"' not in scenario_nav.group(1)
+
+
+def test_optional_theme_scope_check_catches_first_rule_inside_media():
+    mutated = "@media (max-width: 1px) { body { color: red; } }"
+    assert unscoped_theme_selectors(mutated) == ["body"]
+
+
+def test_optional_theme_token_contrast_and_distinct_primary_colors():
+    """Root surfaces remain readable and chrome does not impersonate a platform."""
+    css = Path("src/console/static/themes.css").read_text()
+    html = Path("src/console/static/index.html").read_text()
+
+    def rgb(value):
+        value = value.lstrip("#")
+        return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+
+    def contrast(a, b):
+        def luminance(value):
+            channels = []
+            for channel in rgb(value):
+                level = channel / 255
+                channels.append(
+                    level / 12.92 if level <= 0.04045 else ((level + 0.055) / 1.055) ** 2.4
+                )
+            return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+        high, low = sorted((luminance(a), luminance(b)), reverse=True)
+        return (high + 0.05) / (low + 0.05)
+
+    base_dark = re.search(r":root\s*\{(.*?)\}", html, flags=re.S)
+    base_light = re.search(r':root\[data-theme="light"\]\s*\{(.*?)\}', html, flags=re.S)
+    assert base_dark and base_light
+    platform_colors = {}
+    for mode, block in (("dark", base_dark), ("light", base_light)):
+        values = dict(re.findall(r"--([\w-]+):\s*(#[0-9a-fA-F]{6})", block.group(1)))
+        platform_colors[mode] = (values["chip-openai"].lower(), values["chip-claude"].lower())
+
+    for design in ("skyline", "canvas", "parchment"):
+        for mode in ("light", "dark"):
+            pattern = rf'html\[data-design="{design}"\]\[data-theme="{mode}"\]\s*\{{(.*?)\}}'
+            block = re.search(pattern, css, flags=re.S)
+            assert block, (design, mode)
+            tokens = dict(re.findall(r"--([\w-]+):\s*(#[0-9a-fA-F]{6})", block.group(1)))
+            for surface in ("bg", "card", "card2"):
+                assert contrast(tokens["fg"], tokens[surface]) >= 4.5, (design, mode, surface)
+                assert contrast(tokens["muted"], tokens[surface]) >= 4.5, (design, mode, surface)
+            assert tokens["primary"].lower() not in platform_colors[mode]
+            if design in ("canvas", "parchment"):
+                focus_token = {
+                    "canvas": "canvas-focus",
+                    "parchment": "parchment-focus",
+                }[design]
+                assert contrast(tokens["border-hi"], tokens["card"]) >= 3.0, (design, mode)
+                assert contrast(tokens[focus_token], tokens["card"]) >= 3.0, (design, mode)
+
+
+def test_theme_controls_bootstrap_and_experiment_heading_identity():
+    html = Path("src/console/static/index.html").read_text()
+
+    assert '<select id="designTheme"' in html
+    assert '<option value="default">Default</option>' in html
+    assert '<option value="skyline">Skyline</option>' in html
+    assert '<option value="canvas">Canvas</option>' in html
+    assert '<option value="parchment">Parchment</option>' in html
+    assert 'aria-label="Color mode"' in html
+    assert 'aria-label="Theme"' not in html
+
+    # Pre-paint and runtime paths share the same literal allow-list contract.
+    # Garbage storage values therefore leave the default marker absent.
+    assert html.count('["default", "skyline", "canvas", "parchment"]') == 2
+    assert "DESIGNS.includes(savedDesign)" in html
+    assert "DESIGNS.includes(design)" in html
+    assert 'forcedDesign === "skyline"' in html
+    assert 'localStorage.getItem("a2a-design-v1")' in html
+    assert "localStorage.setItem(DESIGN_KEY, normalized)" in html
+    assert 'window.location.assign("/")' in html
+    assert 'normalized !== "skyline"' in html
+
+    assert "LangGraph|Claude|Agentforce" in html
+    assert '"LangGraph": "langgraph"' in html
+    assert "scenarioTitleHtml(exp) || esc(view.name)" in html
+    assert "targetTitleHtml(exp) || esc(view.name)" in html
+    assert 'includes("agentcore") ? `<span class="badge aws"' not in html
+
+
+def test_d99_platform_identity_contract_and_shared_renderers():
+    scenarios = yaml.safe_load(Path("config/scenarios.yaml").read_text())["scenarios"]
+    targets = yaml.safe_load(Path("config/targets.yaml").read_text())["targets"]
+    html = Path("src/console/static/index.html").read_text()
+
+    # Account Brief identity describes the actual run roles: Claude researches,
+    # Salesforce receives the brief. It must not imply an Agentforce call.
+    assert scenarios["account-brief-async"]["title_identity"] == [
+        {"platform": "claude", "role": "researcher"},
+        {"platform": "agentforce", "role": "delivery-org"},
+    ]
+
+    expected_legs = {agent.platform for agent in LEG_AGENTS}
+    assert expected_legs == {"adk", "foundry", "openai"}
+    for name in (
+        "supplier-disruption-cma",
+        "supplier-disruption-adk",
+        "supplier-disruption-agentforce",
+    ):
+        scenario = scenarios[name]
+        assert set(scenario["fanout_platforms"]) == expected_legs
+        agent_platforms = {
+            targets[agent["target"]]["platform"]
+            for agent in scenario["agents"]
+            if not agent["title"].startswith("Orchestrator")
+        }
+        assert agent_platforms == expected_legs
+
+    configured_platforms = {target["platform"] for target in targets.values()}
+    expected_marks = {
+        "claude": "anthropic",
+        "agentforce": "salesforce",
+        "openai": "openai",
+        "adk": "gcloud",
+        "foundry": "microsoft",
+        "strands": "aws",
+        "langgraph": "langgraph",
+        "guide": "aws",
+        "mulesoft": None,
+    }
+    assert configured_platforms == set(expected_marks)
+    mark_block = html.split("const PLATFORM_MARK = {", 1)[1].split("};", 1)[0]
+    for platform, mark in expected_marks.items():
+        value = "null" if mark is None else f'"{mark}"'
+        assert f"{platform}: {value}" in mark_block
+
+    declared = {item["platform"] for item in scenarios["account-brief-async"]["title_identity"]}
+    declared.update(scenarios["supplier-disruption-cma"]["fanout_platforms"])
+    assert declared <= configured_platforms
+
+    assert "function scenarioTitleHtml(s)" in html
+    assert "<h3>${scenarioTitleHtml(s)}</h3>" in html
+    assert '<div class="tile-head"><h3>${scenarioTitleHtml(s)}</h3>' in html
+    assert "function targetTitleHtml(t)" in html
+    assert (
+        '<span class="tname mono" title="platform: ${esc(t.platform)}">${targetTitleHtml(t)}'
+        in html
+    )
+    assert 'role="img" aria-label="${esc(label)}"' in html
+    assert 'class="title-icons${lead ? " lead" : ""}"' in html
+    assert ".tabbar h2 > .title-icons.lead" in html
+    assert ".title-icons:first-child" not in html
+
+    assert "const seen = new Set();" in html
+    assert 'if (!mark || seen.has(mark)) return "";' in html
+    assert "PLATFORM_MARK[a.platform]" in html
+    assert "PLATFORM_MARK[t.platform]" in html
+    assert "WARM_LOGO" not in html
+
+    label_block = html.split("const PLATFORM_LABEL = {", 1)[1].split("};", 1)[0]
+    role_block = html.split("const TITLE_ROLE_LABEL = {", 1)[1].split("};", 1)[0]
+    assert '\\"' not in label_block + role_block
+
+    assert scenarios["strands-to-agentforce"]["title"] == "AWS Strands → Agentforce"
+    assert scenarios["agentforce-to-strands"]["title"] == "Agentforce → AWS Strands (AWS)"
+
+
+def test_d102_supplier_memory_controls_are_scoped_and_accessible():
+    scenarios = yaml.safe_load(Path("config/scenarios.yaml").read_text())["scenarios"]
+    html = Path("src/console/static/index.html").read_text()
+    assert scenarios["supplier-disruption-cma"]["fanout_memory_toggle"] is True
+    assert not scenarios["supplier-disruption-adk"].get("fanout_memory_toggle")
+    assert not scenarios["supplier-disruption-agentforce"].get("fanout_memory_toggle")
+    assert 'name="fanoutMemoryMode"' in html
+    assert 'aria-label="Case-memory readers"' in html
+    assert 'aria-label="Case-memory key"' in html
+    assert 'maxlength="64"' in html
+    assert "const CASE_MEMORY_HELP = {" in html
+    for setting in ("section", "off", "seed", "recall", "readers", "case"):
+        assert f"qhelp(CASE_MEMORY_HELP.{setting})" in html
+    assert "Use the same exact key to revisit a case" in html
+    assert "coordinator only during final synthesis" in html
+    assert "exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key)" in html
+    assert "This run does not claim recall" in html
+    assert "fanoutMemoryDetailHtml(s)" in html
+    assert "${agenticMemoryBillingDetailHtml()}" in html
+    assert 'm.state === "unavailable"' in html
+    assert "memory: seeded ${written}/${nominated}" in html
+    assert '"memory: empty"' in html
+    deploy = Path("deploy/console/deploy_console.sh").read_text()
+    assert '"SF_CLIENT_ID_MEMORY"' in deploy
+    assert 'payload["A2ALAB_MEMORY_JWT_KEY"]' in deploy
+    assert "memory_jwt_private.pem" in deploy
+    assert "memory signing key is required" in deploy
+
+
+def test_customer_memory_owner_map_is_secret_backed_and_validated_at_deploy():
+    deploy = Path("deploy/faces/deploy_faces.sh").read_text()
+    assert '"A2ALAB_MEMORY_OWNER_MAP"' in deploy
+    assert '"A2ALAB_MEMORY_CUSTOMER_MAP"' in deploy
+    assert "json.loads(payload[map_key])" in deploy
+    assert "memory signing key is required" in deploy
+    assert "${A2ALAB_MEMORY_DATA_SPACE:?" in deploy
+    assert 'env["A2ALAB_MEMORY_DATA_SPACE"]' in deploy
+    example = Path(".env.example").read_text()
+    assert "#A2ALAB_MEMORY_OWNER_MAP='{" in example
+    assert "#A2ALAB_MEMORY_CUSTOMER_MAP='{" in example
+
+    console_deploy = Path("deploy/console/deploy_console.sh").read_text()
+    assert '"A2ALAB_MEMORY_CUSTOMER_MAP"' in console_deploy
+    assert 'json.loads(payload["A2ALAB_MEMORY_CUSTOMER_MAP"])' in console_deploy
+    assert "${A2ALAB_MEMORY_DATA_SPACE:?" in console_deploy
+    assert 'env["A2ALAB_MEMORY_DATA_SPACE"]' in console_deploy
+
+
+def test_customer_memory_management_is_persona_scoped_and_operator_only(tmp_path, monkeypatch):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    class FakeManagementMemory:
+        def __init__(self):
+            self.items = {
+                "profile-maya": {
+                    "sys_PROFILE_FACT": [MemoryEntry("fact-1", "Keeps bees.")],
+                    "sys_PROFILE_PREFERENCES": [],
+                },
+                "profile-jordan": {
+                    "sys_PROFILE_FACT": [MemoryEntry("fact-j", "Keeps koi.")],
+                    "sys_PROFILE_PREFERENCES": [],
+                },
+            }
+            self.fact_delete_attempts = 0
+
+        async def list_memories(self, trace_id, **kw):
+            entries = tuple(self.items[kw["owner_id"]][kw["category"]])
+            return MemoryListing(entries, len(entries))
+
+        async def create_memories(self, trace_id, **kw):
+            entry = MemoryEntry("generation-new", kw["contents"][0])
+            self.items[kw["owner_id"]][kw["category"]].append(entry)
+            return MemoryListing((entry,), 1)
+
+        async def delete_memories(self, trace_id, **kw):
+            if kw["category"] == "sys_PROFILE_FACT":
+                self.fact_delete_attempts += 1
+                if self.fact_delete_attempts == 1:
+                    from interop.memory import MemoryCallError
+
+                    raise MemoryCallError("already changing", status=404)
+            ids = set(kw["memory_ids"])
+            self.items[kw["owner_id"]][kw["category"]] = [
+                entry
+                for entry in self.items[kw["owner_id"]][kw["category"]]
+                if entry.memory_id not in ids
+            ]
+            return tuple(ids)
+
+        async def aclose(self):
+            pass
+
+    fake_memory = FakeManagementMemory()
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake_memory)
+    monkeypatch.setenv(
+        "A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya","jordan":"profile-jordan"}'
+    )
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    operator = _operator_headers(monkeypatch, tmp_path)
+    response = client.get("/api/memory/customer/maya", headers=operator)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["customer"] == "maya" and data["complete"] is True
+    assert data["profile_memory_suppressed"] is False
+    assert data["memories"] == [
+        {"category": "sys_PROFILE_FACT", "memory_id": "fact-1", "content": "Keeps bees."}
+    ]
+    deleted = client.post(
+        "/api/memory/customer/maya",
+        headers=operator,
+        json={"action": "delete", "memories": data["memories"]},
+    )
+    assert deleted.status_code == 200 and deleted.json()["ok"] is True
+    assert fake_memory.fact_delete_attempts == 2
+    fresh = client.post("/api/memory/customer/maya", headers=operator, json={"action": "fresh"})
+    assert fresh.status_code == 200 and fresh.json()["ok"] is True
+    assert fresh.json()["generation"].startswith("v1:")
+    assert fresh.json()["profile_memory_suppressed"] is True
+    jordan = client.get("/api/memory/customer/jordan", headers=operator)
+    assert jordan.status_code == 200 and jordan.json()["memories"] == [
+        {"category": "sys_PROFILE_FACT", "memory_id": "fact-j", "content": "Keeps koi."}
+    ]
+    rejected = client.post(
+        "/api/memory/customer/maya",
+        headers=operator,
+        json={
+            "action": "delete",
+            "memories": [{"category": "sys_PROFILE_FACT", "memory_id": "not-governed"}],
+        },
+    )
+    assert rejected.status_code == 400
+    assert (
+        client.get(
+            "/api/memory/customer/maya", headers=_viewer_headers(monkeypatch, tmp_path)
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get("/api/memory/customer/maya", headers={"x-lab-token": "sekrit"}).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            "/api/memory/customer/maya", headers=_machine_headers(monkeypatch, tmp_path)
+        ).status_code
+        == 403
+    )
+
+
+def test_customer_memory_reset_reports_partial_delete_and_selected_generation(
+    tmp_path, monkeypatch
+):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryCallError, MemoryEntry, MemoryListing
+
+    class FailingMemory:
+        def __init__(self, *, retain_marker=False):
+            self.fact = MemoryEntry("fact-1", "Keeps bees.")
+            self.marker = None
+            self.retain_marker = retain_marker
+
+        async def list_memories(self, trace_id, **kw):
+            if kw["category"] == "sys_PROFILE_FACT":
+                entries = ([self.fact] if self.fact and self.fact.memory_id else []) + (
+                    [MemoryEntry("marker-new", self.marker)] if self.marker else []
+                )
+                return MemoryListing(tuple(entries), len(entries))
+            return MemoryListing((), 0)
+
+        async def create_memories(self, trace_id, **kw):
+            if self.retain_marker:
+                self.marker = kw["contents"][0]
+            return MemoryListing((MemoryEntry("marker-new", kw["contents"][0]),), 1)
+
+        async def delete_memories(self, trace_id, **kw):
+            if kw["category"] == "sys_PROFILE_FACT":
+                raise MemoryCallError("delete refused", status=500, body={"error": "no"})
+            return tuple(kw["memory_ids"])
+
+        async def aclose(self):
+            pass
+
+    fake = FailingMemory(retain_marker=True)
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake)
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    response = client.post(
+        "/api/memory/customer/maya",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+    assert response.status_code == 200 and response.headers["content-type"].startswith(
+        "application/json"
+    )
+    data = response.json()
+    assert data["ok"] is False and data["trace_id"] and data["errors"] == ["delete refused"]
+    assert data["memories"] == [
+        {"category": "sys_PROFILE_FACT", "memory_id": "fact-1", "content": "Keeps bees."}
+    ]
+    assert any(step["ok"] is False for step in data["steps"])
+
+    mismatch = FailingMemory(retain_marker=False)
+    mismatch.fact = None
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: mismatch)
+    response = client.post(
+        "/api/memory/customer/maya",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+    assert response.status_code == 200 and response.json()["ok"] is False
+    assert response.json()["generation"] is None
+
+
+def test_customer_memory_reset_succeeds_when_profile_rows_are_rematerialized(tmp_path, monkeypatch):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    class RematerializingMemory:
+        def __init__(self):
+            self.marker = None
+
+        async def list_memories(self, trace_id, **kw):
+            entries = []
+            if kw["category"] == "sys_PROFILE_FACT":
+                entries.append(MemoryEntry("fact-old", "Retained history rebuilt this fact."))
+                if self.marker:
+                    entries.append(MemoryEntry("marker-new", self.marker))
+            return MemoryListing(tuple(entries), len(entries))
+
+        async def create_memories(self, trace_id, **kw):
+            self.marker = kw["contents"][0]
+            return MemoryListing((MemoryEntry("marker-new", self.marker),), 1)
+
+        async def delete_memories(self, trace_id, **kw):
+            # The governed delete succeeds, then retained conversation history
+            # immediately re-materializes the same profile fact.
+            return tuple(kw["memory_ids"])
+
+        async def aclose(self):
+            pass
+
+    fake = RematerializingMemory()
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake)
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    response = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry())).post(
+        "/api/memory/customer/maya",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+
+    data = response.json()
+    assert response.status_code == 200 and data["ok"] is True
+    assert data["errors"] == [] and data["profile_memory_suppressed"] is True
+    assert data["memories"] == [
+        {
+            "category": "sys_PROFILE_FACT",
+            "memory_id": "fact-old",
+            "content": "Retained history rebuilt this fact.",
+        }
+    ]
+
+
+def test_customer_memory_reset_refuses_incomplete_listing(tmp_path, monkeypatch):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    class IncompleteMemory:
+        async def list_memories(self, trace_id, **kw):
+            if kw["category"] == "sys_PROFILE_FACT":
+                return MemoryListing((MemoryEntry("fact-1", "Known"),), 2)
+            return MemoryListing((), 0)
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: IncompleteMemory())
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    response = TestClient(app).post(
+        "/api/memory/customer/maya",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["trace_id"]
+
+
+def test_customer_memory_panel_has_selection_reset_and_retention_copy():
+    html = Path("src/console/static/index.html").read_text()
+    assert "Manage memories" in html and "Delete selected" in html
+    assert "Start fresh for" in html
+    assert "Deletion is permanent" in html
+    assert "conversation history is not erased" in html
+    assert "Automatic extraction is asynchronous" in html
+    assert "Fresh-generation isolation is active" in html
+    assert "profile-wide rows" in html
+    assert "profile_memory_suppressed" in html
+    assert "data space: ${esc(dataSpace)}" in html
+    assert "A2ALAB_MEMORY_DATA_SPACE" in html
+    assert "Only conversation context produced inside the new generation" in html
+    assert "20 entries capped into an agent prompt" in html
+    assert "memory: normalized retry" in html
+    assert "stale_memory_generation" in html
+    assert "Fork to a new chat" in html
+    assert "body.memory_generation = chat.memory_generation" in html
+    assert "userTurn.toggles.memory_generation = chat.memory_generation" in html
+    assert "delete ${memories.length} selected memories for" in html
+    assert "delete ${count} curated memories for" in html
+    assert 'memory: "off"' in html
+    assert "Regression sweeps are always the memory-off control" in html
 
 
 def test_targets_listed(tmp_path, monkeypatch):
@@ -129,6 +827,41 @@ def test_run_experiment(tmp_path, monkeypatch):
     assert req.session_id == "ui-claude-rest"
 
 
+def test_customer_memory_run_forwards_the_chat_generation_precondition(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    import console.app as console_app
+
+    monkeypatch.setattr(
+        console_app,
+        "load_scenarios",
+        lambda: {
+            "customer-test": {
+                "status": "live",
+                "target": "claude-rest",
+                "memory_toggle": True,
+                "memory_customer_selector": True,
+                "default_memory_customer": "maya",
+            }
+        },
+    )
+    monkeypatch.setattr(console_app, "load_memory_customers", lambda: {"maya": {"name": "Maya"}})
+    response = TestClient(app).post(
+        "/api/run",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={
+            "scenario": "customer-test",
+            "message": "continue",
+            "memory": True,
+            "memory_customer": "maya",
+            "memory_generation": "v1:old-chat",
+        },
+    )
+    assert response.status_code == 200 and response.json()["ok"] is True
+    assert registry.fake_client.requests[-1].metadata["memory_generation"] == "v1:old-chat"
+
+
 def test_run_defaults_and_errors(tmp_path, monkeypatch):
     registry = FakeRegistry()
     app = make_app(tmp_path / "traces", monkeypatch, registry)
@@ -145,6 +878,36 @@ def test_run_defaults_and_errors(tmp_path, monkeypatch):
     assert client.post("/api/run", json={"target": "nope"}).status_code == 404
     # missing target -> 400
     assert client.post("/api/run", json={}).status_code == 400
+
+
+def test_run_keeps_a_typed_refusal_across_the_hosted_hop(tmp_path, monkeypatch):
+    """ws27-b2 R2-1: hosted, a stale chat reaches the console as the REST
+    client's RemoteAgentError, not as StaleMemoryGeneration. The wire code must
+    still reach the browser, or "Fork to a new chat" never appears."""
+    from interop.clients.base import RemoteAgentError
+
+    registry = FakeRegistry()
+
+    async def refuse(req):
+        raise RemoteAgentError(
+            "HTTP 409 from https://face — server said: ...",
+            status=409,
+            error_code="stale_memory_generation",
+        )
+
+    monkeypatch.setattr(registry.fake_client, "ask", refuse)
+    client = TestClient(make_app(tmp_path / "traces", monkeypatch, registry))
+    data = client.post("/api/run", json={"target": "claude-rest", "message": "hi"}).json()
+    assert data["ok"] is False
+    assert data["error_code"] == "stale_memory_generation"
+
+    # An untyped failure stays untyped.
+    async def boom(req):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(registry.fake_client, "ask", boom)
+    data = client.post("/api/run", json={"target": "claude-rest", "message": "hi"}).json()
+    assert data["ok"] is False and "error_code" not in data
 
 
 def test_scenarios_listed(tmp_path, monkeypatch):
@@ -186,15 +949,173 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         "langgraph-agentforce",
         "cross-cloud",
         "fan-out",
+        "agent-memory",
     ]
     # Every PAIR group reads first — claude/openai/adk/foundry, then
     # strands-agentforce (WS5) and langgraph-agentforce (WS4, Heroku) — then
-    # cross-cloud (Cross-hyperscalers) and fan-out, the first 1:many group, so
-    # the nav stays "all the pairs, then the fan-out". No upcoming placeholders.
-    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 8)
+    # cross-cloud (Cross-hyperscalers), fan-out as the first 1:many group, then
+    # Agent Memory as a separate continuity category. No upcoming placeholders.
+    assert [bool(g.get("upcoming")) for g in data["groups"]] == ([False] * 9)
     group_ids = {g["id"] for g in data["groups"]}
     for s in data["scenarios"]:
         assert s["group"] in group_ids, s["name"]
+
+
+def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    scenarios = {s["name"]: s for s in TestClient(app).get("/api/scenarios").json()["scenarios"]}
+    claude = scenarios["customer-memory-claude"]
+    openai = scenarios["customer-memory-openai"]
+    assert claude["group"] == openai["group"] == "agent-memory"
+    assert claude["target"] == "claude-rest" and openai["target"] == "openai-rest"
+    assert claude["memory_toggle"] is openai["memory_toggle"] is True
+    assert claude["default_memory"] == openai["default_memory"] == "on"
+    assert claude["memory_customer_selector"] is openai["memory_customer_selector"] is True
+    assert claude["default_memory_customer"] == openai["default_memory_customer"] == "maya"
+    assert claude["seed_prompts"] and openai["seed_prompts"]
+    assert "do not call Agentforce" in claude["question"]
+    assert "create a CRM Case" in openai["question"]
+    html = Path("src/console/static/index.html").read_text()
+    assert "seedPromptsHtml(exp)" in html and "useSeedPrompt" in html
+    assert 'aria-label="Customer persona"' in html
+    assert "Data 360 memory supplied to this agent" in html
+    assert "function memoryModeFor(key, exp)" in html
+    assert 'exp && exp.default_memory === "on" ? "on" : "off"' in html
+    assert "memoryRowHtml(key, exp)" in html
+    assert "(overrides && overrides.memory) || memoryModeFor(key, spec)" in html
+    assert "memory-evidence-lines" in html
+    assert "memory-evidence-line" in html
+    assert '.split("\\n")' in html
+    assert "memory: stored" in html and "memory: recalled" in html
+    for scenario in (claude, openai):
+        assert "registration × server-resolved customer owner × category" in scenario["description"]
+        assert "effective Maya/Jordan isolation boundary" in scenario["description"]
+        assert "Cross-registration semantics remain open" in scenario["description"]
+        assert "A2ALab_Memory_Case" in scenario["description"]
+    assert "Shared customer memory, platform provenance" in html
+    assert "registration × server-resolved customer owner × category" in html
+    assert "provenance, not storage partitions" in html
+    assert "function memoryHopScope(h, personaLabel)" in html
+    assert "function memoryScopeMapHtml(hops, personaLabel, participants)" in html
+    assert "memory-hop-path" in html
+    assert "face-owned mapping · effective demo isolation boundary" in html
+    assert '["Claude", "OpenAI"]' in html
+    assert "Shared case memory" in html
+    assert "real-time</i> data graphs" in html
+    assert "function agenticMemoryBillingDetailHtml()" in html
+    assert "free during Limited GA" in html
+    assert "final pricing still unannounced" in html
+    assert "Real-time conversation ingestion" in html
+    assert "retrieval, and <code>GetContext</code> do not incur a consumption charge" in html
+    assert "extracting profile facts, preferences, and session summaries" in html
+    assert "will consume Flex Credits when" in html
+    assert "not proof that the memory path did not run" in html
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv(
+        "CLAUDE_AGENT_CONSOLE_URL",
+        "https://platform.claude.com/workspaces/a2alab/agents/customer-memory",
+    )
+    signed_in = (
+        TestClient(make_app(tmp_path / "signed-traces", monkeypatch, FakeRegistry()))
+        .get("/api/scenarios", headers={"X-Lab-Token": "sekrit"})
+        .json()
+    )
+    signed_names = {s["name"]: s for s in signed_in["scenarios"]}
+    for name in ("customer-memory-claude", "customer-memory-openai"):
+        memory_components = [c for c in signed_names[name]["components"] if c["kind"] == "data-360"]
+        assert len(memory_components) == 1
+        assert memory_components[0]["url"] == (
+            "https://example.lightning.force.com/lightning/app/c__A2A_Lab/n/standard-Agents"
+        )
+
+    claude_components = [
+        c for c in signed_names["customer-memory-claude"]["components"] if c["kind"] == "claude"
+    ]
+    assert len(claude_components) == 1
+    assert claude_components[0]["url"] == (
+        "https://platform.claude.com/workspaces/a2alab/agents/customer-memory"
+    )
+
+    app_metadata = Path(
+        "salesforce/force-app/main/default/applications/A2A_Lab.app-meta.xml"
+    ).read_text()
+    assert "<navType>Standard</navType>" in app_metadata
+    assert "<tabs>A2A_Lab_Traffic</tabs>" in app_metadata
+    assert "<tabs>standard-Agents</tabs>" in app_metadata
+
+    # The Details explanation is also in a Lab Guide-readable source, not only
+    # frontend HTML: config/scenarios.yaml is an on-demand guide document.
+    from platforms.guide import corpus
+
+    assert "config/scenarios.yaml" in corpus.TOOL_DOCS
+    guide_source = corpus.read_doc("config/scenarios.yaml")
+    assert "registration × server-resolved customer owner × category" in guide_source
+    assert "A2ALab_Memory_Case" in guide_source
+
+
+def test_agent_memory_presentation_mode_is_eight_scene_evidence_only_handoff():
+    html = Path("src/console/static/index.html").read_text()
+    start = html.index("const MEMORY_PRESENTATION_SCENES = [")
+    end = html.index("function ensureMemoryPresentationCustomer()", start)
+    scenes = html[start:end]
+
+    assert scenes.count("\n    title:") == 8
+    assert 'g.id === "agent-memory"' in html
+    for launcher_id in (
+        "memory-presentation-section",
+        "memory-presentation-${esc(s.name)}",
+        "memory-presentation-tab-${esc(view.name)}",
+    ):
+        assert f'id="{launcher_id}"' in html
+    assert '"customer-memory-claude", "customer-memory-openai"' in html
+    assert html.count('view = { type: "memory-presentation"') == 1
+    assert 'aria-current="step"' in html
+    assert 'aria-live="polite"' in html
+    assert "prefers-reduced-motion: reduce" in html
+    assert "memory-present-layout" in html and "memory-scene-rail" in html
+    assert "main.presentation-mode #side" in html
+    assert "const key = `memory-presentation:${scene}`" in html
+    assert "if (!force && mainKey === key) return" in html
+    assert "ev.stopImmediatePropagation(); exitMemoryPresentation()" in html
+    assert "input, select, textarea, [contenteditable='true']" in html
+    assert 'document.querySelector(".dpopover, .dgmask")' in html
+
+    launch_start = html.index("window.launchMemoryExperiment = name =>")
+    launch_end = html.index('document.addEventListener("keydown"', launch_start)
+    launch = html[launch_start:launch_end]
+    assert 'memoryModes[key] = "on"' in launch
+    assert "drafts[key] = expDefaultPrompt(spec)" in launch
+    assert 'openExperiment("scenario", name)' in launch
+    assert "setMemoryCustomer" not in launch
+    assert "sendChat" not in launch
+
+    assert "saved facts/preferences reads are intentionally skipped" in scenes
+    assert "Platform-made graph controls returned their record" in scenes
+    assert "real-time graph returned Customer360 when the owner was a Contact id" in scenes
+    assert "faces currently send the memory pipeline's own Individual" in scenes
+    assert "The live registration has no attached graph" in scenes
+    assert "fixed number of seconds" in scenes
+
+    presentation_end = html.index("function obsMsg(text, isErr)", start)
+    presentation = html[start:presentation_end]
+    assert not re.search(r"\b(?:003|0PK)[A-Za-z0-9]{12,15}\b", presentation)
+    assert "SF_ORG" not in presentation and "AWS_ACCOUNT" not in presentation
+    assert "not loaded · inspect observed hops only" in presentation
+    assert "announceMemoryPresentationScene()" in presentation
+    assert 'role="region" aria-labelledby="memory-present-title"' in presentation
+    assert "view = null; navStack = []" in html
+
+
+def test_config_exposes_safe_customer_personas_without_profile_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_MEMORY_DATA_SPACE", "customer-memory-space")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    config = TestClient(app).get("/api/config").json()
+    assert config["memory_data_space"] == "customer-memory-space"
+    customers = config["memory_customers"]
+    assert customers["maya"]["name"] == "Maya Chen"
+    assert customers["jordan"]["name"] == "Jordan Alvarez"
+    assert all("id" not in field.lower() for customer in customers.values() for field in customer)
 
 
 def test_scenarios_include_adk_pair(tmp_path, monkeypatch):
@@ -228,7 +1149,7 @@ def test_every_component_has_a_console_url(tmp_path, monkeypatch):
         (s["name"], c["title"])
         for s in data["scenarios"]
         for c in s.get("components") or []
-        if not c.get("url")
+        if not c.get("url") and not c.get("card_target")
     ]
     assert missing == [], f"components with no console link: {missing}"
 
@@ -294,6 +1215,7 @@ def test_config_reports_delegation(tmp_path, monkeypatch):
     # D28: the channel-routing sibling exhibit
     assert "A2A-LAB ROUTING" in data["af_channel"]["routing_block"]
     assert data["af_channel"]["tools"]["a2a-shim"] == "ask_agentforce_a2a"
+    assert "a2a-native" in data["af_channel"]["routing_blocks"]
 
 
 def test_run_af_channel_routing_block(tmp_path, monkeypatch):
@@ -328,6 +1250,14 @@ def test_run_af_channel_routing_block(tmp_path, monkeypatch):
     ).json()
     assert data.get("af_channel") is None
     assert "[A2A-LAB ROUTING]" not in registry.fake_client.requests[2].message
+    # D106: the native channel injects its own block, naming its own tool
+    data = client.post(
+        "/api/run",
+        json={"scenario": "claude-to-agentforce", "message": "hi", "af_channel": "a2a-native"},
+    ).json()
+    assert data["af_channel"] == "a2a-native"
+    msg = registry.fake_client.requests[3].message
+    assert "agentforce-channel: a2a-native" in msg and "ask_agentforce_a2a_native" in msg
 
 
 def test_run_memory_toggle_is_per_run(tmp_path, monkeypatch):
@@ -350,6 +1280,33 @@ def test_run_memory_toggle_is_per_run(tmp_path, monkeypatch):
     ).json()
     assert not other.get("memory")
     assert all(r.metadata.get("memory") is not True for r in registry.fake_client.requests[2:])
+
+
+def test_customer_memory_run_selects_an_allowlisted_persona(tmp_path, monkeypatch):
+    registry = FakeRegistry()
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    client = TestClient(app)
+    response = client.post(
+        "/api/run",
+        json={
+            "scenario": "customer-memory-claude",
+            "message": "remember this",
+            "memory": True,
+            "memory_customer": "jordan",
+        },
+    )
+    assert response.status_code == 200
+    assert registry.fake_client.requests[-1].metadata["memory_customer"] == "jordan"
+    rejected = client.post(
+        "/api/run",
+        json={
+            "scenario": "customer-memory-claude",
+            "message": "remember this",
+            "memory": True,
+            "memory_customer": "unknown",
+        },
+    )
+    assert rejected.status_code == 400
 
 
 def test_run_scenario_requires_mode_gate(tmp_path, monkeypatch):
@@ -573,6 +1530,36 @@ def test_decisions_missing_file_empty(tmp_path, monkeypatch):
     assert console_app.load_decisions(tmp_path / "nope.md") == {}
 
 
+def test_workstreams_parsed_and_served_for_reference_chips(tmp_path, monkeypatch):
+    """Details WS refs open the exact plan section, not the whole workstream file."""
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    workstreams = TestClient(app).get("/api/workstreams").json()["workstreams"]
+
+    assert "WS11" in workstreams and "WS27" in workstreams
+    assert workstreams["WS27"]["id"] == "WS27"
+    assert "Data 360 Agentic Memory" in workstreams["WS27"]["title"]
+    assert "D102" in workstreams["WS27"]["markdown"]
+    assert "## WS28" not in workstreams["WS27"]["markdown"]
+
+
+def test_workstreams_missing_file_empty(tmp_path):
+    import console.app as console_app
+
+    assert console_app.load_workstreams(tmp_path / "nope.md") == {}
+
+
+def test_details_reference_chips_cover_workstreams_and_three_digit_decisions():
+    html = Path("src/console/static/index.html").read_text()
+
+    assert "let workstreamLog = {};" in html
+    assert 'fetch(apiUrl("/api/workstreams"))' in html
+    assert "const SOURCE_REF_RE = /\\b(?:D\\d+|WS\\d+)\\b/;" in html
+    assert "decisionLog[part] || workstreamLog[part]" in html
+    # The reported Details example exercises both paths: WS11/WS27 and D102.
+    assert "(WS27, D102)" in html
+    assert "how each leg is called (WS11)" in html
+
+
 def test_run_af_route_direct_block(tmp_path, monkeypatch):
     """The reverse-direction sibling of D28's channel radio: on an
     af_route_toggle scenario, af_route=direct appends the outbound-route
@@ -645,6 +1632,110 @@ def _viewer_headers(monkeypatch, tmp_path):
     return {"authorization": f"Bearer {token}"}
 
 
+def test_supplier_memory_owner_comes_from_verified_user_before_fanout(tmp_path, monkeypatch):
+    """D102's CMA branch returns early, so identity must be resolved before it."""
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    captured = {}
+
+    from orchestration.memory import MemoryEvidence
+    import orchestration.cma as cma
+
+    class FakeOrchestrator:
+        def __init__(self, **kw):
+            captured.update(kw)
+
+        async def run(self, message, trace_id):
+            memory = MemoryEvidence(mode=captured["memory_run"].mode, reader="coordinator")
+            fan = SimpleNamespace(
+                ok_count=3,
+                results=[1, 2, 3],
+                dispatch_summary="",
+                gate=None,
+                memory=memory,
+            )
+            return {
+                "brief": "brief",
+                "trace_id": trace_id,
+                "wall_ms": 1,
+                "fanout": fan,
+                "dispatch_mode": "sync",
+            }
+
+    monkeypatch.setattr(cma, "CmaOrchestrator", FakeOrchestrator)
+    body = {
+        "scenario": "supplier-disruption-cma",
+        "message": "strike",
+        "variant": "tool",
+        "memory_mode": "seed",
+        "memory_reader": "coordinator",
+        "memory_case": "rotterdam-1",
+        "owner_id": "attacker-chosen",
+    }
+    response = TestClient(app).post(
+        "/api/run", json=body, headers=_operator_headers(monkeypatch, tmp_path)
+    )
+    assert response.status_code == 200, response.text
+    run = captured["memory_run"]
+    assert run.owner_id == "a2alab-ryan"
+    assert run.case_key == "rotterdam-1"
+    assert response.json()["memory"]["mode"] == "seed"
+
+
+def test_supplier_memory_rejects_untrusted_shape_before_agent_work(tmp_path, monkeypatch):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    headers = _operator_headers(monkeypatch, tmp_path)
+    client = TestClient(app)
+    base = {
+        "scenario": "supplier-disruption-cma",
+        "message": "strike",
+        "variant": "tool",
+        "memory_mode": "seed",
+        "memory_case": "bad/slash",
+    }
+    assert client.post("/api/run", json=base, headers=headers).status_code == 400
+    assert (
+        client.post(
+            "/api/run", json={**base, "memory_case": "case", "variant": "mcp"}, headers=headers
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            "/api/run",
+            json={**base, "memory_case": "case", "memory_reader": "everyone"},
+            headers=headers,
+        ).status_code
+        == 400
+    )
+
+
+def test_supplier_memory_rejects_unsigned_and_machine_callers_before_agent_work(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv("A2ALAB_MODE", "hosted")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    body = {
+        "scenario": "supplier-disruption-cma",
+        "message": "strike",
+        "variant": "tool",
+        "memory_mode": "seed",
+        "memory_case": "case",
+    }
+    client = TestClient(app)
+    assert client.post("/api/run", json=body).status_code in (401, 403)
+    assert (
+        client.post(
+            "/api/run", json=body, headers=_machine_headers(monkeypatch, tmp_path)
+        ).status_code
+        == 403
+    )
+
+
 def test_viewer_403_on_operator_surfaces(tmp_path, monkeypatch):
     monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
     app = make_app(tmp_path, monkeypatch)
@@ -674,6 +1765,7 @@ def test_viewer_allowed_surfaces(tmp_path, monkeypatch):
         "/api/obs/summary",
         "/api/obs/sessions",
         "/api/decisions",
+        "/api/workstreams",
         "/api/scenarios",
         "/api/config",
         "/api/traces",  # dummy demo data only — the wire record IS the exhibit
@@ -988,6 +2080,48 @@ def test_tableau_embed_absent_when_eca_unwired(tmp_path, monkeypatch):
     assert client.get("/api/tableau/frontdoor", headers=owner).status_code == 503
 
 
+def test_digital_wallet_tableau_dashboard_reuses_owner_gated_embed(tmp_path, monkeypatch):
+    """D111: the consumption dashboard is a second asset on the existing
+    Tableau Next session, not a second Salesforce credential path."""
+    from interop import identity
+
+    monkeypatch.setenv("SF_MY_DOMAIN", "example.my.salesforce.com")
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
+    monkeypatch.setenv("SF_CLIENT_ID_TAB_EMBED", "cid")
+    monkeypatch.setenv("SF_TAB_EMBED_RUNAS_USER", "admin@example.demo")
+    monkeypatch.setenv(
+        "A2ALAB_TAB_EMBED_JWT_KEY", "-----BEGIN PRIVATE KEY-----\\nx\\n-----END PRIVATE KEY-----"
+    )
+    monkeypatch.setenv("TABLEAU_CONSUMPTION_DASHBOARD_API_NAME", "A2A_Lab_Consumption")
+    monkeypatch.setenv("TABLEAU_CONSUMPTION_APP_TAB", "A2A_Lab_Consumption")
+    client = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry()))
+
+    owner = {"authorization": f"Bearer {identity.issue_token('ryan')}"}
+    operator = {"authorization": f"Bearer {identity.issue_token('ana')}"}
+    owner_cfg = client.get("/api/config", headers=owner).json()["tableau_next"]["consumption"]
+    assert owner_cfg["configured"] is True
+    assert owner_cfg["embed"]["dashboard"] == "A2A_Lab_Consumption"
+    assert owner_cfg["embed"]["frontdoor_endpoint"] == "/api/tableau/frontdoor"
+    assert owner_cfg["app_url"] == (
+        "https://example.lightning.force.com/lightning/n/A2A_Lab_Consumption"
+    )
+
+    operator_cfg = client.get("/api/config", headers=operator).json()["tableau_next"]["consumption"]
+    assert operator_cfg["configured"] is True
+    assert operator_cfg["embed"] is None
+    assert operator_cfg["app_url"] is None
+
+    html = Path("src/console/static/index.html").read_text()
+    assert '["digital-wallet", "Digital Wallet"]' in html
+    assert "function obsDigitalWalletHtml()" in html
+    assert "function obsDigitalWalletDetailsHtml()" in html
+    assert 'mountTableauEmbed("consumption")' in html
+    assert "TenantEnrichedUsageEvent" in html
+    assert "Unattributed Data 360" in html
+    assert "free during Limited GA" in html
+
+
 def test_service_token_unaffected_by_role_gate(tmp_path, monkeypatch):
     # The header-borne shared token carries no user — full access (it's the
     # service credential for matrix.py, the bridge, and scripts).
@@ -1004,7 +2138,13 @@ def test_public_landing_surface_vs_gated(tmp_path, monkeypatch):
     monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
     app = make_app(tmp_path, monkeypatch)
     client = TestClient(app)
-    for path in ("/api/scenarios", "/api/targets", "/api/decisions", "/api/users"):
+    for path in (
+        "/api/scenarios",
+        "/api/targets",
+        "/api/decisions",
+        "/api/workstreams",
+        "/api/users",
+    ):
         assert client.get(path).status_code == 200, path
     assert client.get("/api/docs/plan/02-matrix.md").status_code == 200
     assert client.get("/api/docs/docs/lab-guide-mcp.md").status_code == 200
@@ -1024,6 +2164,8 @@ def test_users_picker_omits_machine_principals(tmp_path, monkeypatch):
     roles = {u["role"] for u in users}
     assert "machine" not in roles
     assert "mulesoft-omni-gateway" not in {u["username"] for u in users}
+    # Test principals marked `listed: false` are not personas either.
+    assert "memprobe" not in {u["username"] for u in users}
     # The human personas are still listed.
     assert {"ryan", "ana", "vic"} <= {u["username"] for u in users}
 
@@ -1703,7 +2845,7 @@ def test_empty_console_url_env_falls_back_to_the_default(tmp_path, monkeypatch):
         (s["name"], c["title"])
         for s in data["scenarios"]
         for c in s.get("components") or []
-        if not c.get("url")
+        if not c.get("url") and not c.get("card_target")
     ]
     assert missing == [], f"empty env var blanked a console link: {missing}"
 
@@ -2231,3 +3373,203 @@ def test_operator_can_delete_traces(tmp_path, monkeypatch):
     client = TestClient(app)
     headers = _operator_headers(monkeypatch, tmp_path)
     assert client.delete("/api/traces", headers=headers).status_code == 200
+
+
+def test_channel_toggle_scenarios_show_both_agentforce_a2a_cards(tmp_path, monkeypatch):
+    """D28/D106/D109: every channel-toggle scenario lists the shim-hosted and the
+    native Agentforce A2A cards as separate Components, the native one keyed to
+    the twin its entry agent consults (D25). Scenarios without the toggle don't."""
+    app = make_app(tmp_path / "traces", monkeypatch)
+    data = TestClient(app).get("/api/scenarios").json()
+    expected_twin = {
+        "claude-to-agentforce": "claude",
+        "claude-aws-to-agentforce": "claude",
+        "chatgpt-to-agentforce": "openai",
+        "strands-to-agentforce": "strands",
+        "adk-to-agentforce": "adk",
+    }
+    for s in data["scenarios"]:
+        cards = {c["card_target"]: c for c in s["components"] if c.get("card_target")}
+        if not s.get("af_channel_toggle"):
+            assert not cards, s["name"]
+            continue
+        assert set(cards) == {"agentforce-a2a-shim", "agentforce-a2a-native"}, s["name"]
+        assert "card_twin" not in cards["agentforce-a2a-shim"]  # one card fronts every twin
+        assert cards["agentforce-a2a-native"]["card_twin"] == expected_twin[s["name"]]
+        assert "lab-built" in cards["agentforce-a2a-shim"]["title"]
+        assert "Salesforce pilot" in cards["agentforce-a2a-native"]["title"]
+    html = (Path(__file__).parents[2] / "src/console/static/index.html").read_text()
+    assert "function compCardRow(c)" in html
+    assert "toggleCompCard(" in html
+
+
+def test_channel_toggle_scenarios_list_both_agentforce_cards_in_agent_cards(tmp_path, monkeypatch):
+    """D28/D106: the Agent cards list of a channel-toggle scenario shows the
+    shim-hosted card AND the Salesforce-hosted native card (twin-scoped), side
+    by side. Scenarios without the toggle keep their yaml agents untouched."""
+    app = make_app(tmp_path / "traces", monkeypatch)
+    data = TestClient(app).get("/api/scenarios").json()
+    import console.app as console_app
+
+    raw = console_app.load_scenarios()
+    for s in data["scenarios"]:
+        targets = [a["target"] for a in s.get("agents") or []]
+        if not s.get("af_channel_toggle"):
+            assert s.get("agents", []) == (raw[s["name"]].get("agents") or []), s["name"]
+            continue
+        i = targets.index("agentforce-a2a")
+        assert targets[i + 1] == "agentforce-a2a-native", s["name"]
+        shim, native = s["agents"][i], s["agents"][i + 1]
+        assert "shim-hosted" in shim["title"] and "twin" not in shim
+        assert "Salesforce-hosted" in native["title"]
+        assert native["twin"] and native["twin"] != "agentforce"
+    html = (Path(__file__).parents[2] / "src/console/static/index.html").read_text()
+    assert "agent|${a.target}|${a.twin}" in html
+
+
+def _native_target(**auth):
+    return SimpleNamespace(
+        name="agentforce-a2a-native",
+        endpoint="https://api.salesforce.com/einstein/ai-agent/a2a/BOT-DEFAULT",
+        options={"card_path": "/v1/card", "protocol_version": "1.0"},
+        auth={"scheme": "salesforce-cc", **auth},
+    )
+
+
+def test_native_agentforce_card_is_fetched_with_the_orgjwt(tmp_path, monkeypatch):
+    """The native card is the EXTENDED /v1/card (the public well-known one 401s),
+    so the console must mint the same a2a_lab_af_a2a OrgJWT the tool does, pin
+    A2A-Version, and fetch the requested twin's card rather than the default."""
+    import asyncio
+
+    import httpx
+
+    make_app(tmp_path / "traces", monkeypatch)
+    import console.app as console_app
+
+    monkeypatch.setenv("SF_OPENAI_AGENT_ID", "BOT-OPENAI")
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/services/oauth2/token":
+            return httpx.Response(200, json={"access_token": "orgjwt"})
+        return httpx.Response(200, json={"name": "OpenAI twin"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        console_app.httpx,
+        "AsyncClient",
+        lambda **kw: real(transport=httpx.MockTransport(handler), **kw),
+    )
+    target = _native_target(my_domain="org.example.com", client_id="cid", client_secret="cs")
+    out = asyncio.run(console_app._native_agentforce_card(target, "v1/card", "openai"))
+
+    assert out["ok"] is True and out["card"] == {"name": "OpenAI twin"}
+    assert "Published by Salesforce" in out["note"]
+    token_req, card_req = seen
+    assert str(token_req.url) == "https://org.example.com/services/oauth2/token"
+    assert str(card_req.url).endswith("/a2a/BOT-OPENAI/v1/card")
+    assert card_req.headers["Authorization"] == "Bearer orgjwt"
+    assert card_req.headers["A2A-Version"] == "1.0"
+
+
+def test_native_agentforce_card_reports_missing_credential_and_bad_twin(tmp_path, monkeypatch):
+    import asyncio
+
+    from fastapi import HTTPException
+
+    make_app(tmp_path / "traces", monkeypatch)
+    import console.app as console_app
+
+    out = asyncio.run(
+        console_app._native_agentforce_card(
+            _native_target(my_domain="o.example.com"), "v1/card", None
+        )
+    )
+    assert out["ok"] is False and "client_id" in out["error"]
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(console_app._native_agentforce_card(_native_target(), "v1/card", "nope"))
+    assert exc.value.status_code == 400
+
+
+def test_customer_purchase_rings_up_a_catalog_order_for_the_mapped_contact(tmp_path, monkeypatch):
+    """WS32: the exhibit's purchase button posts ONE catalog order to the Ingestion API
+    for the customer's CRM Contact id (the D117 memory owner), operator-only."""
+    from interop import pos as pos_mod
+
+    sent: list[dict] = []
+
+    class FakePos:
+        def __init__(self, **kw):
+            self.source = kw.get("source")
+
+        async def send(self, trace_id, rows):
+            sent.append({"trace_id": trace_id, "rows": rows, "source": self.source})
+            return {"status": 202, "body": {"accepted": True}, "accepted_s": 0.27}
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(pos_mod, "PosClient", FakePos)
+    monkeypatch.setenv(
+        "A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"003000000000001AAA","jordan":"003000000000002AAA"}'
+    )
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    operator = _operator_headers(monkeypatch, tmp_path)
+
+    catalog = client.get("/api/config", headers=operator).json()["pos_catalog"]
+    assert catalog and all({"sku", "name", "category", "amount"} <= set(c) for c in catalog)
+    sku = catalog[0]["sku"]
+
+    r = client.post("/api/memory/customer/maya/purchase", headers=operator, json={"sku": sku})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["order_id"].startswith("pos-") and data["accepted_s"] == 0.27
+    assert data["product_name"] == catalog[0]["name"] and data["trace_id"]
+    assert "contact_id" not in data  # the owner id stays server-side, like the D107 routes
+    (call,) = sent
+    (row,) = call["rows"]
+    assert row["contact_id"] == "003000000000001AAA" and row["product_sku"] == sku
+    assert row["amount"] == catalog[0]["amount"] and row["order_id"] == data["order_id"]
+    assert call["trace_id"] == data["trace_id"] and call["source"] == "console"
+
+    # Only catalog SKUs: nothing free-form from a browser reaches the production ingest.
+    bad = client.post("/api/memory/customer/maya/purchase", headers=operator,
+                      json={"sku": "SKU-NOT-REAL"})  # fmt: skip
+    assert bad.status_code == 400
+    assert client.post("/api/memory/customer/nobody/purchase", headers=operator,
+                       json={"sku": sku}).status_code == 404  # fmt: skip
+    for headers in (_viewer_headers(monkeypatch, tmp_path), {"x-lab-token": "sekrit"},
+                    _machine_headers(monkeypatch, tmp_path)):  # fmt: skip
+        assert client.post("/api/memory/customer/maya/purchase", headers=headers,
+                           json={"sku": sku}).status_code == 403  # fmt: skip
+    assert len(sent) == 1
+
+
+def test_customer_purchase_reports_an_ingest_refusal_as_502(tmp_path, monkeypatch):
+    from interop import pos as pos_mod
+
+    class RefusingPos:
+        def __init__(self, **kw):
+            pass
+
+        async def send(self, trace_id, rows):
+            raise pos_mod.PosError("ingest refused (HTTP 400): bad schema")
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(pos_mod, "PosClient", RefusingPos)
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"003000000000001AAA"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
+    client = TestClient(app)
+    operator = _operator_headers(monkeypatch, tmp_path)
+    sku = client.get("/api/config", headers=operator).json()["pos_catalog"][0]["sku"]
+    r = client.post("/api/memory/customer/maya/purchase", headers=operator,
+                    json={"sku": sku})  # fmt: skip
+    assert r.status_code == 502
+    assert "HTTP 400" in r.json()["detail"]["message"] and r.json()["detail"]["trace_id"]

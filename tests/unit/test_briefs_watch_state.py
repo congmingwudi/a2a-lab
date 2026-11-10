@@ -249,3 +249,84 @@ def test_a_poll_error_keeps_the_session_pending_then_terminal():
     assert watcher._session_status(err, max_attempts=3) == "pending"
     err_capped = _entry({}, attempts=3, last_error="managed session error")
     assert watcher._session_status(err_capped, max_attempts=3) == "failed"
+
+
+# --- requeue: re-arm terminal failures once the cause is fixed (2026-11-04) ---
+
+
+def test_requeue_rearms_only_failed_sessions_and_keeps_their_calls():
+    import briefs.__main__ as watcher
+
+    ok_call = {"t0": {"status": "ok", "brief_id": "a01"}}
+    ledger = {
+        "s_failed": {"status": "failed", "attempts": 3,
+                     "calls": {**ok_call, "t1": {"status": "failed"}}},
+        "s_done": {"status": "delivered", "attempts": 1, "calls": ok_call},
+        "s_pending": {"status": "pending", "attempts": 1, "calls": {}},
+    }  # fmt: skip
+    out, requeued = watcher.requeue_failed(ledger)
+    assert requeued == ["s_failed"]
+    assert out["s_failed"]["status"] == "pending" and out["s_failed"]["attempts"] == 0
+    # the ok call survives, so the replay never re-writes a brief that landed
+    assert out["s_failed"]["calls"]["t0"]["status"] == "ok"
+    assert out["s_done"] == ledger["s_done"] and out["s_pending"] == ledger["s_pending"]
+    assert ledger["s_failed"]["status"] == "failed"  # input not mutated
+
+
+async def test_watch_rereads_the_ledger_every_tick(monkeypatch):
+    """A requeue written to the store between ticks must be seen — a ledger
+    loaded once at boot would skip the session as terminal forever and then
+    write the stale copy back over the requeue."""
+    import sys
+    import types
+
+    import briefs.__main__ as watcher
+
+    loads = []
+    states = iter([{"s1": {"status": "failed", "attempts": 3, "calls": {}}},
+                   {"s1": {"status": "pending", "attempts": 0, "calls": {}}}])  # fmt: skip
+
+    def fake_load():
+        loads.append(1)
+        return next(states)
+
+    serviced = []
+
+    async def fake_service(client, sid, prior):
+        serviced.append((sid, prior["status"]))
+        return {**prior, "status": "delivered"}
+
+    class Runs:
+        def __init__(self):
+            self._items = [types.SimpleNamespace(session_id="s1")]
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self._items:
+                raise StopAsyncIteration
+            return self._items.pop()
+
+    client = types.SimpleNamespace(beta=types.SimpleNamespace(
+        deployment_runs=types.SimpleNamespace(list=lambda **kw: Runs())))  # fmt: skip
+    monkeypatch.setitem(sys.modules, "anthropic",
+                        types.SimpleNamespace(AsyncAnthropic=lambda: client))  # fmt: skip
+    monkeypatch.setattr(watcher, "load_brief_ids", lambda: {"deployment_id": "dep"})
+    monkeypatch.setattr(watcher, "_load_ledger", fake_load)
+    monkeypatch.setattr(watcher, "_save_ledger", lambda ledger: None)
+    monkeypatch.setattr(watcher, "_service_once", fake_service)
+
+    ticks = 0
+
+    async def fake_sleep(_):
+        nonlocal ticks
+        ticks += 1
+        if ticks >= 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(watcher.asyncio, "sleep", fake_sleep)
+    with pytest.raises(KeyboardInterrupt):
+        await watcher.watch()
+    assert len(loads) == 2
+    assert serviced == [("s1", "pending")]  # skipped as terminal tick 1, retried tick 2

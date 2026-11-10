@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A Interop Lab Console</title>
-<!-- Apply the saved theme before first paint so light-mode users see no dark flash. -->
-<script>try { var t = localStorage.getItem("a2a-theme-v2"); document.documentElement.setAttribute("data-theme", t || "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }</script>
+<!-- Apply both saved appearance axes before first paint. Only allow known values. -->
+<script>(() => { try { var root = document.documentElement; var DESIGNS = ["default", "skyline", "canvas", "parchment"]; var savedTheme = localStorage.getItem("a2a-theme-v2"); var savedDesign = localStorage.getItem("a2a-design-v1"); var forcedDesign = root.getAttribute("data-design-forced"); var design = forcedDesign === "skyline" ? "skyline" : (DESIGNS.includes(savedDesign) ? savedDesign : "default"); root.setAttribute("data-theme", savedTheme === "dark" ? "dark" : "light"); if (design === "default") root.removeAttribute("data-design"); else root.setAttribute("data-design", design); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); } })();</script>
+<!-- Bump the version on every themes.css change so deployed browsers refetch it. -->
+<link rel="stylesheet" href="/static/themes.css?v=2">
 <style>
   /* Design system aligned with labs.agentforce.com: their dark palette
      (#0b0b0b / #161616 / #292929), the labs hero — deep-navy radial
@@ -70,14 +72,20 @@
            border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 2; }
   header .brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
   header .brand:hover h1 { color: var(--fg-hi); }
-  .brandmark { width: 20px; height: 20px; border-radius: 6px; flex: none;
+  .brandmark { display: block; width: 20px; height: 20px; border-radius: 6px; flex: none;
                background: linear-gradient(135deg, #09decb 0%, #3fc7d8 30%, #7db9e8 55%, #a8a2ec 78%, #c99df0 100%); }
   header h1 { font-family: var(--font-head); font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .3px; }
   header .sub { color: var(--muted); font-size: 12px; }
   header .live { margin-left: auto; font-size: 12px; color: var(--muted); }
   header .live.on::before { content: "●"; color: var(--rest); margin-right: 5px; }
 
-  /* theme switch — small segmented toggle in the top-right settings area */
+  /* Independent design + color-mode controls in the top-right settings area. */
+  .design-theme { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px;
+                  color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .03em; }
+  .design-theme select { min-height: 28px; padding: 2px 24px 2px 9px; border: 1px solid var(--border);
+                         border-radius: 999px; background: var(--card); color: var(--fg);
+                         font: 600 11.5px var(--font-ui); cursor: pointer; }
+  .design-theme select:focus-visible { outline: 2px solid var(--hero-link); outline-offset: 2px; }
   .theme-switch { display: inline-flex; align-items: center; gap: 2px; margin-left: 16px;
                   padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); }
   .theme-switch .tbtn { display: inline-flex; align-items: center; justify-content: center;
@@ -119,8 +127,6 @@
                           list-style: none; display: flex; align-items: center; gap: 8px;
                           position: sticky; top: 0; background: var(--sidebar); z-index: 1; }
   details.acc > summary::-webkit-details-marker { display: none; }
-  details.acc > summary::before { content: "▸"; font-size: 10px; transition: transform .15s ease; }
-  details.acc[open] > summary::before { transform: rotate(90deg); }
   details.acc > summary:hover { color: var(--fg); }
   details.acc > summary .count { margin-left: auto; font: 600 10.5px var(--font-mono); color: var(--muted);
                                  background: var(--card2); border: 1px solid var(--border);
@@ -143,10 +149,11 @@
   .nav-group { display: flex; align-items: center; gap: 7px; padding: 9px 18px 3px; cursor: pointer;
                font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .4px; }
   .nav-group:hover { color: var(--fg); }
-  .nav-group .caret { width: 10px; font-size: 10px; flex: none; }
   .nav-group .gtitle { flex: 1; }
   .nav-group .gcount { font: 600 10px var(--font-mono); background: var(--card2);
                        border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
+  .nav-group .group-action { margin-left: 2px; padding: 2px 7px; min-height: 24px;
+                             font-size: 10px; white-space: nowrap; }
   /* Group headings carry the same vendor marks the experiment cards do, one
      notch smaller: the heading text is 11px, and a 14px mark beside it reads
      as an icon button rather than as part of the label. */
@@ -165,6 +172,11 @@
   .plogo.awslogo { width: 23px; }
   .pmark { white-space: nowrap; }          /* a mark never wraps off its name */
   .pmark + .pmark { margin-left: 2px; }
+  .title-icons { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px;
+                 padding-left: 8px; border-left: 1px solid var(--border-hi); white-space: nowrap; }
+  .title-icons .plogo { margin-right: 0; }
+  .target .title-icons.lead, .tabbar h2 > .title-icons.lead { margin-left: 0; padding-left: 0;
+                                                             border-left: 0; }
   .warm-row > .plogo { margin-right: 0; }  /* the flex row supplies the gap */
   /* Section marks in the Control Panel headings — same optical weight as the
      heading text, so they read as part of the label rather than as buttons. */
@@ -222,9 +234,9 @@
      slate rim keeps the edge intentional on dark surfaces */
   .badge.agentcore, .badge.aws { background: var(--chip-aws); color: #eef2f7;
                                  border: 1px solid #52627a; }
-  /* Decision chips — ADR refs (D27, D28, …) in any visible UI text become
-     clickable chips; the popover renders that decision's markdown from the
-     ADR log (GET /api/decisions ← plan/00-decisions.md). */
+  /* Reference chips — ADR refs (D27, D102, …) and workstreams (WS11, WS27, …)
+     in visible UI text become clickable chips; popovers render the exact
+     source section from plan/00-decisions.md or plan/07-workstreams.md. */
   .dchip { display: inline-block; padding: 0 8px; border-radius: 999px;
            font: 600 11px/17px var(--font-mono); color: var(--hero-link);
            background: color-mix(in srgb, var(--hero-link) 10%, transparent);
@@ -352,13 +364,24 @@
   .hero-inner { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; }
   .kicker { font: 600 11px var(--font-mono); letter-spacing: 1.6px; text-transform: uppercase;
             color: var(--hero-sub); margin-bottom: 14px; }
-  .wordmark { font-family: var(--font-head); font-weight: 700; font-size: clamp(30px, 4.4vw, 46px);
-              line-height: 1.08; letter-spacing: .2px; margin: 0 0 12px;
+  .landing-title { --landing-title-size: clamp(30px, 4.4vw, 46px);
+                   display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px;
+                   font-family: var(--font-head); font-size: var(--landing-title-size); }
+  .landing-title .landing-brandmark { width: 1cap; height: 1cap; border-radius: .18em; }
+  .wordmark { font-family: var(--font-head); font-weight: 700; font-size: var(--landing-title-size);
+              line-height: 1.08; letter-spacing: .2px; margin: 0;
               background: var(--wordmark-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .hero-sub { font-family: var(--font-head); color: var(--hero-sub); font-size: 16px; font-weight: 600;
               margin: 0 0 14px; letter-spacing: .2px; }
   .hero-body { color: var(--hero-body); font-size: 15.5px; line-height: 1.7; margin: 0 0 22px;
                text-wrap: pretty; }
+  .hero-platforms { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+                    gap: 12px 28px; margin: -4px 0 26px; padding: 0; list-style: none; }
+  .hero-platforms li { display: flex; align-items: center; min-width: 0; gap: 10px;
+                       color: var(--hero-body); font-family: var(--font-head); font-size: 13.5px;
+                       font-weight: 600; line-height: 1.4; }
+  .hero-platforms .plogo { width: 20px; height: 20px; margin: 0; flex: none; }
+  .hero-platforms .plogo.awslogo { width: 32px; }
   /* The lab's own claim about itself, so it is the first thing a visitor reads
      rather than something the Lab Guide has to be asked for. Set apart from the
      body copy — a left rule and slightly larger type — because it is the
@@ -534,6 +557,12 @@
                          padding: 1px 5px; border-radius: 5px; font-size: 12px; }
   .turn.agent .md pre { margin: 6px 0 8px; }
   .turn.agent .md pre code { background: none; border: none; padding: 0; }
+  .memory-evidence { margin-top: 9px; padding: 8px 10px; border-left: 3px solid var(--primary);
+    background: color-mix(in srgb, var(--primary) 7%, var(--card2)); border-radius: 6px;
+    color: var(--muted); font-size: 11.5px; white-space: normal; }
+  .memory-evidence b { display: block; color: var(--text); margin-bottom: 5px; }
+  .memory-evidence-lines { display: grid; gap: 3px; }
+  .memory-evidence-line { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
   /* D28 Agentforce-channel radio — which tool the entry agent consults
      Agentforce with: the GA Agent API (default) or the hosted A2A shim */
   .chan-row { display: flex; align-items: center; gap: 14px; padding: 8px 16px; flex-wrap: wrap;
@@ -577,6 +606,12 @@
   .chan-row .qhelp:focus-visible .qpop { opacity: 1; visibility: visible; }
   .chan-row .chan-more { flex-basis: 100%; color: var(--muted); font-size: 11px; }
   .chan-row .chan-more a { color: var(--muted); text-decoration: underline; cursor: pointer; }
+  .memory-manager { flex-basis: 100%; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; background: var(--surface); }
+  .memory-manager-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .memory-manager-list { display: grid; gap: 6px; max-height: 240px; overflow: auto; }
+  .memory-manager-list label { align-items: flex-start; font-size: 12px; line-height: 1.35; }
+  .memory-manager-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
   /* requires_mode gate — the run is refused in the wrong deployment mode */
   .mode-notice { padding: 9px 16px; border-top: 1px solid var(--border); font-size: 12.5px;
@@ -603,6 +638,26 @@
   .flow text.alabel { fill: var(--muted); font-size: 10px; }
   .flow .pbox { fill: var(--card2); stroke: var(--border); rx: 7; }
   .flow .lifeline { stroke: var(--border); stroke-dasharray: 3 4; }
+  .memory-scope-map { display: grid; grid-template-columns: minmax(150px, .8fr) 24px minmax(260px, 2fr);
+    align-items: center; gap: 10px; margin: 12px 16px 14px; padding: 12px;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card2); }
+  .memory-scope-root, .memory-scope-agent, .memory-scope-leaf { border: 1px solid var(--border-hi);
+    border-radius: 8px; background: var(--bg); padding: 7px 9px; font-size: 11.5px; }
+  .memory-scope-root b, .memory-scope-agent b { display: block; color: var(--fg); }
+  .memory-scope-root span, .memory-scope-agent span { color: var(--muted); font-size: 10.5px; }
+  .memory-scope-arrow { color: var(--muted); text-align: center; font-family: var(--font-mono); }
+  .memory-scope-branches { display: grid; gap: 8px; }
+  .memory-scope-branch { display: grid; grid-template-columns: minmax(130px, 1fr) 20px minmax(150px, 1fr);
+    align-items: center; gap: 7px; }
+  .memory-scope-leaves { display: flex; flex-wrap: wrap; gap: 5px; }
+  .memory-scope-leaf { padding: 4px 7px; font-family: var(--font-mono); }
+  .memory-scope-participants { grid-column: 1 / -1; color: var(--muted); font-size: 10.5px;
+                               padding-top: 2px; }
+  .memory-scope-participants b { color: var(--fg); }
+  .memory-hop-path { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px;
+    margin-left: 7px; color: var(--muted); font: 10.5px var(--font-mono); }
+  .memory-hop-path .memory-node { border: 1px solid var(--border); border-radius: 999px;
+    padding: 1px 6px; background: var(--card2); color: var(--fg); }
 
   /* Alternating canvas (D57): a .flow sitting inside the gray .tabpanel canvas
      is WHITE, so a section reads as a distinct thing ON the canvas rather than
@@ -741,6 +796,13 @@
         overflow-x: auto; white-space: pre-wrap; word-break: break-word;
         font-size: 12px; max-height: 420px; overflow-y: auto; }
 
+  @media (max-width: 760px) {
+    .memory-scope-map { grid-template-columns: 1fr; }
+    .memory-scope-arrow { transform: rotate(90deg); }
+    .memory-scope-branch { grid-template-columns: 1fr; }
+    .memory-scope-branch > .memory-scope-arrow { transform: rotate(90deg); }
+  }
+
   /* Observability (M11.3) */
   .obs-plat { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 10px;
               cursor: pointer; border: 1px solid transparent; }
@@ -865,6 +927,81 @@
   .tile-group-label .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
   .obs-card.wide { grid-column: 1 / -1; }
 
+  /* WS31: evidence-led presentation mode. The class is derived on every render
+     from view.type; it never writes or snapshots the persisted panel setting. */
+  body:has(main.presentation-mode) { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  body:has(main.presentation-mode) > header { flex: none; }
+  body:has(main.presentation-mode) > main.presentation-mode {
+    flex: 1; width: 100%; height: auto; min-height: 0; grid-template-columns: minmax(0, 1fr);
+  }
+  main.presentation-mode #side,
+  main.presentation-mode .side-handle,
+  main.presentation-mode .side-backdrop { display: none !important; }
+  html #detail.presentation-host { padding: 0; background: var(--bg); overflow: hidden; min-width: 0; }
+  .memory-present { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+  .memory-present-top { display: flex; align-items: center; gap: 12px; padding: 14px 22px;
+                        border-bottom: 1px solid var(--border); background: var(--bg);
+                        position: sticky; top: 0; z-index: 4; }
+  .memory-present-mode { font: 650 10.5px var(--font-mono); text-transform: uppercase;
+                         letter-spacing: .08em; color: var(--muted); }
+  .memory-present-progress { margin-left: auto; font: 600 11px var(--font-mono); color: var(--muted); }
+  .memory-present-layout { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .memory-scene-rail { padding: 12px 18px; border-bottom: 1px solid var(--border);
+                       background: var(--sidebar); overflow-x: auto; }
+  .memory-scene-rail ol { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px;
+                          width: max-content; min-width: 100%; }
+  .memory-scene-link { width: clamp(150px, 12vw, 190px); display: grid; grid-template-columns: 24px 1fr;
+                       align-items: start; gap: 8px; padding: 9px 10px; text-align: left;
+                       border: 1px solid transparent; border-radius: 9px; background: transparent;
+                       color: var(--muted); font: 500 11.5px/1.35 var(--font-ui); }
+  .memory-scene-link:hover { color: var(--fg); background: var(--card2); }
+  .memory-scene-link[aria-current="step"] { color: var(--fg-hi); background: var(--card);
+                                             border-color: var(--border-hi); }
+  .memory-scene-num { display: inline-flex; align-items: center; justify-content: center;
+                      width: 22px; height: 22px; border-radius: 999px; border: 1px solid var(--border);
+                      font: 650 10px var(--font-mono); }
+  .memory-scene-link[aria-current="step"] .memory-scene-num { color: var(--bg);
+                                                               background: var(--fg-hi); }
+  .memory-present-stage { flex: 1; padding: clamp(24px, 4vw, 52px); overflow-y: auto; }
+  .memory-present-kicker { color: var(--muted); font: 650 10.5px var(--font-mono);
+                           text-transform: uppercase; letter-spacing: .1em; }
+  .memory-present-stage h2 { margin: 8px 0 10px; max-width: 820px; font: 600 clamp(25px, 4vw, 44px)/1.08 var(--font-head); }
+  .memory-present-lede { margin: 0 0 26px; max-width: 850px; color: var(--muted);
+                         font-size: clamp(14px, 1.5vw, 17px); line-height: 1.6; }
+  .memory-present-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .75fr);
+                         gap: 18px; align-items: stretch; }
+  .memory-system-map, .memory-narration { border: 1px solid var(--border); border-radius: 14px;
+                                         background: var(--card); padding: 18px; }
+  .memory-system-map h3, .memory-narration h3 { margin: 0 0 13px; font: 600 12px var(--font-head); }
+  .memory-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .memory-flow-card { min-height: 106px; padding: 13px; border: 1px solid var(--border);
+                      border-radius: 10px; background: var(--bg); }
+  .memory-flow-card .seq { display: block; margin-bottom: 7px; color: var(--muted);
+                           font: 650 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: .07em; }
+  .memory-flow-card b { display: block; margin-bottom: 5px; font-size: 13px; }
+  .memory-flow-card p { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.48; }
+  .memory-present-evidence { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .memory-present-evidence .badge { font-size: 10px; }
+  .memory-narration ul { margin: 0; padding-left: 18px; color: var(--muted); }
+  .memory-narration li + li { margin-top: 9px; }
+  .memory-readiness { display: grid; gap: 9px; margin: 13px 0 16px; }
+  .memory-ready-row { display: flex; align-items: baseline; gap: 10px; padding: 9px 0;
+                      border-bottom: 1px solid var(--border); }
+  .memory-ready-row span:first-child { flex: 0 0 108px; color: var(--muted); font-size: 11px; }
+  .memory-launchers { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+  .memory-present-controls { display: flex; align-items: center; gap: 9px; margin-top: 22px;
+                             padding: 16px 0 8px; border-top: 1px solid var(--border);
+                             position: sticky; bottom: 0; z-index: 3; background: var(--bg); }
+  .memory-present-controls .next { margin-left: auto; }
+  .memory-sr-status { position: absolute; width: 1px; height: 1px; overflow: hidden;
+                      clip: rect(0 0 0 0); white-space: nowrap; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .memory-present *, .memory-present *::before, .memory-present *::after {
+      scroll-behavior: auto !important; transition: none !important; animation: none !important;
+    }
+  }
+
   /* ---- A2A Lab Monitoring (WS18) — compact horizontal bars, no chart lib. */
   .mon-bars { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; }
   .mon-bar-row { display: flex; align-items: center; gap: 10px; }
@@ -960,6 +1097,15 @@
                  padding: 18px; margin: 10px 0 14px; overflow-x: auto; text-align: center; }
   .arch-figure svg { max-width: 100%; height: auto; }
   .arch-figure pre { text-align: left; margin: 0; overflow-x: auto; font-size: 11.5px; }
+  /* draw.io twins (D113) are exported light-theme with their own colour per
+     cloud, so they sit on white in both themes — a dark card under #444 edges
+     would make the arrows disappear. */
+  .arch-figure.arch-drawio, .arch-figure.arch-drawio:fullscreen,
+  .arch-figure.arch-drawio.arch-fsfallback { background: #fff; }
+  .arch-views { margin: 0; }
+  .arch-views .tab { padding: 3px 10px; font-size: 12px; }
+  .arch-stale { text-align: left; margin: 0 0 10px; }
+  .arch-figure:fullscreen .arch-stale, .arch-figure.arch-fsfallback .arch-stale { display: none; }
   .arch-prose { font-size: 13.5px; line-height: 1.7; }
   .arch-prose table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 10px 0 16px; }
   .arch-prose th { text-align: left; padding: 8px 11px; background: var(--card2);
@@ -1375,7 +1521,8 @@
     header { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
     header .sub { display: none; }
     header .live { margin-left: auto; }
-    .theme-switch { margin-left: 8px; }
+    .design-theme { margin-left: 0; }
+    .theme-switch { margin-left: 0; }
 
     /* Canvas is a single full-width column; the sidebar leaves the grid. */
     main, main.side-closed { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 50px); }
@@ -1404,6 +1551,14 @@
     .tabs::-webkit-scrollbar { display: none; }
     .tabs .tab { white-space: nowrap; flex: none; }
     .tabbar h2 { flex-basis: 100%; }
+    .memory-present-top { padding: 10px 13px; }
+    .memory-scene-rail { padding: 10px 13px; border-right: 0; border-bottom: 1px solid var(--border);
+                         overflow-x: auto; }
+    .memory-scene-rail ol { display: flex; width: max-content; }
+    .memory-scene-link { width: 180px; }
+    .memory-present-stage { padding: 24px 16px 30px; }
+    .memory-present-grid { grid-template-columns: 1fr; }
+    .memory-flow { grid-template-columns: 1fr; }
 
     /* Trace hop panes and other 2-up splits stack. */
     .hop.open .hop-body { grid-template-columns: 1fr; }
@@ -1438,14 +1593,38 @@
 </head>
 <body>
 <header>
-  <div class="brand" onclick="goHome()" title="Back to the lab overview">
-    <span class="brandmark"></span>
+  <div class="brand" id="appHomeLink" role="button" tabindex="0" onclick="goHome()"
+       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goHome()}"
+       title="Back to the lab overview">
+    <svg class="brandmark" width="20" height="20" viewBox="0 0 20 20"
+         aria-hidden="true" focusable="false">
+      <g data-part="message" fill="none" stroke="#0b1f33" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7.5 7.35h5"/>
+        <path d="m11.1 5.95 1.4 1.4-1.4 1.4"/>
+      </g>
+      <g data-part="message" fill="none" stroke="#0b1f33" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12.5 12.65h-5"/>
+        <path d="m8.9 11.25-1.4 1.4 1.4 1.4"/>
+      </g>
+      <circle data-part="agent" cx="3.8" cy="10" r="2.2" fill="#0b1f33"/>
+      <circle data-part="agent" cx="16.2" cy="10" r="2.2" fill="#0b1f33"/>
+    </svg>
     <h1>A2A Interop Lab</h1>
   </div>
   <span class="sub">cross-platform, cross-hyperscaler agent-to-agent experiments</span>
   <span id="live" class="live" title="Live trace stream — the console's connection to the lab's own backend (/api/stream). When 'live', new wire-trace hops appear here the instant an experiment runs, no refresh needed. It streams under your persona sign-in, so it shows 'sign in for live' until you do.">connecting…</span>
   <span id="modeBadge" class="mode-badge" style="display:none"></span>
-  <div class="theme-switch" role="group" aria-label="Theme">
+  <label class="design-theme" for="designTheme"><span>Theme</span>
+    <select id="designTheme" onchange="setDesignTheme(this.value)">
+      <option value="default">Default</option>
+      <option value="skyline">Skyline</option>
+      <option value="canvas">Canvas</option>
+      <option value="parchment">Parchment</option>
+    </select>
+  </label>
+  <div class="theme-switch" role="group" aria-label="Color mode">
     <button class="tbtn" id="themeLight" onclick="setTheme('light')" title="Light mode" aria-label="Switch to light mode">☀</button>
     <button class="tbtn" id="themeDark" onclick="setTheme('dark')" title="Dark mode" aria-label="Switch to dark mode">☾</button>
   </div>
@@ -1481,6 +1660,8 @@
     <button id="gdSendBtn" onclick="gdSend()">Ask</button>
   </div>
 </div>
+<div class="memory-sr-status" id="memoryPresentationStatus" role="status"
+     aria-live="polite" aria-atomic="true"></div>
 <main>
   <!-- Mobile: tapping the dimmed backdrop closes the overlay drawer. Hidden on
        desktop (the sidebar is a grid column there, never an overlay). -->
@@ -1642,6 +1823,21 @@
             <div id="infraSide"></div>
           </div>
         </details>
+        <!-- Memory Back End (D115) — what the Agentic Memory API is built on in
+             Data 360: the AgenticConnector_* streams and lake objects, the memory
+             DMOs with live row counts, and the two HYBRID search indexes. Read
+             live from the org on open (not at boot: one read is ~20 queries). -->
+        <details class="acc sub" id="accMemBackend">
+          <summary onclick="memBackendNav(event)"><svg class="sicon" viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="3.6" rx="5.2" ry="1.8"/><path d="M2.8 3.6v8.8c0 1 2.3 1.8 5.2 1.8s5.2-.8 5.2-1.8V3.6"/><path d="M2.8 8c0 1 2.3 1.8 5.2 1.8s5.2-.8 5.2-1.8"/></svg>Memory Back End <span class="count" id="memBackendCount"></span></summary>
+          <div class="acc-body">
+            <div class="traces-tools">
+              <span class="hint">The Data 360 streams, objects and search indexes behind the Agentic Memory API.</span>
+              <button class="ghost" onclick="refreshMemBackend(event)"
+                title="Re-read the org now (GET /api/memory/backend?refresh=true). Reads are otherwise cached for 10 minutes.">Refresh</button>
+            </div>
+            <div id="memBackendSide"></div>
+          </div>
+        </details>
       </div>
     </details>
     <!-- DevOps category (WS17, D60). Its own expandable section like every
@@ -1723,6 +1919,7 @@ let defaultQuestion = "";
 
 // Main-canvas view: null (landing) | {type:'experiment', kind:'scenario'|'cell', name}
 //                                  | {type:'trace'}
+//                                  | {type:'memory-presentation', scene, launcher}
 let view = null;
 let activeTab = "run";    // 'run' | 'details' (experiment views)
 let mainKey = null;       // skeleton identity — rebuilt only when this changes
@@ -1739,13 +1936,19 @@ let chats = {};
 let chatArchives = {};    // key -> [{id, ts, title, chat}]  (most-recent first)
 let chatHistoryOpen = {}; // key -> bool (the past-chats picker is showing)
 let drafts = {};          // key -> composer draft (survives re-renders)
-let afChannels = {};      // key -> "agent-api" | "a2a-shim" (D28 channel radio)
+let afChannels = {};      // key -> "agent-api" | "a2a-shim" | "a2a-native" (D28 channel radio, D106)
 let afRoutes = {};        // key -> "bridge" | "direct" (Agentforce outbound route radio)
 let afTopologies = {};    // key -> "delegated" | "serial" (D61 fan-out topology radio)
 let viaBridges = {};      // key -> bool (protocol cells: route via the lab bridge)
 let fanoutVariants = {};  // key -> "tool" | "mcp" (D41 fan-out topology radio)
 let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
 let memoryModes = {};     // key -> "off" | "on" (WS27/D91 per-run Agentic Memory radio)
+let selectedMemoryCustomer = "maya"; // shared across the teach → recall story
+let memoryManagers = {};   // customer -> {open, loading, memories, generation, selected:Set, error}
+let posPurchases = {};     // customer -> {sku, loading, result, error} (WS32 in-store purchase)
+let fanoutMemoryModes = {};   // key -> "off" | "seed" | "recall" (D102)
+let fanoutMemoryReaders = {}; // key -> "coordinator" | "specialists" | "both"
+let fanoutMemoryCases = {};   // key -> display label; server derives opaque id from JWT owner
 let fanoutGates = {};     // key -> "none" | "jev" (WS26/D82 System-One gate radio)
 // trace_id -> {start, end} wall-clock window of the console turn that owns it,
 // used to fold time-correlated legs (Apex mints its own trace id) into the
@@ -1929,7 +2132,7 @@ window.labSignIn = async () => {
 // Adding a panel? Add its loader here and nowhere else.
 const SIGNED_IN_LOADERS = [
   loadLaunchers,       // scenarios + targets (the experiment nav)
-  loadDecisions,       // the D-chip corpus
+  loadDecisions,       // the D<n> + WS<n> reference-chip corpora
   refreshTraces,       // trace list, now that /api/traces answers
   loadObs,             // observability summary + sessions
   loadInsights,
@@ -2133,14 +2336,15 @@ function pretty(payload) {
 }
 
 // ---------------------------------------------------------------------------
-// Decision chips — ADR refs (D27, D28, …) mean nothing to a visitor, so any
-// D-number in visible text becomes a chip whose popover renders the actual
-// decision from plan/00-decisions.md. A MutationObserver linkifies every
-// render path (innerHTML swaps, SSE updates) without touching the templates.
+// Reference chips — ADR refs and workstream ids mean nothing to a visitor, so
+// D<n> and WS<n> in visible text become chips whose popover renders the exact
+// source section. A MutationObserver linkifies every render path (innerHTML
+// swaps, SSE updates) without touching the templates.
 // ---------------------------------------------------------------------------
 let decisionLog = {};   // "D28" -> {id, title, date, markdown}
+let workstreamLog = {}; // "WS27" -> {id, title, markdown}
 
-const D_REF_RE = /\b(D\d{1,2})\b/;
+const SOURCE_REF_RE = /\b(?:D\d+|WS\d+)\b/;
 
 // Doc refs (plan/*.md, README.md) get the same treatment as D-refs: a chip
 // whose popover renders the file via /api/docs — so the Lab Guide's cited
@@ -2161,7 +2365,7 @@ const DOC_PATH_SRC = "(?:plan|docs)\\/[\\w.-]+\\.md|build-notes\\/[\\w.-]+\\/[\\
 // A chip that 404s is worse than plain text — it invites a click and fails.
 const DOC_START = "(?<![\\w/-])";
 const DOC_REF_RE = new RegExp(DOC_START + "(" + DOC_PATH_SRC + ")\\b");
-const REF_SPLIT_RE = new RegExp("(\\bD\\d{1,2}\\b|" + DOC_START + "(?:" + DOC_PATH_SRC + ")\\b)");
+const REF_SPLIT_RE = new RegExp("(\\b(?:D\\d+|WS\\d+)\\b|" + DOC_START + "(?:" + DOC_PATH_SRC + ")\\b)");
 
 // Prose writes a file reference as `plan/03-results.md` — inline code — and the
 // text walker below deliberately refuses to touch anything inside <code>, so
@@ -2185,12 +2389,12 @@ function linkifyCodeDocRefs(root) {
 }
 
 function linkifyDecisions(root) {
-  if (!root || !Object.keys(decisionLog).length) return;
+  if (!root || (!Object.keys(decisionLog).length && !Object.keys(workstreamLog).length)) return;
   if (root.nodeType !== 1 && root.nodeType !== 11) return;
   linkifyCodeDocRefs(root);
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      if (!D_REF_RE.test(node.nodeValue) && !DOC_REF_RE.test(node.nodeValue))
+      if (!SOURCE_REF_RE.test(node.nodeValue) && !DOC_REF_RE.test(node.nodeValue))
         return NodeFilter.FILTER_REJECT;
       const p = node.parentElement;
       if (!p || p.closest("pre, code, script, style, textarea, .dchip, .dpopover"))
@@ -2202,14 +2406,15 @@ function linkifyDecisions(root) {
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     const parts = node.nodeValue.split(REF_SPLIT_RE);
-    // Only known decision ids / whitelisted doc paths become chips.
-    if (!parts.some(p => decisionLog[p] || DOC_REF_RE.test(p || ""))) continue;
+    // Only known decision/workstream ids and whitelisted doc paths become chips.
+    if (!parts.some(p => decisionLog[p] || workstreamLog[p] || DOC_REF_RE.test(p || ""))) continue;
     const frag = document.createDocumentFragment();
     for (const part of parts) {
-      if (decisionLog[part]) {
+      if (decisionLog[part] || workstreamLog[part]) {
+        const ref = decisionLog[part] || workstreamLog[part];
         const b = document.createElement("button");
         b.type = "button"; b.className = "dchip"; b.textContent = part;
-        b.title = decisionLog[part].title;
+        b.title = ref.title;
         frag.appendChild(b);
       } else if (part && DOC_REF_RE.test(part)) {
         const b = document.createElement("button");
@@ -2227,9 +2432,9 @@ function closeDecisionPopover() {
 }
 
 function openDecisionPopover(chip) {
-  const d = decisionLog[chip.textContent];
-  if (!d) return;
-  showPopover(chip, d.id, d.markdown);
+  const ref = decisionLog[chip.textContent] || workstreamLog[chip.textContent];
+  if (!ref) return;
+  showPopover(chip, ref.id, ref.markdown);
 }
 
 // Insight file-ref chips (plan/03-results.md, …) — same popover, but the
@@ -2293,8 +2498,14 @@ new MutationObserver(muts => {
 
 async function loadDecisions() {
   try {
-    const r = await fetch(apiUrl("/api/decisions"));
-    decisionLog = (await r.json()).decisions || {};
+    const [decisionsResponse, workstreamsResponse] = await Promise.all([
+      fetch(apiUrl("/api/decisions")),
+      fetch(apiUrl("/api/workstreams")),
+    ]);
+    decisionLog = decisionsResponse.ok ? (await decisionsResponse.json()).decisions || {} : {};
+    workstreamLog = workstreamsResponse.ok
+      ? (await workstreamsResponse.json()).workstreams || {}
+      : {};
     linkifyDecisions(document.body);  // content rendered before the fetch resolved
   } catch { /* chips just don't activate */ }
 }
@@ -2318,11 +2529,70 @@ function participantsOf(t) {
   return seen;
 }
 
-function describeTrace(t) {
+function memoryHopScope(h, personaLabel) {
+  if (!h || h.target !== "agentic-memory"
+      || !String(h.transport_detail || "").includes("/api/v1/agentic/memory")) return null;
+  let raw = h.request_payload_raw;
+  if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = {}; } }
+  const params = raw && typeof raw === "object" ? (raw.params || {}) : {};
+  const detail = String(h.transport_detail || "").split(" · ");
+  const agentApi = detail[2] || "registered agent";
+  const service = agentApi === "A2ALab_Memory_Case" ? "Shared case memory"
+    : agentApi.includes("Claude") ? "Legacy Claude memory registration"
+    : agentApi.includes("OpenAI") ? "Legacy OpenAI memory registration" : agentApi;
+  const rawCategory = params.category || detail[1] || "memory";
+  const category = rawCategory === "sys_PROFILE_FACT" ? "facts"
+    : rawCategory === "sys_PROFILE_PREFERENCES" ? "preferences" : rawCategory;
+  return { persona: personaLabel || "server-resolved customer owner", service, agentApi, category };
+}
+
+function memoryHopPathHtml(h, personaLabel) {
+  const scope = memoryHopScope(h, personaLabel);
+  if (!scope) return "";
+  return `<span class="memory-hop-path" title="This is one scoped semantic-memory read, not a retry">
+    <span class="memory-node">${esc(scope.persona)}</span><span>→</span>
+    <span class="memory-node">${esc(scope.service)}</span><span>→</span>
+    <span class="memory-node">${esc(scope.category)}</span></span>`;
+}
+
+function memoryScopeMapHtml(hops, personaLabel, participants) {
+  const scopes = (hops || []).map(h => memoryHopScope(h, personaLabel)).filter(Boolean);
+  const services = new Map();
+  for (const scope of scopes) {
+    if (!services.has(scope.service)) services.set(scope.service, new Set());
+    services.get(scope.service).add(scope.category);
+  }
+  if (!services.size) services.set("Shared case memory", new Set(["facts", "preferences"]));
+  const persona = scopes[0]?.persona || personaLabel || "Server-resolved customer owner";
+  return `<div class="memory-scope-map" role="img"
+    aria-label="Memory hierarchy: ${esc(persona)}, then shared case memory, then facts and preferences; Claude and OpenAI are execution participants">
+    <div class="memory-scope-root"><b>${esc(persona)}</b><span>face-owned mapping · effective demo isolation boundary</span></div>
+    <div class="memory-scope-arrow">→</div>
+    <div class="memory-scope-branches">${[...services.entries()].map(([service, categories]) => `
+      <div class="memory-scope-branch">
+        <div class="memory-scope-agent"><b>${esc(service)}</b><span>registered memory-service identity</span></div>
+        <div class="memory-scope-arrow">→</div>
+        <div class="memory-scope-leaves">${[...categories].map(category =>
+          `<span class="memory-scope-leaf">${esc(category)}</span>`).join("")}</div>
+      </div>`).join("")}</div>
+    <div class="memory-scope-participants"><b>Execution participants:</b>
+      ${(participants || ["Claude", "OpenAI"]).map(esc).join(" · ")} — provenance, not storage partitions</div>
+  </div>`;
+}
+
+function describeTrace(t, memoryPersona) {
   const hops = t.hops;
   const protos = new Set(hops.map(h => h.protocol));
   const tgts = new Set(hops.map(h => h.target));
   const parts = [];
+
+  const memoryReads = hops.map(h => memoryHopScope(h, memoryPersona)).filter(Boolean);
+  if (memoryReads.length) {
+    const dimensions = [...new Set(memoryReads.map(m => `${m.service} → ${m.category}`))];
+    parts.push(`<b>Memory reads:</b> ${esc(memoryReads[0].persona)} owns the semantic memory;
+      ${dimensions.map(esc).join(", ")} are category reads through one memory-service identity, not
+      Claude/OpenAI storage partitions or duplicate retries.`);
+  }
 
   // Entry over the Agent API = an Agentforce-first scenario: the later
   // agentforce-api hops are the way IN, not Claude calling back (Path B).
@@ -2478,7 +2748,7 @@ function mergedTurnTrace(t) {
   // shim's envelope + proxy hops (Aurora-merged, own trace ids), and
   // rider-labeled platform callers.
   const LEG_SOURCES = new Set(["agentforce-apex", "agentforce-client",
-    "agentforce-a2a-shim", "foundry", "adk", "claude", "openai"]);
+    "agentforce-a2a-shim", "agentforce-a2a-native", "foundry", "adk", "claude", "openai"]);
   const legs = traces.filter(x =>
     x.trace_id !== t.trace_id && !owned.has(x.trace_id) &&
     (x.started || 0) >= lo && (x.started || 0) <= hi &&
@@ -2530,11 +2800,25 @@ function routeFlow(flow, afRoute) {
 // agent's A2A client to the hosted shim, then the shim's proxy to the GA
 // Agent API. Without this, shim runs render a ghost "agent → agentforce
 // api direct" leg that never happened.
+//
+// The a2a-native channel (D106, WS29) is one hop: the agent's A2A client
+// straight to Agentforce's own inbound A2A server, no lab component between.
 function channelFlow(flow, afChannel) {
-  if (afChannel !== "a2a-shim" || !flow) return flow;
+  if ((afChannel !== "a2a-shim" && afChannel !== "a2a-native") || !flow) return flow;
   const out = [];
   for (const step of flow) {
-    if (step.protocol === "agentforce-api" && String(step.target).toLowerCase() === "agentforce") {
+    if (step.protocol === "agentforce-api" && String(step.target).toLowerCase() === "agentforce"
+        && afChannel === "a2a-native") {
+      out.push({
+        source: "client", target: "agentforce", protocol: "a2a",
+        detail: "The a2a-native channel (D106): the agent's ask_agentforce_a2a_native tool sends "
+          + "an A2A 1.0 SendMessage straight to Agentforce's own inbound A2A server "
+          + "(api.salesforce.com/einstein/ai-agent/a2a/<twin>) — a client-credentials OrgJWT from "
+          + "the a2a_lab_af_a2a ECA, D27 rider on the question, each platform's own twin (D25). "
+          + "No lab shim in the path. A turn longer than 5 s comes back as a Task, which the "
+          + "client polls with GetTask. The endpoint is a Salesforce pilot (WS29).",
+      });
+    } else if (step.protocol === "agentforce-api" && String(step.target).toLowerCase() === "agentforce") {
       out.push({
         source: "client", target: "agentforce-a2a-shim", protocol: "a2a",
         detail: "The a2a-shim channel (D28): the agent's ask_agentforce_a2a tool sends an A2A "
@@ -2638,7 +2922,7 @@ const GHOST_TIP = "This leg runs inside the remote platform's runtime. The lab r
   + "at its own seams, and this platform's interior telemetry is ephemeral — see the "
   + "Observability coverage panel.";
 
-function traceSectionHtml(t, title, flow) {
+function traceSectionHtml(t, title, flow, memoryPersona) {
   if (!t || !t.hops.length) {
     return `<div class="flow"><h3>${esc(title)}</h3>
       <div class="desc"><span class="stat">No hops yet — run a turn and the call path streams in live.</span></div></div>`;
@@ -2648,7 +2932,8 @@ function traceSectionHtml(t, title, flow) {
     <div class="flow">
       <h3>${esc(title)} <span style="text-transform:none;letter-spacing:0"> · trace ${esc(t.trace_id.slice(0, 12))}…${
         t._legs ? ` + ${t._legs} platform-initiated leg${t._legs === 1 ? "" : "s"} (correlated by time — Apex mints its own trace id)` : ""}</span></h3>
-      <div class="desc">${describeTrace(t)}</div>
+      <div class="desc">${describeTrace(t, memoryPersona)}</div>
+      ${memoryScopeMapHtml(hops, memoryPersona)}
       <div class="svgwrap">${renderDiagram({ ...t, hops })}</div>
     </div>` + hops.map((h, i) => {
       if (h._ghost) return `
@@ -2669,7 +2954,8 @@ function traceSectionHtml(t, title, flow) {
         <div class="hop-head" onclick="toggle('${key}', ${i})">
           <span class="badge ${h.protocol}">${h.protocol}</span>
           <span class="route">${esc(h.source)} → <b>${esc(h.target)}</b>
-            <span class="td"> · ${esc(h.transport_detail || "")}</span></span>
+            <span class="td"> · ${esc(h.transport_detail || "")}</span>
+            ${memoryHopPathHtml(h, memoryPersona)}</span>
           ${h._leg ? `<span class="badge internal" title="Hop from the Salesforce-initiated leg — Apex minted its own trace id ${esc(h._leg)}">leg ${esc(h._leg.slice(0, 8))}…</span>` : ""}
           ${h.status === "error" ? `<span class="err">ERROR</span>` : ""}
           ${h.status === "pending" ? `<span class="badge a2a" title="Expected: Agent Engine's task store is eventually consistent, so this tasks/get returned not-found — either in the window right after submit, or flapping between later polls even after an earlier read succeeded. Not a fault: a read proves the endpoint serves tasks, so the runner rides these through until the task appears and the leg completes (WS11).">waiting for task</span>` : ""}
@@ -2701,16 +2987,20 @@ function statusHtml(key, cls) {
 function scenarioCardHtml(s) {
   const soon = s.status !== "live";
   const isOpen = view && view.type === "experiment" && view.kind === "scenario" && view.name === s.name;
+  const memoryPresentation = ["customer-memory-claude", "customer-memory-openai"].includes(s.name);
   return `
     <div class="card ${soon ? "soon" : ""} ${isOpen ? "open" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
       <div class="head">
-        <h3>${withLogos(s.title || s.name)}</h3>
+        <h3>${scenarioTitleHtml(s)}</h3>
         ${statusHtml("scn:" + s.name, "status")}
       </div>
       <p>${esc(s.summary || s.description || "")}</p>
       <div class="foot">${tagChipsHtml(s.tags)}
         ${modeUnmet(s) ? `<span class="badge hosted" title="Needs A2ALAB_MODE=${esc(s.requires_mode)} — the top-right mode badge shows the active mode">needs ${esc(s.requires_mode)} mode</span>` : ""}
-        ${soon ? `<span class="badge soon">coming soon</span>` : ""}</div>
+        ${soon ? `<span class="badge soon">coming soon</span>` : ""}
+        ${memoryPresentation ? `<button class="ghost" id="memory-presentation-${esc(s.name)}"
+          onclick="event.stopPropagation();openMemoryPresentation(this.id)"
+          aria-label="Present Agent Memory from ${esc(s.title)}">Presentation mode</button>` : ""}</div>
     </div>`;
 }
 
@@ -2775,6 +3065,25 @@ const PLATFORM_LOGOS = {
 };
 const logoSvg = key => PLATFORM_LOGOS[key] || "";
 
+// One registry-wide translation from target platform ids to the vendor/cloud
+// marks above. `null` is an explicit text-only decision, not a missing case.
+// Guide keeps the AWS hosting identity already used by Agent Registry; the
+// warm-up shim remains a local AWS override because it is an endpoint role.
+const PLATFORM_MARK = {
+  claude: "anthropic", agentforce: "salesforce", openai: "openai",
+  adk: "gcloud", foundry: "microsoft", strands: "aws",
+  langgraph: "langgraph", guide: "aws", mulesoft: null,
+};
+const PLATFORM_LABEL = {
+  claude: "Anthropic Claude", agentforce: "Salesforce Agentforce", openai: "OpenAI",
+  adk: "Google ADK", foundry: "Microsoft Foundry", strands: "AWS Strands",
+  langgraph: "LangGraph", guide: "AWS-hosted Lab Guide", mulesoft: "MuleSoft",
+};
+const TITLE_ROLE_LABEL = {
+  "claude:researcher": "Claude Managed Agents researcher",
+  "agentforce:delivery-org": "Salesforce delivery org",
+};
+
 // ONE pass with ordered alternation, longest name first: "Salesforce
 // Agentforce" and "Microsoft Foundry" take a single mark. Running the
 // patterns in sequence instead would re-match the short name inside the
@@ -2789,11 +3098,12 @@ const logoSvg = key => PLATFORM_LOGOS[key] || "";
 // "Claude (AWS) → Agentforce", where the parenthetical says WHERE the Claude
 // end is hosted; a mark there competes with the Anthropic one two words
 // earlier and adds nothing the word doesn't already say.
-const LOGO_RE = /Salesforce Agentforce|Microsoft Foundry|Google Cloud|Google ADK|Vertex AI|Agent Engine|AWS Strands|Agentforce|Claude|OpenAI|Gemini|Foundry|Microsoft|Google/g;
+const LOGO_RE = /Salesforce Agentforce|Microsoft Foundry|Google Cloud|Google ADK|Vertex AI|Agent Engine|AWS Strands|LangGraph|Claude|Agentforce|OpenAI|Gemini|Foundry|Microsoft|Google/g;
 const LOGO_KEY = {
   "Salesforce Agentforce": "salesforce", "Microsoft Foundry": "microsoft",
   "Google Cloud": "gcloud", "Google ADK": "gcloud", "Vertex AI": "gcloud",
-  "Agent Engine": "gcloud", "AWS Strands": "aws", "Agentforce": "salesforce",
+  "Agent Engine": "gcloud", "AWS Strands": "aws", "LangGraph": "langgraph",
+  "Agentforce": "salesforce",
   "Claude": "anthropic", "OpenAI": "openai", "Gemini": "google",
   "Foundry": "microsoft", "Microsoft": "microsoft", "Google": "gcloud",
 };
@@ -2803,6 +3113,41 @@ const LOGO_KEY = {
 function withLogos(text) {
   return esc(String(text || ""))
     .replace(LOGO_RE, m => `<span class="pmark">${logoSvg(LOGO_KEY[m])}${m}</span>`);
+}
+
+// Icon-only marks need one accessible name for the semantic group. Roles in
+// title_identity are deliberate display copy; ordinary platform labels come
+// only from the trusted registry above. A duplicate vendor mark is collapsed
+// only inside this cluster, never against a mark already present in the title.
+function titleIconGroupHtml(items, groupLabel, lead = false) {
+  const seen = new Set();
+  const labels = [];
+  const icons = (items || []).map(item => {
+    const platform = typeof item === "string" ? item : item && item.platform;
+    const mark = Object.prototype.hasOwnProperty.call(PLATFORM_MARK, platform)
+      ? PLATFORM_MARK[platform] : undefined;
+    if (!mark || seen.has(mark)) return "";
+    seen.add(mark);
+    const role = typeof item === "object" && item ? item.role : "";
+    labels.push(TITLE_ROLE_LABEL[`${platform}:${role}`] || PLATFORM_LABEL[platform]);
+    return logoSvg(mark);
+  }).join("");
+  if (!icons || !labels.length) return "";
+  const label = `${groupLabel}: ${labels.join(", ")}`;
+  return `<span class="title-icons${lead ? " lead" : ""}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${icons}</span>`;
+}
+
+function scenarioTitleHtml(s) {
+  if (!s) return "";
+  return withLogos(s.title || s.name)
+    + titleIconGroupHtml(s.title_identity, "Experiment identity")
+    + titleIconGroupHtml(s.fanout_platforms, "Fan-out units");
+}
+
+function targetTitleHtml(t) {
+  if (!t) return "";
+  const icons = titleIconGroupHtml([t.platform], "Platform", true);
+  return `${icons}${icons ? " " : ""}${esc(t.name)}`;
 }
 
 function tagChipsHtml(tags) {
@@ -2842,15 +3187,17 @@ function renderScenarios() {
     el.innerHTML = groups.map(g => {
       if (g.upcoming) return `
       <div class="nav-group upcoming" title="Roadmap workstream ${esc(g.upcoming)} — plan/07-workstreams.md">
-        <span class="caret"></span><span class="gtitle">${withLogos(g.title)}</span>
+        <span class="gtitle">${withLogos(g.title)}</span>
       </div>
       <div class="nav-group-empty">coming soon · ${esc(g.upcoming)}</div>`;
       const open = openGroups.has(g.id);
       return `
       <div class="nav-group ${open ? "open" : ""}" onclick="toggleGroup('${esc(g.id)}')">
-        <span class="caret">${open ? "▾" : "▸"}</span>
         <span class="gtitle">${withLogos(g.title)}</span>
         <span class="gcount">${g.scenarios.length}</span>
+        ${g.id === "agent-memory" ? `<button class="ghost group-action"
+          id="memory-presentation-section" onclick="event.stopPropagation();openMemoryPresentation(this.id)"
+          aria-label="Present Agent Memory">Present</button>` : ""}
       </div>
       ${open ? g.scenarios.map(scenarioCardHtml).join("") : ""}`;
     }).join("");
@@ -2869,9 +3216,8 @@ function renderTargets() {
     const isOpen = view && view.type === "experiment" && view.kind === "cell" && view.name === t.name;
     return `
     <div class="target ${isOpen ? "open" : ""}" onclick="openExperiment('cell', '${esc(t.name)}')">
-      <span class="badge ${t.protocol}">${t.protocol}</span>
-      <span class="tname mono">
-        <span title="platform: ${esc(t.platform)}">${esc(t.name)}</span>
+      <span class="badge ${esc(t.protocol)}">${esc(t.protocol)}</span>
+      <span class="tname mono" title="platform: ${esc(t.platform)}">${targetTitleHtml(t)}
         <span class="st">${esc(t.status)}</span>
       </span>
       ${r && r.state === "running" ? `<span class="spin">running…</span>` : statusHtml("cell:" + t.name, "result")}
@@ -2945,19 +3291,300 @@ function pushNav() {
 }
 
 window.goBack = () => {
+  const leavingPresentation = view && view.type === "memory-presentation";
+  const presentationLauncher = leavingPresentation ? view.launcher : null;
   const prev = navStack.pop();
-  if (!prev) { view = null; renderSidebar(); renderMain(true); return; }
-  view = prev.view; selected = prev.selected;
-  if (view.type === "obs" && view.session) {
+  if (!prev) {
+    view = null;
+  } else {
+    view = prev.view; selected = prev.selected;
+  }
+  if (view && view.type === "obs" && view.session) {
     fetchObsEvents(view.platform, view.session);
   }
   renderSidebar(); renderMain(true);
+  if (leavingPresentation) requestAnimationFrame(() => {
+    const candidate = presentationLauncher && document.getElementById(presentationLauncher);
+    const target = candidate && candidate.offsetParent !== null
+      ? candidate : document.getElementById("appHomeLink");
+    target?.focus();
+  });
 };
 
 function backBtnHtml() {
   return navStack.length
     ? `<button class="ghost" onclick="goBack()" title="Back to the previous view">‹ Back</button>` : "";
 }
+
+// ---------------------------------------------------------------------------
+// WS31 — Agent Memory presentation mode. Eight evidence-only scenes are kept
+// declarative so a future section can reuse the controller without copying it.
+// ---------------------------------------------------------------------------
+const MEMORY_PRESENTATION_SCENES = [
+  {
+    title: "Why agents need shared memory",
+    lede: "A customer should not have to repeat durable constraints when the agent platform or session changes.",
+    evidence: ["Verified demo", "D104", "D105", "D115"],
+    nodes: [
+      ["Customer turn", "Maya teaches a durable constraint and preference."],
+      ["Claude", "The teaching agent reads context, answers, and closes the written turn."],
+      ["Shared registration", "The current lab path stores curated facts and preferences under one registration."],
+      ["OpenAI", "A different platform can recall the same selected customer's eligible memory."],
+    ],
+    points: [
+      "Measured: Claude taught three details and OpenAI recalled them in a later session.",
+      "Isolation control: Jordan did not receive Maya's planted details.",
+      "Scope is registration × server-resolved customer owner × category—not universal profile storage.",
+    ],
+  },
+  {
+    title: "Configure the memory path",
+    lede: "The faces share one fixed registration and one deployment-configured data space; the browser chooses neither.",
+    evidence: ["Configured", "Measured", "D112", "D115"],
+    nodes: [
+      ["Agent face", "Claude and OpenAI use the same server-side memory seam."],
+      ["Data space", "A required deployment setting is displayed to the presenter, not selected here."],
+      ["A2ALab_Memory_Case", "The fixed live registration has extraction enabled."],
+      ["Current readback", "No graph or profile DMO is declared; the service defaults the profile DMO."],
+    ],
+    points: [
+      "The measured default profile DMO is UnifiedIndividual__dlm, not the CRM-backed AM01 profile.",
+      "An earlier partial PATCH may explain the missing declaration, so its cause remains open.",
+      "The live demo registration remains unchanged for repeatability.",
+    ],
+  },
+  {
+    title: "Pass the conversation to memory",
+    lede: "Each turn is written as a conversation, session, participant, and ordered set of user and agent entries.",
+    evidence: ["Available", "Observed", "D87", "D107"],
+    nodes: [
+      ["Open conversation", "The face creates or reuses the selected customer's experiment conversation."],
+      ["Write entries", "User and agent text are ingested in order with stable entry ids."],
+      ["Redact", "The seam removes secrets and limits retained payloads before ingest."],
+      ["Close session", "Closing the written turn requests asynchronous extraction."],
+    ],
+    points: [
+      "The agent passes conversation data through the server; profile ids never appear in this presentation.",
+      "Extraction begins after close and is not promised within a fixed number of seconds.",
+      "A later read—not the teaching response itself—proves that extracted memory became available.",
+    ],
+  },
+  {
+    title: "Extract facts and preferences",
+    lede: "The current registration generates two curated memory categories from the closed conversation.",
+    evidence: ["Available", "Observed", "D105"],
+    nodes: [
+      ["Closed turn", "The complete user and agent exchange is eligible for extraction."],
+      ["LLM extraction", "Data 360 performs asynchronous memory generation."],
+      ["Facts", "Durable statements such as a tested troubleshooting step."],
+      ["Preferences", "Durable choices such as concise checklist formatting."],
+    ],
+    points: [
+      "The lab can observe inputs and resulting memories, not the extraction model's hidden reasoning.",
+      "Facts and preferences are fetched as separate current Memory API categories.",
+      "Session summaries and curated memories are different outputs and should not be conflated.",
+    ],
+  },
+  {
+    title: "Store and isolate what was learned",
+    lede: "For this lab caller, the face's server-side customer-to-owner mapping is the effective isolation boundary.",
+    evidence: ["Measured", "Open boundary", "D91", "D115"],
+    nodes: [
+      ["Verified lab user", "A signed, non-machine lab identity selects an allow-listed demo customer."],
+      ["Server mapping", "The face resolves that customer to the owner it sends to memory."],
+      ["Registration", "Curated facts and preferences remain scoped to the registration in measured tests."],
+      ["Categories", "Facts and preferences remain separate retrieval partitions."],
+    ],
+    points: [
+      "The internal caller did not enforce the token's customer id; the sent profile_id selected the owner.",
+      "Maya/Jordan isolation passed because the server mapping chose different owners.",
+      "A second registration starting empty is measured but conflicts with current guidance, so it remains an open product boundary.",
+    ],
+  },
+  {
+    title: "Retrieve context for the next agent",
+    lede: "GetContext and explicit facts/preferences reads are separate operations with different evidence in the trace.",
+    evidence: ["Measured", "D107", "D115"],
+    nodes: [
+      ["GetContext", "Returns eligible conversation/profile context for the current owner and generation."],
+      ["Memory API", "Reads curated facts and preferences unless fresh-generation isolation suppresses the merge."],
+      ["Attached graph controls", "Platform-made graph controls returned their record, proving the path works."],
+      ["CRM graph control", "The operator-built real-time graph returned Customer360 when the owner was a Contact id."],
+    ],
+    points: [
+      "The faces currently send the memory pipeline's own Individual, not the customer's Contact id.",
+      "The live registration has no attached graph, so this demo makes no live CRM graph claim.",
+      "After Start fresh, profile rows are quarantined and saved facts/preferences reads are intentionally skipped.",
+    ],
+  },
+  {
+    title: "Read the evidence—and the limits",
+    lede: "The tour separates configured behavior, measured results, and open questions so the demo never outruns its traces.",
+    evidence: ["Evidence boundary", "D107", "D112", "D115"],
+    nodes: [
+      ["Configured", "Registration, data space, extraction flag, and runtime budgets."],
+      ["Measured", "Cross-agent recall, customer isolation, registration scope, and graph controls."],
+      ["Observable", "Tenant trace hops, Memory API reads, GetContext, ingest, and later recall."],
+      ["Open", "The live graph attachment, Contact-id identity contract, and Profile rendering budget."],
+    ],
+    points: [
+      "Extraction is asynchronous; availability lag is demonstrated, never guaranteed.",
+      "Memory is fail-open within the agent response budget, so an agent can answer when memory is unavailable.",
+      "Limited-GA billing copy distinguishes measured execution from a dedicated wallet charge.",
+    ],
+  },
+  {
+    title: "Prove it live: Claude teaches, OpenAI recalls",
+    lede: "Launch either existing experiment with the same selected customer. The experiment remains the source of live answers, actions, and traces.",
+    evidence: ["Live handoff", "No auto-send", "D105", "D107"],
+    nodes: [
+      ["1 · Teach Claude", "Open the seeded teaching experiment; the presenter decides when to send."],
+      ["2 · Wait for evidence", "Extraction is asynchronous. Verify with a later read rather than a timer promise."],
+      ["3 · OpenAI recalls", "Open the recall experiment with the same selected customer and Memory on."],
+      ["4 · Inspect traces", "Confirm only the hops appropriate to the current generation state."],
+    ],
+    points: [],
+    live: true,
+  },
+];
+
+function ensureMemoryPresentationCustomer() {
+  const customers = (labConfig && labConfig.memory_customers) || {};
+  if (!customers[selectedMemoryCustomer]) {
+    selectedMemoryCustomer = customers.maya ? "maya" : (Object.keys(customers)[0] || "maya");
+  }
+  return customers[selectedMemoryCustomer] || { name: "Selected customer" };
+}
+
+function memoryPresentationReadinessHtml() {
+  const customer = ensureMemoryPresentationCustomer();
+  const state = memoryManagerState(selectedMemoryCustomer);
+  const dataSpace = labConfig && labConfig.memory_data_space;
+  const generation = state.generation === undefined
+    ? "not loaded · inspect observed hops only"
+    : (state.profile_memory_suppressed
+      ? "fresh isolation · saved reads skipped" : "baseline · category reads expected");
+  const viewer = labUser && labUser.role === "viewer";
+  return `
+    <div class="memory-readiness" role="group" aria-label="Live demo readiness">
+      <div class="memory-ready-row"><span>Customer</span><b>${esc(customer.name || selectedMemoryCustomer)}</b></div>
+      <div class="memory-ready-row"><span>Registration</span><b>A2ALab_Memory_Case</b></div>
+      <div class="memory-ready-row"><span>Data space</span><b>${dataSpace
+        ? `${esc(dataSpace)} <small class="hint">configured</small>` : "not configured"}</b></div>
+      <div class="memory-ready-row"><span>Generation</span><b>${esc(generation)}</b></div>
+      <div class="memory-ready-row"><span>Launch behavior</span><b>Memory on · prompt loaded · no automatic send</b></div>
+    </div>
+    <div class="memory-launchers">
+      <button class="primary" onclick="launchMemoryExperiment('customer-memory-claude')">${viewer ? "Open Claude details" : "Open Teach Claude"}</button>
+      <button class="ghost" onclick="launchMemoryExperiment('customer-memory-openai')">${viewer ? "Open OpenAI details" : "Open OpenAI recall"}</button>
+    </div>`;
+}
+
+function memoryPresentationHtml() {
+  const sceneIndex = Math.max(0, Math.min(MEMORY_PRESENTATION_SCENES.length - 1, Number(view.scene) || 0));
+  const scene = MEMORY_PRESENTATION_SCENES[sceneIndex];
+  const flow = scene.nodes.map((node, index) => `
+    <article class="memory-flow-card">
+      <span class="seq">Step ${index + 1}</span><b>${esc(node[0])}</b><p>${esc(node[1])}</p>
+    </article>`).join("");
+  const narration = scene.live ? memoryPresentationReadinessHtml() : `
+    <ul>${scene.points.map(point => `<li>${esc(point)}</li>`).join("")}</ul>`;
+  return `
+    <section class="memory-present" aria-label="Agent Memory presentation">
+      <div class="memory-present-top">
+        <button class="ghost" onclick="exitMemoryPresentation()">Exit presentation</button>
+        <b>Agent Memory</b>
+        <span class="memory-present-mode">Presentation mode</span>
+        <span class="memory-present-progress">${sceneIndex + 1} / ${MEMORY_PRESENTATION_SCENES.length}</span>
+      </div>
+      <div class="memory-present-layout">
+        <nav class="memory-scene-rail" aria-label="Agent Memory presentation scenes">
+          <ol>${MEMORY_PRESENTATION_SCENES.map((item, index) => `
+            <li><button class="memory-scene-link" onclick="setMemoryPresentationScene(${index})"
+              ${index === sceneIndex ? 'aria-current="step"' : ""}>
+              <span class="memory-scene-num">${index + 1}</span><span>${esc(item.title)}</span>
+            </button></li>`).join("")}</ol>
+        </nav>
+        <div class="memory-present-stage" id="memoryPresentationStage" tabindex="-1"
+          role="region" aria-labelledby="memory-present-title">
+          <div class="memory-present-kicker">Agent Memory · scene ${sceneIndex + 1}</div>
+          <h2 id="memory-present-title">${esc(scene.title)}</h2>
+          <p class="memory-present-lede">${esc(scene.lede)}</p>
+          <div class="memory-present-grid">
+            <div class="memory-system-map"><h3>How this part works</h3><div class="memory-flow">${flow}</div></div>
+            <aside class="memory-narration"><h3>What the evidence supports</h3>
+              <div class="memory-present-evidence">${scene.evidence.map(item => `<span class="badge">${esc(item)}</span>`).join("")}</div>
+              ${narration}
+            </aside>
+          </div>
+          <div class="memory-present-controls">
+            <button class="ghost" onclick="setMemoryPresentationScene(${sceneIndex - 1})" ${sceneIndex === 0 ? "disabled" : ""}>Previous</button>
+            <span class="hint">Use the scene rail or left/right arrow keys.</span>
+            <button class="primary next" onclick="setMemoryPresentationScene(${sceneIndex + 1})" ${sceneIndex === MEMORY_PRESENTATION_SCENES.length - 1 ? "disabled" : ""}>Next</button>
+          </div>
+        </div>
+      </div>
+    </section>`;
+}
+
+window.openMemoryPresentation = launcher => {
+  if (!requireSignIn()) return;
+  pushNav();
+  view = { type: "memory-presentation", scene: 0, launcher: launcher || "memory-presentation-section" };
+  renderSidebar(); renderMain(true);
+  requestAnimationFrame(() => {
+    document.getElementById("memoryPresentationStage")?.focus();
+    announceMemoryPresentationScene();
+  });
+};
+
+function announceMemoryPresentationScene() {
+  const status = document.getElementById("memoryPresentationStatus");
+  if (!status || !view || view.type !== "memory-presentation") return;
+  const scene = MEMORY_PRESENTATION_SCENES[Number(view.scene) || 0];
+  status.textContent = `Scene ${(Number(view.scene) || 0) + 1}: ${scene.title}`;
+}
+
+window.setMemoryPresentationScene = scene => {
+  if (!view || view.type !== "memory-presentation") return;
+  const next = Math.max(0, Math.min(MEMORY_PRESENTATION_SCENES.length - 1, Number(scene) || 0));
+  if (next === view.scene) return;
+  view = { ...view, scene: next };
+  renderMain(true);
+  requestAnimationFrame(() => {
+    document.getElementById("memoryPresentationStage")?.focus();
+    announceMemoryPresentationScene();
+  });
+};
+
+window.exitMemoryPresentation = () => { if (view && view.type === "memory-presentation") goBack(); };
+
+window.launchMemoryExperiment = name => {
+  if (!labUser || !["customer-memory-claude", "customer-memory-openai"].includes(name)) {
+    if (!labUser) requireSignIn();
+    return;
+  }
+  ensureMemoryPresentationCustomer();
+  const key = expKey("scenario", name);
+  const spec = scenarios.find(scenario => scenario.name === name);
+  memoryModes[key] = "on";
+  drafts[key] = expDefaultPrompt(spec);
+  openExperiment("scenario", name);
+};
+
+document.addEventListener("keydown", ev => {
+  if (!view || view.type !== "memory-presentation") return;
+  if (ev.key === "Escape") {
+    if (document.querySelector(".dpopover, .dgmask") || document.fullscreenElement
+        || document.querySelector(".arch-fsfallback")) return;
+    if (ev.target.closest?.("input, select, textarea, [contenteditable='true']")) return;
+    ev.preventDefault(); ev.stopImmediatePropagation(); exitMemoryPresentation(); return;
+  }
+  if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+  if (ev.target.closest?.("input, button, select, textarea, dialog, .dpopover, .dgmask")) return;
+  ev.preventDefault();
+  setMemoryPresentationScene((Number(view.scene) || 0) + (ev.key === "ArrowRight" ? 1 : -1));
+}, true);
 
 function obsMsg(text, isErr) {
   const el = document.getElementById("obsMsg");
@@ -3023,13 +3650,15 @@ const OBS_TABS = [
   ["observability", "Observability Analysis"],
   ["session-trace", "Session Trace"],
   ["tableau", "Tableau Next"],
+  ["digital-wallet", "Digital Wallet"],
 ];
 // Brief kinds keyed by tab id — `null` for the dashboard, which reads the
 // harvested tables rather than lab.obs_briefs. The cost sentinel's briefs used
 // to have a "Cost Analysis" tab here too; they now live ONLY in the Coding
 // Agents Telemetry → Cost tab (WS9/WS12), where the tokens and modelled cost
 // they explain also live, so the same brief is not rendered in two sections.
-const OBS_TAB_KIND = { dashboard: null, observability: "observability", "session-trace": null, tableau: null };
+const OBS_TAB_KIND = { dashboard: null, observability: "observability", "session-trace": null,
+  tableau: null, "digital-wallet": null };
 
 window.setObsTab = t => {
   obs.tab = t;
@@ -3089,7 +3718,7 @@ const BRIEF_META = {
   observability: {
     label: "Observability analysis",
     blurb: "What the <b>observability analyst</b> found in the harvested platform logs — the lab's own "
-         + "experiment telemetry across all six platforms.",
+         + "experiment telemetry across all seven platforms (Agentforce, Claude, OpenAI, ADK, Foundry, Strands, LangGraph).",
     emptyHint: "The analyst is a PAUSED deployment, so it only runs when you hit Analyze in the sidebar.",
     diagram: () => OBS_ANALYST_DIAGRAM,
     details: `### What writes this brief
@@ -3112,7 +3741,7 @@ permission prompt, so a tool evaluated as "ask" stalls the session indefinitely 
 ### What it analyses, and where the brief lands
 
 The harvested execution logs in \`lab.obs_sessions\` and \`lab.obs_events\` — sessions, turns, tool calls,
-token usage and errors from all six platforms. This is the telemetry of what the **experiments** did.
+token usage and errors from all seven agent platforms harvested by the default sweep (Agentforce, Claude, OpenAI, ADK, Foundry, Strands and, since D77, LangGraph via LangSmith; the coding-agent and infra sources are not platform columns). This is the telemetry of what the **experiments** did.
 
 Briefs are written to \`lab.obs_briefs\` with \`kind='observability'\`. The cost sentinel writes to the same
 table with a different kind; each tab shows only its own.
@@ -3152,7 +3781,8 @@ on Aurora Postgres, which is the source of truth for everything on this page (D4
 - **Microsoft Foundry** — KQL over App Insights \`gen_ai\` spans
 - **AWS Strands (Bedrock AgentCore)** — AWS/Bedrock CloudWatch meters (Input/OutputTokenCount, Invocations, InvocationLatency) plus the AgentCore runtime access log; one session per deployed runtime (D67)
 - **LangGraph (LangSmith)** — the LangSmith runs API (LangGraph's framework-native trace store): one session per turn with its run tree — the LLM and tool child runs as events, tokens/latency/model rolled up (WS4/D77)
-- **coding** — CloudWatch metrics for the agents that build the lab (WS9), surfaced in its own section
+- **coding** — CloudWatch OTLP metrics (cost/tokens) for the agents that build the lab (WS9), surfaced in its own section
+- **coding-logs** — the behavioural OTLP log signal (edit-acceptance, tool mix, latency) read from the \`/a2alab/coding-agents/otlp\` log group (WS16/D59), surfaced in the same Coding Agents Telemetry section
 
 ### What limits what you see here
 
@@ -3225,6 +3855,50 @@ function obsTableauNextHtml() {
   </div>`;
 }
 
+// D111/WS30: a second Tableau Next asset over Digital Wallet consumption data.
+// It reuses the existing owner-gated SDK session and ECA; only the dashboard API
+// name differs. Until that asset exists, the tab remains an explicit future-data
+// surface instead of attempting a broken embed or presenting zero as measured.
+function obsDigitalWalletHtml() {
+  const root = (labConfig && labConfig.tableau_next) || {};
+  const c = root.consumption || {};
+  const shot = c.shot ? apiUrl(c.shot) : null;
+  const embed = c.embed;
+  const shotInner = shot
+    ? `<div class="compshot"><img src="${esc(shot)}" alt="Tableau Next — A2A Lab agent and Data 360 consumption dashboard" loading="lazy"></div>`
+    : `<div class="compshot"><div class="compshot-missing">No consumption-dashboard snapshot yet. Once the
+        first daily Digital Wallet usage lands, build the Tableau Next asset and set
+        <code>TABLEAU_CONSUMPTION_DASHBOARD_API_NAME</code>.</div></div>`;
+  const shotBlock = embed
+    ? `<details class="snapfold consumption-snapfold"><summary>Dashboard snapshot</summary>${shotInner}</details>`
+    : shotInner;
+  return `<div class="flow">
+    <h3>Agent &amp; Data 360 Consumption — Digital Wallet${embed ? " Inline Embedded" : ""}</h3>
+    <div class="desc"><span class="stat">A cost-attribution companion to the wire-level observability views.
+      It will read Salesforce's <code>TenantEnrichedUsageEvent</code> data through the Consumption Insights
+      semantic model and slice usage by agent, action, Data 360 resource, usage type, and the lab's custom
+      Portfolio / Experiment / Workload / Platform Pair / Execution Mode / Memory Arm tags.</span></div>
+    ${embed
+      ? `<div id="tableauConsumptionEmbedHost" class="tableau-embed" aria-busy="true">
+           <div class="tableau-embed-status stat">Connecting to Salesforce…</div>
+         </div>`
+      : ""}
+    ${shotBlock}
+    ${!c.configured
+      ? `<div class="desc"><span class="stat"><b>Awaiting billable usage.</b> Digital Wallet records arrive
+          on an approximately daily cadence. This tab is scaffolded now, but it does not treat an absent event
+          as measured zero—especially for Agentic Memory, which is free during Limited GA.</span></div>`
+      : ""}
+    ${c.app_url
+      ? `<div class="desc" style="margin-top:10px"><a class="ghost" href="${esc(c.app_url)}" target="_blank"
+          rel="noopener">Open the consumption dashboard in Salesforce ↗</a></div>`
+      : c.app_url_owner_only
+        ? `<div class="desc" style="margin-top:10px"><span class="stat">The in-org dashboard link is available
+            only to the lab owner during controlled presentations.</span></div>`
+        : ""}
+  </div>`;
+}
+
 // WS19/M10: mount the live Tableau Next dashboard inline (owner only). Called
 // after obsTableauNextHtml() is in the DOM. Fetches a fresh frontdoor URL from
 // the owner-gated /api/tableau/frontdoor (the Bearer JWT rides the global fetch
@@ -3234,16 +3908,18 @@ function obsTableauNextHtml() {
 // frontdoor URLs are short-lived and single-use, so this runs per mount.
 let _tableauSdkPromise = null;   // the module import — once per page load
 let _tableauSdkInit = null;      // initializeAnalyticsSdk() — once per page load
-async function mountTableauEmbed() {
-  const cfg = (labConfig && labConfig.tableau_next && labConfig.tableau_next.embed) || null;
-  const host = document.getElementById("tableauEmbedHost");
+async function mountTableauEmbed(kind = "traffic") {
+  const root = (labConfig && labConfig.tableau_next) || {};
+  const consumption = kind === "consumption";
+  const cfg = consumption ? ((root.consumption && root.consumption.embed) || null) : (root.embed || null);
+  const host = document.getElementById(consumption ? "tableauConsumptionEmbedHost" : "tableauEmbedHost");
   if (!cfg || !host) return;   // not the owner, or ECA not wired
   const fail = (msg) => {
     host.setAttribute("aria-busy", "false");
     host.classList.add("tableau-embed-failed");
     // The screenshot fold is the graceful fallback: open it so the still image
     // is visible without a click, and explain the gap.
-    document.querySelector(".snapfold")?.setAttribute("open", "");
+    host.closest(".flow")?.querySelector(".snapfold")?.setAttribute("open", "");
     const s = host.querySelector(".tableau-embed-status");
     if (s) s.innerHTML = `<span class="stat">Inline dashboard unavailable — ${esc(msg)}
       The <b>Dashboard snapshot</b> below is a still image of the same dashboard off the same live data;
@@ -3296,6 +3972,41 @@ async function mountTableauEmbed() {
   } catch (e) {
     fail((e && e.message ? e.message + "." : "connection failed."));
   }
+}
+
+function obsDigitalWalletDetailsHtml() {
+  const md = `### What this dashboard is for
+
+This is the **billing and attribution** view beside the lab's execution observability—not a replacement
+for traces. Its source is Digital Wallet's **TenantEnrichedUsageEvent** DLO and the Consumption Insights
+semantic model. The first dashboard should answer: which agent or action consumed credits, which Data 360
+usage type was charged, and which lab experiment/workload/memory arm should own that usage?
+
+### First report slices
+
+- Credits and units by **usage type**, day, and consumption card
+- Agentforce usage by **root BotDefinition** and **GenAiFunctionDefinition** action
+- Data 360 usage by reportable resource type and resource API name
+- Custom dimensions: **Portfolio, Experiment, Workload, Platform Pair, Execution Mode, Memory Arm**
+- **Unattributed Data 360** as an explicit bucket, never silently folded into zero
+- Data-query events joined from \`CorrelationIdentifier__c\` to the corresponding Agentforce trace/session
+
+### Memory billing boundary
+
+Salesforce currently documents Agentic Memory and Context as free during Limited GA, with final pricing
+unannounced. Conversation ingestion, retrieval, and GetContext are free. LLM extraction of profile facts,
+preferences, and session summaries will consume Flex Credits when usage-based pricing takes effect. A zero
+wallet charge therefore does not prove that a memory read/write failed; the execution trace remains the
+evidence that the path ran.
+
+### Embed and access model
+
+The second dashboard reuses the existing owner-only Tableau Next Embedding SDK session, dedicated
+\`a2a_lab_tab_embed\` run-as user, and \`/api/tableau/frontdoor\` exchange. No second OAuth app or browser-held
+Salesforce credential is required. Set \`TABLEAU_CONSUMPTION_DASHBOARD_API_NAME\` after the dashboard asset is
+created; optionally set \`TABLEAU_CONSUMPTION_APP_TAB\` for an in-org deep link. Digital Wallet events and
+custom-tag stamping arrive on an approximately daily cadence, so freshness must be shown on the dashboard.`;
+  return `<div class="flow">${mdToHtml(md)}</div>`;
 }
 
 function obsTableauNextDetailsHtml() {
@@ -4213,7 +4924,7 @@ async function loadConfig() {
     // the scenario surfaces (sidebar, landing, open workspace) once the
     // mode/delegation data lands after first paint.
     renderSidebar();
-    if (!view || view.type === "experiment") renderMain(true);
+    if (!view || ["experiment", "memory-presentation"].includes(view.type)) renderMain(true);
   } catch { /* transient — badge stays hidden */ }
 }
 
@@ -4225,8 +4936,9 @@ const modeUnmet = s => !!(s && s.requires_mode && labConfig && labConfig.mode !=
 // ---------------------------------------------------------------------------
 // D28 Agentforce channel — on toggle scenarios the operator picks which tool
 // the entry agent consults Agentforce with: ask_agentforce (GA Agent API,
-// the default bias) or ask_agentforce_a2a (A2A via the lab's hosted shim).
-// The pick rides to /api/run; a2a-shim injects a routing block (shown below
+// the default bias), ask_agentforce_a2a (A2A via the lab's hosted shim) or
+// ask_agentforce_a2a_native (A2A at Agentforce's own inbound server, D106).
+// The pick rides to /api/run; the A2A channels inject a routing block (shown below
 // as a read-only exhibit, sibling of the D27 rider).
 // ---------------------------------------------------------------------------
 window.setAfChannel = ch => {
@@ -4241,18 +4953,23 @@ function afChannelRowHtml(key) {
   <div class="chan-row">
     <span class="chan-label">Agentforce channel</span>
     <label><input type="radio" name="afChannel" value="agent-api" ${ch === "agent-api" ? "checked" : ""}
-      onchange="setAfChannel('agent-api')"> agent-api (native)</label>
+      onchange="setAfChannel('agent-api')"> agent-api (GA REST)</label>
     <label><input type="radio" name="afChannel" value="a2a-shim" ${ch === "a2a-shim" ? "checked" : ""}
-      onchange="setAfChannel('a2a-shim')"> a2a-shim (A2A protocol)</label>
+      onchange="setAfChannel('a2a-shim')"> a2a-shim (A2A via lab shim)</label>
+    <label><input type="radio" name="afChannel" value="a2a-native" ${ch === "a2a-native" ? "checked" : ""}
+      onchange="setAfChannel('a2a-native')"> a2a-native (A2A, Agentforce's own endpoint)</label>
     <span class="chan-hint">Same conversation and agents, different intermediate protocol —
-      agent-api is the platform's GA surface; a2a-shim routes through the lab's hosted A2A shim.</span>
+      agent-api is the platform's GA surface; a2a-shim routes through the lab's hosted A2A shim;
+      a2a-native speaks A2A straight to Agentforce's own inbound A2A server.</span>
   </div>`;
 }
 
 // Fan-out topology: where the business-unit tools execute (D41).
 window.setFanoutVariant = v => {
   if (!view || view.type !== "experiment") return;
-  fanoutVariants[expKey(view.kind, view.name)] = v;
+  const key = expKey(view.kind, view.name);
+  fanoutVariants[key] = v;
+  if (v !== "tool") fanoutMemoryModes[key] = "off";
   renderMain(true);
 };
 
@@ -4343,7 +5060,15 @@ function fanoutGateRowHtml(key) {
 // same experiment can be run with and without memory side by side.
 const MEMORY_HELP = {
   off: "no memory: the run is exactly the experiment without WS27 — the agent sees only your message (the control).",
-  on: "memory on: before the agent answers, the lab reads what Data 360 Agentic Memory already knows about YOU (the signed-in lab user) and puts it in front of your message; after it answers, both your message and its reply are written back, so a later session can recall them. Fails open: a memory outage answers without memory and the turn says why (D91).",
+  on: "memory on: the verified lab persona resolves to a configured Data 360 customer profile (xid). Before answering, the agent reads that customer's governed memory; afterward it writes both sides of the turn so another registered agent can continue later. Missing mappings and memory outages fail open and are reported (D91).",
+};
+const CASE_MEMORY_HELP = {
+  section: "Case memory lets one supplier-disruption run save reusable specialist observations in Data 360 and a later run reuse them. It is case-scoped operational context, not profile memory about you.",
+  off: "off: the exact control. This run neither reads nor writes case memory, so its result can be compared directly with Seed and Recall.",
+  seed: "seed: each successful specialist nominates one bounded observation after its normal answer. The console validates and writes those observations to Data 360 for this case; this run does not read them back or claim recall.",
+  recall: "recall: read observations previously saved for this signed-in user and case, then give the available context to the selected readers. If Data 360 has not materialized context yet, the run continues and reports memory as empty or unavailable.",
+  readers: "readers controls where recalled context is used: coordinator only during final synthesis, specialists before their individual analyses, or both stages.",
+  case: "case is the label that joins Seed and Recall runs. Use the same exact key to revisit a case; a different key creates an isolated case. The server combines it with the verified signed-in user and scenario, so it cannot select another person's memory.",
 };
 window.setMemoryMode = m => {
   if (!view || view.type !== "experiment") return;
@@ -4351,8 +5076,13 @@ window.setMemoryMode = m => {
   renderMain(true);
 };
 
-function memoryRowHtml(key) {
-  const m = memoryModes[key] || "off";
+function memoryModeFor(key, exp) {
+  if (Object.prototype.hasOwnProperty.call(memoryModes, key)) return memoryModes[key];
+  return exp && exp.default_memory === "on" ? "on" : "off";
+}
+
+function memoryRowHtml(key, exp) {
+  const m = memoryModeFor(key, exp);
   return `
   <div class="chan-row">
     <span class="chan-label">Memory</span>
@@ -4360,33 +5090,325 @@ function memoryRowHtml(key) {
       onchange="setMemoryMode('off')"> off</label>${qhelp(MEMORY_HELP.off)}
     <label><input type="radio" name="memoryMode" value="on" ${m === "on" ? "checked" : ""}
       onchange="setMemoryMode('on')"> Data 360 Agentic Memory</label>${qhelp(MEMORY_HELP.on)}
-    <span class="chan-more">Recall across sessions, keyed to you —
+    <span class="chan-more">Recall across sessions and agent platforms, keyed to the demo customer —
       <a onclick="setTab('details')">full explanation in Details</a>.</span>
   </div>`;
+}
+
+function memoryCustomer() {
+  const customers = (labConfig && labConfig.memory_customers) || {};
+  return customers[selectedMemoryCustomer] || Object.values(customers)[0] || null;
+}
+
+window.setMemoryCustomer = key => {
+  const customers = (labConfig && labConfig.memory_customers) || {};
+  if (!customers[key] || key === selectedMemoryCustomer) return;
+  selectedMemoryCustomer = key;
+  // A visible chat session belongs to one customer. Archive/reset on a persona
+  // switch so transcript continuity can never imply cross-customer memory.
+  resetChat();
+};
+
+function memoryCustomerRowHtml(exp) {
+  if (!exp || !exp.memory_customer_selector) return "";
+  const customers = (labConfig && labConfig.memory_customers) || {};
+  const keys = Object.keys(customers);
+  if (!keys.length) return `<div class="chan-row"><span class="chan-label">Customer context</span>
+    <span class="hint">No demo customers are configured.</span></div>`;
+  if (!customers[selectedMemoryCustomer]) {
+    selectedMemoryCustomer = exp.default_memory_customer || keys[0];
+  }
+  const c = customers[selectedMemoryCustomer];
+  const dataSpace = (labConfig && labConfig.memory_data_space) || "unconfigured";
+  return `<div class="chan-row" aria-label="Customer memory context">
+    <span class="chan-label">Customer context</span>
+    <label>Running as <select aria-label="Customer persona" onchange="setMemoryCustomer(this.value)">
+      ${keys.map(k => `<option value="${esc(k)}" ${k === selectedMemoryCustomer ? "selected" : ""}>${esc(customers[k].name || k)}</option>`).join("")}
+    </select></label>
+    <span class="badge agentforce">${esc(c.name)}</span>
+    <span>${esc([c.title, c.company].filter(Boolean).join(" · "))}</span>
+    <span class="badge" title="The Data 360 data space that owns this experiment's Unified Individual and Agentic Memory configuration (D112).">data space: ${esc(dataSpace)}</span>
+    <button class="ghost" onclick="toggleMemoryManager()"
+      ${labUser && labUser.role === "viewer" ? "disabled" : ""}>Manage memories</button>
+    <span class="chan-more">Unified Data 360 profile · ${esc(c.email || "")}</span>
+    ${memoryManagerHtml(selectedMemoryCustomer, c)}
+  </div>`;
+}
+
+// WS32: ring up an in-store purchase for the selected customer. The order goes to
+// the Data 360 Ingestion API and the real-time customer graph attached to the shared
+// memory registration serves it in GetContext ~2 s later — so the very next turn,
+// on Claude or OpenAI, can see what was just bought. Catalog-only (config).
+const POS_RECALL_PROMPT = "I just bought something in your store. What was it, what did it cost, and when did I buy it?";
+function posPurchaseRowHtml(exp) {
+  if (!exp || !exp.memory_customer_selector) return "";
+  const catalog = (labConfig && labConfig.pos_catalog) || [];
+  if (!catalog.length) return "";
+  const key = selectedMemoryCustomer, c = memoryCustomer() || {};
+  const st = posPurchases[key] || (posPurchases[key] = {sku: catalog[0].sku, loading: false, result: null, error: ""});
+  const viewer = labUser && labUser.role === "viewer";
+  const money = (a, cur) => `${cur === "USD" || !cur ? "$" : cur + " "}${Number(a).toFixed(2)}`;
+  const r = st.result;
+  return `<div class="chan-row" aria-label="In-store purchase">
+    <span class="chan-label">In-store purchase</span>
+    <label>Item <select aria-label="Catalog item" onchange="setPosSku(this.value)" ${st.loading ? "disabled" : ""}>
+      ${catalog.map(i => `<option value="${esc(i.sku)}" ${i.sku === st.sku ? "selected" : ""}>${esc(i.name)} · ${esc(money(i.amount))}</option>`).join("")}
+    </select></label>
+    <button class="ghost" onclick="ringUpPurchase()" ${st.loading || viewer ? "disabled" : ""}
+      title="Posts one order for ${esc(c.name || key)} to the Data 360 Ingestion API (connector A2ALab_POS). The real-time customer graph serves it to Agent Memory in seconds.">${st.loading ? "Ringing up…" : `Ring up for ${esc(c.name || key)}`}</button>
+    ${r ? `<span class="badge agentforce" title="Ingestion API accepted the order (HTTP 202)">${esc(r.order_id)}</span>
+      <span>${esc(r.product_name)} · ${esc(money(r.amount, r.currency_code))} · accepted in ${esc(r.accepted_s)} s</span>
+      <button class="ghost" onclick="usePosRecallPrompt()" title="Load a recall prompt into the composer; send it to Claude or OpenAI">Ask what was just bought</button>
+      <span class="hint">trace ${esc(r.trace_id)}</span>` : ""}
+    ${st.error ? `<span class="error">${esc(st.error)}</span>` : ""}
+    <span class="chan-more">Ingestion API → A2ALab_POS_Order → real-time customer graph → GetContext (D118)</span>
+  </div>`;
+}
+window.setPosSku = sku => { (posPurchases[selectedMemoryCustomer] || {}).sku = sku; };
+window.ringUpPurchase = async () => {
+  const key = selectedMemoryCustomer, st = posPurchases[key];
+  if (!st || st.loading) return;
+  st.loading = true; st.error = ""; renderMain(true);
+  try {
+    const r = await fetch(apiUrl(`/api/memory/customer/${encodeURIComponent(key)}/purchase`), {
+      method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({sku: st.sku}),
+    });
+    const ctype = r.headers.get("content-type") || "";
+    const data = ctype.includes("json") ? await r.json() : {detail: await r.text()};
+    const detail = typeof data.detail === "object" ? data.detail.message : data.detail;
+    if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
+    st.result = data;
+  } catch (e) { st.error = String(e.message || e); }
+  st.loading = false; renderMain(true);
+};
+window.usePosRecallPrompt = () => {
+  if (!view || view.type !== "experiment") return;
+  drafts[expKey(view.kind, view.name)] = POS_RECALL_PROMPT;
+  const input = document.getElementById("chatInput");
+  if (input) { input.value = POS_RECALL_PROMPT; input.focus(); }
+};
+
+function memoryManagerState(key) {
+  return memoryManagers[key] || (memoryManagers[key] = {
+    open: false, loading: false, complete: true, memories: [], generation: undefined,
+    profile_memory_suppressed: false, selected: new Set(), error: "", trace_id: "",
+  });
+}
+
+function memoryManagerHtml(key, customer) {
+  const state = memoryManagerState(key);
+  if (!state.open) return "";
+  const rows = state.memories.length
+    ? state.memories.map((m, i) => `<label><input type="checkbox" ${state.selected.has(i) ? "checked" : ""}
+        onchange="toggleMemorySelection(${i}, this.checked)">
+        <span><b>${esc(m.category.includes("PREFERENCES") ? "Preference" : "Fact")}</b> · ${esc(m.content || "(blank memory)")}</span></label>`).join("")
+    : `<span class="hint">${state.loading ? "Loading…" : "No curated facts or preferences."}</span>`;
+  return `<div class="memory-manager" aria-label="Manage memories for ${esc(customer.name || key)}">
+    <div class="memory-manager-head"><b>Managing memories for ${esc(customer.name || key)}</b>
+      <span class="spacer"></span><button class="ghost" onclick="loadMemoryManager()" ${state.loading ? "disabled" : ""}>Refresh</button></div>
+    ${state.error ? `<div class="error">${esc(state.error)}</div>` : ""}
+    ${state.profile_memory_suppressed ? `<div class="hint">Fresh-generation isolation is active.
+      Data 360 can re-materialize profile facts from retained history, so those profile-wide rows
+      remain visible here for curation but are not supplied to agents. Only conversation context
+      produced inside the current generation is eligible for recall.</div>` : ""}
+    <div class="memory-manager-list">${rows}</div>
+    <div class="memory-manager-actions">
+      <button class="ghost" onclick="deleteSelectedMemories()" ${state.loading || !state.selected.size ? "disabled" : ""}>Delete selected</button>
+      <button class="ghost" onclick="startFreshMemory()" ${state.loading || !state.complete ? "disabled" : ""}>Start fresh for ${esc(customer.name || key)}</button>
+      ${state.trace_id ? `<span class="hint">trace ${esc(state.trace_id)}</span>` : ""}
+    </div>
+    <div class="hint">Deletion is permanent. Start fresh deletes this complete management listing, not just the 20 entries capped into an agent prompt, and moves this demo to a new conversation. Automatic extraction is asynchronous, so a just-finished teaching turn may take several minutes to appear. Retained Data 360 conversation history is not erased.</div>
+  </div>`;
+}
+
+window.toggleMemoryManager = async () => {
+  const state = memoryManagerState(selectedMemoryCustomer);
+  state.open = !state.open;
+  renderMain(true);
+  if (state.open && !state.memories.length) await loadMemoryManager();
+};
+window.toggleMemorySelection = (index, checked) => {
+  const state = memoryManagerState(selectedMemoryCustomer);
+  checked ? state.selected.add(index) : state.selected.delete(index);
+  renderMain(true);
+};
+window.loadMemoryManager = async () => {
+  const key = selectedMemoryCustomer, state = memoryManagerState(key);
+  state.loading = true; state.error = ""; renderMain(true);
+  try {
+    const r = await fetch(apiUrl(`/api/memory/customer/${encodeURIComponent(key)}`));
+    const ctype = r.headers.get("content-type") || "";
+    const data = ctype.includes("json") ? await r.json() : {detail: await r.text()};
+    const detail = typeof data.detail === "object" ? data.detail.message : data.detail;
+    if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
+    state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
+    state.generation = data.generation || "";
+    state.profile_memory_suppressed = data.profile_memory_suppressed === true;
+    state.complete = data.complete !== false;
+    if (!state.complete) state.error = "Data 360 returned an incomplete list; reset is disabled.";
+  } catch (e) { state.error = String(e.message || e); }
+  state.loading = false; renderMain(true);
+};
+async function mutateCustomerMemory(action, memories) {
+  const key = selectedMemoryCustomer, state = memoryManagerState(key);
+  const previousGeneration = state.generation;
+  state.loading = true; state.error = ""; renderMain(true);
+  try {
+    const r = await fetch(apiUrl(`/api/memory/customer/${encodeURIComponent(key)}`), {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({action, memories}),
+    });
+    const ctype = r.headers.get("content-type") || "";
+    const data = ctype.includes("json") ? await r.json() : {detail: await r.text()};
+    const detail = typeof data.detail === "object" ? data.detail.message : data.detail;
+    if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
+    state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
+    state.generation = data.generation || "";
+    state.profile_memory_suppressed = data.profile_memory_suppressed === true;
+    state.complete = data.complete !== false;
+    if (!data.ok) state.error = `The operation was partial; remaining memories are shown.${
+      (data.errors || []).length ? ` ${data.errors.join("; ")}` : ""}`;
+    if (action === "fresh" && data.generation && data.generation !== previousGeneration) {
+      // resetChat archives the old customer chat with its generation stamp.
+      // It remains inspectable, while the local guard and server precondition
+      // prevent it from continuing under the new namespace.
+      resetChat();
+    }
+  } catch (e) { state.error = String(e.message || e); }
+  state.loading = false; renderMain(true);
+}
+window.deleteSelectedMemories = async () => {
+  const state = memoryManagerState(selectedMemoryCustomer);
+  const c = memoryCustomer();
+  const memories = [...state.selected].map(i => state.memories[i]).filter(Boolean);
+  if (!memories.length || !confirm(`Permanently delete ${memories.length} selected memories for ${c?.name || selectedMemoryCustomer}?`)) return;
+  await mutateCustomerMemory("delete", memories);
+};
+window.startFreshMemory = async () => {
+  const c = memoryCustomer();
+  const count = memoryManagerState(selectedMemoryCustomer).memories.length;
+  if (!confirm(`Permanently delete ${count} curated memories for ${c?.name || selectedMemoryCustomer} and start a fresh experiment?`)) return;
+  await mutateCustomerMemory("fresh", []);
+};
+
+window.setFanoutMemoryMode = m => {
+  if (!view || view.type !== "experiment") return;
+  fanoutMemoryModes[expKey(view.kind, view.name)] = m;
+  renderMain(true);
+};
+window.setFanoutMemoryReader = m => {
+  if (!view || view.type !== "experiment") return;
+  fanoutMemoryReaders[expKey(view.kind, view.name)] = m;
+  renderMain(true);
+};
+window.setFanoutMemoryCase = value => {
+  if (!view || view.type !== "experiment") return;
+  fanoutMemoryCases[expKey(view.kind, view.name)] = value;
+};
+
+function fanoutMemoryRowHtml(key) {
+  const mode = fanoutMemoryModes[key] || "off";
+  const reader = fanoutMemoryReaders[key] || "coordinator";
+  const caseKey = fanoutMemoryCases[key] || "rotterdam-1";
+  const disabled = (fanoutVariants[key] || "tool") !== "tool";
+  return `<div class="chan-row">
+    <span class="chan-label">Case memory</span>${qhelp(CASE_MEMORY_HELP.section)}
+    <label><input type="radio" name="fanoutMemoryMode" ${mode === "off" ? "checked" : ""}
+      onchange="setFanoutMemoryMode('off')"> off</label>${qhelp(CASE_MEMORY_HELP.off)}
+    <label><input type="radio" name="fanoutMemoryMode" ${mode === "seed" ? "checked" : ""}
+      ${disabled ? "disabled" : ""} onchange="setFanoutMemoryMode('seed')"> seed</label>${qhelp(CASE_MEMORY_HELP.seed)}
+    <label><input type="radio" name="fanoutMemoryMode" ${mode === "recall" ? "checked" : ""}
+      ${disabled ? "disabled" : ""} onchange="setFanoutMemoryMode('recall')"> recall</label>${qhelp(CASE_MEMORY_HELP.recall)}
+    ${mode === "recall" ? `<label>readers <select aria-label="Case-memory readers"
+      onchange="setFanoutMemoryReader(this.value)">
+      ${["coordinator", "specialists", "both"].map(v => `<option ${reader === v ? "selected" : ""}>${v}</option>`).join("")}
+      </select></label>${qhelp(CASE_MEMORY_HELP.readers)}` : ""}
+    ${mode !== "off" ? `<label>case <input aria-label="Case-memory key" maxlength="64"
+      pattern="[A-Za-z0-9][A-Za-z0-9._ -]{0,63}" value="${esc(caseKey)}"
+      oninput="setFanoutMemoryCase(this.value)"></label>${qhelp(CASE_MEMORY_HELP.case)}` : ""}
+    <span class="chan-more">Seed, wait for Data 360, then recall. Host-side tool only (D102).</span>
+  </div>`;
+}
+
+function fanoutMemoryDetailHtml(s) {
+  if (!s || !s.fanout_memory_toggle) return "";
+  return `<div class="flow">
+    <h6>Case memory — specialist observations across runs (WS27, D102)</h6>
+    <p class="desc-note"><b>Off</b> is the exact WS8 control. <b>Seed</b> asks each ADK, Foundry and OpenAI
+      specialist for one bounded reusable observation; the console host redacts and writes valid candidates
+      to one case conversation in Data 360. <b>Recall</b> reads it for the signed-in user and selected case,
+      then gives it to the coordinator, specialists, or both.</p>
+    <ul class="steps">
+      <li><b>Two runs.</b> Availability and summarization are asynchronous. Seed never claims recall.</li>
+      <li><b>Isolation.</b> The server derives the owner from the verified lab JWT and hashes owner,
+        scenario and case key. The browser cannot choose an owner or tenant id.</li>
+      <li><b>Episodic, not profile memory.</b> Profile extraction stays off and reads omit owner-level
+        facts/preferences, so a transient strike does not become a fact about you.</li>
+      <li><b>Evidence.</b> Tenant calls are <code>agentic-memory</code> trace hops. A live go/no-go decides
+        whether source ids survive summarization; otherwise the result says provenance unavailable.</li>
+      ${agenticMemoryBillingDetailHtml()}
+      <li><b>Placement.</b> This first arm is host-side CMA because the custom tool executes in the console
+        Fargate task. Remote MCP, ADK-primary and Agentforce-primary are follow-ups.</li>
+    </ul>
+  </div>`;
+}
+
+function agenticMemoryBillingDetailHtml() {
+  return `<li><b>Limited GA and billing.</b> Salesforce currently documents Agentic Memory and Context as
+    free during Limited GA, with final pricing still unannounced. Real-time conversation ingestion,
+    retrieval, and <code>GetContext</code> do not incur a consumption charge. LLM-based memory generation—
+    extracting profile facts, preferences, and session summaries—will consume Flex Credits when
+    usage-based pricing takes effect. Digital Wallet can therefore correctly show no dedicated Agent Memory
+    charge today; that is a current product-pricing result, not proof that the memory path did not run.</li>`;
 }
 
 // The Details half of the Memory radio (D57: what produces it, as whom, where
 // it is stored, what bounds it).
 function memoryDetailHtml(s) {
   if (!s || !s.memory_toggle) return "";
+  const customer = memoryCustomer();
+  const persona = customer && customer.name ? customer.name : "Customer / Unified Individual";
+  const dataSpace = (labConfig && labConfig.memory_data_space) || "unconfigured";
   return `<div class="flow">
       <h6>Memory — Data 360 Agentic Memory for this run (WS27, D91)</h6>
-      <p class="desc-note">With <b>Memory</b> on, the Claude face wraps the turn in the lab's generic memory seam
+      <p class="desc-note">With <b>Memory</b> on, the Claude or OpenAI face wraps the turn in the lab's generic memory seam
         (<code>src/interop/memory_adapter.py</code>, the "REST at the lab seam" mode in
         <code>plan/18-agentic-memory-context.md</code> Phase 3). Off, the wrapper is dormant and the run is
         byte-for-byte the experiment without it — the toggle is per run, never a lab-wide setting.</p>
+      ${memoryScopeMapHtml([], persona, ["Claude", "OpenAI"])}
       <ul class="steps">
-        <li><b>Whose memory.</b> The owner is the <i>signed-in lab user</i>, taken from the verified lab JWT the
-          console already sends (WS6 U2), as <code>a2alab-&lt;user&gt;</code>. Never a name the caller types, and
-          never a machine identity, so no run can read another user's memory. Signed out, a memory run answers
-          without memory and says so.</li>
-        <li><b>Before the answer.</b> The seam opens (or resumes) one memory conversation per lab session and reads
-          GetContext from the Data 360 tenant, as the memory integration user (D86) through the
-          <code>a2a_lab_memory</code> ECA, under the registered agent <code>A2ALab_Memory_Claude</code>. Whatever
-          comes back is placed in front of your message.</li>
-        <li><b>After the answer.</b> Your message and the agent's reply are both ingested — the reply side no
-          Agentforce hook can supply (D89). Stored in the tenant's Agentic Memory conversation entries; profile
-          memory is then extracted from them by Data 360.</li>
+        <li><b>Data-space boundary.</b> This deployment reads and writes Agentic Memory in
+          <code>${esc(dataSpace)}</code>. The value comes from <code>A2ALAB_MEMORY_DATA_SPACE</code>,
+          not from the browser or a UI default, so another Data 360 environment can identify its
+          own memory substrate without changing this console (D112, plan/18-agentic-memory-context.md).</li>
+        <li><b>Whose memory.</b> The verified lab JWT identifies the lab user and an allow-listed demo persona;
+          deployment configuration maps that persona to the owner id the face sends. It is never browser-supplied,
+          never the integration user, and never a synthetic run owner. A persona without a mapping answers without
+          memory and says why. D115 measured that the token's customer claim was not enforced for this internal
+          caller, so the face-owned mapping is the effective demo isolation boundary.</li>
+        <li><b>Shared customer memory, platform provenance.</b> Both platforms use one registered memory-service
+          identity, <code>A2ALab_Memory_Case</code>, so the measured semantic path is
+          <code>registration × server-resolved customer owner × category</code>. Claude and OpenAI stay visible as
+          execution participants in the ordinary trace; they are provenance, not storage partitions. A second
+          registration started empty for the same customer, but that conflicts with current guidance, so the exact
+          cross-registration boundary remains open rather than being presented as universal product law.</li>
+        <li><b>Before the answer.</b> Each owner has <i>one</i> memory conversation, and each lab session is a
+          session inside it (D94). The seam opens (or resumes) this session, then makes two reads from the Data 360
+          tenant as the memory integration user (D86), through the <code>a2a_lab_memory</code> ECA, under the
+          shared <code>A2ALab_Memory_Case</code> registration. GetContext returns the customer's relevant earlier
+          context. The seam then makes two governed saved-memory reads—facts and preferences—through that same
+          service identity and places the authorized results in front of the message.</li>
+        <li><b>Structured Case context is deferred.</b> No custom data graph is attached to this registration.
+          Salesforce documents additional GetContext sources as <i>real-time</i> data graphs; the future Case
+          enrichment waits for that org capability rather than substituting a standard graph.</li>
+        <li><b>After the answer.</b> Your message and the agent's reply are both ingested, with tokens, passwords
+          and contact details redacted first (D94). The reply is the side no Agentforce hook can supply (D89). Then
+          the session is closed, because the close is what makes Data 360 extract memory from the entries (D93).</li>
+        ${s.memory_customer_selector ? `<li><b>After Start fresh.</b> Data 360 can re-materialize profile facts
+          from retained history with new timestamps. A valid reset generation therefore suppresses all profile-wide
+          facts/preferences from agent prompts. Only conversation context produced inside the new generation is
+          eligible for later Claude/OpenAI recall (D107).</li>` : ""}
+        ${agenticMemoryBillingDetailHtml()}
         <li><b>Bounds.</b> Each half is cut off at <code>A2ALAB_MEMORY_BUDGET_S</code> (default 8 s); any refusal
           or overrun fails open. Every tenant call is its own <code>agentic-memory</code> hop in the trace, and the
           turn's badge carries the read/ingest milliseconds.</li>
@@ -4448,6 +5470,43 @@ const AF_ASYNC_DIAGRAM = `flowchart TB
 // The full fan-out control prose, moved out of the Run tab into Details (D57).
 // Rendered only for scenarios that actually expose these radios, so a plain
 // pairwise scenario's Details is unchanged.
+// Details for the D28 channel radio, on every scenario that carries it: what
+// each of the three channels actually puts on the wire. The pilot status of the
+// native endpoint lives HERE, not in the radio label (operator's call).
+function afChannelsDetailHtml(s) {
+  if (!s || !s.af_channel_toggle) return "";
+  return `
+    <div class="flow">
+      <h3>Agentforce channels — how the agent reaches Agentforce (D28, D106)</h3>
+      <p class="desc-note">The Run tab's channel radio keeps the conversation, the agents and the
+        Agentforce twin fixed and swaps only the protocol of the consult. Each calling platform consults
+        its own paired twin on every channel (D25), and the outbound question carries the D27 rider on
+        every channel. Picking an A2A channel appends a routing block naming the tool to use.</p>
+      <ul class="steps">
+        <li><b>agent-api</b>: the GA Agent API. The tool <code>ask_agentforce</code> does OAuth, then a
+          session, then a message. This is the default and the only generally available surface.</li>
+        <li><b>a2a-shim</b>: the A2A protocol through the lab's own shim (API Gateway + Lambda on AWS).
+          The tool is <code>ask_agentforce_a2a</code>. The shim speaks A2A to the caller and the GA Agent
+          API to Agentforce, so the A2A half ends at a component we built. It also sits behind API Gateway's
+          29s ceiling (D28).</li>
+        <li><b>a2a-native</b>: the A2A protocol straight to Agentforce's own inbound A2A server at
+          <code>api.salesforce.com/einstein/ai-agent/a2a/&lt;twin&gt;</code>, with no lab component in
+          the path. The tool is <code>ask_agentforce_a2a_native</code>. The wire is A2A 1.0 with
+          <code>A2A-Version: 1.0</code> pinned, and the auth is a client-credentials OrgJWT from the
+          <code>a2a_lab_af_a2a</code> External Client App. The server answers a turn under 5s with a
+          Message; a longer turn comes back as a Task, which the client polls with
+          <code>GetTask</code> inside the tool's budget. <b>This endpoint is a Salesforce pilot</b>, not
+          GA: it is enabled per org and its shape may change before GA. The first measured run and the
+          open items are recorded under WS29 (plan/07-workstreams.md) and D106.</li>
+      </ul>
+      <p class="desc-note">The gap between the a2a-shim and a2a-native rows on the same scenario is the
+        measurement: same A2A client, same twin, with and without the lab's translation layer.
+        The two channels also meet two different agent cards, both under Components below: the shim's
+        card is published by the lab and fronts every twin, while the native card is published by
+        Salesforce for this experiment's own twin, and only to an authenticated caller.</p>
+    </div>`;
+}
+
 function fanoutControlsDetailHtml(s) {
   if (!s || !(s.fanout_variant_toggle || s.dispatch_mode_toggle || s.gate_toggle)) return "";
   const topology = s.fanout_variant_toggle ? `
@@ -4469,12 +5528,14 @@ function fanoutControlsDetailHtml(s) {
           together — the run reports which it did. The server is <b>ours</b>, not the platforms': the lab's
           fan-out MCP server on AWS Lambda (<code>src/fanout_mcp</code>, D41), whose <code>consult_*</code>
           tools wrap the same business-unit agents over A2A/REST. Google, OpenAI and Microsoft do not expose
-          these as native MCP — we put the MCP face on. Each leg here runs <i>inside</i> an API Gateway
+          these as native MCP — we put the MCP face on. Each <b>synchronous</b> leg (<code>consult_*</code>) runs <i>inside</i> an API Gateway
           request, so it inherits the gateway's 29s integration ceiling (25s per leg, and NOT raisable for
           HTTP APIs); a warm leg (~17s) fits, but a <b>cold</b> platform (Agent Engine ~34s, AgentCore
           31–56s) does not and comes back <code>[leg unavailable: … timed out]</code>. This is the cost of
-          moving the tool off the host, not a bug — <b>warm the runtimes first</b> (Warm-ups panel), or use
-          async on the host-side tool, which is what dissolves the ceiling (WS11/D47).</li>
+          moving the tool off the host, not a bug — <b>warm the runtimes first</b> (Warm-ups panel), or switch the
+          dispatch radio to async: on this topology async uses <code>submit_&lt;unit&gt;</code>/<code>check_task</code>,
+          and each leg runs in a separate self-invoked run of the same Lambda (<code>InvocationType='Event'</code>),
+          off the gateway path, with a 120s leg budget under a 135s function timeout (WS11/D47, D74).</li>
       </ul>` : "";
   // The dispatch prose is controller-aware: WHERE the fire-then-poll loop runs
   // is the whole point, and it runs in a different place under each primary
@@ -4745,22 +5806,28 @@ function topologyExhibitHtml(key) {
   </div>`;
 }
 
-// The exact block /api/run will append for a2a-shim — a read-only exhibit
+// The exact block /api/run will append for an A2A channel — a read-only exhibit
 // like the D27 rider (that one is per-delegation identity, this one is the
 // per-run channel routing).
 function routingSectionHtml(key) {
   const a = labConfig && labConfig.af_channel;
-  if (!a || (afChannels[key] || "agent-api") !== "a2a-shim") return "";
+  const ch = afChannels[key] || "agent-api";
+  if (!a || ch === "agent-api") return "";
+  const block = (a.routing_blocks || {})[ch] || (ch === "a2a-shim" ? a.routing_block : "");
+  if (!block) return "";
+  const via = ch === "a2a-native"
+    ? "straight at Agentforce's own inbound A2A server (D106 — a Salesforce pilot, WS29)"
+    : "via the lab's hosted shim";
   return `
   <div class="flow">
     <details open>
       <summary style="cursor:pointer; font-size:12px; color:var(--muted); padding:10px 16px">Injected for this run — Agentforce channel routing (D28)</summary>
       <div class="desc"><span class="stat">Appended to this run's outgoing message (after the scenario's
         prompt suffix): it directs the entry agent to consult Agentforce with its
-        <code>${esc((a.tools || {})["a2a-shim"] || "ask_agentforce_a2a")}</code> tool — the A2A protocol
-        via the lab's hosted shim — instead of the default GA Agent API. A design-decision exhibit,
+        <code>${esc((a.tools || {})[ch] || "ask_agentforce_a2a")}</code> tool — the A2A protocol
+        ${via} — instead of the default GA Agent API. A design-decision exhibit,
         not an editable prompt.</span></div>
-      <pre class="rider-block" aria-readonly="true">${esc(String(a.routing_block || "").trim())}</pre>
+      <pre class="rider-block" aria-readonly="true">${esc(String(block).trim())}</pre>
     </details>
   </div>`;
 }
@@ -5326,6 +6393,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
     ST["AWS Strands<br/>AWS/Bedrock meters + AgentCore access log (D67)"]
     LG["LangGraph<br/>LangSmith runs API — per-turn run tree (D77)"]
     CD["Coding agents<br/>CloudWatch OTLP metrics (WS9)"]
+    CDL["Coding agents — behaviour<br/>CloudWatch OTLP log group /a2alab/coding-agents/otlp (WS16/D59)"]
   end
 
   SCHED["EventBridge Scheduler<br/>rate(6 hours)"]
@@ -5349,6 +6417,7 @@ const OBS_HARVEST_DIAGRAM = `flowchart TB
   ST --> HARV
   LG --> HARV
   CD --> HARV
+  CDL --> HARV
   HARV --> S
   HARV --> E
   HARV --> H
@@ -5375,14 +6444,16 @@ const OTEL_TRACE_DIAGRAM = `flowchart LR
   API -.->|"same record,<br/>pre-joined"| D360
   DMO -.->|"same record,<br/>assembled by hand"| D360`;
 
-// WS22 / Track B: the SRE sibling of OBS_HARVEST above. Same harvest Lambda and
-// same schedule, but the sources are each cloud's NATIVE runtime metrics (not the
+// WS22 / Track B: the SRE sibling of OBS_HARVEST above. Same harvest Lambda but
+// NOT the same schedule: the 6h EventBridge sweep sends {} and never includes
+// infra, so this is on demand (the Harvest button or `obs_harvest.py infra`).
+// The sources are each cloud's NATIVE runtime metrics (not the
 // agents' semantic logs) and the sink is lab.infra_metrics (a dense regular grid),
 // not obs_sessions/obs_events. The forecast runner is drawn dashed because it is
 // not built yet (plan/explore-moirai-timeseries-forecasting.md).
 const INFRA_DIAGRAM = `flowchart TB
   subgraph CLOUDS["Each cloud's own runtime metrics (the estate under the agents)"]
-    AWS["AWS — CloudWatch (GetMetricData)<br/>Fargate faces · Aurora Serverless v2 · harvest Lambda"]
+    AWS["AWS — CloudWatch (GetMetricData)<br/>Fargate console + bridge · Aurora Serverless v2 · harvest Lambda"]
     GCP["GCP — Cloud Monitoring (timeSeries)<br/>Vertex AI Agent Engine"]
     AZ["Azure — Azure Monitor (metrics REST)<br/>Foundry resource"]
   end
@@ -5390,7 +6461,7 @@ const INFRA_DIAGRAM = `flowchart TB
   CFG["config/infra_metrics.yaml<br/>(cloud, resource, metric) + native query<br/>\${VAR} expansion — no id in the repo"]
   SEC["Secrets Manager a2alab/obs/harvest<br/>GCP service-account key · Azure ARM token"]
 
-  SCHED["EventBridge Scheduler / Harvest button<br/>infra group — opt-in, NOT in the sweep"]
+  SCHED["Harvest button (POST /api/obs/harvest?platform=infra)<br/>or scripts/obs_harvest.py infra — on demand only<br/>NOT the 6h EventBridge sweep (its input is {})"]
   HARV["Lambda a2alab-obs-harvest<br/>infra_source.py — deterministic pulls, no LLM<br/>each series skipped-with-reason if unresolved"]
 
   subgraph AUR["Aurora Postgres — lab schema (source of truth, D49)"]
@@ -5492,8 +6563,8 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
   CW --> HARV
   HARV --> PG
 
+  MCP["a2alab-obs-mcp<br/>Lambda + API Gateway (AWS)<br/>query_obs_store + save_brief"]
   subgraph ANT["Anthropic — Managed Agents"]
-    MCP["obs MCP server<br/>query_obs_store + save_brief"]
     AG["Cost Sentinel<br/>daily deployment (07:00 ET)"]
     AG -->|read-only SQL| MCP
     AG -->|save_brief kind=cost| MCP
@@ -5501,12 +6572,127 @@ const COST_SENTINEL_DIAGRAM = `flowchart TB
   PG <--> MCP
   PG --> UI["Console — Coding Agents Telemetry"]`;
 
-// Render a mermaid source into an element, or hand over the source. Same
-// honesty rule as every other diagram here: say what broke, and still give you
-// the text you can paste elsewhere.
-async function renderMermaidInto(elId, src, svgId) {
+// Render a console figure into an element (D114, extending D113 beyond plan/09).
+// A figure with a stamped draw.io twin opens on the drawing; its mermaid — the
+// SOURCE, kept in this file or config/diagrams.yaml — is one tab away. The
+// browser decides staleness itself: it hashes the mermaid it is about to render
+// and compares that with the digest the drawing was stamped against, so an edit
+// to a *_DIAGRAM constant flips its figure back to mermaid with no redraw step
+// anyone can forget. `figKey` names the figure; omitted, it is looked up from
+// the source (the *_DIAGRAM constants), which keeps every call site unchanged.
+async function renderMermaidInto(elId, src, svgId, figKey) {
   const fig = document.getElementById(elId);
   if (!fig || !src) return;
+  fig.dataset.mermaidSrc = src;
+  fig.dataset.figKey = figKey || figKeyForSource(src) || "";
+  fig.dataset.svgId = svgId || (elId + "-svg");
+  await paintFigure(elId);
+}
+
+// Figure id per *_DIAGRAM constant: the constant's name kebab-cased, minus the
+// suffix — the same id src/console/figures.py derives, which a unit test holds
+// in step. Built lazily: every constant is initialised by first render.
+let figKeyMap = null;
+function figKeyForSource(src) {
+  if (!figKeyMap) {
+    figKeyMap = new Map([
+      [AF_ASYNC_DIAGRAM, "af-async"], [OBS_HARVEST_DIAGRAM, "obs-harvest"],
+      [OTEL_TRACE_DIAGRAM, "otel-trace"], [INFRA_DIAGRAM, "infra"],
+      [OBS_ANALYST_DIAGRAM, "obs-analyst"], [TABLEAU_NEXT_DIAGRAM, "tableau-next"],
+      [COST_SENTINEL_DIAGRAM, "cost-sentinel"], [BEHAVIOUR_DIAGRAM, "behaviour"],
+      [MON_DIAGRAM, "mon"], [CRED_AGENT_DIAGRAM, "cred-agent"],
+      [CRED_SCHEDULED_DIAGRAM, "cred-scheduled"], [BRIEF_DELIVERY_DIAGRAM, "brief-delivery"],
+    ]);
+  }
+  return figKeyMap.get(src) || "";
+}
+
+// The stamp manifest scripts/arch_drawio.py writes for figures. Fetched once,
+// revalidated (no-cache) so a deploy's new stamps are seen without a hard reload.
+let figManifestP = null;
+function figManifest() {
+  if (!figManifestP) {
+    figManifestP = fetch("/static/diagrams/manifest.json", { cache: "no-cache" })
+      .then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+  }
+  return figManifestP;
+}
+
+async function sha256Hex(text) {
+  if (!(window.crypto && crypto.subtle)) return "";   // insecure origin: treat as stale
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// {url, stale} for a figure with a built drawing, else null.
+async function figDrawing(key, src) {
+  if (!key) return null;
+  const entry = (await figManifest())[key];
+  if (!entry || !entry.svg_sha256) return null;
+  return {
+    url: `/static/diagrams/${encodeURIComponent(key)}.svg?v=${entry.svg_sha256.slice(0, 10)}`,
+    stale: entry.mermaid_sha256 !== await sha256Hex(src.trim()),
+  };
+}
+
+// Same rule as the Architecture levels: draw.io by default, mermaid when the
+// drawing is stale, and a reader's explicit choice (per figure) wins either way.
+const FIG_VIEW_KEY = "a2a-fig-view-v1";
+let figViewSel = {};
+try { figViewSel = JSON.parse(localStorage.getItem(FIG_VIEW_KEY) || "{}") || {}; } catch (e) {}
+function figViewFor(key, drawing) {
+  if (!drawing) return "mermaid";
+  const picked = figViewSel[key];
+  if (picked === "drawio" || picked === "mermaid") return picked;
+  return drawing.stale ? "mermaid" : "drawio";
+}
+
+window.figSetView = (elId, v) => {
+  const fig = document.getElementById(elId);
+  if (!fig) return;
+  figViewSel[fig.dataset.figKey] = v;
+  try { localStorage.setItem(FIG_VIEW_KEY, JSON.stringify(figViewSel)); } catch (e) {}
+  // Re-entrant by construction: paintFigure restores tabs, the source button and
+  // the source/diagram toggle from state rather than only switching things on.
+  fig.dataset.showingSource = "0";
+  paintFigure(elId);
+};
+
+async function paintFigure(elId) {
+  const fig = document.getElementById(elId);
+  if (!fig) return;
+  const src = fig.dataset.mermaidSrc || "";
+  const key = fig.dataset.figKey || "";
+  const drawing = await figDrawing(key, src);
+  const v = figViewFor(key, drawing);
+  const tabs = document.getElementById("figviews-" + elId);
+  if (tabs) {
+    tabs.style.display = drawing ? "" : "none";
+    tabs.innerHTML = drawing ? [["drawio", "draw.io"], ["mermaid", "Mermaid"]].map(([t, lab]) => `
+      <button class="tab ${v === t ? "on" : ""}" role="tab" aria-selected="${v === t}"
+        onclick="figSetView('${esc(elId)}','${t}')"
+        title="${t === "drawio" ? "Hand-drawn draw.io rendering of this figure (D114)"
+                                : "The mermaid this figure is drawn from — its source"}">${lab}${
+        t === "drawio" && drawing.stale ? " ⚠" : ""}</button>`).join("") : "";
+  }
+  const btn = document.getElementById("figsrc-" + elId);
+  // style, not the hidden attribute: button.ghost sets display and wins over it.
+  if (btn) { btn.style.display = v === "mermaid" ? "" : "none"; btn.textContent = "mermaid source"; }
+  fig.dataset.showingSource = "0";
+  fig.classList.toggle("arch-drawio", v === "drawio");
+  if (v === "drawio") {
+    try {
+      const svg = await archDrawioSvg(drawing.url);
+      if (fig.dataset.mermaidSrc !== src) return;   // re-rendered while in flight
+      fig.innerHTML = (drawing.stale
+        ? `<p class="hint arch-stale">This drawing predates the latest change to this figure's
+             mermaid, so it may show an older shape — the Mermaid view is current. Redraw with
+             <code>scripts/arch_drawio.py</code> (D114).</p>` : "") + svg;
+      return;
+    } catch (e) {
+      fig.classList.remove("arch-drawio");   // fall back to the source of truth
+    }
+  }
   try {
     const mermaid = await ensureMermaid();
     const dark = document.documentElement.getAttribute("data-theme") === "dark";
@@ -5514,11 +6700,12 @@ async function renderMermaidInto(elId, src, svgId) {
       startOnLoad: false, theme: dark ? "dark" : "default",
       securityLevel: "strict", flowchart: { htmlLabels: true, curve: "basis" },
     });
-    const { svg } = await mermaid.render(svgId || (elId + "-svg"), src);
+    const { svg } = await mermaid.render(fig.dataset.svgId || (elId + "-svg"), src);
+    if (fig.dataset.mermaidSrc !== src) return;
     fig.innerHTML = svg;
-    fig.dataset.mermaidSrc = src;
-    fig.dataset.showingSource = "0";
   } catch (e) {
+    // Same honesty rule as every other diagram here: say what broke, and still
+    // give you the text you can paste elsewhere.
     fig.innerHTML = `<span class="hint">Could not render (${esc(String(e.message || e))}).</span>`
       + `<pre>${esc(src)}</pre>`;
   }
@@ -5742,7 +6929,8 @@ function buildDetailsHtml() {
 
     <h3>Where the brief lands</h3>
     <p class="hint">The same <code>lab.obs_briefs</code> table as the observability analyst's
-    nightly brief, separated by a <code>kind</code> column — one store, one reader, one
+    on-demand brief (its deployment is paused, so it writes only when Analyze or
+    <code>scripts/obs_analysis.py run</code> fires it — D23, D56), separated by a <code>kind</code> column — one store, one reader, one
     migration. That was the open question in WS12 and this is the answer: two tables would have
     been two migrations and two console readers for the same shape of row.</p>
 
@@ -5764,7 +6952,7 @@ function buildDetailsHtml() {
     <table class="obs-table"><tbody>
       <tr><td>agent</td><td>${esc(s.agent_name || "A2ALab Cost Sentinel")} · ${agentLink}</td></tr>
       <tr><td>model</td><td>${esc(s.model || "—")}</td></tr>
-      <tr><td>schedule</td><td>${s.cron ? `<code>${esc(s.cron)}</code> ${esc(s.timezone || "")} — created paused` : "—"}</td></tr>
+      <tr><td>schedule</td><td>${s.cron ? `<code>${esc(s.cron)}</code> ${esc(s.timezone || "")} — ${s.sched_status ? esc(s.sched_status) : "status unknown"} (shipped paused; resumed daily 2026-07-30, D44)` : "—"}</td></tr>
       <tr><td>deployment</td><td><code>${esc(s.deployment_id || "—")}</code></td></tr>
       <tr><td>setup</td><td><code>uv run python scripts/setup_cost_sentinel.py</code></td></tr>
       <tr><td>drive</td><td><code>uv run python scripts/cost_sentinel.py run|status|latest|pause|resume</code></td></tr>
@@ -6577,8 +7765,8 @@ const MON_DIAGRAM = `flowchart LR
 
   subgraph AWS["AWS — us-east-1 (the console on Fargate)"]
     PX["/api/track proxy<br/>stamps persona from JWT,<br/>country from CF-IPCountry"]
-    PG[("Aurora Postgres<br/>lab.usage_events<br/>write: lab_writer")]
-    DASH["/api/monitoring<br/>A2A Lab Monitoring dashboard<br/>read: lab_reader"]
+    PG[("Aurora Postgres<br/>lab.usage_events<br/>read+write: lab_writer")]
+    DASH["/api/monitoring<br/>A2A Lab Monitoring dashboard<br/>read: lab_writer (single console secret, D46)"]
     PX -->|"INSERT one PII-free row"| PG
     PG -->|"SELECT aggregates"| DASH
   end
@@ -7013,8 +8201,11 @@ function infraDetailsHtml() {
 A **harvest** pulls the lab's own cross-cloud runtime telemetry into one store.
 The three sources live in \`src/observability/infra_source.py\` — \`AwsInfraSource\`,
 \`GcpInfraSource\`, \`AzureInfraSource\` — and run behind the \`infra\` group alias, either
-from \`scripts/obs_harvest.py infra\`, the Harvest button (POST
-\`/api/obs/harvest?platform=infra\`), or the 6-hourly harvest Lambda.
+from \`scripts/obs_harvest.py infra\` (locally), or the Harvest button (POST
+\`/api/obs/harvest?platform=infra\`), which hands the \`infra\` group to the harvest Lambda
+\`a2alab-obs-harvest\` as an async invoke (D54). That is the same function the 6-hourly EventBridge
+schedule fires, but the schedule sends an empty event, so its sweep never includes infra
+(plan/09-deployment-map.md).
 It is **opt-in and NOT in the unqualified sweep**: infrastructure is not an agent-platform
 column, the same reason the coding-agent telemetry is reachable by name only.
 
@@ -7027,7 +8218,7 @@ resolves to empty is **skipped with a reason** (status \`blocked\`), so a partly
 estate degrades honestly rather than erroring the whole pass. No account id, ARN or project
 id is written in the config.
 
-- **AWS** — CloudWatch \`GetMetricData\` over the lab's AWS session (the one human login).
+- **AWS** — CloudWatch \`GetMetricData\` signed by the harvest Lambda's execution role when run from the Harvest button (the \`cloudwatch:GetMetricData\` grant, owned by \`deploy/obs/deploy_harvest.sh\`), or by the operator's AWS session when run locally with \`scripts/obs_harvest.py infra\`.
   Fargate (console, bridge), Aurora Serverless v2, and the harvest Lambda.
 - **GCP** — Cloud Monitoring time series for Vertex AI Agent Engine, read with the
   service-account credential from the \`a2alab/obs/harvest\` Secrets Manager secret
@@ -7061,6 +8252,226 @@ tokens. This harvests the same estate's **SRE-grade runtime** view — CPU, memo
 latency, connections. Different signal, different cadence, different table; the SRE sibling
 of the agent-log harvest, not a sixth platform column.`
     )}</div>`;
+}
+
+// ---- Memory Back End (D115) -------------------------------------------------
+// What the Agentic Memory API (plan/18-agentic-memory-context.md, D91) is built on
+// in Data 360, read live from the org through /api/memory/backend: the
+// AgenticConnector_* streams and the lake objects they land in, the memory DMOs
+// with row counts, and the two HYBRID search indexes. One canvas per thing (D57):
+// Streams & Objects | Search Indexes, each with a Details sub-tab. Loaded when
+// the section opens, never at boot: one read is ~20 Data Cloud queries, cached
+// server-side for 10 minutes.
+let memBackend = null;
+let memBackendLoading = false;
+let memBackendTab = "objects";            // objects | indexes
+let memBackendSub = "run";                // run | details
+const MEM_BACKEND_TABS = [["objects", "Streams & Objects"], ["indexes", "Search Indexes"]];
+
+async function loadMemBackend(refresh) {
+  memBackendLoading = true;
+  renderMemBackendSide();
+  if (view && view.type === "mem-backend") renderMain(true);
+  try {
+    const r = await fetch(apiUrl("/api/memory/backend" + (refresh ? "?refresh=true" : "")));
+    if (r.status === 404 || r.status === 403) { memBackend = { error: r.status === 403
+      ? "Signed-in role cannot read the memory back end." : "This console build has no /api/memory/backend route." }; return; }
+    memBackend = await r.json();
+    const count = document.getElementById("memBackendCount");
+    if (count) count.textContent = memBackend.error ? "" : ((memBackend.streams || []).length || "");
+  } catch (e) {
+    memBackend = { error: "Read failed: " + e };
+  } finally {
+    memBackendLoading = false;
+    renderMemBackendSide();
+    if (view && view.type === "mem-backend") renderMain(true);
+  }
+}
+
+function memRows(c) {
+  if (!c) return `<span class="hint">—</span>`;
+  if (c.rows == null) return `<span class="hint" title="${esc(c.error || "")}">error</span>`;
+  return c.rows.toLocaleString();
+}
+
+function renderMemBackendSide() {
+  const el = document.getElementById("memBackendSide");
+  if (!el) return;
+  if (memBackendLoading && !memBackend) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">Reading the org…</div>`; return;
+  }
+  if (!memBackend) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">Open to read the streams, objects and indexes live from the org.</div>`; return;
+  }
+  if (memBackend.error) {
+    el.innerHTML = `<div class="hint" style="padding:0 12px 10px">${esc(memBackend.error)}</div>`; return;
+  }
+  const idx = memBackend.indexes || [];
+  el.innerHTML = `
+    <div class="obs-plat" onclick="setMemBackendTab('objects')"><span>Streams &amp; objects</span>
+      <span class="count">${(memBackend.streams || []).length}</span></div>
+    <div class="obs-plat" onclick="setMemBackendTab('indexes')"><span>Search indexes</span>
+      <span class="count">${idx.length}</span></div>`;
+}
+
+window.memBackendNav = ev => {
+  const here = !!(view && view.type === "mem-backend");
+  if (!sectionHeaderClick(ev, "accMemBackend", here) || here) return;
+  pushNav();
+  view = { type: "mem-backend" };
+  renderSidebar(); renderMain(true);
+  if (!memBackend && !memBackendLoading) loadMemBackend(false);
+};
+window.setMemBackendTab = id => {
+  if (!(view && view.type === "mem-backend")) { pushNav(); view = { type: "mem-backend" }; renderSidebar(); }
+  memBackendTab = id;
+  memBackendSub = "run";   // a new tab opens on its content, never on its Details
+  renderMain(true);
+  if (!memBackend && !memBackendLoading) loadMemBackend(false);
+};
+window.setMemBackendSub = s => { memBackendSub = s; renderMain(true); };
+window.refreshMemBackend = ev => {
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  loadMemBackend(true);
+};
+
+function memBackendTabbar() {
+  const b = memBackend || {};
+  const stamp = memBackendLoading ? "reading the org…"
+    : b.read_at ? `read ${b.read_at.replace("T", " ")}${b.cached ? " (cached)" : ""}` : "";
+  const label = memBackendTab === "indexes" ? "Indexes" : "Objects";
+  return `
+    <div class="tabbar">
+      <h2>Memory Back End</h2>
+      ${stamp ? `<span class="obs-updated">${esc(stamp)}</span>` : ""}
+      <div class="tabs">
+        ${MEM_BACKEND_TABS.map(([id, l]) =>
+          `<button class="tab ${memBackendTab === id ? "on" : ""}" onclick="setMemBackendTab('${id}')">${l}</button>`).join("")}
+      </div>
+    </div>
+    <div class="tabs" style="margin:10px 0 4px">
+      <button class="tab ${memBackendSub !== "details" ? "on" : ""}" onclick="setMemBackendSub('run')">${label}</button>
+      <button class="tab ${memBackendSub === "details" ? "on" : ""}" onclick="setMemBackendSub('details')">Details</button>
+    </div>`;
+}
+
+function memBackendHtml() {
+  if (memBackendSub === "details") {
+    return memBackendTabbar() + (memBackendTab === "indexes" ? memIndexDetailsHtml() : memObjectsDetailsHtml());
+  }
+  if (!memBackend) return memBackendTabbar() + `<div class="empty">Reading the org…</div>`;
+  if (memBackend.error) {
+    return memBackendTabbar() + `<div class="hint" style="margin-top:12px">${esc(memBackend.error)}</div>
+      <div class="hint" style="margin-top:8px">The section reads the org through the observability
+      identity (client credentials, the same as the OTel routes). See Details for what it calls.</div>`;
+  }
+  return memBackendTabbar() + (memBackendTab === "indexes" ? memIndexesHtml() : memObjectsHtml());
+}
+
+function memObjectsHtml() {
+  const rows = memBackend.streams || [];
+  if (!rows.length) return `<div class="hint" style="margin-top:12px">No AgenticConnector_* streams or lake
+    objects on this tenant, so the agentic memory setup has not been provisioned here (plan/18-agentic-memory-context.md).</div>`;
+  const hidden = memBackend.streams_hidden
+    ? `<p class="hint">The reading identity cannot see data stream records: the stream list reported
+       ${memBackend.streams_hidden} streams but returned none. The lake objects below come from
+       <code>/ssot/metadata</code> instead, so stream status and last refresh are not shown.</p>` : "";
+  return `
+    <p class="hint" style="margin-top:12px">One Ingestion API stream per memory object. Compare the two
+    row counts: the real-time layer writes the DMO directly, so the lake object is not where memory
+    lives (D115, plan/03-results.md).</p>
+    ${hidden}
+    <div class="tbl-card"><div class="tbl-scroll">
+    <table class="obs-table"><thead><tr><th>memory object</th><th>stream lake object (DLO)</th>
+      <th class="num">DLO rows</th><th>data model object (DMO)</th><th class="num">DMO rows</th>
+      ${memBackend.streams_hidden ? "" : `<th>last run</th>`}</tr></thead>
+    <tbody>${rows.map(s => `
+      <tr><td>${esc(s.object)}</td>
+          <td><code>${esc(s.dlo || "—")}</code></td>
+          <td class="num">${memRows(s.dlo_count)}</td>
+          <td>${s.dmo ? `<code>${esc(s.dmo)}</code>` : `<span class="hint" title="ssot__Individual__dlm holds every Individual in the org, CRM included, so its count says nothing about memory">shared Individual DMO, not counted</span>`}</td>
+          <td class="num">${s.dmo ? memRows(s.dmo_count) : ""}</td>
+          ${memBackend.streams_hidden ? "" : `<td>${esc(s.last_run_status || "")} ${esc((s.last_refresh || "").slice(0, 16).replace("T", " "))}</td>`}
+      </tr>`).join("")}</tbody></table></div></div>`;
+}
+
+function memIndexesHtml() {
+  const idx = memBackend.indexes || [];
+  if (!idx.length) return `<div class="hint" style="margin-top:12px">No search index is built over a memory
+    DMO on this tenant. See Details for the two the agentic setup normally creates.</div>`;
+  const row = (k, v) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`;
+  return `
+    <p class="hint" style="margin-top:12px">Two HYBRID (vector + keyword) indexes were created with the agentic
+    setup. No retriever is registered on either, because they back the memory API's own search
+    endpoints. The chunk count is what the index actually holds.</p>
+    ${idx.map(i => `
+      <h4 style="margin:14px 0 0">${esc(i.label || i.name)}</h4>
+      <div class="tbl-card"><div class="tbl-scroll"><table class="obs-table"><tbody>
+        ${row("status", `${esc(i.status || "")} · ${esc(i.search_type || "")}`)}
+        ${row("last refreshed", esc((i.refreshed || "never").slice(0, 16).replace("T", " ")))}
+        ${row("source", `<code>${esc(i.source_dmo || "")}</code> · ${(i.source_fields || []).map(f => `<code>${esc(f)}</code>`).join(", ")}`)}
+        ${row("embedding", `${esc(i.embedding_model || "")} · ${esc(i.dimension || "?")} dims · ${esc(i.chunk_tokens || "?")}-token chunks`)}
+        ${row("vector index", `${esc(i.algorithm || "")} (M=${esc(i.hnsw_m || "?")}, efConstruction=${esc(i.hnsw_ef_construction || "?")}) · ${esc((i.similarity || "").toLowerCase())}`)}
+        ${row("chunk / vector DMO", `<code>${esc(i.chunk_dmo || "")}</code> · <code>${esc(i.vector_dmo || "")}</code>`)}
+        ${row("chunks held", memRows(i.chunk_count))}
+      </tbody></table></div></div>`).join("")}`;
+}
+
+function memObjectsDetailsHtml() {
+  return `<div class="flow">${mdToHtml(
+`### What produces this
+
+\`GET /api/memory/backend\` in the console calls \`src/observability/memory_backend.py\`. It
+lists the org's data streams (\`/ssot/data-streams\`), keeps the \`AgenticConnector_*\` ones, and
+runs one \`SELECT COUNT(*)\` per lake object and per memory DMO through \`/ssot/query\`. Nothing is
+stored: the read is cached in the console process for 10 minutes, and **Refresh** forces a new one.
+
+### Identity
+
+The observability client-credentials app (\`SF_CLIENT_ID_OBS\`), the same identity the OTel trace
+routes use. It reads metadata and counts only and never opens a memory record. That identity
+cannot see data stream *records*, so the lake objects are found through \`/ssot/metadata\`
+instead. Their names are truncated (\`AgenticConnector_AiAgentInterac_…\` covers three objects),
+so each is named by the full object prefix its fields carry.
+
+### What the numbers say
+
+The memory API (plan/18-agentic-memory-context.md, D91) writes through a real-time layer
+straight into the DMOs. So the DMO counts measure memory, and the stream lake objects mostly
+stay empty. \`ssot__Conversation__dlm\` and \`AiParticipantInsight_std__dlm\` read 0 even though
+saved facts are returned by the API, so curated facts are not served from those DMOs on this
+tenant. Measured and explained in plan/03-results.md under D115.
+
+### Caveats
+
+- Counts are for the \`default\` dataspace, across every lab registration and owner.
+- \`ssot__Individual__dlm\` is shared with CRM, so it is listed but not counted.`)}</div>`;
+}
+
+function memIndexDetailsHtml() {
+  return `<div class="flow">${mdToHtml(
+`### What produces this
+
+The same read as Streams & Objects: \`/ssot/search-index\`, filtered to indexes whose source DMO
+is a memory DMO, plus a \`COUNT(*)\` on each chunk DMO. The embedding and HNSW settings come
+straight from the index definition.
+
+### What uses these indexes
+
+No retriever is registered on them, because they back the memory API's own search endpoints:
+\`POST /api/v1/agentic/search/conversations\` and \`/search/learnings\`. GetContext's
+\`insight_query\` runs a memory search too. As measured on 2026-11-06 (plan/03-results.md, D115):
+
+- **Conversation search** needs an \`agent_id\` header, then returns 400 because it prefilters on
+  \`IndividualId__c\`, a column the message index lacks. The same \`hybrid_search\` in Data Cloud SQL
+  returns 0 rows without the filter.
+- **Learnings search** returns 404.
+- **GetContext \`mode=deep\`** returned the same entries as a plain read, and \`insight_query\`
+  added no hits.
+
+Both indexes were refreshed once, on the setup day, and hold no chunks. So semantic search over
+memory is not live on this tenant, and everything an agent receives comes from the fast,
+non-search path.`)}</div>`;
 }
 
 // ---- Architecture (plan/09-deployment-map.md) ------------------------------
@@ -7182,11 +8593,23 @@ function archHtml() {
     <section class="arch-level" id="arch-${esc(l.id)}">
       <div class="arch-head">
         <h3>${esc(l.id)} — ${esc(l.title)}</h3>
+        ${l.drawio ? `
+          <div class="tabs arch-views" role="tablist" aria-label="Diagram rendering">
+            ${[["drawio", "draw.io"], ["mermaid", "Mermaid"]].map(([v, lab]) => `
+              <button class="tab ${archViewFor(l) === v ? "on" : ""}" role="tab"
+                aria-selected="${archViewFor(l) === v}"
+                onclick="archSetView('${esc(l.id)}','${v}')"
+                title="${v === "drawio"
+                  ? "Hand-drawn draw.io rendering of this level (D113)"
+                  : "The mermaid in plan/09 — the source this level is parsed from"}">${lab}${
+                v === "drawio" && l.drawio.stale ? " ⚠" : ""}</button>`).join("")}
+          </div>` : ""}
         ${l.mermaid ? `
           <button class="ghost" onclick="archFullscreen('${esc(l.id)}')"
             title="Full screen (Esc to exit)">Full screen</button>
           <button class="ghost" onclick="archToggleSource('${esc(l.id)}')"
-            id="archsrc-${esc(l.id)}">mermaid source</button>` : ""}
+            id="archsrc-${esc(l.id)}"
+            ${archViewFor(l) === "mermaid" ? "" : `style="display:none"`}>mermaid source</button>` : ""}
       </div>
       ${l.mermaid ? `<div class="arch-figure" id="archfig-${esc(l.id)}"
         data-level="${esc(l.id)}"><span class="hint">Rendering…</span></div>` : ""}
@@ -7238,8 +8661,82 @@ function linkifyRepoFiles(root) {
   }
 }
 
-async function renderArchDiagrams() {
-  const figs = Array.from(document.querySelectorAll(".arch-figure[data-level]"));
+// Each level can render two ways (D113): the hand-drawn draw.io twin, and the
+// mermaid it was drawn from. draw.io is the default — EXCEPT when the server
+// says the drawing is stale (plan/09's mermaid changed after the drawing was
+// last stamped by scripts/arch_drawio.py). Then the level opens on mermaid,
+// which is current by construction, because a default view showing the old
+// shape is the console asserting something false. A reader's explicit choice
+// is remembered per level and wins over the default either way.
+const ARCH_VIEW_KEY = "a2a-arch-view-v1";
+let archViewSel = {};
+try { archViewSel = JSON.parse(localStorage.getItem(ARCH_VIEW_KEY) || "{}") || {}; } catch (e) {}
+const archLevel = id => (archData?.levels || []).find(l => l.id === id) || {};
+function archViewFor(l) {
+  if (!l || !l.drawio) return "mermaid";
+  const picked = archViewSel[l.id];
+  if (picked === "drawio" || picked === "mermaid") return picked;
+  return l.drawio.stale ? "mermaid" : "drawio";
+}
+
+window.archSetView = (id, v) => {
+  archViewSel[id] = v;
+  try { localStorage.setItem(ARCH_VIEW_KEY, JSON.stringify(archViewSel)); } catch (e) {}
+  const l = archLevel(id);
+  // Restore every piece of per-view state explicitly — this runs after first
+  // paint, so the tab states, the source button and the source/diagram toggle
+  // all have to be put back, not only switched on.
+  document.querySelectorAll(`#arch-${CSS.escape(id)} .arch-views .tab`).forEach(b => {
+    const on = b.getAttribute("onclick").includes(`'${v}'`);
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", on);
+  });
+  const src = document.getElementById("archsrc-" + id);
+  // style, not the hidden attribute: button.ghost sets display and wins over it.
+  if (src) { src.style.display = archViewFor(l) === "mermaid" ? "" : "none"; src.textContent = "mermaid source"; }
+  const fig = document.getElementById("archfig-" + id);
+  if (fig) { fig.dataset.showingSource = "0"; fig.innerHTML = `<span class="hint">Rendering…</span>`; }
+  renderArchDiagrams([fig]);
+};
+
+const archSvgCache = new Map();
+async function archDrawioSvg(url) {
+  if (!archSvgCache.has(url)) {
+    archSvgCache.set(url, fetch(url).then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    }).catch(e => { archSvgCache.delete(url); throw e; }));
+  }
+  return archSvgCache.get(url);
+}
+
+async function renderArchDiagrams(only) {
+  const all = only || Array.from(document.querySelectorAll(".arch-figure[data-level]"));
+  if (!all.length) return;
+  const figs = [];
+  for (const fig of all) {
+    if (!fig || fig.dataset.showingSource === "1") continue;
+    const l = archLevel(fig.dataset.level);
+    const isDrawio = archViewFor(l) === "drawio";
+    fig.classList.toggle("arch-drawio", isDrawio);
+    if (!isDrawio) { figs.push(fig); continue; }
+    try {
+      const svg = await archDrawioSvg(l.drawio.url);
+      // The view may have flipped while the fetch was in flight.
+      if (archViewFor(archLevel(fig.dataset.level)) !== "drawio") continue;
+      fig.innerHTML = (l.drawio.stale
+        ? `<p class="hint arch-stale">This drawing predates the latest change to this level's
+             mermaid in <code>plan/09-deployment-map.md</code>, so it may show an older shape —
+             the Mermaid view is current. Redraw with <code>scripts/arch_drawio.py</code> (D113).</p>`
+        : "") + svg;
+      fig.dataset.svg = "1";
+    } catch (e) {
+      // Fall back to the source of truth rather than a blank box.
+      fig.classList.remove("arch-drawio");
+      fig.dataset.drawioError = String(e.message || e);
+      figs.push(fig);
+    }
+  }
   if (!figs.length) return;
   let mermaid;
   try {
@@ -7414,6 +8911,7 @@ const CRED_AGENT_DIAGRAM = `flowchart LR
   COL --> P5
 
   REP[("lab.lab_state<br/>measured dates — read by the console")]
+  RUN["credential_analyst.py run<br/>re-runs expiry_report.collect() in the caller<br/>(console task or operator shell)<br/>--cached reads .a2alab/expiry.json"]
   P1 --> REP
   P2 --> REP
   P3 --> REP
@@ -7421,12 +8919,12 @@ const CRED_AGENT_DIAGRAM = `flowchart LR
   P5 --> REP
 
   API["Claude API<br/>one messages.create<br/>no tools, no session, no state"]
-  REP -->|"the numbers, in the prompt"| API
-  API --> BR["briefing<br/>verdict · act now · watch · blind spots"]`;
+  RUN -->|"the numbers, in the prompt"| API
+  API --> BR["briefing → .a2alab/credential_brief.json<br/>verdict · act now · watch · blind spots"]`;
 
 const CRED_SCHEDULED_DIAGRAM = `flowchart LR
   subgraph AWSC["AWS — collection (already hosted, WS14)"]
-    LAM["a2alab-obs-harvest<br/>6h Lambda, IAM + ACM + federation"]
+    LAM["a2alab-obs-harvest<br/>6h Lambda · role for IAM + ACM<br/>GCP SA key + Entra secret from Secrets Manager"]
     ST[("lab.lab_state snapshot<br/>Aurora, alongside obs")]
     LAM --> ST
   end
@@ -7512,8 +9010,8 @@ function credsDetailsHtml() {
 
     <div class="arch-prose">
       <p><b>The half that unlocked it has shipped.</b> Collection already runs off the laptop — in
-      the 6-hourly harvest Lambda (WS14), reading IAM and ACM directly and reaching Entra and GCP
-      through the federation the lab already runs (D40/D41), landing the dates in a store
+      the 6-hourly harvest Lambda (WS14), reading IAM and ACM as the Lambda's own role and reaching Entra and GCP
+      with the service identities in the harvest secret (the Entra service principal's client secret and the GCP service-account key, from Secrets Manager, D39), landing the dates in a store
       (<code>lab.lab_state</code>) on a schedule. So the analyst no longer needs a person for its
       <i>data</i>; two things still stand between here and a scheduled deployment: a
       <code>read_expiry</code> tool on the obs MCP server, and turning the analyst into a paused
@@ -7524,7 +9022,7 @@ function credsDetailsHtml() {
       the metrics key expired three days ago" is a join a prompt cannot do but a tool over the obs
       store can.</p>
       <p><b>What it would cost, and why it has not been done:</b> an MCP <code>read_expiry</code>
-      tool and a scheduled Managed Agent — the Lambda, its task role and the federation bindings
+      tool and a scheduled Managed Agent — the Lambda, its execution role and the harvest secret's Entra and GCP identities
       already exist from WS14, so this is smaller than it once was, for a lab whose credential set
       changes a few times a year. There is also a boundary to be careful about: the obs MCP server
       is internet-reachable, so exposing expiry data through it means publishing <i>which secrets
@@ -7741,11 +9239,49 @@ function briefsReportHtml() {
     </div></div>`;
 }
 
+// How a scheduled account brief travels from Anthropic's cron to the org, for
+// the Scheduled Brief Delivery Details pane (D16/D52/D81/D90). The session
+// PAUSES on a custom tool the platform cannot run; the watcher is what answers it.
+const BRIEF_DELIVERY_DIAGRAM = `flowchart LR
+  subgraph ANT["Anthropic — Claude Managed Agents"]
+    CRON["Scheduled deployment<br/>platform cron (setup_brief_agent.py)"]
+    SESS["Research session<br/>web_search · web_fetch in the sandbox"]
+    CRON -->|fires one session per run| SESS
+  end
+
+  subgraph AWS["AWS — us-east-1"]
+    WATCH["Brief watcher<br/>ECS Fargate a2alab-briefs · faces image<br/>python -m briefs --watch · every 60s"]
+    LEDGER[("Delivery ledger<br/>lab.lab_state brief_serviced_sessions<br/>delivered · pending · failed")]
+    CON["Console — Scheduled Brief Delivery<br/>GET /api/briefs/outcomes (operator-only)"]
+  end
+
+  subgraph SF["Salesforce org"]
+    ECA["a2a_lab_app ECA · client credentials<br/>run-as a2alab.briefs (D90)<br/>A2ALab_Brief_Writer: object + field access"]
+    ACC["Resolve the Account<br/>trusted map → exact name → unique LIKE"]
+    BRIEF[("A2ALab_Account_Brief__c<br/>upsert on A2ALab_Delivery_Key__c")]
+    BELL["A2ALab_Brief_Alert bell<br/>on create only · best-effort"]
+    TASK[("Completed Task on the Account<br/>upsert on A2ALab_Delivery_Key__c")]
+  end
+
+  SESS -.->|"pauses on save_account_brief<br/>(custom tool)"| WATCH
+  WATCH -->|"deployment_runs.list → attach"| SESS
+  WATCH <-->|"re-read every tick · write before advancing"| LEDGER
+  WATCH -->|"BriefWriter — REST"| ECA
+  ECA --> ACC
+  ACC --> BRIEF
+  BRIEF --> BELL
+  BRIEF --> TASK
+  WATCH -->|"tool result (first time only)"| SESS
+  LEDGER --> CON
+  OP["Operator<br/>python -m briefs --requeue-failed"] -.->|"re-arms terminal failures"| LEDGER`;
+
 function briefsDetailsHtml() {
   return `
     <div class="detail">
     <div class="hint" style="margin:10px 0 16px">What produces this ledger, and what bounds it —
     the D57 Details contract. The delivery guarantees below are A4/F07, settled in D81.</div>
+
+    ${figureHtml("briefsfig", "How a scheduled brief is delivered")}
 
     <div class="arch-prose">
       <h4>What writes it</h4>
@@ -7779,6 +9315,23 @@ function briefsDetailsHtml() {
       brief never reached the org. The ledger write is committed <i>before</i> the in-memory entry
       is advanced, so a lost store write leaves the session eligible next tick rather than stranding
       it (A4/F07, D81).</p>
+
+      <h4>Re-arming failures once the cause is fixed</h4>
+      <p>A terminal row stays terminal until an operator says otherwise:
+      <code>python -m briefs --requeue-failed</code> flips every <code>failed</code> session back to
+      <code>pending</code> with zero attempts, keeping its per-call record so a call that already
+      landed is never re-written. The watcher re-reads the ledger every tick, so the next poll
+      replays only the failed save calls from the session's history (D81 direct replay).</p>
+
+      <h4>The failure this pane caught (2026-11-04)</h4>
+      <p>From the D90 identity move onward, every Task upsert failed with
+      <code>No such column 'WhatId' on sobject of type Task</code>. The <code>a2alab.briefs</code> user's
+      Integration profile grants no field-level security on Task's standard fields, so
+      <code>WhatId</code>, <code>ActivityDate</code> and <code>Description</code> were invisible
+      while Task itself stayed createable, which is all the D90 preflight checked. The brief record
+      landed; its Task did not. <code>A2ALab_Brief_Writer</code> now grants those fields, and
+      <code>scripts/identity_preflight.py</code> checks FLS on every field the writer sends
+      (<code>briefs.salesforce.WRITTEN_FIELDS</code>).</p>
     </div>
     </div>`;
 }
@@ -7854,9 +9407,8 @@ Is that server running? scripts/run_local.sh starts the full stack.</pre></div>`
 function registryTile(a) {
   // The platform mark: the VENDOR's cloud (D-system), not the model spark —
   // ADK/guide are on a cloud, agentforce is Salesforce, claude is Anthropic.
-  const platLogoKey = { claude: "anthropic", openai: "openai", adk: "gcloud",
-    foundry: "microsoft", agentforce: "salesforce", guide: "aws",
-    strands: "aws" }[a.platform] || a.platform;
+  const platLogoKey = Object.prototype.hasOwnProperty.call(PLATFORM_MARK, a.platform)
+    ? PLATFORM_MARK[a.platform] : null;
   const deploys = (a.deployments || []).map(d =>
     `<span class="reg-deploy badge ${esc(d.cloud)}">${logoSvg(d.cloud)}${esc(d.where)}</span>`).join(" ");
   const protos = (a.protocols || []).map(p => `<span class="badge ${esc(p)}">${esc(p)}</span>`).join(" ");
@@ -8095,9 +9647,13 @@ window.archFullscreen = id => figFullscreen("archfig-" + id);
 // The header strip every embedded diagram gets: a label, Full screen, and the
 // mermaid source. One helper so a new diagram cannot ship without them.
 function figureHtml(elId, label) {
+  // The draw.io | Mermaid tabs start hidden: whether this figure HAS a drawing
+  // is known only once paintFigure has read the stamp manifest (D114).
   return `
     <div class="arch-head">
       ${label ? `<h3>${esc(label)}</h3>` : "<span></span>"}
+      <div class="tabs arch-views" role="tablist" aria-label="Diagram rendering"
+        id="figviews-${esc(elId)}" style="display:none"></div>
       <button class="ghost" onclick="figFullscreen('${esc(elId)}')"
         title="Full screen (Esc to exit)">Full screen</button>
       <button class="ghost" onclick="figToggleSource('${esc(elId)}')"
@@ -8482,7 +10038,7 @@ async function openDiagram(id) {
   // renderMermaidInto stashes the source on the figure, which is what
   // figToggleSource and the Full screen zoom read. Its own honest-failure path
   // (say what broke, still show the source) covers a render error here too.
-  await renderMermaidInto(figId, d.mermaid || "");
+  await renderMermaidInto(figId, d.mermaid || "", undefined, d.id);
 }
 
 document.addEventListener("click", ev => {
@@ -8841,9 +10397,7 @@ function warmRowHtml(t, anyBusy) {
   // The shim row is an AWS Lambda, so it wears the AWS mark, not Salesforce's.
   // adk warms an Agent Engine runtime — a Google CLOUD asset, so the cloud
   // mark; the spark stays for the model itself.
-  const WARM_LOGO = { claude: "anthropic", openai: "openai", adk: "gcloud",
-    gemini: "google", foundry: "microsoft", agentforce: "salesforce" };
-  const mark = logoSvg(isShim ? "aws" : WARM_LOGO[t.platform]);
+  const mark = logoSvg(isShim ? "aws" : PLATFORM_MARK[t.platform]);
   // A failure that only lives in a tooltip is a failure nobody sees. Show the
   // platform's own words, then what to do about them.
   const failed = last && !last.ok && !start;
@@ -9020,7 +10574,7 @@ function tileHtml(s, i) {
   <div class="tile ${soon ? "soon" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
     <div class="tile-banner" style="${tileBannerStyle(i)}">${pathStripHtml(s.flow)}</div>
     <div class="tile-body">
-      <div class="tile-head"><h3>${withLogos(s.title || s.name)}</h3>
+      <div class="tile-head"><h3>${scenarioTitleHtml(s)}</h3>
         ${soon ? `<span class="badge soon">coming soon</span>` : `<span class="badge rest">live</span>`}</div>
       <p>${esc(s.summary || s.description || "")}</p>
       <div class="tile-foot">${tagChipsHtml(s.tags)}
@@ -9056,6 +10610,29 @@ function landingWhatsDoneHtml() {
     </section>`;
 }
 
+function landingMarkHtml() {
+  const headerMark = document.querySelector("header .brandmark");
+  if (!headerMark) return "";
+  const mark = headerMark.cloneNode(true);
+  mark.classList.add("landing-brandmark");
+  return mark.outerHTML;
+}
+
+const LANDING_AGENT_PLATFORMS = [
+  ["salesforce", "Salesforce Agentforce"],
+  ["anthropic", "Claude"],
+  ["openai", "OpenAI"],
+  ["gcloud", "Google Gemini on Vertex AI Agent Engine"],
+  ["microsoft", "Microsoft Foundry"],
+  ["aws", "AWS Strands on Bedrock AgentCore"],
+  ["langgraph", "LangGraph on Heroku"],
+];
+
+function landingPlatformListHtml() {
+  return `<ul class="hero-platforms" aria-label="Agent platforms">${LANDING_AGENT_PLATFORMS
+    .map(([logo, label]) => `<li>${logoSvg(logo)}<span>${esc(label)}</span></li>`).join("")}</ul>`;
+}
+
 function landingHtml() {
   const live = scenarios.filter(s => s.status === "live");
   return `
@@ -9063,15 +10640,14 @@ function landingHtml() {
     <section class="hero" style="max-width:none">
       <div class="hero-inner">
         <div class="kicker">Agent interoperability · experiments</div>
-        <h1 class="wordmark">A2A Interop Lab</h1>
+        <div class="landing-title">${landingMarkHtml()}<h1 class="wordmark">A2A Interop Lab</h1></div>
         <p class="hero-sub">Watch agent platforms talk to each other — on the wire.</p>
-        <p class="hero-body">Agent platforms across the hyperscalers — Salesforce Agentforce,
-          Claude, OpenAI, Google Gemini on Vertex AI Agent Engine, Microsoft Foundry, AWS Strands on
-          Bedrock AgentCore, and the open-source LangGraph framework on Heroku — answer the same
-          questions by consulting each other mid-conversation, cross-platform and cross-cloud. Each
+        <p class="hero-body">Agent platforms across the hyperscalers answer the same questions by
+          consulting each other mid-conversation, cross-platform and cross-cloud. Each
           direction runs over REST, MCP, and the A2A protocol — the same scenario, protocols
           compared side by side, with every hop's raw wire payload recorded so you can see exactly
           what each protocol puts on the wire.</p>
+        ${landingPlatformListHtml()}
         <p class="hero-ethos">The lab's ethos is <b>honest status</b>: it calls out what works
           natively, what works via a bridge or shim it hosts, and what is blocked or beta. Every
           claim travels with a source — an ADR id, a trace id, a measured number — so a reader
@@ -9201,7 +10777,7 @@ function landingHtml() {
   </div>`;
 }
 
-window.goHome = () => { view = null; renderSidebar(); renderMain(); };
+window.goHome = () => { view = null; navStack = []; renderSidebar(); renderMain(); };
 
 window.browseCells = () => {
   // Protocol calls is a LIST that lives inside the Control Panel, so this one
@@ -9289,6 +10865,29 @@ function expDefaultPrompt(exp) {
   return (exp && exp.question) || defaultQuestion || "";
 }
 
+// Agent-memory experiments are intentionally two-step. Prompt chips make the
+// teach → recall sequence reproducible without hiding the exact words sent.
+function seedPromptsHtml(exp) {
+  const prompts = (exp && exp.seed_prompts) || [];
+  if (!prompts.length) return "";
+  return `<div class="chan-row" aria-label="Seeded experiment prompts">
+    <span class="chan-label">Try a prompt</span>
+    ${prompts.map((p, i) => `<button class="ghost" onclick="useSeedPrompt(${i})"
+      title="Load this prompt into the composer; you can edit it before sending">${esc(p.label || `Prompt ${i + 1}`)}</button>`).join("")}
+  </div>`;
+}
+
+window.useSeedPrompt = index => {
+  if (!view || view.type !== "experiment") return;
+  const exp = currentExperiment();
+  const prompt = ((exp && exp.seed_prompts) || [])[index];
+  if (!prompt || !prompt.text) return;
+  const key = expKey(view.kind, view.name);
+  drafts[key] = prompt.text;
+  const input = document.getElementById("chatInput");
+  if (input) { input.value = prompt.text; input.focus(); }
+};
+
 // How many past chats per experiment the Run tab keeps this session
 // (A2ALAB_EXPERIMENT_CHAT_HISTORY server env, default 3).
 function chatHistoryLimit() {
@@ -9296,7 +10895,8 @@ function chatHistoryLimit() {
 }
 
 function freshChat(name) {
-  return { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false };
+  return { session: "ui-chat-" + name + "-" + Date.now(), turns: [], running: false,
+    stale_memory: false };
 }
 
 // Archive the current chat into this experiment's session history (most-recent
@@ -9368,6 +10968,12 @@ window.loadPastChat = id => {
     if (tg.dispatch_mode) dispatchModes[key] = tg.dispatch_mode;
     if (tg.gate) fanoutGates[key] = tg.gate;
     if (tg.memory) memoryModes[key] = tg.memory;
+    if (tg.memory_customer) selectedMemoryCustomer = tg.memory_customer;
+  }
+  const manager = memoryManagers[selectedMemoryCustomer];
+  if (manager && manager.generation !== undefined
+      && Object.prototype.hasOwnProperty.call(item.chat, "memory_generation")) {
+    item.chat.stale_memory = item.chat.memory_generation !== manager.generation;
   }
   chatHistoryOpen[key] = false;
   renderMain(true);
@@ -9410,9 +11016,9 @@ function chatTurnsHtml(chat) {
       return `<div class="turn agent running">agents are talking…</div>`;
     }
     const err = !!turn.error;
-    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text, { hardBreaks: true })}</div>`}
+    return `<div class="turn agent ${err ? "err" : ""}">${err ? esc(turn.error) : `<div class="md">${mdToHtml(turn.text, { hardBreaks: true })}</div>${memoryEvidenceHtml(turn.memory_result)}`}
       <span class="tmeta">${err ? "failed" : "agent"}${turn.latency_ms != null ? ` · ${turn.latency_ms} ms` : ""}${
-        turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : ""}${
+        turn.af_channel === "a2a-shim" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol through the lab's hosted shim (D28)">via a2a-shim</span>` : turn.af_channel === "a2a-native" ? ` · <span class="badge a2a" title="This turn's Agentforce consult was routed over the A2A protocol straight to Agentforce's own inbound A2A server (D106, pilot)">via a2a-native</span>` : ""}${
         turn.af_route === "direct" ? ` · <span class="badge a2a" title="This turn's external-research leg went straight from Apex to Vertex AI Agent Engine's native A2A endpoint — no lab bridge, untraced by design">direct a2a</span>` : ""}${
         turn.af_topology === "serial" ? ` · <span class="badge agentforce" title="This turn fanned out with the SERIAL topology (D61): three stacked Apex callouts through the bridge, one per business unit. A full three-leg run overruns the 120s Apex callout budget by design — a later leg is reported unavailable rather than omitted.">serial fan-out</span>`
         : turn.af_topology === "delegated" ? ` · <span class="badge agentforce" title="This turn fanned out with the DELEGATED topology (D61): one Apex callout to the bridge's fanout: route, which ran the three legs in parallel off-platform.">delegated fan-out</span>` : ""}${
@@ -9427,9 +11033,46 @@ function chatTurnsHtml(chat) {
 // WS27/D91: what memory did on one turn, as the wrapper reported it.
 function memoryBadgeHtml(m) {
   if (!m) return `<span class="badge" title="Memory was asked for, but the target reported nothing back — it is not behind the memory seam (an older image, or a platform with no registered memory agent).">memory: no report</span>`;
-  if (!m.ok) return `<span class="badge" title="${esc(`Memory was asked for and failed open — the agent answered without it. ${m.error || ""}`)}">memory: unavailable</span>`;
-  const recalled = m.context_chars > 0;
-  return `<span class="badge claude" title="${esc(`Data 360 Agentic Memory, owner ${m.owner_id}, conversation ${m.conversation_id}. Read ${m.read_ms} ms (${m.context_chars} chars of context), ingest ${m.ingest_ms} ms (your message and the reply).`)}">${recalled ? "memory: recalled" : "memory: nothing yet"}</span>`;
+  if (m.mode === "seed") {
+    const written = m.candidate_count || 0;
+    const nominated = m.nominated_count || 0;
+    const failed = m.state === "unavailable";
+    const label = failed ? "memory: unavailable" : `memory: seeded ${written}/${nominated}`;
+    return `<span class="badge${failed ? "" : " claude"}" title="${esc(`Data 360 seed ${m.state || "unknown"}: wrote ${written}/${nominated} specialist observation(s); ${m.error_count || 0} error(s). This run does not claim recall — availability is asynchronous.`)}">${label}</span>`;
+  }
+  if (m.mode === "recall") {
+    const failed = m.state === "unavailable";
+    const label = failed ? "memory: unavailable" : (m.context_chars > 0 ? "memory: recalled" : "memory: empty");
+    return `<span class="badge${failed ? "" : " claude"}" title="${esc(`Data 360 case recall ${m.state || "unknown"} for ${m.reader || "coordinator"}: ${m.context_chars || 0} context characters; ${m.error_count || 0} error(s).`)}">${label}</span>`;
+  }
+  const title = esc(`Data 360 Agentic Memory, conversation ${m.conversation_id || "unknown"}${m.session_id ? `, session ${m.session_id}` : ""}. Read ${m.read_ms} ms (${m.context_chars || 0} chars), ingest ${m.ingest_ms} ms.${m.profile_memory_suppressed ? " Fresh-generation isolation suppressed profile-wide facts/preferences re-materialized from retained history; only this generation's conversation context was eligible." : ""}`);
+  const recalled = m.recalled != null ? m.recalled : m.context_chars > 0;
+  const stored = m.stored != null ? m.stored : !!m.ok;
+  const chips = [];
+  if (!m.read_ok && m.read_ok != null) chips.push(`<span class="badge" title="${esc(m.error || "Memory read failed open")}">memory: read unavailable</span>`);
+  else if (recalled) chips.push(`<span class="badge claude" title="${title}">memory: recalled</span>`);
+  else chips.push(`<span class="badge" title="${title}">memory: empty</span>`);
+  if (stored) chips.push(`<span class="badge claude" title="${title}">memory: stored</span>`);
+  else chips.push(`<span class="badge" title="${esc(m.error || "Memory write failed")}">memory: not stored</span>`);
+  if (m.normalized) chips.push(`<span class="badge agentforce" title="The tenant refused the original URL/path wire content with the known HTML 403 shape. The memory seam retried once with a readable non-URL copy; the model still answered the original text.">memory: normalized retry</span>`);
+  return chips.join(" ");
+}
+
+function memoryEvidenceHtml(m) {
+  if (!m || !m.context_preview) return "";
+  // Data 360 returns each memory leaf as a compact path/value string. Preserve
+  // its existing line boundaries, then separate category headers and ISO
+  // timestamps from their values so the evidence reads as rows, not a blob.
+  const lines = String(m.context_preview)
+    .replace(/\r\n?/g, "\n")
+    .replace(/([^\n])(?=(?:CONVERSATION_SUMMARY|SYS_PROFILE_[A-Z_]+)\[\d+\]\{)/g, "$1\n")
+    .replace(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z),/g, "$1\n")
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+  return `<div class="memory-evidence"><b>Data 360 memory supplied to this agent</b><div class="memory-evidence-lines">${lines
+    .map(line => `<div class="memory-evidence-line">${esc(line)}</div>`)
+    .join("")}</div></div>`;
 }
 
 // Is the experiment that owns this turn the one currently on screen? Runs are
@@ -9546,11 +11189,26 @@ async function sendTurn(kind, name, message, overrides) {
       body.gate = (overrides && overrides.gate) || fanoutGates[key] || "none";
       toggles.gate = body.gate;
     }
-    // WS27/D91: memory is per run; Run All passes no override, so the sweep
-    // runs memory-off (the control) unless a permutation asks.
+    // WS27/D91: memory is per run. The two customer-memory demonstrations
+    // default on from scenario config; an explicit user radio choice wins.
+    // Run All passes an explicit off override to preserve its control arm.
     if (spec && spec.memory_toggle) {
-      toggles.memory = (overrides && overrides.memory) || memoryModes[key] || "off";
+      toggles.memory = (overrides && overrides.memory) || memoryModeFor(key, spec);
       body.memory = toggles.memory === "on";
+      if (spec.memory_customer_selector) {
+        body.memory_customer = selectedMemoryCustomer || spec.default_memory_customer;
+        toggles.memory_customer = body.memory_customer;
+        if (Object.prototype.hasOwnProperty.call(chat, "memory_generation")) {
+          body.memory_generation = chat.memory_generation;
+          toggles.memory_generation = chat.memory_generation;
+        }
+      }
+    }
+    if (spec && spec.fanout_memory_toggle) {
+      toggles.memory_mode = (overrides && overrides.memory_mode) || fanoutMemoryModes[key] || "off";
+      body.memory_mode = toggles.memory_mode;
+      body.memory_reader = fanoutMemoryReaders[key] || "coordinator";
+      body.memory_case = fanoutMemoryCases[key] || "rotterdam-1";
     }
   } else {
     body.target = name;
@@ -9596,11 +11254,19 @@ async function sendTurn(kind, name, message, overrides) {
   if (turnWindows[trace_id]) turnWindows[trace_id].end = Date.now() / 1000;
   chat.turns.pop(); // remove the running placeholder
   if (result.ok) {
+    const turnMemory = (result.memory && typeof result.memory === "object")
+      ? result.memory : (result.memory_result || null);
+    if (body.memory && turnMemory && Object.prototype.hasOwnProperty.call(turnMemory, "generation")) {
+      chat.memory_generation = turnMemory.generation || "";
+      userTurn.toggles.memory_generation = chat.memory_generation;
+    }
     chat.turns.push({ role: "agent", text: result.text || "(empty response)",
       latency_ms: result.latency_ms, trace_id, af_channel: result.af_channel || null,
       af_route: result.af_route || null, af_topology: result.af_topology || null,
       dispatch_mode: result.dispatch_mode || null, variant: result.variant || toggles.variant || null,
-      memory: result.memory || false, memory_result: result.memory_result || null,
+      memory: !!(result.memory && (typeof result.memory !== "object" || result.memory.mode !== "off")),
+      memory_result: (result.memory && typeof result.memory === "object")
+        ? result.memory : (result.memory_result || null),
       // WS23: carry the Agentforce session id (and the flag saying it IS one) so
       // an Agentforce-primary turn can deep-link to its Session Trace. A Claude
       // orchestrator that merely consults AF has session_platform null → no link.
@@ -9622,6 +11288,7 @@ async function sendTurn(kind, name, message, overrides) {
     runState[key] = { state: "ok", note: result.latency_ms != null
       ? `PASS · ${result.latency_ms} ms` : (result.async ? "running async" : "PASS") };
   } else {
+    if (result.error_code === "stale_memory_generation") chat.stale_memory = true;
     chat.turns.push({ role: "agent", error: result.error || result.detail || "FAIL", trace_id });
     runState[key] = { state: "fail", note: result.error || result.detail || "FAIL" };
   }
@@ -9721,9 +11388,16 @@ window.runAllExperiments = async ev => {
     msg.innerHTML = `<span class="stat">${i + 1}/${runs.length}</span> · ${esc(label)}…`;
     const key = expKey("scenario", s.name);
     if (!chats[key]) chats[key] = { session: "ui-chat-" + s.name + "-" + Date.now(), turns: [], running: false };
-    const overrides = perm
-      ? { af_topology: perm.af_topology, variant: perm.variant, dispatch_mode: perm.dispatch_mode }
-      : null;
+    // Regression sweeps are always the memory-off control. They must not read
+    // customer generations or make automatic extraction/reset state move.
+    const overrides = {
+      memory: "off",
+      ...(perm ? {
+        af_topology: perm.af_topology,
+        variant: perm.variant,
+        dispatch_mode: perm.dispatch_mode,
+      } : {}),
+    };
     const ok = await sendTurn("scenario", s.name, s.question || defaultQuestion, overrides);
     if (ok) pass++;
     // Keep the REASON, not just the name. A run-all that says "1 FAIL
@@ -9751,21 +11425,28 @@ window.draftChanged = el => {
 // --- Details tab ------------------------------------------------------------
 window.setCardTab = (target, tab) => { cardTab[target] = tab; renderMain(true); };
 
-window.toggleCard = async target => {
-  if (openCards.has(target)) { openCards.delete(target); renderMain(true); return; }
-  openCards.add(target);
+window.toggleCard = target => toggleCardKey(target, target, null);
+
+// One cache entry per CARD, not per target: the native Agentforce row (D106)
+// fetches a different card for each twin it is asked about (D25), so its key is
+// target|twin. The shim and every lab face key on the bare target.
+async function toggleCardKey(key, target, twin) {
+  if (openCards.has(key)) { openCards.delete(key); renderMain(true); return; }
+  openCards.add(key);
   renderMain(true); // show "fetching…" immediately
-  if (!cardCache[target]) {
+  if (!cardCache[key]) {
+    const q = twin ? "?twin=" + encodeURIComponent(twin) : "";
     try {
-      const r = await fetch(apiUrl("/api/agent-card/" + encodeURIComponent(target)));
+      const r = await fetch(apiUrl("/api/agent-card/" + encodeURIComponent(target) + q));
       const data = await r.json();
-      cardCache[target] = r.ok ? data : { ok: false, url: target, error: data.detail || r.statusText };
+      cardCache[key] = r.ok ? data : { ok: false, url: target, error: data.detail || r.statusText };
     } catch (e) {
-      cardCache[target] = { ok: false, url: target, error: String(e) };
+      cardCache[key] = { ok: false, url: target, error: String(e) };
     }
     renderMain(true);
   }
-};
+}
+window.toggleCompCard = (key, target, twin) => toggleCardKey(key, target, twin || null);
 
 // Human-readable view of an A2A AgentCard — the fields customers should be
 // able to read without parsing JSON. The JSON tab always has the raw truth.
@@ -9793,38 +11474,48 @@ function cardFields(card) {
   </div>`;
 }
 
-function agentRow(a) {
-  const open = openCards.has(a.target);
-  const c = cardCache[a.target];
-  let body = "";
-  if (open) {
-    if (!c) {
-      body = `<div class="cardbox"><pre>fetching live agent card…</pre></div>`;
-    } else if (c.no_card) {
-      // Reachable agent that publishes no public A2A card (e.g. AgentCore over
-      // agentcore-http/SigV4). Honest note, not a server-down error.
-      body = `<div class="cardbox"><p class="caption">${esc(c.reason || "This agent publishes no public A2A agent card.")}</p></div>`;
-    } else if (!c.ok) {
-      body = `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
-        <pre style="color:var(--err)">${esc(c.error)}
+// The fetched card for one cache key: pending, no-card note, error, or the
+// Agent card / JSON tabs. Shared by the Agent cards section and the Components
+// rows that carry a live card (the two Agentforce A2A cards, D28/D106).
+function cardBodyHtml(key) {
+  const c = cardCache[key];
+  if (!c) return `<div class="cardbox"><pre>fetching live agent card…</pre></div>`;
+  if (c.no_card) {
+    // Reachable agent that publishes no public A2A card (e.g. AgentCore over
+    // agentcore-http/SigV4). Honest note, not a server-down error.
+    return `<div class="cardbox"><p class="caption">${esc(c.reason || "This agent publishes no public A2A agent card.")}</p></div>`;
+  }
+  if (!c.ok) {
+    return `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
+      <pre style="color:var(--err)">${esc(c.error)}
 
 Is that server running? scripts/run_local.sh starts the full stack.</pre></div>`;
-    } else {
-      const tab = cardTab[a.target] || "fields";
-      body = `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
-        ${c.synthesized && c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
-        <div class="tabs">
-          <button class="tab ${tab === "fields" ? "on" : ""}" onclick="setCardTab('${esc(a.target)}', 'fields')">Agent card</button>
-          <button class="tab ${tab === "json" ? "on" : ""}" onclick="setCardTab('${esc(a.target)}', 'json')">JSON</button>
-        </div>
-        ${tab === "fields" ? cardFields(c.card) : `<pre>${esc(JSON.stringify(c.card, null, 2))}</pre>`}</div>`;
-    }
   }
+  const tab = cardTab[key] || "fields";
+  return `<div class="cardbox"><p class="curl">GET ${esc(c.url)}</p>
+      ${c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
+      <div class="tabs">
+        <button class="tab ${tab === "fields" ? "on" : ""}" onclick="event.stopPropagation(); setCardTab('${esc(key)}', 'fields')">Agent card</button>
+        <button class="tab ${tab === "json" ? "on" : ""}" onclick="event.stopPropagation(); setCardTab('${esc(key)}', 'json')">JSON</button>
+      </div>
+      ${tab === "fields" ? cardFields(c.card) : `<pre>${esc(JSON.stringify(c.card, null, 2))}</pre>`}</div>`;
+}
+
+function agentRow(a) {
+  // A twin-scoped card (the native Agentforce card, D106) is keyed by
+  // agent|target|twin: distinct from the Components row of the same card, and
+  // two scenarios on different twins never share a cache slot.
+  const key = a.twin ? `agent|${a.target}|${a.twin}` : a.target;
+  const open = openCards.has(key);
+  const body = open ? cardBodyHtml(key) : "";
+  const click = a.twin
+    ? `toggleCompCard('${esc(key)}','${esc(a.target)}','${esc(a.twin)}')`
+    : `toggleCard('${esc(a.target)}')`;
   return `
     <div class="agentrow">
       <span class="aname">${esc(a.title || a.target)}</span>
-      <span class="atarget mono">${esc(a.target)}</span>
-      <button class="ghost" onclick="toggleCard('${esc(a.target)}')">${open ? "Hide agent card" : "Show agent card"}</button>
+      <span class="atarget mono">${esc(a.target)}${a.twin ? ` · twin ${esc(a.twin)}` : ""}</span>
+      <button class="ghost" onclick="${click}">${open ? "Hide agent card" : "Show agent card"}</button>
       ${a.caption ? `<p class="caption">${esc(a.caption)}</p>` : ""}
     </div>${body}`;
 }
@@ -9837,7 +11528,7 @@ function componentsHtml(components) {
     <h3>Components — the live agent assets</h3>
     <div class="desc"><span class="stat">Click a component to see inside its platform — no login needed.
       "Open ↗" jumps to the live config page (operator login required).</span></div>
-    ${components.map(c => {
+    ${components.map(c => c.card_target ? compCardRow(c) : (() => {
       const key = "comp:" + c.title;
       const open = openComps.has(key);
       const shots = c.shots || [];
@@ -9866,8 +11557,28 @@ function componentsHtml(components) {
               `<code>src/console/static/components/${esc(sl)}.png</code>`).join(" and ")}
             and reopen this tab.</div>` : ""}
       </div>` : ""}`;
-    }).join("")}
+    })()).join("")}
   </div>`;
+}
+
+// A component that IS an agent card (the two Agentforce A2A cards on a
+// channel-toggle scenario, D28/D106): expanding fetches the live card rather
+// than a screenshot, and there is no config page to "Open ↗" — the card is the
+// asset. Same caret row as the screenshot components so the list reads as one.
+function compCardRow(c) {
+  const key = c.card_target + "|" + (c.card_twin || "");
+  const open = openCards.has(key);
+  const call = `toggleCompCard('${esc(key)}', '${esc(c.card_target)}', '${esc(c.card_twin || "")}')`;
+  return `
+    <div class="agentrow comp-row" onclick="${call}" title="Fetch this live agent card">
+      <span class="caret">${open ? "▾" : "▸"}</span>
+      <span class="aname">${esc(c.title)}</span>
+      <span class="badge ${esc(c.kind)}">${esc(c.kind)}</span>
+      <span class="atarget mono">${esc(c.card_target)}</span>
+      <span class="badge a2a" title="Expanding this row fetches the card live from its server">live card</span>
+      ${c.note ? `<p class="caption">${esc(c.note)}</p>` : ""}
+    </div>
+    ${open ? cardBodyHtml(key) : ""}`;
 }
 
 window.toggleComp = key => {
@@ -9976,11 +11687,15 @@ function detailsTabHtml() {
     ${(s.agents || []).length ? `<div class="flow">
       <h3>Agent cards — the agents in this experiment</h3>
       <div class="desc"><span class="stat">A2A AgentCards are generated at runtime by each running server
-        and published at <code>/.well-known/agent-card.json</code> — what you see below is fetched live
-        from the lab, not from a file.</span></div>
+        and published at <code>/.well-known/agent-card.json</code> — what you see below is fetched live,
+        not from a file. Where an experiment can reach Agentforce over both A2A servers, both cards are
+        listed: the lab-built shim card (D28) and the card Salesforce itself publishes (pilot, D106 —
+        the extended <code>/v1/card</code>, fetched with an OrgJWT because the public one answers 401).</span></div>
       ${(s.agents || []).map(agentRow).join("")}
     </div>` : ""}
+    ${afChannelsDetailHtml(s)}
     ${fanoutControlsDetailHtml(s)}
+    ${fanoutMemoryDetailHtml(s)}
     ${memoryDetailHtml(s)}
     ${componentsHtml(s.components)}
     ${riderSectionHtml()}`;
@@ -9992,6 +11707,9 @@ function detailsTabHtml() {
 // so typing in the composer survives SSE-driven updates mid-run.
 function renderMain(force) {
   const el = document.getElementById("detail");
+  const presenting = !!(view && view.type === "memory-presentation");
+  document.querySelector("main").classList.toggle("presentation-mode", presenting);
+  el.classList.toggle("presentation-host", presenting);
   el.classList.toggle("landing-host", !view);
 
   if (!view) {
@@ -10002,13 +11720,23 @@ function renderMain(force) {
     return;
   }
 
+  if (view.type === "memory-presentation") {
+    const scene = Math.max(0, Math.min(MEMORY_PRESENTATION_SCENES.length - 1, Number(view.scene) || 0));
+    const key = `memory-presentation:${scene}`;
+    if (!force && mainKey === key) return;
+    mainKey = key;
+    el.innerHTML = memoryPresentationHtml();
+    linkifyRepoFiles(el);
+    return;
+  }
+
   if (view.type === "trace") {
     mainKey = "trace";
     const t = traces.find(x => x.trace_id === selected);
     if (t) {
       el.innerHTML = `
         <div class="detail-head">${backBtnHtml()}<div class="tid">trace ${t.trace_id}</div></div>
-        ${traceSectionHtml(t, "Call path")}`;
+        ${traceSectionHtml(t, "Call path", null, null)}`;
     } else if (traceFetchMisses.has(selected)) {
       // Confirmed absent from BOTH stores (windowless lookup 404'd) — a real
       // "not found", not just outside the recent trace list.
@@ -10064,6 +11792,13 @@ function renderMain(force) {
     return;
   }
 
+  if (view.type === "mem-backend") {
+    mainKey = `mem-backend:${memBackendTab}:${memBackendSub}:${memBackend ? (memBackend.read_at || "err") : "none"}:${memBackendLoading}`;
+    el.innerHTML = memBackendHtml();
+    linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
+    return;
+  }
+
   if (view.type === "infra") {
     // window rides the key too: the Metrics tab's data changes with it, and a
     // stale skeleton would otherwise show the previous window's grid.
@@ -10091,6 +11826,7 @@ function renderMain(force) {
     mainKey = `briefs:${briefsTab}`;
     el.innerHTML = briefsHtml();
     linkifyRepoFiles(el);   // repo paths -> GitHub; D-refs + plan/*.md via the observer
+    if (briefsTab === "details") renderMermaidInto("briefsfig", BRIEF_DELIVERY_DIAGRAM, "briefsfig-svg");
     return;
   }
 
@@ -10117,7 +11853,7 @@ function renderMain(force) {
       el.innerHTML = obsCrumbsHtml() + obsSessionDetailHtml();
     } else if (view.platform) {
       el.innerHTML = obsCrumbsHtml() + obsDashboardHtml() + obsSessionsHtml(view.platform);
-    } else if (!obsHasData() && !["tableau", "session-trace"].includes(obs.tab || "dashboard")) {
+    } else if (!obsHasData() && !["tableau", "digital-wallet", "session-trace"].includes(obs.tab || "dashboard")) {
       // First-run: explain the pipeline instead of an empty dashboard. The
       // Tableau Next tab is exempt — its exhibit is the Zero-Copy federation,
       // not the harvest store, so it has content even before the first sweep.
@@ -10133,6 +11869,10 @@ function renderMain(force) {
         // WS19/M10: not a brief and not the harvest dashboard — its own thing
         // (the Zero-Copy → Tableau Next exhibit), with its own Details pane.
         pane = details ? obsTableauNextDetailsHtml() : obsTableauNextHtml();
+      } else if (tab === "digital-wallet") {
+        // D111/WS30: Digital Wallet billing attribution is a second Tableau
+        // Next asset, not another view over the Aurora trace dashboard.
+        pane = details ? obsDigitalWalletDetailsHtml() : obsDigitalWalletHtml();
       } else if (tab === "session-trace") {
         // WS23/D73: a live single-session OTel API read — its own thing beside
         // the harvest dashboard, not a facet of it.
@@ -10158,7 +11898,11 @@ function renderMain(force) {
       // the markup is in the DOM.
       if (!details && tab === "tableau") {
         // Owner-only inline embed; no-op for everyone else / when unwired.
-        mountTableauEmbed();
+        mountTableauEmbed("traffic");
+      } else if (!details && tab === "digital-wallet") {
+        // Reuses the initialized SDK/frontdoor browser session; only the
+        // dashboard API name and host element differ.
+        mountTableauEmbed("consumption");
       }
       if (details) {
         if (tab === "tableau") {
@@ -10180,28 +11924,31 @@ function renderMain(force) {
   const key = expKey(view.kind, view.name);
   const chat = chats[key];
   const exp = currentExperiment();
-  const title = view.kind === "scenario" ? (exp && (exp.title || exp.name)) || view.name : view.name;
   const soon = view.kind === "scenario" && exp && exp.status !== "live";
   // requires_mode gate: the server 409s a mismatched run — say so up front
   // and disable Send instead of letting the demo hit the refusal blind.
   // Same modeUnmet condition as the sidebar/tile chips.
   const modeBlocked = view.kind === "scenario" && modeUnmet(exp);
   const viewerRole = labUser && labUser.role === "viewer";
-  const blocked = soon || modeBlocked || viewerRole;
+  const staleMemoryChat = !!chat.stale_memory;
+  const blocked = soon || modeBlocked || viewerRole || staleMemoryChat;
   const skeletonKey = `exp:${key}:${activeTab}`;
 
   if (mainKey !== skeletonKey || force) {
     mainKey = skeletonKey;
     el.innerHTML = `
       <div class="tabbar">
-        <h2>${esc(title)}</h2>
+        <h2>${view.kind === "scenario"
+          ? (scenarioTitleHtml(exp) || esc(view.name))
+          : (targetTitleHtml(exp) || esc(view.name))}</h2>
         ${viewerRole ? `<span class="badge hosted"
           title="Viewer role — experiments and protocol calls are view-only. Details, traces, observability, and the Lab Guide are all open.">view only</span>` : ""}
-        ${exp && (exp.tags || []).includes("agentcore") ? `<span class="badge aws"
-          title="The Claude end runs self-hosted on AWS Bedrock AgentCore (D26)">aws</span>` : ""}
         ${modeUnmet(exp) ? `<span class="badge hosted"
           title="Needs A2ALAB_MODE=${esc(exp.requires_mode)} — the top-right mode badge shows the active mode">needs ${esc(exp.requires_mode)} mode</span>` : ""}
         <div class="tabs">
+          ${view.kind === "scenario" && ["customer-memory-claude", "customer-memory-openai"].includes(view.name)
+            ? `<button class="tab" id="memory-presentation-tab-${esc(view.name)}"
+                onclick="openMemoryPresentation(this.id)">Presentation mode</button>` : ""}
           <button class="tab ${activeTab === "run" ? "on" : ""}" onclick="setTab('run')">Run</button>
           <button class="tab ${activeTab === "details" ? "on" : ""}" onclick="setTab('details')">Details</button>
         </div>
@@ -10219,6 +11966,9 @@ function renderMain(force) {
               title="Start a new chat — the current one is kept in this session's history">New chat</button>
           </div>
           ${chatHistoryOpen[key] ? pastChatsHtml(key) : ""}
+          ${view.kind === "scenario" && exp ? memoryCustomerRowHtml(exp) : ""}
+          ${view.kind === "scenario" && exp ? posPurchaseRowHtml(exp) : ""}
+          ${view.kind === "scenario" && exp ? seedPromptsHtml(exp) : ""}
           ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_route_toggle ? afRouteRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_topology_toggle ? afTopologyRowHtml(key) : ""}
@@ -10228,16 +11978,19 @@ function renderMain(force) {
             ? dispatchModeRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.gate_toggle
             ? fanoutGateRowHtml(key) : ""}
-          ${view.kind === "scenario" && exp && exp.memory_toggle ? memoryRowHtml(key) : ""}
+          ${view.kind === "scenario" && exp && exp.memory_toggle ? memoryRowHtml(key, exp) : ""}
+          ${view.kind === "scenario" && exp && exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>
           ${modeBlocked ? `<div class="mode-notice">Needs <b>${esc(exp.requires_mode)}</b> mode — set
             <span class="mono">A2ALAB_MODE=${esc(exp.requires_mode)}</span> in .env and restart the
             stack; the mode badge (top right) shows the active mode.</div>` : ""}
+          ${staleMemoryChat ? `<div class="mode-notice">Customer memory was reset after this chat began. This transcript is read-only so its old agent session cannot leak into the new memory generation. <button class="ghost" onclick="resetChat()">Fork to a new chat</button></div>` : ""}
           <div class="composer">
             <textarea id="chatInput" rows="3" ${blocked ? "disabled" : ""}
               placeholder="${soon ? "This experiment isn't runnable yet — see the Details tab."
                 : viewerRole ? "Viewer role — running experiments and clearing the trace archive are operator-only (D36, D80). Reading traces, the Details tab and the Lab Guide are all yours."
+                : staleMemoryChat ? "This pre-reset chat is read-only — fork to a new chat to continue."
                 : modeBlocked ? "Runs are refused in the wrong deployment mode — see the notice above."
                 : view.kind === "cell" && exp && exp.question
                   ? `Enter to send the default: ${esc(exp.question)}`
@@ -10269,6 +12022,10 @@ function renderMain(force) {
     // are excluded entirely: their /api/run acks immediately while hops
     // stream for minutes, so "post-run" never means "path complete".
     const selTurn = chat.turns.find(turn => turn.trace_id === selected);
+    const memoryCustomerKey = selTurn && selTurn.toggles && selTurn.toggles.memory_customer;
+    const memoryPersona = memoryCustomerKey
+      ? (((labConfig && labConfig.memory_customers) || {})[memoryCustomerKey]?.name || memoryCustomerKey)
+      : (exp && exp.memory_customer_selector ? (memoryCustomer()?.name || selectedMemoryCustomer) : null);
     const ghostFlow = !chat.running && exp
       ? (view.kind === "scenario"
           ? (exp.mode !== "async"
@@ -10277,7 +12034,7 @@ function renderMain(force) {
           : cellFlow(exp, selTurn && selTurn.via_bridge))
       : null;
     document.getElementById("traceArea").innerHTML = owned || chat.running
-      ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn", ghostFlow)
+      ? traceSectionHtml(mergedTurnTrace(t), "Call path — selected turn", ghostFlow, memoryPersona)
       : `<div class="flow"><h3>Call path</h3><div class="desc"><span class="stat">Send a turn — its live
           call path and raw wire traces appear here. Click any of your past turns to revisit its path.</span></div></div>`;
   } else {
@@ -10413,7 +12170,42 @@ async function connectStream() {
 }
 
 // ---------------------------------------------------------------------------
-// Theme (light default, mirrored dark) — persisted in localStorage; the
+// Design theme and color mode are independent persisted axes. Canvas is an
+// original OpenAI-site-inspired study; Parchment is an original
+// Anthropic-site-inspired study. Neither uses vendor assets or brand fonts.
+// `/design/axs` carries a server-forced Skyline marker for that document only;
+// it wins for that document; choosing any other design saves it and exits to `/`.
+// ---------------------------------------------------------------------------
+const DESIGN_KEY = "a2a-design-v1";
+const DESIGNS = Object.freeze(["default", "skyline", "canvas", "parchment"]);
+const forcedDesign = document.documentElement.getAttribute("data-design-forced");
+const normalizeDesign = design => DESIGNS.includes(design) ? design : "default";
+const applyDesignTheme = design => {
+  const applied = forcedDesign === "skyline" ? "skyline" : normalizeDesign(design);
+  if (applied === "default") document.documentElement.removeAttribute("data-design");
+  else document.documentElement.setAttribute("data-design", applied);
+  const select = document.getElementById("designTheme");
+  if (select) select.value = applied;
+};
+window.setDesignTheme = design => {
+  const normalized = normalizeDesign(design);
+  if (forcedDesign === "skyline") {
+    if (normalized !== "skyline") {
+      try { localStorage.setItem(DESIGN_KEY, normalized); } catch { /* private mode */ }
+      window.location.assign("/");
+    } else applyDesignTheme("skyline");
+    return;
+  }
+  try { localStorage.setItem(DESIGN_KEY, normalized); } catch { /* private mode */ }
+  applyDesignTheme(normalized);
+};
+(() => {
+  let saved = null;
+  try { saved = localStorage.getItem(DESIGN_KEY); } catch { /* ignore */ }
+  applyDesignTheme(normalizeDesign(saved));
+})();
+
+// Color mode (light default, mirrored dark) — persisted in localStorage; the
 // data-theme attribute is set pre-paint by the inline <head> script.
 // Key is versioned ("a2a-theme-v2"): the legacy "a2a-theme" key may hold a
 // "dark" value written by the old dark-default init, which would silently

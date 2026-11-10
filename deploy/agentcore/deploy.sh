@@ -34,9 +34,11 @@ case "$PLATFORM" in
     # SF_AGENT_ID: the Claude-paired Agentforce twin (D25 — closed systems)
     ENV_KEYS=(CLAUDE_AGENT_MODEL CLAUDE_ANSWER_TIMEOUT_S
               SF_MY_DOMAIN SF_AGENT_ID
-              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
+              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S AF_A2A_NATIVE_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
-    SECRET_KEYS=(ANTHROPIC_API_KEY SF_CLIENT_ID SF_CLIENT_SECRET)
+    # SF_AF_A2A_*: the a2a-native channel's client-credentials pair (D106).
+    SECRET_KEYS=(ANTHROPIC_API_KEY SF_CLIENT_ID SF_CLIENT_SECRET
+                 SF_AF_A2A_CLIENT_ID SF_AF_A2A_CLIENT_SECRET)
     ;;
   openai)
     DOCKERFILE=deploy/agentcore/openai.Dockerfile
@@ -48,9 +50,10 @@ case "$PLATFORM" in
     # wiped it off the runtime and every hosted Agentforce consult broke).
     ENV_KEYS=(OPENAI_MODEL OPENAI_ANSWER_TIMEOUT_S
               SF_MY_DOMAIN SF_AGENT_ID SF_OPENAI_AGENT_ID
-              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
+              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S AF_A2A_NATIVE_TIMEOUT_S
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
-    SECRET_KEYS=(OPENAI_API_KEY SF_CLIENT_ID SF_CLIENT_SECRET)
+    SECRET_KEYS=(OPENAI_API_KEY SF_CLIENT_ID SF_CLIENT_SECRET
+                 SF_AF_A2A_CLIENT_ID SF_AF_A2A_CLIENT_SECRET)
     ;;
   strands)
     DOCKERFILE=deploy/agentcore/strands.Dockerfile
@@ -75,14 +78,15 @@ case "$PLATFORM" in
     # bounds both.
     ENV_KEYS=(STRANDS_MODEL_ID STRANDS_ANSWER_TIMEOUT_S STRANDS_ADK_TIMEOUT_S
               SF_MY_DOMAIN SF_AGENT_ID SF_STRANDS_AGENT_ID
-              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S
+              AF_SHIM_A2A_URL AF_SHIM_TIMEOUT_S AF_A2A_NATIVE_TIMEOUT_S
               ADK_A2A_ENDPOINT A2ALAB_BRIDGE_URL
               A2ALAB_PG_CLUSTER_ARN A2ALAB_PG_SECRET_ARN)
     # BRIDGE_TOKEN: the bridge route (ask_google_adk_bridge) authenticates to
     # the bridge with X-Bridge-Token, so the runtime needs the shared secret —
     # without it every bridge-route call 401s while the direct route works, the
     # same confusing half-failure the Dockerfile's google-auth note guards.
-    SECRET_KEYS=(SF_CLIENT_ID SF_CLIENT_SECRET BRIDGE_TOKEN)
+    SECRET_KEYS=(SF_CLIENT_ID SF_CLIENT_SECRET BRIDGE_TOKEN
+                 SF_AF_A2A_CLIENT_ID SF_AF_A2A_CLIENT_SECRET)
     ;;
   *) echo "unknown platform '$PLATFORM' (claude|openai|strands)"; exit 1 ;;
 esac

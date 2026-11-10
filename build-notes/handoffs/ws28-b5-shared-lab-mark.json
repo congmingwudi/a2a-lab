@@ -1,0 +1,59 @@
+{
+  "batch": "ws28-b5-shared-lab-mark",
+  "title": "Adopt one shared A2A Interop Lab mark",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": "codex",
+  "station": "deploy",
+  "holder": "operator",
+  "round": 1,
+  "verdict": "pass",
+  "adr": "D101",
+  "files": {
+    "plan": "build-notes/codex/shared-lab-mark-plan.md",
+    "notes": {
+      "codex": "build-notes/codex/reviews/ws28-b5-shared-lab-mark.md"
+    },
+    "verdicts": {
+      "claude": "build-notes/claude/reviews/ws28-b5-shared-lab-mark.md"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-11-01T17:39:13+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/shared-lab-mark-plan.md"
+    },
+    {
+      "ts": "2026-11-01T17:42:43+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws28-b5-shared-lab-mark.md",
+      "round": 0
+    },
+    {
+      "ts": "2026-11-01T17:48:34+00:00",
+      "agent": "operator",
+      "action": "settle",
+      "adr": "D101",
+      "implementer": "codex"
+    },
+    {
+      "ts": "2026-11-01T18:10:52+00:00",
+      "agent": "codex",
+      "action": "built",
+      "file": "build-notes/codex/reviews/ws28-b5-shared-lab-mark.md",
+      "commit": "7b4a56e"
+    },
+    {
+      "ts": "2026-11-01T18:17:34+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "pass",
+      "file": "build-notes/claude/reviews/ws28-b5-shared-lab-mark.md",
+      "round": 1
+    }
+  ]
+}

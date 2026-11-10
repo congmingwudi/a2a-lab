@@ -98,7 +98,8 @@ available. Raw `sf` CLI equivalents are noted as fallback.
    permission set (`externalCredentialPrincipalAccesses`).
 7. **The actions are declared in the Agent Script** (D14/D15): the
    authoring bundle's `customer_account_status` subagent carries both
-   `get_account_summary` (Apex `A2ALabGetAccountSummary`) and
+   `get_account_summary` (Apex `A2ALabGetAccountSummary`),
+   `create_follow_up_case` (Apex `A2ALabCreateFollowUpCase`, OpenAI-paired agent only), and
    `ask_external_researcher` (Apex `A2ALabInvokeRemoteAgent`) — publish +
    activate the bundle (step 3) and they're live; no Agent Builder step.
 
@@ -217,7 +218,11 @@ One-time setup (after §1 and §2 are done):
 Provisioned 2026-07-17 in the lab's runtime account (D21), us-east-1:
 - **Aurora Postgres Serverless v2** `a2alab-obs` (engine 16.13, min ACU 0 —
   scale-to-zero; Data API enabled; publicly accessible instance
-  `a2alab-obs-1`; SG `a2alab-aurora-sg` allowlists the lab host only).
+  `a2alab-obs-1`; SG `a2alab-aurora-sg` originally allowlisted the lab host
+  only, for the direct `A2ALAB_PG_DSN` path. That rule was revoked on 2026-10-29
+  once everything used the Data API, and since WS19 port 5432 admits only the
+  pinned Data 360 `/32`s. See `deploy/obs/deploy_datacloud_ingress.sh --verify`
+  and plan/09 L5).
   Database `a2alab`, schema `lab`: trace_events, obs_sessions, obs_events,
   obs_harvest, obs_briefs (all jsonb payloads).
 - **Roles/secrets** (Secrets Manager): master (RDS-managed),
@@ -529,6 +534,16 @@ uv run python scripts/identity_preflight.py                   # a2a_lab_memory m
 deploy/bridge/deploy_bridge.sh --skip-build    # config only: the secret carries the new run-as
 uv run python scripts/setup_agentic_memory.py ungrant --apply # drop PersonalizationUser off the admin
 uv run python scripts/env_sync.py push
+```
+
+Registration removal is dry-run by default and is destructive only with
+`--apply`. Deleting a registration also permanently deletes every conversation
+and memory stored under it; the alias remains in `AGENTS`, so `register <alias>
+--apply` can recreate an empty registration later:
+
+```sh
+uv run python scripts/setup_agentic_memory.py delete <alias> [more aliases...]
+uv run python scripts/setup_agentic_memory.py delete <alias> [more aliases...] --apply
 ```
 
 Until the bridge is redeployed it keeps minting as the admin. Nothing revokes

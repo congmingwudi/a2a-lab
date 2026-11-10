@@ -44,6 +44,21 @@
         <field>Task.A2ALab_Delivery_Key__c</field>
         <readable>true</readable>
     </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Task.ActivityDate</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Task.Description</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>Task.WhatId</field>
+        <readable>true</readable>
+    </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>A2ALab Brief Writer</label>
     <objectPermissions>
@@ -73,6 +88,10 @@
         <object>Contact</object>
         <viewAllRecords>false</viewAllRecords>
     </objectPermissions>
+    <!-- The Integration profile grants no FLS on Task's STANDARD fields: WhatId,
+         ActivityDate and Description were invisible ("No such column 'WhatId'")
+         until granted here, while Task.createable stayed true (measured
+         2026-11-04; the D90 preflight checked the object flag only). -->
     <!-- Task is not even queryable without Access Activities: EditTask alone
          left it "sObject type 'Task' is not supported" (measured, D90). -->
     <userPermissions>

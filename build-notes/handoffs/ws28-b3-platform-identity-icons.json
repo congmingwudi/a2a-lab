@@ -1,0 +1,74 @@
+{
+  "batch": "ws28-b3-platform-identity-icons",
+  "title": "Complete experiment and protocol platform identity",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": "codex",
+  "station": "deploy",
+  "holder": "operator",
+  "round": 2,
+  "verdict": "pass",
+  "adr": "D99",
+  "files": {
+    "plan": "build-notes/codex/platform-identity-icons-plan.md",
+    "notes": {
+      "codex": "build-notes/codex/reviews/ws28-b3-platform-identity-icons.md"
+    },
+    "verdicts": {
+      "claude": "build-notes/claude/reviews/ws28-b3-platform-identity-icons.md"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-10-31T16:49:39+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/platform-identity-icons-plan.md"
+    },
+    {
+      "ts": "2026-10-31T16:56:28+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws28-b3-platform-identity-icons.md",
+      "round": 0
+    },
+    {
+      "ts": "2026-10-31T23:12:09+00:00",
+      "agent": "operator",
+      "action": "settle",
+      "adr": "D99",
+      "implementer": "codex"
+    },
+    {
+      "ts": "2026-10-31T23:27:48+00:00",
+      "agent": "codex",
+      "action": "built",
+      "file": "build-notes/codex/reviews/ws28-b3-platform-identity-icons.md",
+      "commit": "d64b911"
+    },
+    {
+      "ts": "2026-10-31T23:35:24+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws28-b3-platform-identity-icons.md",
+      "round": 1
+    },
+    {
+      "ts": "2026-10-31T23:42:05+00:00",
+      "agent": "codex",
+      "action": "respond",
+      "commit": "a5c28ff",
+      "round": 2
+    },
+    {
+      "ts": "2026-10-31T23:46:21+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "pass",
+      "file": "build-notes/claude/reviews/ws28-b3-platform-identity-icons.md",
+      "round": 2
+    }
+  ]
+}

@@ -62,8 +62,19 @@ async def _run_cma(args, variant: str = "tool") -> int:
     print(f"trace         {trace_id}")
     print(f"task          {args.task}\n")
 
+    from orchestration.memory import MemoryRun
+
+    memory_run = MemoryRun(
+        mode=args.memory_mode,
+        reader=args.memory_reader,
+        owner_id=args.memory_owner,
+        case_key=args.memory_case,
+    )
     result = await CmaOrchestrator(
-        variant=variant, dispatch_mode=dispatch_mode, gate=args.gate
+        variant=variant,
+        dispatch_mode=dispatch_mode,
+        gate=args.gate,
+        memory_run=memory_run,
     ).run(args.task, trace_id=trace_id)
     fan = result["fanout"]
     path = result["call_path"]
@@ -114,6 +125,22 @@ async def main() -> int:
         default="",
         help="comma-separated leg roles to run (default: all)",
     )
+    ap.add_argument(
+        "--memory-mode",
+        default="off",
+        choices=("off", "seed", "recall"),
+        help="D102 case memory arm (host-side CMA only)",
+    )
+    ap.add_argument(
+        "--memory-reader",
+        default="coordinator",
+        choices=("coordinator", "specialists", "both"),
+    )
+    ap.add_argument(
+        "--memory-owner",
+        help="explicit verified-style owner for a controlled CLI experiment",
+    )
+    ap.add_argument("--memory-case", help="case key shared by seed and recall runs")
     ap.add_argument("--caller", default="a2alab-supply-orchestrator")
     ap.add_argument("--caller-platform", default="claude")
     ap.add_argument(
@@ -153,6 +180,9 @@ async def main() -> int:
     args = ap.parse_args()
     if args.gate != "none" and args.orchestrator == "cma-mcp":
         print("--gate applies to the host-side fan-out; under cma-mcp the model is the router")
+        return 2
+    if args.memory_mode != "off" and args.orchestrator != "cma":
+        print("--memory-mode applies to --orchestrator cma (host-side tool) only")
         return 2
 
     if args.orchestrator == "cma":

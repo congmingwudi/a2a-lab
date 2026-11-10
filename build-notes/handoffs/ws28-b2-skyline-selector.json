@@ -1,0 +1,74 @@
+{
+  "batch": "ws28-b2-skyline-selector",
+  "title": "Skyline theme selector and experiment-heading identity",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": "codex",
+  "station": "deploy",
+  "holder": "operator",
+  "round": 2,
+  "verdict": "pass",
+  "adr": "D98",
+  "files": {
+    "plan": "build-notes/codex/skyline-theme-selector-plan.md",
+    "notes": {
+      "codex": "build-notes/codex/ws28-b2-skyline-selector.md"
+    },
+    "verdicts": {
+      "claude": "build-notes/claude/reviews/ws28-b2-skyline-selector.md"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-10-31T14:40:35+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/skyline-theme-selector-plan.md"
+    },
+    {
+      "ts": "2026-10-31T14:51:22+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws28-b2-skyline-selector.md",
+      "round": 0
+    },
+    {
+      "ts": "2026-10-31T14:57:30+00:00",
+      "agent": "operator",
+      "action": "settle",
+      "adr": "D98",
+      "implementer": "codex"
+    },
+    {
+      "ts": "2026-10-31T15:16:22+00:00",
+      "agent": "codex",
+      "action": "built",
+      "file": "build-notes/codex/ws28-b2-skyline-selector.md",
+      "commit": "e0843b5"
+    },
+    {
+      "ts": "2026-10-31T15:23:29+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws28-b2-skyline-selector.md",
+      "round": 1
+    },
+    {
+      "ts": "2026-10-31T15:27:06+00:00",
+      "agent": "codex",
+      "action": "respond",
+      "commit": "fb5f8e8",
+      "round": 2
+    },
+    {
+      "ts": "2026-10-31T15:33:50+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "pass",
+      "file": "build-notes/claude/reviews/ws28-b2-skyline-selector.md",
+      "round": 2
+    }
+  ]
+}

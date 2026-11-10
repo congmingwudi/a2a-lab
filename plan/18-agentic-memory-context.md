@@ -1,6 +1,78 @@
 # 18 — Data 360 Agentic Memory and Context: one memory, every platform
 
-**Status: Phase 0 + Phase 1 DONE (2026-10-12): the memory ECA is deployed and verified; the `default` agentic setup is ACTIVE and `A2ALab_Memory_Concierge` is registered (ACTIVE). Phase 2 (D83) is DEPLOYED (2026-10-13): bridge task definition :13, `A2ALabMemoryTurn` (6/6 tests, 100% coverage) and concierge v1 active. The tenant smoke passed (2026-10-13), and **first recall across sessions passed (2026-10-14)**. The reply side was measured on 2026-10-15: replies never reach memory natively. D87's idempotent entry ids are live; its reply path is not: `last_reply` turned out to be voice barge-in state, so concierge v2 failed every turn and v1 is active again, and the reply moves out of band (D89). Phase 0b (D86, 2026-10-14) moves the memory ECA off the admin onto a dedicated API-only integration user: built, with the production steps pending. Agentforce also has NATIVE memory actions (`manageUserMemory` and friends), so Phase 2b (D84) runs both routes as an experiment, including a Data Cloud One companion-org arm.** This
+**Status: Phase 0 + Phase 1 DONE (2026-10-12): the memory ECA is deployed and verified; the `default` agentic setup is ACTIVE and `A2ALab_Memory_Concierge` is registered (ACTIVE). Phase 2 (D83) is DEPLOYED (2026-10-13): bridge task definition :13, `A2ALabMemoryTurn` (6/6 tests, 100% coverage) and concierge v1 active. The tenant smoke passed (2026-10-13), and **first recall across sessions passed (2026-10-14)**. The reply side was measured on 2026-10-15: replies never reach memory natively. D87's idempotent entry ids are live; its reply path is not: `last_reply` turned out to be voice barge-in state, so concierge v2 failed every turn and v1 is active again, and the reply moves out of band (D89). Phase 0b (D86, 2026-10-14) moves the memory ECA off the admin onto a dedicated API-only integration user: built, with the production steps pending. Agentforce also has NATIVE memory actions (`manageUserMemory` and friends), so Phase 2b (D84) runs both routes as an experiment, including a Data Cloud One companion-org arm.**
+**D104 addendum (2026-11-02): customer-profile continuity is now built in the existing A2A Lab org.**
+`Contact_Home` materializes Individual + Contact Point Email, identity ruleset `AM01` produces
+`UnifiedssotIndividualAm01__dlm`, and `A2ALab_Memory_Customer360` is ready but not attached to the
+memory configuration. D105 replaces the platform registrations with shared
+`A2ALab_Memory_Case`; extraction is on only for that service identity, and governed GetContext
+uses Maya's unified id from either platform. The console experiment pair
+and seeded teach/recall prompts are deployed. The measured Claude → OpenAI run recalled all
+three planted details after 45 seconds, while Jordan's control stayed empty (`plan/03-results.md`).
+**Corrected 2026-11-05 (D105 follow-up):** the org now has the real-time data graph capability.
+`A2ALab_Memory_Customer360` was switched to `type: realtime` on 2026-11-04 and its lookups are
+served by the real-time layer. CRM edits reach it on the CRM connector's ingestion schedule
+(about 10 minutes, the expected cadence); measured 3.5 to more than 8 minutes from a Contact edit
+to Data Cloud (`plan/03-results.md`). The faces' registration still has
+no graph. It is attached only to the A/B arm `A2ALab_Memory_Case_Graph`, where GetContext
+returns nothing from it. Platform-made graphs attached the same way are served, as TOON text in
+the `Profile` entry. The service keys them on the memory pipeline's own Individual for
+`owner_id`, not on the CRM profile (D115). A future Case real-time graph can now be built in
+this org.
+
+**D117/D118 addendum (2026-11-10): the live registration carries a real-time customer graph,
+and in-store purchases reach it in seconds.** D117 made the CRM Contact id the memory owner and
+attached the AM01 profile DMO and the Customer360 graph to `A2ALab_Memory_Case`, which GetContext
+then served. D118 replaces that graph with `A2ALab_Test_C360Copy`: Customer360 plus the
+`A2ALab_POS_Order__dlm` node, fed by the Ingestion API (WS32). The real-time layer that was
+missing for graphs created 2026-11-07 serves them as of 2026-11-10. A test registration over a
+POS-bearing graph returned a new order in GetContext, and in the faces' rendered prompt,
+1.8–2.0 s after ingest (`plan/03-results.md`). The console's customer-memory experiments ring up
+a catalog order for the selected customer, and the next turn on Claude or OpenAI can name it.
+
+The deployed demo now separates memory from action cleanly. **Teach Claude** stores the selected
+customer's facts/preferences without calling Agentforce. **OpenAI recalls** reads those memories
+through the shared registration, labels the recalled contribution, and—only when the
+current prompt explicitly requests the write—delegates one Case creation to the OpenAI-paired
+Agentforce agent. That terminal action is `A2ALabCreateFollowUpCase`; it was published in Agentforce
+v3 and passed live exact-Account, Case-number, unknown-Account, and no-callback acceptance. Recalled
+memory can motivate the requested action but cannot authorize it by itself.
+
+D115 corrects the original D104/D105 scope model. Both faces use one registered memory-service
+identity, and deployment configuration resolves the verified demo customer to the owner id sent
+by the face. For this internal caller, that face-owned mapping—not the token's customer claim—is
+the effective isolation boundary measured by the lab. Saved reads are therefore described as
+`registration × server-resolved customer owner × category`; cross-registration semantics remain
+open because the measured result conflicts with current guidance. The Details and trace UI render
+`Maya → shared case memory → facts/preferences`; Claude and OpenAI appear separately as execution
+provenance rather than storage partitions.
+
+**D107 addendum (2026-11-03): repeatable customer-memory experiments.** The console's named
+operators can list and permanently delete the selected profile's curated facts/preferences through
+the Memory Management API. Start fresh also writes a reserved generation marker in the tenant's
+supported `sys_PROFILE_FACT` category; both prompt-rendering paths filter that control row, while
+both faces hash it into a new experiment conversation. Retained historical conversations are not erased.
+Because Data 360 can immediately re-materialize deleted historical profile facts with new creation
+timestamps, a valid reset generation also quarantines all `sourceType: Profile` GetContext rows and
+skips the saved-facts/preferences merge. Only `sourceType: Conversation` context produced inside the
+marker-derived conversation is eligible for that generation's prompts. This makes the first teaching
+turn genuinely empty without claiming that retained profile history was erased.
+Reset verification keys on the exact new marker, a complete listing, and error-free governed delete
+steps; re-materialized profile rows remain visible for curation but do not invalidate the isolated
+generation. Hosted proof: reset `13202e8bfc704b319a574a0dd15a23de`, then first teaching turn
+`91aa0a885567d41f16d27bcf5157c3b1` with zero recalled characters and a successful store.
+The same batch handles the tenant edge's confirmed URL/API-path content refusal with one traced,
+readable ingest-only normalization retry. The evidence and exact boundary are in
+`build-notes/codex/ws27-memory-403-probe.md` and
+`build-notes/codex/ws27-generation-category-probe.md`.
+
+**D112 addendum (2026-11-03): visible, configurable data-space boundary.** Agentic Memory setup,
+runtime writes and GetContext reads all resolve the required `A2ALAB_MEMORY_DATA_SPACE` value. The
+console exposes that public-safe API name beside the selected customer and in Details, while unified
+profile ids remain server-side. This deployment targets one data space; another Data Cloud One
+environment supplies its own value rather than changing source or inheriting a silent fallback.
+
+This
 doc is the setup path and the experiment design. Decisions get ADRs in
 `plan/00-decisions.md` as they settle, and a `## WS27` delivery record in
 `plan/07-workstreams.md` once a build starts.
@@ -14,7 +86,7 @@ final pricing unannounced) gives an agent persistent cross-session memory:
 parameters, results);
 - Data 360 **extracts** facts, preferences and session summaries with an LLM
 (the only part that will consume flex credits);
-- a **GetContext** call returns an LLM-ready context pack for a conversation
+- a **GetContext** call returns LLM-ready context for a conversation
 owner, assembled from profile memory, conversation history and any extra
 real-time data graphs the agent is associated with.
 
@@ -56,7 +128,8 @@ provenance and don't vendor their content.
 | The feature is provisioned in the org           | Standard sObjects `DataAgenticContext` (key `1lc`) and `DataAgenticContextAgent` (key `1lW`) exist; both createable/deletable; 0 rows each | Nothing registered yet; first registration also creates the agentic setup                                                                                       |
 | The UI "Agent Config" exists but stayed hidden until setup | Tabs `standard-Agents` ("Agent Config") and `standard-DataAgenticContextAgent` ("Data Agentic Context Agents", the raw object tab) exist. "Agent Config" became usable once the `default` setup went ACTIVE (Phase 1) | App Launcher → **"Agent Config"** (Agentforce Studio → Agent Configuration). The object tab errors (Phase 1); registration needs neither |
 | One data space                                  | `DataSpace`: `default` only                                                                                                                | Every lab agent lands in `default`; no data-space choice to make                                                                                                |
-| No Identity Resolution rulesets                 | `GET /ssot/identity-resolutions` → 0                                                                                                       | The **Profile DMO** field won't appear at registration ("Data 360 handles this"). Note the Profile DMO choice is per data space and **cannot be changed later** |
+| Identity Resolution (updated D104/D105)         | Ruleset `AM01` succeeded over 146 Individual profiles and produced `UnifiedssotIndividualAm01__dlm`                                      | `xid` is this profile's unified key, never a synthetic lab user id. The live `A2ALab_Memory_Case` declares **no** profile DMO, so it defaults to `UnifiedIndividual__dlm`; `A2ALab_Memory_Case_Graph` declares AM01 (D115) |
+| Customer graph (D105 → attached by D117/D118)   | `A2ALab_Test_C360Copy` (Customer360 plus POS orders; the tracked definition replaces it once it builds) is a real-time graph rooted on the unified profile, attached to `A2ALab_Memory_Case`; CRM input follows the ~10-min ingestion schedule, POS orders arrive in ~2 s | Attached so every turn carries the live CRM record and recent orders beside memory; the graph record renders first, on its own 4000-character budget (D117/D118). Root-key (unified id) lookups stay on the ~30-min batch refresh; the faces read through the Contact identity link, which is real-time |
 | Data 360 tenant region                          | eu-central-1 tenant (D70)                                                                                                                  | GetContext latency from us-east-1 agents includes a transatlantic hop. Record it, don't hide it                                                                 |
 
 
@@ -556,15 +629,32 @@ Salesforce principal. The cross-platform question (one memory read by Claude,
 ADK, Foundry…) only passes if a native write appears in the Data 360 tenant
 under an owner id another platform can name. That is the decisive measurement.
 
-The arms, all on the concierge, each its own published version:
+The arms, each on the concierge's prompt and reasoning. The explicit arm is v1 itself; the two native arms are **sibling agents**, not versions (D92), because an Agent API session always runs the active version, and swapping v1 out would break every concierge run in between:
 
 1. **Explicit** (D83, v1, deployed): `before_reasoning` → `A2ALabMemoryTurn` →
    bridge → tenant. Deterministic write of every user turn; owner is
    `memory_owner`.
-2. **Native flag**: the same bundle with `context.memory` /
-   `past_conversations` on and the explicit action removed.
-3. **Native action**: `manageUserMemory` run from a hook with the user text,
-   the native analogue of arm 1 without the bridge.
+2. **Native flag** (`A2ALab_Memory_Native_Flag`): the same bundle with
+   `context.memory` / `past_conversations` on and the explicit action removed.
+3. **Native action** (`A2ALab_Memory_Native_Action`): `manageUserMemory` run
+   from `before_reasoning` with the user text, the native analogue of arm 1
+   without the bridge. An OOTB action needs `source:
+   "EmployeeCopilot__ManageUserMemory"`; validate doesn't check this, but
+   preview refuses the bundle without it. In preview the action answers "No
+   Agent or User found" (an unpublished bundle has no agent record), so it is
+   measured only once published (`plan/03-results.md`, 2026-10-18).
+4. **Employee flag / Employee action** (`A2ALab_Memory_Employee_{Flag,Action}`, D95): arms 2 and 3 as
+   Employee agents. Agentforce Agent Memory is per agent and per Salesforce user, and the Service arms'
+   Agent API sessions have no user ("No Agent or User found"). These run over the Agent API as the
+   dedicated `employee` lab user (D96: a Salesforce licence plus the Agentforce (Default) PSL, because the
+   Integration licence cannot run an Employee agent; JWT bearer through `a2a_lab_employee`). Measured
+   2026-10-29: both arms recall across sessions, and neither write reaches Data 360 (`plan/03-results.md`).
+
+Each arm is registered for memory under its own name, so a native write that
+reaches the tenant carries its arm in `agent_id`. `scripts/memory_arms.py <arm>…`
+runs one protocol on each: plant a run-unique fact, wait, ask from a new
+session, then read GetContext for every candidate owner and the
+`AiParticipantInsight` DMO.
 
 For each native arm: after the turn, read the tenant for the same owner
 (GetContext, get conversation with `scope=all`) and the `AgenticConnector_*`
@@ -636,8 +726,15 @@ the cross-platform recall test is meaningful.
 2. **Recall across platforms:** session 1 on Agentforce, session 2 on each other
   platform (and the reverse), same `owner_id`. Pass/fail per ordered pair, as a
    matrix.
-3. **Handover inside one run:** the supplier-disruption fan-out (D61), where
-  each business-unit leg reads the same owner's context.
+3. **Handover across two runs (D102):** the host-side CMA
+  `supplier-disruption-cma` arm keeps an exact off control. Seed asks each
+  specialist for one bounded observation and writes separate sessions into a
+  case conversation; after Data 360 availability, recall gives that case
+  summary to the coordinator, specialists, or both. The owner comes only from
+  the verified lab JWT and the browser supplies no owner/conversation id.
+  Automatic profile extraction stays off and case reads exclude owner-level
+  saved memories. `scripts/supplier_memory_probe.py` is the provenance
+  go/no-go: exact ids are required only if Data 360 preserves them.
 4. **Measure:** GetContext latency (normal vs `mode=fast`) from us-east-1 to the
   eu-central-1 tenant; ingest-to-available lag; extraction lag; integration LOC
    per mode. Results → `plan/03-results.md`, findings → `plan/02-matrix.md`,
@@ -653,7 +750,7 @@ first.** Reasons:
 
 - **The orchestrator is built to *not* remember.** Its instructions forbid
 answering from its own knowledge; every section must come from a business-unit
-leg (D61). Injecting a context pack contradicts that contract, and a memory
+leg (D61). Injecting a context payload contradicts that contract, and a memory
 win or loss would be confounded with the fan-out.
 - **There is no real end user to remember.** The orchestrator is driven by the
 console/bridge through API callers. Memory is keyed by conversation *owner*, so
@@ -674,14 +771,17 @@ each platform pair. That's where cross-platform recall actually lives.
 1. ~~Connect API paths~~ — captured (Phase 1). Still open: does `POST
   /ssot/agentic/agent`create the data space's setup itself, or 4xx until` POST /ssot/agentic/setups` has run?
 2. ~~Raw sObject insert~~ — moot; the Connect API is the path.
-3. **Owner identity:** `employee` + Salesforce User Id per console persona, or
-  `individual` + Contact/Individual id? With zero IR rulesets, how does Data 360
-   unify the same person across agents?
+3. ~~Owner identity~~ — D104 settles the external-customer arm on `individual` + the
+   unified profile DMO id. The verified console persona maps to that org-specific id in
+   deployment configuration; the a360 exchange carries it as mandatory `xid`. Employee-native
+   arms remain keyed by their Salesforce User id and are a different experiment (D95/D96).
 4. **Is profile memory shared across agents by default**, or does `agent_id`
   scope extraction/recall? This decides whether Phase 4.2 can pass at all.
    *Partly answered:* the Edit Agent dialog says "all configured agents have
    the same access to session and summary data" (Phase 1, "What the UI
-   shows"). Extracted memories are unconfirmed.
+   shows"). **Answered 2026-11-05 (D115): no.** Extracted facts and preferences belong to the
+   registration that holds them; a second registration with the same configuration lists none of
+   them for the same customer. Only conversation summaries are shared.
 5. **Is** `agentic-context` **on public PyPI**, or internal-only? Hosted images
   (Heroku, Agent Engine, AgentCore) need a resolvable install.
 6. **Billing after Limited GA:** extraction will consume flex credits. Gate it

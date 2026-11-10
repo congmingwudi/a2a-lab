@@ -1,0 +1,74 @@
+{
+  "batch": "ws27-b1-supplier-memory",
+  "title": "Supplier-disruption shared Data 360 memory",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": "codex",
+  "station": "deploy",
+  "holder": "operator",
+  "round": 2,
+  "verdict": "pass",
+  "adr": "D102",
+  "files": {
+    "plan": "build-notes/codex/ws27-supplier-memory-plan.md",
+    "notes": {
+      "codex": "build-notes/codex/reviews/ws27-b1-supplier-memory.md"
+    },
+    "verdicts": {
+      "claude": "build-notes/claude/reviews/ws27-b1-supplier-memory.md"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-11-01T20:30:19+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/ws27-supplier-memory-plan.md"
+    },
+    {
+      "ts": "2026-11-01T20:37:14+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws27-b1-supplier-memory.md",
+      "round": 0
+    },
+    {
+      "ts": "2026-11-01T20:55:24+00:00",
+      "agent": "operator",
+      "action": "settle",
+      "adr": "D102",
+      "implementer": "codex"
+    },
+    {
+      "ts": "2026-11-01T21:29:59+00:00",
+      "agent": "codex",
+      "action": "built",
+      "file": "build-notes/codex/reviews/ws27-b1-supplier-memory.md",
+      "commit": "63a712b"
+    },
+    {
+      "ts": "2026-11-02T04:15:33+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws27-b1-supplier-memory.md",
+      "round": 1
+    },
+    {
+      "ts": "2026-11-02T04:36:36+00:00",
+      "agent": "codex",
+      "action": "respond",
+      "commit": "b97d7ff",
+      "round": 2
+    },
+    {
+      "ts": "2026-11-02T04:40:32+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "pass",
+      "file": "build-notes/claude/reviews/ws27-b1-supplier-memory.md",
+      "round": 2
+    }
+  ]
+}

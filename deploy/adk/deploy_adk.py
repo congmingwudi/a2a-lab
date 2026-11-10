@@ -65,6 +65,11 @@ ENV_KEYS = [
     "ADK_REAL_SEARCH",
     "AF_SHIM_A2A_URL",
     "AF_SHIM_TIMEOUT_S",
+    # D106: the a2a-native channel — Agent Engine speaks A2A straight to
+    # Agentforce's own inbound A2A server with this client-credentials pair.
+    "SF_AF_A2A_CLIENT_ID",
+    "SF_AF_A2A_CLIENT_SECRET",
+    "AF_A2A_NATIVE_TIMEOUT_S",
     "A2ALAB_MAX_DELEGATION_DEPTH",
     # cross-hyperscaler: Foundry incoming A2A + the Entra SP that calls it
     "FOUNDRY_A2A_ENDPOINT",

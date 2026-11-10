@@ -74,6 +74,15 @@ REGION = os.environ.get("A2ALAB_CW_LOGS_REGION") or os.environ.get("AWS_REGION")
 # Only these Claude Code events carry the behavioural signal. Codex's log
 # schema is not mirrored here yet (its metrics are, in coding_source) — a Codex
 # extension lands the same way, by adding its event names and a tool prefix.
+# Attributes that only appear when an OTEL_LOG_* content flag is on. "Content
+# off" used to be asserted, not measured — and on 2026-11-02 every exported day
+# turned out to carry prompts, responses and tool text, because corporate USER
+# settings set the flags to 1 and the lab's wrapper only ever relied on the
+# default. The harvest now counts these and reports what it actually saw.
+CONTENT_KEYS = ("prompt", "response", "tool_input", "tool_parameters", "tool_output", "content")
+REDACTED = "<REDACTED>"
+
+EVENT_PREFIX = "claude_code."
 EVENT_NAMES = (
     "claude_code.tool_decision",
     "claude_code.tool_result",
@@ -299,6 +308,7 @@ class CodingLogsSource(PlatformLogSource):
         self._client = client
         self._log_group = log_group or LOG_GROUP
         self.read_error: str | None = None
+        self.content_events = 0
 
     # ---- fetch -------------------------------------------------------------
 
@@ -327,6 +337,8 @@ class CodingLogsSource(PlatformLogSource):
                 kwargs["nextToken"] = token
             resp = client.filter_log_events(**kwargs)
             for evt in resp.get("events", []):
+                if self._has_content(evt.get("message") or ""):
+                    self.content_events += 1
                 rec = self._parse(evt.get("message") or "")
                 if rec:
                     records.append(rec)
@@ -339,14 +351,44 @@ class CodingLogsSource(PlatformLogSource):
         return records
 
     @staticmethod
+    def _has_content(message: str) -> bool:
+        """True if a record carries raw prompt / response / tool text.
+
+        Checked on EVERY record, not only the behavioural ones: the
+        assistant_response event is not aggregated but is exactly where the
+        response text rides. A `<REDACTED>` prompt is the flag-off form.
+        """
+        try:
+            attrs = json.loads(message).get("attributes") or {}
+        except (ValueError, TypeError, AttributeError):
+            return False
+        for key in CONTENT_KEYS:
+            value = attrs.get(key)
+            if value not in (None, "", REDACTED):
+                return True
+        return False
+
+    @staticmethod
     def _parse(message: str) -> dict[str, Any] | None:
         try:
             rec = json.loads(message)
         except (ValueError, TypeError):
             return None
         attrs = rec.get("attributes") or {}
-        event = attrs.get("event.name") or rec.get("body")
-        if not isinstance(event, str) or event not in EVENT_NAMES:
+        # Claude Code renamed the attribute between 2026-07-30 (when this was
+        # verified as `claude_code.tool_decision`) and 2.1.312: `event.name` is
+        # now unprefixed (`tool_decision`) and the prefixed form lives only in
+        # `body`. Taking the attribute first and matching it verbatim silently
+        # discarded every record. Accept either field, either form.
+        event = None
+        for candidate in (attrs.get("event.name"), rec.get("body")):
+            if not isinstance(candidate, str):
+                continue
+            name = candidate if candidate.startswith(EVENT_PREFIX) else EVENT_PREFIX + candidate
+            if name in EVENT_NAMES:
+                event = name
+                break
+        if event is None:
             return None
         ts_ns = rec.get("timeUnixNano") or rec.get("observedTimeUnixNano")
         try:
@@ -395,6 +437,16 @@ class CodingLogsSource(PlatformLogSource):
 
         days = summarize_records(records)
         result = HarvestResult(platform=self.name, status="ok")
+        if self.content_events:
+            content_flags = (
+                f"ON — {self.content_events} event(s) in the window carried prompt, "
+                "response or tool text; an OTEL_LOG_* flag is set somewhere (check "
+                "~/.claude/settings.json; .claude/settings.local.json pins them to 0)"
+            )
+            content_note = f"CONTENT PRESENT in {self.content_events} event(s)"
+        else:
+            content_flags = "off — no prompt, file or tool-argument content seen (D59)"
+            content_note = "content off"
         total_events = 0
         for day, agg in sorted(days.items()):
             key = f"claude-code:{day}"
@@ -420,7 +472,7 @@ class CodingLogsSource(PlatformLogSource):
                     "tool": "claude-code",
                     "date": day,
                     "aggregates": agg,
-                    "content_flags": "off — no prompt, file or tool-argument content emitted (D59)",
+                    "content_flags": content_flags,
                 },
             )
             result.sessions += 1
@@ -431,7 +483,7 @@ class CodingLogsSource(PlatformLogSource):
         rate = f"{100 * accept / decided:.0f}% edits kept" if decided else "no edit decisions yet"
         result.detail = (
             f"{len(days)} day(s) over {WINDOW_DAYS}d · {rate} · "
-            f"{total_events} behavioural events (content off)"
+            f"{total_events} behavioural events ({content_note})"
         )
         store.set_harvest_status(self.name, result.status, result.detail)
         return result

@@ -33,6 +33,7 @@ set -a; source .env; set +a
 : "${A2ALAB_TOKEN:?set A2ALAB_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 : "${BRIDGE_TOKEN:?set BRIDGE_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 : "${A2ALAB_FANOUT_MCP_TOKEN:?set A2ALAB_FANOUT_MCP_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
+: "${A2ALAB_MEMORY_DATA_SPACE:?set A2ALAB_MEMORY_DATA_SPACE in .env — Agentic Memory has no implicit data-space target (D112)}"
 source deploy/aws_preflight.sh
 
 REGION="${AWS_REGION:-us-east-1}"
@@ -80,6 +81,23 @@ keys = [
     # identity) and was missed on the first run: both landed in plaintext on
     # the task definition, which is exactly what this secret exists to prevent.
     "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
+    # D102: host-side CMA executes in THIS console task. Its supplier-memory
+    # seed/recall calls therefore need the dedicated memory ECA identity here,
+    # not in the faces task.
+    "SF_CLIENT_ID_MEMORY",
+    # WS32: the POS ECA consumer key (JWT `iss`) for the customer-memory exhibit's
+    # "ring up a purchase" button, which posts one order to the Ingestion API from
+    # THIS task (per-caller identity, D37). The run-as user rides plain env.
+    "SF_CLIENT_ID_POS",
+    # D106/D109: the a2a_lab_af_a2a client-credentials pair. The console's
+    # Components rows fetch the NATIVE Agentforce A2A card, which is the extended
+    # /v1/card behind the same OrgJWT the a2a-native tool uses (the public
+    # well-known card 401s). The SECRET is *_SECRET-shaped, so without this line
+    # is_secret() drops it and the card row reports the missing variable.
+    "SF_AF_A2A_CLIENT_ID", "SF_AF_A2A_CLIENT_SECRET",
+    # D107: selectable customer key -> org-specific unified profile id. The
+    # management API resolves it server-side; profile ids never reach the browser.
+    "A2ALAB_MEMORY_CUSTOMER_MAP",
     # WS19/M10: the a2a_lab_tab_embed ECA consumer key (JWT `iss`) that mints the
     # Tableau Next frontdoor URL for the owner-only inline dashboard. The frontdoor
     # is minted with a JWT-BEARER assertion (client-credentials can't reach
@@ -123,6 +141,13 @@ keys = [
     "TYPESAFE_API_KEY",
 ]
 payload = {k: os.environ[k] for k in keys if os.environ.get(k)}
+if "A2ALAB_MEMORY_CUSTOMER_MAP" in payload:
+    customer_map = json.loads(payload["A2ALAB_MEMORY_CUSTOMER_MAP"])
+    if not isinstance(customer_map, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) and k and v
+        for k, v in customer_map.items()
+    ):
+        raise SystemExit("A2ALAB_MEMORY_CUSTOMER_MAP must be a non-empty-string JSON object")
 
 # The lab JWT keypair. The console ISSUES tokens (/api/login), so unlike a seam
 # that only verifies it must carry the signing half. Both live in .a2alab/ —
@@ -146,6 +171,18 @@ if os.environ.get("A2ALAB_TAB_EMBED_JWT_KEY"):
     payload["A2ALAB_TAB_EMBED_JWT_KEY"] = os.environ["A2ALAB_TAB_EMBED_JWT_KEY"]
 elif _embed_key.exists():
     payload["A2ALAB_TAB_EMBED_JWT_KEY"] = _embed_key.read_text()
+
+# D102: the memory ECA's RS256 key. The run-as user is a non-secret env value;
+# this signing key is a local PEM and must be relocated into the runtime secret.
+_memory_key = key_dir / "memory_jwt_private.pem"
+if os.environ.get("A2ALAB_MEMORY_JWT_KEY"):
+    payload["A2ALAB_MEMORY_JWT_KEY"] = os.environ["A2ALAB_MEMORY_JWT_KEY"]
+elif _memory_key.exists():
+    payload["A2ALAB_MEMORY_JWT_KEY"] = _memory_key.read_text()
+else:
+    raise SystemExit(
+        f"memory signing key is required: set A2ALAB_MEMORY_JWT_KEY or create {_memory_key}"
+    )
 print(json.dumps(payload))
 PY
 )
@@ -291,7 +328,8 @@ SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            # like the other SF_CLIENT_ID*; the signing key (…JWT_KEY) is caught
            # by the KEY-name rule; the run-as username is not secret-shaped and
            # rides plain env so the code can read it.
-           "SF_CLIENT_ID_TAB_EMBED",
+           "SF_CLIENT_ID_TAB_EMBED", "SF_CLIENT_ID_MEMORY", "SF_CLIENT_ID_POS",
+           "SF_AF_A2A_CLIENT_ID",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
 
@@ -323,6 +361,7 @@ env = {k: os.environ[k] for k in sorted(referenced)
        if os.environ.get(k) and not is_secret(k) and k not in AMBIENT}
 env["A2ALAB_RUNTIME_SECRET_ARN"] = os.environ["A2ALAB_RUNTIME_SECRET_ARN"]
 env["AWS_REGION"] = os.environ["DEPLOY_REGION"]
+env["A2ALAB_MEMORY_DATA_SPACE"] = os.environ["A2ALAB_MEMORY_DATA_SPACE"]
 # Hosted console: no traces/ directory, no .a2alab. Aurora is the only source.
 env["A2ALAB_TRACE_SINK"] = "postgres"
 env["A2ALAB_OBS_STORE"] = "postgres"

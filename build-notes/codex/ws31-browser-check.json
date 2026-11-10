@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "base": "http://127.0.0.1:8200",
+  "viewport": {
+    "desktop": "1440x1024",
+    "narrow": "390x844",
+    "device_scale_factor": 1
+  },
+  "results": {
+    "section_entry": "pass",
+    "scene_controller": "pass",
+    "escape_precedence_and_focus": "pass",
+    "reentry": "pass",
+    "scenario_shortcut": "pass",
+    "claude_handoff_and_back": "pass",
+    "experiment_tab_shortcut": "pass",
+    "openai_handoff": "pass",
+    "auth_transition": "pass",
+    "reduced_motion_and_live_region": "pass",
+    "responsive_and_themes": "pass",
+    "operator_console_errors": [],
+    "background_http_failures": [],
+    "viewer_role": "pass",
+    "signed_out": "pass"
+  },
+  "sent_experiment_turns": false
+}

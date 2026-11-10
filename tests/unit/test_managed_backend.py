@@ -177,6 +177,43 @@ async def test_custom_tool_round_trip(provisioned, monkeypatch):
     assert resp.text == "Agentforce says: resolved"
 
 
+@pytest.mark.parametrize(
+    "tool, patched",
+    [("ask_agentforce_a2a_native", "consult_native"), ("ask_agentforce_a2a", "ask_via_shim")],
+)
+async def test_the_a2a_channel_tools_run_host_side(provisioned, monkeypatch, tool, patched):
+    """D28/D106: the console's channel radio names ask_agentforce_a2a or
+    ask_agentforce_a2a_native; under managed both are host-side custom tools,
+    so the ECA secret and the shim token never enter the sandbox."""
+    from interop import af_channel
+
+    fake = FakeAnthropic(
+        [
+            [
+                ev(type="agent.custom_tool_use", name=tool, id="sevt_9", input={"question": "q"}),
+                ev(type="agent.message", content=[text_block("done")]),
+                terminal_idle(),
+            ]
+        ]
+    )
+    calls = []
+
+    async def fake_channel(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "twin answer"
+
+    monkeypatch.setattr(af_channel, patched, fake_channel)
+    await ManagedBackend(client=fake).answer(AgentRequest(message="go"))
+    assert len(calls) == 1
+    results = [
+        e
+        for sent in fake.sent_events
+        for e in sent["events"]
+        if e["type"] == "user.custom_tool_result"
+    ]
+    assert results[0]["content"][0]["text"] == "twin answer"
+
+
 async def test_unprovisioned_raises(monkeypatch, tmp_path):
     monkeypatch.delenv("CLAUDE_MANAGED_AGENT_ID", raising=False)
     monkeypatch.delenv("CLAUDE_MANAGED_ENV_ID", raising=False)

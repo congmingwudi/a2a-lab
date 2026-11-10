@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The OAuth custom scope the Agentforce A2A pilot gateway requires in the OrgJWT's
+     `scp` claim (D106). Its name is fixed by the pilot: a2a_api_pilot (the vendor
+     guide also misspells it a2a_api-pilot once; the claim check says underscore).
+     Becomes the GA scope a2a_api after the pilot. -->
+<OauthCustomScope xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>A2A lab custom scope for the Agentforce A2A pilot D106</description>
+    <developerName>a2a_api_pilot</developerName>
+    <isProtected>false</isProtected>
+    <isPublic>false</isPublic>
+    <masterLabel>a2a_api_pilot</masterLabel>
+</OauthCustomScope>

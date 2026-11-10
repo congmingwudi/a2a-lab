@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from interop.clients.base import RemoteAgentClient, auth_headers
+from interop.clients.base import RemoteAgentClient, RemoteAgentError, auth_headers
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 
@@ -63,7 +63,11 @@ class RestClient(RemoteAgentClient):
                 # structured {"error": ...}) instead of a bare status line —
                 # this message is what the console shows the operator.
                 detail = r.text[:400] if r.text else "(empty body)"
-                raise RuntimeError(f"HTTP {r.status_code} from {url} — server said: {detail}")
+                raise RemoteAgentError(
+                    f"HTTP {r.status_code} from {url} — server said: {detail}",
+                    status=r.status_code,
+                    error_code=_error_code(r),
+                )
             data = r.json()
         resp = AgentResponse.from_dict(data)
         resp.latency_ms = int((time.perf_counter() - start) * 1000)
@@ -71,3 +75,13 @@ class RestClient(RemoteAgentClient):
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _error_code(r: httpx.Response) -> str | None:
+    """The typed error code from a structured error body, if the server sent one."""
+    try:
+        body = r.json()
+    except ValueError:
+        return None
+    code = body.get("error_code") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None

@@ -41,11 +41,186 @@ groups:
   - id: cross-cloud
     title: "Cross-hyperscalers"
   # The first 1:many group. Every group above is a PAIR — which is the shape
-  # the lab explored first and, until WS8, the only shape it had.
+  # the lab explored first and, until WS8, the only shape it had. The Agent
+  # Memory story follows it as a separate continuity category.
   - id: fan-out
     title: "Fan-out orchestration (1:many)"
+  - id: agent-memory
+    title: "Agent Memory — customer continuity"
 
 scenarios:
+  customer-memory-claude:
+    group: agent-memory
+    title: "Customer memory — teach Claude"
+    summary: >-
+      Tell Claude a durable customer constraint or preference, save it under
+      the selected customer's server-resolved memory owner, ready for another agent.
+    description: |-
+      THE STORY. The first half of the cross-agent continuity experiment. Select Maya or
+      Jordan, then teach Claude a durable fact or preference. Claude reads that
+      customer's governed context and writes the completed turn back for later
+      agents without calling CRM. Start here, then open the OpenAI sibling
+      experiment with the same customer and use its recall-and-act prompt.
+
+      MEMORY SCOPE. Both platforms use the shared A2ALab_Memory_Case registration. The verified
+      lab user selects an allow-listed demo customer; server configuration resolves that customer
+      to the owner id the face sends. In this lab caller, that mapping—not the token's customer
+      claim—is the effective Maya/Jordan isolation boundary measured by D115. Curated facts and
+      preferences are registration × server-resolved customer owner × category; Claude and OpenAI
+      remain execution/provenance participants. Cross-registration semantics remain open because
+      the measured result conflicts with current guidance. The registration also carries the
+      real-time customer data graph (Customer360 plus in-store POS orders), so every turn receives the selected
+      customer's live CRM profile alongside memory, labelled as system of record (D117/D118).
+
+      REAL-TIME PURCHASE. Operators can ring up an in-store order for the selected customer from
+      the catalog row. It is sent to the Data 360 Ingestion API (connector A2ALab_POS) and lands in
+      the customer's real-time graph; GetContext served such an order ~2 s after ingest when
+      measured (plan/03-results.md). "Ask what was just bought" loads a recall prompt: the next
+      turn on either platform can name the order without a CRM call. The order is a synthetic lab
+      row and stays in the customer's 10-order window (D118).
+
+      CURATION. Operators can inspect and permanently delete this selected customer's curated
+      facts/preferences. Start fresh also advances the demo to a tenant-backed conversation
+      generation so retained earlier summaries are no longer supplied. Data 360 can re-materialize
+      profile facts from retained history; after Start fresh those profile-wide rows remain visible
+      for curation but are quarantined from agent prompts. Only conversation context produced inside
+      the new generation is eligible for recall. It does not erase Data 360 conversation history;
+      normal governance and retention still apply (D107).
+    target: claude-rest
+    via_bridge: false
+    status: live
+    memory_toggle: true
+    default_memory: "on"
+    memory_customer_selector: true
+    default_memory_customer: maya
+    tags: [data-360, agentic-memory, identity-resolution, claude, managed-agents]
+    question: >-
+      Remember this for future conversations: I already tried increasing the
+      supplier API timeout, so do not recommend that again. I prefer concise
+      checklists, and any rollout must finish within 90 days. Confirm exactly
+      what you will remember; do not call Agentforce in this teaching turn.
+    seed_prompts:
+      - label: "1 · Teach Claude"
+        text: >-
+          Remember this for future conversations: I already tried increasing
+          the supplier API timeout, so do not recommend that again. I prefer
+          concise checklists, and any rollout must finish within 90 days.
+          Confirm exactly what you will remember; do not call Agentforce in this teaching turn.
+      - label: "Correction"
+        text: >-
+          Update what you know about me: the rollout window is now 60 days,
+          not 90. Keep my concise-checklist preference. Tell me what changed.
+    prompt_suffix: >-
+      This is the memory-teaching half of the demonstration. Do not call
+      Agentforce or any CRM tool. State the durable customer details you learned
+      under a "Stored for future agents" heading; do not claim they were already
+      remembered unless they were present in the memory block.
+    flow:
+      - source: remote-caller
+        target: claude-researcher
+        protocol: rest
+        detail: The console sends the signed customer turn to the Claude face.
+      - source: claude-researcher
+        target: data-360-agentic-memory
+        protocol: rest
+        detail: >-
+          The face exchanges its service token, resolves the selected customer to the configured
+          memory owner, reads context before inference, and closes the written conversation turn
+          afterward so asynchronous extraction can run.
+    agents:
+      - title: Claude customer-memory agent
+        target: claude-a2a
+        caption: Writes through shared A2ALab_Memory_Case; Claude remains execution provenance.
+
+  customer-memory-openai:
+    group: agent-memory
+    title: "Customer memory — OpenAI recalls"
+    summary: >-
+      A different agent platform recalls the selected customer's earlier Claude
+      interaction and turns a remembered next step into an Agentforce CRM action.
+    description: |-
+      THE STORY. The second half of the experiment. Select the same customer used in Teach
+      Claude. OpenAI uses the same shared memory-service registration and server-side customer
+      mapping, so its face reads the same owner conversation before answering. The prompt requires visible source
+      attribution so memory and live CRM context cannot blur together.
+
+      MEMORY SCOPE. Both platforms use the shared A2ALab_Memory_Case registration. The verified
+      lab user selects an allow-listed demo customer; server configuration resolves that customer
+      to the owner id the face sends. In this lab caller, that mapping—not the token's customer
+      claim—is the effective Maya/Jordan isolation boundary measured by D115. Curated facts and
+      preferences are registration × server-resolved customer owner × category; Claude and OpenAI
+      remain execution/provenance participants. Cross-registration semantics remain open because
+      the measured result conflicts with current guidance. The registration also carries the
+      real-time customer data graph (Customer360 plus in-store POS orders), so every turn receives the selected
+      customer's live CRM profile alongside memory, labelled as system of record (D117/D118).
+
+      REAL-TIME PURCHASE. Operators can ring up an in-store order for the selected customer from
+      the catalog row. It is sent to the Data 360 Ingestion API (connector A2ALab_POS) and lands in
+      the customer's real-time graph; GetContext served such an order ~2 s after ingest when
+      measured (plan/03-results.md). "Ask what was just bought" loads a recall prompt: the next
+      turn on either platform can name the order without a CRM call. The order is a synthetic lab
+      row and stays in the customer's 10-order window (D118).
+
+      CURATION. The same selected-customer management panel applies here. Permanent semantic-memory
+      deletion and Start fresh affect the shared customer scope, while retained historical
+      conversations remain governed in Data 360 and are not claimed erased. After Start fresh,
+      re-materialized profile-wide rows are quarantined from prompts; OpenAI can recall only
+      conversation context produced inside the current generation (D107).
+    target: openai-rest
+    via_bridge: false
+    status: live
+    memory_toggle: true
+    default_memory: "on"
+    memory_customer_selector: true
+    default_memory_customer: maya
+    tags: [data-360, agentic-memory, openai, cross-agent, agentforce]
+    question: >-
+      Recall my rollout constraints and preferences. Then ask Agentforce to
+      create a CRM Case for Acme Corp documenting the supplier API symptoms,
+      endpoints, tested timeout change, business impact, owners, and runbook
+      link. Show separate "From memory" and "Action performed by Agentforce"
+      sections, including the created Case number.
+    seed_prompts:
+      - label: "2 · Recall in OpenAI"
+        text: >-
+          Recall my rollout constraints and preferences. Then ask Agentforce
+          to create a CRM Case for Acme Corp documenting the supplier API
+          symptoms, endpoints, tested timeout change, business impact, owners,
+          and runbook link. Show separate "From memory" and "Action performed
+          by Agentforce" sections, including the created Case number.
+      - label: "Negative control"
+        text: >-
+          Before answering, state whether you have any remembered rollout
+          constraints for me. Do not infer or invent them. Then ask Agentforce
+          for current CRM context and label it separately.
+    prompt_suffix: >-
+      Use the Salesforce Agentforce agent through ask_agentforce to perform the
+      requested CRM Case creation, not merely recommend it. Attribute remembered
+      context and the action result in separate sections; if memory is empty or
+      the action fails, say so explicitly rather than inventing either result.
+    flow:
+      - source: remote-caller
+        target: openai-researcher
+        protocol: rest
+        detail: The console sends the signed customer turn to the OpenAI face.
+      - source: openai-researcher
+        target: data-360-agentic-memory
+        protocol: rest
+        detail: >-
+          OpenAI uses the shared A2ALab_Memory_Case registration and the selected customer's unified
+          xid to retrieve context written during the Claude interaction.
+      - source: agentforce-client
+        target: agentforce
+        protocol: agentforce-api
+        detail: OpenAI asks Agentforce to create the follow-up Case and returns its Case number.
+    agents:
+      - title: OpenAI customer-memory agent
+        target: openai-a2a
+        caption: Reads through shared A2ALab_Memory_Case; OpenAI remains execution provenance.
+      - title: Agentforce service agent
+        target: agentforce-a2a
+        caption: Performs the CRM Case creation selected from the remembered next step.
+
   claude-aws-to-agentforce:
     af_channel_toggle: true
     group: claude-agentforce
@@ -113,7 +288,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           proxies inbound A2A to the GA Agent API. Honest status: via-shim.
 
   agentforce-to-claude-aws:
@@ -250,7 +425,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           on :8023 generates this card and proxies inbound A2A to the GA
           Agent API. Honest status: via-shim.
 
@@ -325,7 +500,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           on :8023 generates this card and proxies inbound A2A to the GA
           Agent API. Honest status: via-shim.
       - title: Claude research agent
@@ -337,6 +512,11 @@ scenarios:
   account-brief-async:
     group: claude-agentforce
     title: "Account Intelligence Brief (async)"
+    title_identity:
+      - platform: claude
+        role: researcher
+      - platform: agentforce
+        role: delivery-org
     summary: >-
       A scheduled Claude Managed Agent runs long running tasks and updates
       Salesforce daily.
@@ -477,7 +657,7 @@ scenarios:
       - title: Agentforce service agent (OpenAI-paired twin)
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
           Honest status: via-shim.
 
@@ -550,7 +730,7 @@ scenarios:
       - title: Agentforce service agent (OpenAI-paired twin)
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
           Honest status: via-shim.
       - title: OpenAI research agent
@@ -562,7 +742,7 @@ scenarios:
   strands-to-agentforce:
     af_channel_toggle: true
     group: strands-agentforce
-    title: "AWS Strands (AWS) → Agentforce"
+    title: "AWS Strands → Agentforce"
     summary: >-
       An AWS Strands agent calls the Agentforce Agent mid-answer.
     description: >-
@@ -645,7 +825,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
           Honest status: via-shim. (The dedicated D25 Strands-paired twin,
           A2ALab_Research_Assistant_Strands, is provisioned and active.)
@@ -848,7 +1028,7 @@ scenarios:
       - title: Agentforce service agent
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's shim
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's shim
           generates this card and proxies inbound A2A to the GA Agent API.
           Honest status: via-shim. Runs as the D25 LangGraph-paired twin
           (SF_LANGGRAPH_AGENT_ID), so the pair stays a closed two-platform system.
@@ -1042,7 +1222,7 @@ scenarios:
       - title: Agentforce service agent (ADK-paired twin)
         target: agentforce-a2a
         caption: >-
-          Shim card — Agentforce publishes no A2A surface, so the lab's
+          Shim card — Agentforce's own A2A server is a pilot (D106), so the lab's
           shim proxies inbound A2A to the GA Agent API. Honest status:
           via-shim.
 
@@ -1478,6 +1658,7 @@ scenarios:
   supplier-disruption-cma:
     group: fan-out
     title: "Supplier Disruption — orchestrated by Claude (Managed Agents)"
+    fanout_platforms: [adk, foundry, openai]
     summary: >
       An Anthropic Managed Agent orchestrates three business-unit agents on
       three platforms — Google ADK, Microsoft Foundry and OpenAI — then writes
@@ -1507,6 +1688,10 @@ scenarios:
     # under "mcp" the model is the router. Skips are named in the hand-off; a
     # Jev failure fails open to every unit.
     gate_toggle: true
+    # D102: a two-run Data 360 case-memory arm on the HOST-SIDE tool only.
+    # Off is the exact WS8 control; seed asks each specialist for one bounded
+    # candidate; recall reads the case conversation for selected readers.
+    fanout_memory_toggle: true
     via_bridge: false
     status: live
     requires_mode: hosted
@@ -1671,6 +1856,7 @@ scenarios:
   supplier-disruption-adk:
     group: fan-out
     title: "Supplier Disruption — orchestrated by Google ADK (ParallelAgent)"
+    fanout_platforms: [adk, foundry, openai]
     summary: >
       The SAME scenario and the same three business-unit agents, orchestrated by
       Google ADK on Vertex AI Agent Engine. Here the fan-out is DECLARED in the
@@ -1819,6 +2005,7 @@ scenarios:
   supplier-disruption-agentforce:
     group: fan-out
     title: "Supplier Disruption — orchestrated by Agentforce"
+    fanout_platforms: [adk, foundry, openai]
     summary: >
       The SAME scenario and the same three business-unit agents, orchestrated
       by an Agentforce agent authored in Agent Script (D14). This is the third

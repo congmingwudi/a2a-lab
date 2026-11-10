@@ -206,6 +206,36 @@ def make_ask_agentforce_a2a(
     return ask_agentforce_a2a
 
 
+def make_ask_agentforce_a2a_native(
+    inbound_depth: int = 0,
+    trace_id: str | None = None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+):
+    """The third channel (D106/WS29): same Agentforce twin, over A2A straight
+    at Agentforce's own inbound A2A server — no lab shim in the path. For this
+    caller it is A2A on both ends: Agent Engine speaks it, so does Agentforce."""
+
+    async def ask_agentforce_a2a_native(question: str) -> str:
+        """Ask the Salesforce Agentforce agent a question over the A2A
+        protocol, directly at Agentforce's own A2A endpoint (no lab shim).
+        Use ONLY when the request's [A2A-LAB ROUTING] block selects the
+        a2a-native channel; otherwise prefer ask_agentforce."""
+        from interop import af_channel
+
+        return await af_channel.consult_native(
+            question,
+            caller="adk-gemini-agent",
+            platform="adk",
+            inbound_depth=inbound_depth,
+            trace_id=trace_id,
+            user_context=user_context,
+            user_token=user_token,
+        )
+
+    return ask_agentforce_a2a_native
+
+
 # One process-lifetime A2A client to the Foundry agent (cross-hyperscaler
 # cell): the GCP container authenticates to Azure with an Entra service
 # principal (AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET in env — the sanctioned

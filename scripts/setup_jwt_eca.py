@@ -56,6 +56,9 @@ class Preset:
     # Administrator profile (D86). Set, it also means the run-as user must be a
     # dedicated integration user: `create` refuses an admin `sub`.
     preauth_permission_set: str | None = None
+    # Issue JWT-based access tokens for named users: the Agent API accepts only
+    # those (its setup guide), so a preset that opens Agent API sessions sets it.
+    named_user_jwt: bool = False
 
 
 PRESETS = {
@@ -83,6 +86,22 @@ PRESETS = {
         key_file="memory_jwt_private.pem",
         cdp_exchange=True,
         preauth_permission_set="A2ALab_Memory_Integration",
+    ),
+    "employee": Preset(
+        name="a2a_lab_employee",
+        description=(
+            "A2A lab: Agent API sessions on the WS27 Employee memory arms (D95). An "
+            "Employee agent runs as the session user, so the token's user is the agent's "
+            "user: JWT-bearer as the dedicated employee lab user."
+        ),
+        # The Agent API scopes (api, chatbot_api, sfap_api) + RefreshToken, which
+        # the JWT grant needs (see memory above).
+        scopes="Api, RefreshToken, Chatbot, SFApiPlatform",
+        client_id_env="SF_CLIENT_ID_EMPLOYEE",
+        run_as_env="SF_EMPLOYEE_RUNAS_USER",
+        key_file="employee_jwt_private.pem",
+        preauth_permission_set="A2ALab_Employee_Caller",
+        named_user_jwt=True,
     ),
 }
 
@@ -265,7 +284,7 @@ def render(p: Preset, run_as: str, email: str, cert_pem: str, consumer_key: str 
     <isConsumerSecretOptional>true</isConsumerSecretOptional>
     <isDeviceFlowEnabled>false</isDeviceFlowEnabled>
     <isIntrospectAllTokens>false</isIntrospectAllTokens>
-    <isNamedUserJwtEnabled>false</isNamedUserJwtEnabled>
+    <isNamedUserJwtEnabled>{str(p.named_user_jwt).lower()}</isNamedUserJwtEnabled>
     <isPkceRequired>true</isPkceRequired>
     <isSecretRequiredForRefreshToken>false</isSecretRequiredForRefreshToken>
     <isSecretRequiredForTokenExchange>false</isSecretRequiredForTokenExchange>
@@ -412,12 +431,15 @@ def mint_core_token(p: Preset) -> dict:
 CDP_SCOPES = ("cdp_ingest_api", "cdp_profile_api", "cdp_query_api")
 
 
-def exchange_cdp(core: dict, agent_id: str | None = None) -> dict:
+def exchange_cdp(
+    core: dict, agent_id: str | None = None, external_id: str | None = None
+) -> dict:
     """Leg 2: core token → Data 360 tenant token at /services/a360/token.
 
-    Same body the agentic-context SDK sends. `aid` is optional, and a360 rejects
-    an UNREGISTERED agent id with access_denied — so it is only passed once the
-    agent is registered (plan/18 Phase 1).
+    ``xid`` is the governed end-user identity (Individual ID for an external
+    customer, Salesforce User ID for an employee). ``aid`` is optional, and
+    a360 rejects an UNREGISTERED agent id with access_denied — so it is only
+    passed once the agent is registered (plan/18 Phase 1).
     """
     import httpx
 
@@ -431,6 +453,8 @@ def exchange_cdp(core: dict, agent_id: str | None = None) -> dict:
     }
     if agent_id:
         body["aid"] = agent_id
+    if external_id:
+        body["xid"] = external_id
     r = httpx.post(f"{core['instance_url']}/services/a360/token", data=body, timeout=20)
     cdp = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     if r.status_code != 200 or not cdp.get("access_token"):
@@ -444,7 +468,7 @@ def cmd_verify(p: Preset, args) -> None:
         print(f"leg 1 ok: JWT-bearer → core token, scope = {core.get('scope', '')!r}")
         if not p.cdp_exchange:
             return
-        cdp = exchange_cdp(core, args.agent_id)
+        cdp = exchange_cdp(core, args.agent_id, args.external_id)
     except CredentialError as e:
         sys.exit(str(e))
     # The tenant host is an environment identifier: report its shape, not its value.
@@ -464,6 +488,10 @@ def main() -> None:
             sp.add_argument("--validate", action="store_true", help="check-only deploy")
         if verb == "verify":
             sp.add_argument("--agent-id", help="also bind a registered AgentApiName (aid)")
+            sp.add_argument(
+                "--external-id",
+                help="also bind the governed Individual/User identity (xid)",
+            )
     args = ap.parse_args()
     {"show": cmd_show, "create": cmd_create, "verify": cmd_verify}[args.verb](
         PRESETS[args.preset], args

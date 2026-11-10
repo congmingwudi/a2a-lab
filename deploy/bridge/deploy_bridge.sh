@@ -26,6 +26,7 @@ set -a; source .env; set +a
 : "${BRIDGE_TOKEN:?set BRIDGE_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 : "${A2ALAB_TOKEN:?set A2ALAB_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
 : "${A2ALAB_FANOUT_MCP_TOKEN:?set A2ALAB_FANOUT_MCP_TOKEN in .env — a token this deploy ships is a token it requires (D80/F06)}"
+: "${A2ALAB_MEMORY_DATA_SPACE:?set A2ALAB_MEMORY_DATA_SPACE in .env — Agentic Memory has no implicit data-space target (D112)}"
 source deploy/aws_preflight.sh
 
 REGION="${AWS_REGION:-us-east-1}"
@@ -283,6 +284,7 @@ keys = [k for k in (referenced + sorted(read_by_code))
 keys += ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION",
          "A2ALAB_RUNTIME_SECRET_ARN", "A2ALAB_MODE"]
 env = {k: os.environ[k] for k in dict.fromkeys(keys) if os.environ.get(k)}
+env["A2ALAB_MEMORY_DATA_SPACE"] = os.environ["A2ALAB_MEMORY_DATA_SPACE"]
 # AWS -> GCP federation for the google-adk-a2a target, same mechanism as the
 # fan-out Lambda (D41) and the same pool — deploy/bridge/gcp_federation.sh
 # binds THIS task role into it.

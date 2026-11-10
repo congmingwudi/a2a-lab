@@ -1,0 +1,26 @@
+# Safe, display-only demo customer personas for D104 memory experiments.
+# Org-specific CRM Contact ids (the memory owner, D117) live only in A2ALAB_MEMORY_CUSTOMER_MAP.
+customers:
+  maya:
+    name: Maya Chen
+    title: VP, Supply Chain
+    company: Acme Corp
+    email: maya.chen@a2alab.example.invalid
+    story: "Claude learns Maya's rollout constraints; OpenAI recalls them and asks Agentforce to act."
+  jordan:
+    name: Jordan Alvarez
+    title: Director, Customer Operations
+    company: Acme Corp
+    email: jordan.alvarez@a2alab.example.invalid
+    story: "Isolation control: Jordan must not inherit Maya's remembered constraints."
+
+# WS32: what the customer-memory exhibit's "Ring up a purchase" button can sell. A fixed
+# catalog, so nothing free-form from a browser reaches the production Ingestion API; the
+# order lands in A2ALab_POS_Order__dlm and, ~2 s later, in GetContext through the real-time
+# A2ALab_Test_C360Copy graph (D118) (plan/03-results.md, 2026-11-10).
+pos_catalog:
+  - {sku: SKU-TENT-02, name: Trail tent 2P, category: Camping, amount: 249.0}
+  - {sku: SKU-TRAIL-42, name: Trail running shoe, category: Footwear, amount: 139.0}
+  - {sku: SKU-PACK-07, name: Day pack 22L, category: Bags, amount: 89.0}
+  - {sku: SKU-JKT-11, name: Rain shell jacket, category: Apparel, amount: 179.0}
+  - {sku: SKU-LAMP-05, name: Camp lantern, category: Camping, amount: 29.0}

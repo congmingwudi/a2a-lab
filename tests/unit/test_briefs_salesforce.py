@@ -11,6 +11,9 @@ Salesforce transport — no network, no org.
 
 from __future__ import annotations
 
+import re
+import urllib.parse
+
 import pytest
 
 from briefs.salesforce import BriefWriter
@@ -32,6 +35,22 @@ def _org_rejects_key_in_body(path: str, body) -> None:
         raise RuntimeError(f"Salesforce PATCH {path} -> 400: INVALID_FIELD {ext_field}")
 
 
+_KEY_QUERY_RE = re.compile(r"FROM (\w+) WHERE A2ALab_Delivery_Key__c = '([^']*)'")
+
+
+def _key_lookup(store: dict, soql: str) -> list[dict] | None:
+    """Answer `SELECT Id FROM <sobject> WHERE A2ALab_Delivery_Key__c = '<key>'`
+    from the fake's upsert store, as the org would — None if `soql` is not that
+    shape. Without this, an existence check always reads "absent" and the
+    first-write-wins guard is never exercised."""
+    m = _KEY_QUERY_RE.search(soql)
+    if not m:
+        return None
+    sobject, key = m.groups()
+    path = f"/sobjects/{sobject}/A2ALab_Delivery_Key__c/{urllib.parse.quote(key, safe='')}"
+    return [{"Id": store[path]}] if path in store else []
+
+
 class FakeSF:
     """Routes `_query` by SOQL shape and records every `_request` (upsert)."""
 
@@ -46,6 +65,8 @@ class FakeSF:
 
     async def query(self, soql: str, *, tooling: bool = False):
         self.queries.append(soql)
+        if (rows := _key_lookup(self._store, soql)) is not None:
+            return rows
         if "CustomNotificationType" in soql:
             assert tooling, "a Setup object: the Tooling API, not /query (D90)"
         if "CustomNotificationType" in soql or "FROM User" in soql:
@@ -269,6 +290,23 @@ async def test_second_call_for_the_same_key_does_not_duplicate():
     assert len(brief_ids) == 1
 
 
+async def test_a_second_save_for_the_same_key_never_overwrites_the_landed_pair():
+    """First write wins, per delivery key. A resumed session re-researches and
+    issues a NEW save call (a new tool_use_id), so the watcher's per-call replay
+    record cannot stop it; on 2026-11-05 that rewrote 21 historical briefs with
+    the replay day's content (plan/03-results.md). The writer itself must keep
+    a brief/Task that already landed and write neither again."""
+    w = _writer()
+    sf = FakeSF(exact=[{"Id": "001A", "Name": "Apple Inc."}]).bind(w)
+    first = await w.save_brief(**_kw(headline="original", brief_markdown="day-1 research"))
+    second = await w.save_brief(**_kw(headline="rewrite", brief_markdown="replay-day research"))
+    assert second["brief_id"] == first["brief_id"]
+    assert second["task_id"] == first["task_id"]
+    assert len(sf.upserts) == 2  # brief + Task from the FIRST save only
+    brief_bodies = [u["body"] for u in sf.upserts if "A2ALab_Account_Brief__c" in u["path"]]
+    assert [b["Brief__c"] for b in brief_bodies] == ["day-1 research"]
+
+
 # --- A5: adversarial resolution (F03 write-half) -----------------------------
 
 
@@ -371,6 +409,8 @@ class NotifySF(FakeSF):
 
     async def query(self, soql: str, *, tooling: bool = False):
         self.queries.append(soql)
+        if (rows := _key_lookup(self._store, soql)) is not None:
+            return rows
         if "CustomNotificationType" in soql:
             assert tooling, "a Setup object: the Tooling API, not /query (D90)"
         if "CustomNotificationType" in soql:
@@ -483,3 +523,46 @@ async def test_upsert_body_omits_the_external_id_field():
     assert len(sf.upserts) == 2  # brief + Task
     for up in sf.upserts:
         assert "A2ALab_Delivery_Key__c" not in up["body"]
+
+
+# --- FLS: every written field is granted to the run-as user (2026-11-04) ------
+
+
+async def test_every_upserted_field_is_in_the_written_fields_contract():
+    """save_brief() may only write fields WRITTEN_FIELDS names, because that list
+    is what the permission set and the preflight are checked against."""
+    from briefs.salesforce import WRITTEN_FIELDS
+
+    w = _writer()
+    fake = FakeSF(exact=[{"Id": "001000000000001AAA", "Name": "Acme"}]).bind(w)
+    await w.save_brief(account_name="Acme", headline="h", brief_markdown="b",
+                       research_session_id="sesn_1", trace_id="t")  # fmt: skip
+    assert len(fake.upserts) == 2
+    for up in fake.upserts:
+        sobject = up["path"].split("/")[2]
+        assert set(up["body"]) <= set(WRITTEN_FIELDS[sobject]), sobject
+
+
+def test_brief_writer_permission_set_grants_fls_on_every_written_field():
+    """The Integration profile grants NO FLS on standard fields, so each written
+    field needs an explicit editable grant — Task.WhatId lacking one failed every
+    hosted delivery with "No such column 'WhatId'" while Task stayed createable."""
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+
+    from briefs.salesforce import WRITTEN_FIELDS
+
+    ps = Path(__file__).resolve().parents[2] / (
+        "salesforce/force-app/main/default/permissionsets/"
+        "A2ALab_Brief_Writer.permissionset-meta.xml"
+    )
+    ns = {"m": "http://soap.sforce.com/2006/04/metadata"}
+    granted = {
+        fp.findtext("m:field", namespaces=ns)
+        for fp in ET.parse(ps).getroot().findall("m:fieldPermissions", ns)
+        if fp.findtext("m:editable", namespaces=ns) == "true"
+    }
+    # Name-like standard fields the profile always exposes need no grant.
+    always = {"Task.Subject", "Task.Status"}
+    want = {f"{o}.{f}" for o, fs in WRITTEN_FIELDS.items() for f in fs} - always
+    assert want <= granted, sorted(want - granted)

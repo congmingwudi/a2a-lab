@@ -1,0 +1,74 @@
+{
+  "batch": "ws27-b2-customer-memory-clear",
+  "title": "Customer-memory curation, fresh-start reset, and closed-session correction fix",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": "codex",
+  "station": "deploy",
+  "holder": "operator",
+  "round": 2,
+  "verdict": "pass",
+  "adr": "D107",
+  "files": {
+    "plan": "build-notes/codex/ws27-customer-memory-clear-plan.md",
+    "notes": {
+      "codex": "build-notes/codex/reviews/ws27-b2-customer-memory-clear.md"
+    },
+    "verdicts": {
+      "claude": "build-notes/claude/reviews/ws27-b2-customer-memory-clear.md"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-11-03T19:26:48+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/ws27-customer-memory-clear-plan.md"
+    },
+    {
+      "ts": "2026-11-03T19:45:19+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws27-b2-customer-memory-clear.md",
+      "round": 0
+    },
+    {
+      "ts": "2026-11-03T20:02:39+00:00",
+      "agent": "operator",
+      "action": "settle",
+      "adr": "D107",
+      "implementer": "codex"
+    },
+    {
+      "ts": "2026-11-03T20:30:14+00:00",
+      "agent": "codex",
+      "action": "built",
+      "file": "build-notes/codex/reviews/ws27-b2-customer-memory-clear.md",
+      "commit": "6902685"
+    },
+    {
+      "ts": "2026-11-03T21:48:37+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws27-b2-customer-memory-clear.md",
+      "round": 1
+    },
+    {
+      "ts": "2026-11-03T22:44:42+00:00",
+      "agent": "codex",
+      "action": "respond",
+      "commit": "8df42f6",
+      "round": 2
+    },
+    {
+      "ts": "2026-11-04T06:08:44+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "pass",
+      "file": "build-notes/claude/reviews/ws27-b2-customer-memory-clear.md",
+      "round": 2
+    }
+  ]
+}

@@ -41,30 +41,56 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import hashlib
+import json
 import os
 import time
 from collections import OrderedDict
 from typing import Any
 
 from interop.adapter import AgentAdapter
-from interop.memory import MemoryClient, open_and_read, write_turn
+from interop.memory import (
+    GENERATION_CATEGORY,
+    MemoryCallError,
+    MemoryClient,
+    MemoryListing,
+    StaleMemoryGeneration,
+    data_space,
+    generation_conversation,
+    open_and_read,
+    owner_conversation,
+    redact,
+    select_generation,
+    write_turn,
+)
 from interop.models import AgentRequest, AgentResponse
 
-# platform -> the AgentApiName its hosted agent is registered under in the
-# `default` data space. Not an environment identifier: the same name in every
-# org, like A2ALab_Memory_Concierge. Kept in step with setup_agentic_memory.AGENTS.
-MEMORY_AGENTS = {"claude": "A2ALab_Memory_Claude"}
+# Both platforms use one domain-level memory-service identity. Claude and
+# OpenAI remain distinct execution/provenance participants, but curated profile
+# facts/preferences belong to the customer and are not platform partitions.
+# Kept in step with setup_agentic_memory.AGENTS["case-memory"].
+CASE_MEMORY_AGENT = "A2ALab_Memory_Case"
+MEMORY_AGENTS = {
+    "claude": CASE_MEMORY_AGENT,
+    "openai": CASE_MEMORY_AGENT,
+}
 REQUEST_FLAG = "memory"  # metadata key: True asks for memory on THIS turn
 BUDGET_ENV = "A2ALAB_MEMORY_BUDGET_S"
+OWNER_MAP_ENV = "A2ALAB_MEMORY_OWNER_MAP"
+CUSTOMER_MAP_ENV = "A2ALAB_MEMORY_CUSTOMER_MAP"
 DEFAULT_BUDGET_S = 8.0
-OWNER_PREFIX = "a2alab-"  # tenant-wide owner ids: keep the lab's users in their own namespace
-_MAX_CONVERSATIONS = 1024
+_MAX_SESSIONS = 1024
 
 _shared: MemoryClient | None = None
 
 
 def owner_of(req: AgentRequest) -> str | None:
-    """The memory owner for a request: the verified, non-machine lab user, or None."""
+    """Return the verified persona's Data 360 profile identifier.
+
+    Agentic Memory's ``xid`` is the end customer represented by the profile
+    DMO, not a lab login name. The mapping is deployment configuration because
+    profile identifiers are org-specific. Missing, malformed, or incomplete
+    configuration fails closed so two users can never collapse into one owner.
+    """
     from interop import identity
 
     token = (req.metadata or {}).get("user_token")
@@ -73,13 +99,26 @@ def owner_of(req: AgentRequest) -> str | None:
     claims = identity.verify_token(token)
     if not claims or claims.get("role") == "machine" or not claims.get("sub"):
         return None
-    return f"{OWNER_PREFIX}{claims['sub']}"
+    customer_key = (req.metadata or {}).get("memory_customer")
+    map_env = CUSTOMER_MAP_ENV if isinstance(customer_key, str) and customer_key else OWNER_MAP_ENV
+    lookup_key = customer_key if map_env == CUSTOMER_MAP_ENV else str(claims["sub"])
+    try:
+        owner_map = json.loads(os.environ.get(map_env, "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(owner_map, dict):
+        return None
+    owner = owner_map.get(lookup_key)
+    return owner.strip() if isinstance(owner, str) and owner.strip() else None
 
 
-def _derived_conversation(agent_id: str, owner_id: str, session_id: str) -> str:
-    """One conversation per (agent, owner, lab session), stable across restarts —
-    start_conversation treats 409 as success, so a restarted face resumes it."""
-    digest = hashlib.sha256(f"{agent_id}\0{owner_id}\0{session_id}".encode()).hexdigest()
+def _derived_session(agent_id: str, owner_id: str, session_id: str, conversation_id: str) -> str:
+    """One memory session per (agent, owner, lab session), inside the owner's
+    one conversation (D94), stable across restarts — start_conversation treats
+    409 as success, so a restarted face resumes it."""
+    digest = hashlib.sha256(
+        f"{agent_id}\0{owner_id}\0{conversation_id}\0{session_id}".encode()
+    ).hexdigest()
     return f"a2alab-{digest[:24]}"
 
 
@@ -115,8 +154,8 @@ class MemoryAdapter:
             if budget_s is not None
             else float(os.environ.get(BUDGET_ENV, DEFAULT_BUDGET_S))
         )
-        # (owner, lab session) -> an OPENED memory conversation
-        self._conversations: OrderedDict[tuple[str, str], str] = OrderedDict()
+        # (owner, lab session) -> an OPENED memory session
+        self._sessions: OrderedDict[tuple[str, str, str], str] = OrderedDict()
 
     def __getattr__(self, attr: str):
         # Anything else the protocol servers look for on an adapter
@@ -131,11 +170,11 @@ class MemoryAdapter:
             _shared = MemoryClient(source="memory-adapter")
         return _shared
 
-    def _remember(self, key: tuple[str, str], cid: str) -> None:
-        self._conversations[key] = cid
-        self._conversations.move_to_end(key)
-        while len(self._conversations) > _MAX_CONVERSATIONS:
-            self._conversations.popitem(last=False)
+    def _remember(self, key: tuple[str, str, str], sid: str) -> None:
+        self._sessions[key] = sid
+        self._sessions.move_to_end(key)
+        while len(self._sessions) > _MAX_SESSIONS:
+            self._sessions.popitem(last=False)
 
     async def _bounded(self, coro, what: str) -> tuple[Any, list[str]]:
         try:
@@ -153,26 +192,72 @@ class MemoryAdapter:
             resp = await self.inner.handle(req)
             meta = dict(resp.metadata or {})
             meta["memory"] = {"agent_id": self.agent_id, "owner_id": None, "ok": False,
-                              "error": "no verified lab user on the request — sign in"}  # fmt: skip
+                              "error": ("no Data 360 customer profile is mapped to this "
+                                        "verified lab user")}
             return dataclasses.replace(resp, metadata=meta)
         mem = self._client()
         trace_id = req.trace_id or ""
         ids = {"agent_id": self.agent_id, "owner_id": owner}
 
-        known = self._conversations.get((owner, req.session_id)) if req.session_id else None
-        cid = known or (
-            _derived_conversation(self.agent_id, owner, req.session_id) if req.session_id else None
+        conversation_id = owner_conversation(owner)
+        generation = None
+        generation_error = None
+        if isinstance((req.metadata or {}).get("memory_customer"), str):
+            try:
+                listing, generation_errors = await self._bounded(
+                    mem.list_memories(trace_id, category=GENERATION_CATEGORY, **ids),
+                    "generation read",
+                )
+                if generation_errors:
+                    generation_error = "; ".join(generation_errors)
+                if isinstance(listing, MemoryListing):
+                    generation, malformed = select_generation(listing)
+                    if malformed:
+                        generation_error = "invalid customer-memory generation marker"
+                    elif generation:
+                        conversation_id = generation_conversation(owner, generation)
+            except MemoryCallError as exc:
+                generation_error = str(exc)
+        expected_generation = (req.metadata or {}).get("memory_generation")
+        if (
+            not generation_error
+            and isinstance(expected_generation, str)
+            and expected_generation != (generation or "")
+        ):
+            # Refuse before invoking the inner agent: its platform session may
+            # still contain pre-reset teaching, which must not leak into the
+            # newly rotated namespace through a fresh reply.
+            raise StaleMemoryGeneration(
+                "customer memory changed after this chat started; start a new chat"
+            )
+        if generation_error:
+            resp = await self.inner.handle(req)
+            meta = dict(resp.metadata or {})
+            meta["memory"] = {
+                "agent_id": self.agent_id, "owner_id": owner, "ok": False,
+                "error": generation_error, "customer_key": (req.metadata or {}).get("memory_customer"),
+            }
+            return dataclasses.replace(resp, metadata=meta)
+
+        cache_key = (owner, conversation_id, req.session_id) if req.session_id else None
+        known = self._sessions.get(cache_key) if cache_key else None
+        sid = known or (
+            _derived_session(self.agent_id, owner, req.session_id, conversation_id)
+            if req.session_id else None
         )
         t0 = time.perf_counter()
-        opened, errors = await self._bounded(
-            open_and_read(mem, trace_id, conversation_id=cid, start=not known, **ids), "read"
+        opened, read_errors = await self._bounded(
+            open_and_read(mem, trace_id, session_id=sid, start=not known,
+                          conversation_id=conversation_id,
+                          include_saved_memories=not bool(generation),
+                          include_profile_context=not bool(generation), **ids), "read"
         )
         context = ""
         if opened is not None:
-            cid, context, errors = opened
+            sid, context, read_errors = opened
         read_ms = int((time.perf_counter() - t0) * 1000)
-        if cid and req.session_id and not errors:
-            self._remember((owner, req.session_id), cid)
+        if sid and req.session_id and not read_errors:
+            self._remember(cache_key, sid)
 
         sent = (
             dataclasses.replace(req, message=_with_context(req.message, context))
@@ -182,33 +267,51 @@ class MemoryAdapter:
         resp = await self.inner.handle(sent)
 
         t1 = time.perf_counter()
-        if cid:
+        write_errors: list[str] = []
+        normalized = False
+        if sid:
             written, overrun = await self._bounded(
                 write_turn(
                     mem,
                     trace_id,
-                    conversation_id=cid,
+                    session_id=sid,
                     user_message=req.message,
                     agent_response=resp.text or None,
+                    conversation_id=conversation_id,
                     **ids,
                 ),  # fmt: skip
                 "ingest",
             )
-            errors += overrun or written or []
+            if overrun:
+                write_errors += overrun
+            elif written:
+                write_errors, normalized = written
         ingest_ms = int((time.perf_counter() - t1) * 1000)
         # A first turn with no session: the inner agent minted one, and the next
-        # turn arrives carrying it — follow it to the conversation just opened.
-        if cid and not req.session_id and resp.session_id and not errors:
-            self._remember((owner, resp.session_id), cid)
+        # turn arrives carrying it — follow it to the session just opened.
+        if sid and not req.session_id and resp.session_id and not (read_errors or write_errors):
+            self._remember((owner, conversation_id, resp.session_id), sid)
 
+        errors = [*read_errors, *write_errors]
+        customer_key = (req.metadata or {}).get("memory_customer")
         meta = dict(resp.metadata or {})
         meta["memory"] = {
             "agent_id": self.agent_id,
+            "data_space": data_space(),
             "owner_id": owner,
-            "conversation_id": cid,
+            "conversation_id": conversation_id,
+            "generation": generation,
+            "profile_memory_suppressed": bool(generation),
+            "session_id": sid,
             "context_chars": len(context),
+            "context_preview": redact(context)[:360] if context else "",
+            "recalled": bool(context),
+            "read_ok": not read_errors,
             "read_ms": read_ms,
             "ingest_ms": ingest_ms,
+            "stored": bool(sid) and not write_errors,
+            "normalized": normalized,
+            "customer_key": customer_key if isinstance(customer_key, str) else None,
             "ok": not errors,
             **({"error": "; ".join(errors)} if errors else {}),
         }

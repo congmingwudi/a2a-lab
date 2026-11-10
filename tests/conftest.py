@@ -47,6 +47,9 @@ def isolated_traces(tmp_path, monkeypatch, request):
             "A2ALAB_TRACE_SINK",
         ):
             monkeypatch.delenv(pg_var, raising=False)
+    # Production has no fallback: every deployment must name its Data 360
+    # memory data space. Tests use an explicit synthetic environment boundary.
+    monkeypatch.setenv("A2ALAB_MEMORY_DATA_SPACE", "test-memory-space")
     trace_dir = tmp_path / "traces"
     monkeypatch.setenv(trace_mod.TRACE_DIR_ENV, str(trace_dir))
     recorder = trace_mod.TraceRecorder(trace_dir)

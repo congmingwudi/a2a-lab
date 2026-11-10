@@ -57,10 +57,13 @@ STATIC_DIR = Path(__file__).parent / "static"
 # error anywhere.
 SSE_KEEPALIVE_S = 15.0
 SCENARIOS_PATH = Path("config/scenarios.yaml")
+MEMORY_CUSTOMERS_PATH = Path("config/memory_customers.yaml")
 AGENTS_PATH = Path("config/agents.yaml")
 DECISIONS_PATH = Path("plan/00-decisions.md")
+WORKSTREAMS_PATH = Path("plan/07-workstreams.md")
 
 _DECISION_HEADING = re.compile(r"^## (\d{4}-\d{2}-\d{2}) — (D\d+)( \(revised\))?: (.+)$")
+_WORKSTREAM_HEADING = re.compile(r"^## (WS\d+) — (.+)$")
 
 
 def load_decisions(path: str | Path = DECISIONS_PATH) -> dict[str, dict]:
@@ -106,6 +109,43 @@ def load_decisions(path: str | Path = DECISIONS_PATH) -> dict[str, dict]:
     return decisions
 
 
+def load_workstreams(path: str | Path = WORKSTREAMS_PATH) -> dict[str, dict]:
+    """Parse exact plan sections for WS-reference chip popovers.
+
+    The Project view summarizes this source into epic/story rows; Details
+    chips need the full section so scope, status and evidence remain together.
+    """
+    p = Path(path)
+    if not p.exists():
+        return {}
+    workstreams: dict[str, dict] = {}
+    current: dict | None = None
+    body: list[str] = []
+
+    def flush():
+        if current is None:
+            return
+        workstreams[current["id"]] = {
+            **current,
+            "markdown": f"### {current['id']} — {current['title']}\n\n" + "\n".join(body).strip(),
+        }
+
+    for line in p.read_text(encoding="utf-8").splitlines():
+        match = _WORKSTREAM_HEADING.match(line)
+        if match:
+            flush()
+            wid, title = match.groups()
+            current = {"id": wid, "title": title}
+            body = []
+        elif line.startswith("## "):
+            flush()
+            current = None
+        elif current is not None:
+            body.append(line)
+    flush()
+    return workstreams
+
+
 def load_scenarios(path: str | Path = SCENARIOS_PATH) -> dict[str, dict]:
     p = Path(path)
     if not p.exists():
@@ -122,6 +162,33 @@ def load_groups(path: str | Path = SCENARIOS_PATH) -> list[dict]:
         return []
     raw = yaml.safe_load(p.read_text()) or {}
     return raw.get("groups") or []
+
+
+def load_memory_customers(path: str | Path = MEMORY_CUSTOMERS_PATH) -> dict[str, dict]:
+    """Public-safe demo persona metadata; unified profile ids stay in runtime secrets."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    raw = yaml.safe_load(p.read_text()) or {}
+    customers = raw.get("customers") or {}
+    public_fields = {"name", "title", "company", "email", "story"}
+    return {
+        key: {field: value for field, value in item.items() if field in public_fields}
+        for key, item in customers.items()
+        if isinstance(key, str) and isinstance(item, dict)
+    }
+
+
+def load_pos_catalog(path: str | Path = MEMORY_CUSTOMERS_PATH) -> list[dict]:
+    """The fixed in-store catalog the customer-memory exhibit can ring up (WS32)."""
+    p = Path(path)
+    raw = (yaml.safe_load(p.read_text()) or {}) if p.exists() else {}
+    return [
+        {"sku": str(i["sku"]), "name": str(i["name"]), "category": str(i.get("category") or ""),
+         "amount": float(i["amount"])}
+        for i in raw.get("pos_catalog") or []
+        if isinstance(i, dict) and i.get("sku") and i.get("name") and "amount" in i
+    ]  # fmt: skip
 
 
 def load_agents(path: str | Path = AGENTS_PATH) -> dict[str, list[dict]]:
@@ -600,6 +667,12 @@ TABLEAU_SDK_URL = (
     "/dist/sdk-bundle.module.js"
 )
 TABLEAU_DASHBOARD_API_NAME = os.environ.get("TABLEAU_DASHBOARD_API_NAME", "New_Dashboard")
+# Optional second Tableau Next asset over Digital Wallet's Consumption Insights
+# objects. It deliberately has no default: until the wallet data has landed and
+# the dashboard exists, the console renders an honest awaiting-data state.
+TABLEAU_CONSUMPTION_DASHBOARD_API_NAME = os.environ.get(
+    "TABLEAU_CONSUMPTION_DASHBOARD_API_NAME", ""
+).strip()
 # The "open in Salesforce" deep link points at the in-org custom TAB
 # (CustomTab A2A_Lab_Traffic) rather than the raw /tableau/dashboard view: the
 # tab is an App Builder page that carries the licence/perm-set + asset-share
@@ -607,6 +680,7 @@ TABLEAU_DASHBOARD_API_NAME = os.environ.get("TABLEAU_DASHBOARD_API_NAME", "New_D
 # works for a signed-in admin. Tab api-name from env so the org is never a
 # literal here.
 TABLEAU_APP_TAB = os.environ.get("TABLEAU_APP_TAB", "A2A_Lab_Traffic")
+TABLEAU_CONSUMPTION_APP_TAB = os.environ.get("TABLEAU_CONSUMPTION_APP_TAB", "").strip()
 
 
 # The JWT `aud` for the token exchange is the login authorization server, NOT
@@ -781,12 +855,85 @@ def public_components(comps: list[dict], signed_in: bool) -> list[dict]:
     return [{**c, "url": None, "url_requires_signin": bool(c.get("url"))} for c in comps]
 
 
-def components_for(tags: set[str]) -> list[dict]:
+NATIVE_CARD_NOTE = (
+    "Published by Salesforce, not by the lab: Agentforce's own inbound A2A server "
+    "(pilot, D106) generates this card from the agent's definition. This is the "
+    "EXTENDED card at /v1/card, fetched with the same client-credentials OrgJWT "
+    "(a2a_lab_af_a2a) the a2a-native tool uses; the public "
+    "/.well-known/agent-card.json answers 401 with or without a bearer, so an "
+    "unauthenticated caller cannot discover this agent (plan/02-matrix.md)."
+)
+
+
+async def _native_agentforce_card(target, card_path: str, twin: str | None) -> dict:
+    """The native Agentforce A2A card (D106) for one twin (D25, D109).
+
+    Same credential and header as `af_channel.ask_native`, so the console shows
+    the card the tool actually negotiates against. Every failure is a result,
+    not a 500 — an unconfigured console says which variable is missing."""
+    from interop import af_channel
+    from interop.clients.a2a import _SalesforceClientCredentials
+
+    endpoint = target.endpoint
+    if twin:
+        if twin not in af_channel.NATIVE_TWIN_ENV:
+            raise HTTPException(status_code=400, detail=f"unknown twin platform: {twin}")
+        twin_id = af_channel.native_twin_id(twin)
+        if not twin_id:
+            return {"ok": False, "url": target.name, "error": "twin agent id unset here"}
+        endpoint = af_channel.NATIVE_A2A_BASE + twin_id
+    url = endpoint.rstrip("/") + "/" + card_path
+    try:
+        sf_auth = _SalesforceClientCredentials(target.auth)
+    except ValueError as exc:  # the a2a_lab_af_a2a pair is not on this console
+        return {"ok": False, "url": url, "error": str(exc)}
+    headers = {}
+    if target.options.get("protocol_version"):
+        from a2a.utils.constants import VERSION_HEADER
+
+        headers[VERSION_HEADER] = str(target.options["protocol_version"])
+    try:
+        async with httpx.AsyncClient(timeout=10.0, auth=sf_auth) as http:
+            r = await http.get(url, headers=headers)
+            r.raise_for_status()
+            card = r.json()
+    except Exception as exc:  # token refused / pilot off — a result, not a 500
+        return {"ok": False, "url": url, "error": f"{type(exc).__name__}: {exc}"}
+    return {"ok": True, "url": url, "card": card, "note": NATIVE_CARD_NOTE}
+
+
+SHIM_CARD_NOTE = (
+    "Published by the lab, not by Salesforce: the D28 shim (API Gateway + Lambda, "
+    "AWS — us-east-1) generates this card from the lab's own code. One card fronts "
+    "every Agentforce twin — the shim picks the twin from the caller's rider — and "
+    "it describes the lab's translation layer, which speaks A2A to the caller and "
+    "the GA Agent API to Agentforce."
+)
+
+
+def components_for(tags: set[str], twin: str | None = None) -> list[dict]:
     """Component rows for a scenario's tags (or a target's platform mapped to
     pseudo-tags). Each: {title, kind, note, url|None, shot|None, shot_slug}
     — url None renders as not-yet-available."""
     comps: list[dict] = []
     ld = _lightning_domain()
+    if "agentic-memory" in tags:
+        comps.append(
+            {
+                "title": "Data 360 Agentic Memory — Agent Configuration",
+                "kind": "data-360",
+                "note": "Open the Data 360 Agentic Memory configuration used by this "
+                "experiment, including the shared A2ALab_Memory_Case registration.",
+                # Agent Config is the supported configuration UI. The similarly
+                # named raw DataAgenticContextAgent object tab is not this page.
+                # Scope the nav item to the A2A Lab custom app. Salesforce's
+                # appDeveloperName is c__A2A_Lab (custom-app namespace +
+                # metadata developer name), so the opened tab stays visibly
+                # inside the lab rather than inheriting the user's last app.
+                "url": f"{ld}/lightning/app/c__A2A_Lab/n/standard-Agents" if ld else None,
+                **_shots(),
+            }
+        )
     # Keyed on managed-agents alone: the AgentCore-hosted Claude scenarios
     # carry `claude` too but run the sdk backend, not the managed platform.
     if "managed-agents" in tags:
@@ -817,6 +964,34 @@ def components_for(tags: set[str]) -> list[dict]:
                 "A2ALab: Get Account Summary action live here.",
                 "url": f"{ld}/lightning/n/standard-AgentforceStudio?c__nav=agents" if ld else None,
                 **_shots("agentforce-studio"),
+            }
+        )
+    # The D28 channel radio's two A2A channels reach Agentforce through two
+    # DIFFERENT agent cards, and the difference is the point of the toggle:
+    # who publishes the card, what it describes, and how a caller gets it.
+    # Live cards, not screenshots — expanding the row fetches them.
+    if "af-channels" in tags:
+        comps.append(
+            {
+                "title": "Agentforce A2A card — shim-hosted (lab-built, D28)",
+                "kind": "aws",
+                "note": SHIM_CARD_NOTE + " Used by the a2a-shim channel.",
+                "url": None,
+                "card_target": "agentforce-a2a-shim",
+            }
+        )
+        comps.append(
+            {
+                "title": "Agentforce A2A card — native (Salesforce pilot, D106)",
+                "kind": "agentforce",
+                "note": "Published by Salesforce at api.salesforce.com/einstein/ai-agent/"
+                "a2a/<twin>/v1/card: one card per agent, generated by Agentforce from the "
+                "twin's own definition (this experiment's caller consults its own twin, "
+                "D25). Authenticated: it needs the a2a_lab_af_a2a OrgJWT, and the public "
+                "well-known card answers 401. Used by the a2a-native channel (D109).",
+                "url": None,
+                "card_target": "agentforce-a2a-native",
+                **({"card_twin": twin} if twin else {}),
             }
         )
     if "openai" in tags:
@@ -1153,6 +1328,7 @@ _OPERATOR_ONLY = {
     "harvest platform logs": ("/api/obs/harvest",),
     "fire the analyst": ("/api/obs/analysis",),
     "delete the trace archive": ("DELETE /api/traces",),
+    "manage customer memory": ("/api/memory/customer",),
 }
 
 
@@ -1242,6 +1418,21 @@ def _logger_request_headers(url: str, body: bytes) -> dict[str, str] | None:
     return {"Content-Type": "application/json", "X-Api-Key": key}
 
 
+def _run_error_code(exc: BaseException) -> str | None:
+    """The typed code of a run failure, however it reached us (ws27-b2 R2-1).
+
+    In-process the exception IS a StaleMemoryGeneration and carries the code; over
+    the hosted REST hop the client re-raises a RemoteAgentError carrying the wire
+    ``error_code``; MCP/A2A carry only text, so the class name in the message is the
+    last resort."""
+    code = getattr(exc, "error_code", None)
+    if isinstance(code, str) and code:
+        return code
+    if "StaleMemoryGeneration" in str(exc):
+        return "stale_memory_generation"
+    return None
+
+
 def create_console_app(registry: Registry | None = None):
     state = {"registry": registry}
     # One long-lived client per target (same rule as the bridge): they cache
@@ -1286,6 +1477,18 @@ def create_console_app(registry: Registry | None = None):
             state["registry"] = Registry.load()
         return state["registry"]
 
+    def customer_memory_owner(customer_key: str) -> str:
+        if customer_key not in load_memory_customers():
+            raise HTTPException(status_code=404, detail="unknown demo customer")
+        try:
+            mapping = json.loads(os.environ.get("A2ALAB_MEMORY_CUSTOMER_MAP", "{}"))
+        except json.JSONDecodeError:
+            mapping = {}
+        owner = mapping.get(customer_key) if isinstance(mapping, dict) else None
+        if not isinstance(owner, str) or not owner.strip():
+            raise HTTPException(status_code=503, detail="customer memory profile is not configured")
+        return owner.strip()
+
     def get_client(name: str) -> RemoteAgentClient:
         if name not in clients:
             clients[name] = get_registry().client_for(name)
@@ -1301,12 +1504,24 @@ def create_console_app(registry: Registry | None = None):
     # assets) keeps its own caching. Applies to both entry points.
     SHELL_HEADERS = {"cache-control": "no-cache"}
 
+    def shell_html(*, design: str | None = None) -> str:
+        """Return the shared SPA shell, optionally forcing a design for this document.
+
+        The legacy preview alias transforms only its document response. It does
+        not fork the SPA, its API behavior, or the saved design preference (D98).
+        """
+        shell = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        if design == "skyline":
+            shell = shell.replace(
+                '<html lang="en">',
+                '<html lang="en" data-design="skyline" data-design-forced="skyline">',
+                1,
+            )
+        return shell
+
     @app.get("/", response_class=HTMLResponse)
     async def index():
-        return HTMLResponse(
-            (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
-            headers=SHELL_HEADERS,
-        )
+        return HTMLResponse(shell_html(), headers=SHELL_HEADERS)
 
     @app.get("/guide", response_class=HTMLResponse)
     async def guide_page():
@@ -1314,10 +1529,13 @@ def create_console_app(registry: Registry | None = None):
         # it boots guide-only off location.pathname and shares the JWT + chat
         # history the console left in localStorage. No separate template to
         # keep in step.
-        return HTMLResponse(
-            (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
-            headers=SHELL_HEADERS,
-        )
+        return HTMLResponse(shell_html(), headers=SHELL_HEADERS)
+
+    @app.get("/design/axs", response_class=HTMLResponse)
+    async def axs_design_page():
+        # D98: backward-compatible alias for Skyline. The forced marker is
+        # document-local and wins before first paint without changing storage.
+        return HTMLResponse(shell_html(design="skyline"), headers=SHELL_HEADERS)
 
     @app.get("/api/targets")
     async def targets(request: Request):
@@ -1378,6 +1596,57 @@ def create_console_app(registry: Registry | None = None):
         pair = by_name.get(name)
         return delegation.rider_for(*pair) if pair else None
 
+    def _scenario_twin(spec: dict) -> str | None:
+        """The Agentforce twin (D25) a channel-toggle scenario's entry agent
+        consults: the first non-Agentforce agent's registry platform."""
+        if not spec.get("af_channel_toggle"):
+            return None
+        reg = get_registry()
+        for agent in spec.get("agents") or []:
+            try:
+                platform = reg.get(reg.resolve_name(agent.get("target", ""))).platform
+            except KeyError:
+                continue
+            if platform != "agentforce":
+                return platform
+        return None
+
+    def _scenario_components(spec: dict) -> list[dict]:
+        """Components for a scenario. A channel-toggle scenario (D28/D106) also
+        gets the two Agentforce A2A card rows, keyed to the twin its entry
+        agent consults (D25)."""
+        tags = set(spec.get("tags") or [])
+        if spec.get("af_channel_toggle"):
+            tags.add("af-channels")
+        return components_for(tags, _scenario_twin(spec))
+
+    def _scenario_agents(spec: dict) -> list[dict]:
+        """The Agent cards list. A channel-toggle scenario reaches Agentforce
+        over BOTH A2A servers (D28 shim, D106 native), so its shim entry is
+        relabelled and the Salesforce-published native card is listed beside
+        it, keyed to the twin the entry agent consults."""
+        agents = [dict(a) for a in spec.get("agents") or []]
+        twin = _scenario_twin(spec)
+        if not twin:
+            return agents
+        out: list[dict] = []
+        for a in agents:
+            out.append(a)
+            if a.get("target") in ("agentforce-a2a", "agentforce-a2a-shim"):
+                a["title"] = "Agentforce agent — shim-hosted card (lab-built, D28)"
+                a["caption"] = (
+                    SHIM_CARD_NOTE + " Used by the a2a-shim channel; honest status via-shim."
+                )
+                out.append(
+                    {
+                        "title": "Agentforce agent — native card (Salesforce-hosted, pilot D106)",
+                        "target": "agentforce-a2a-native",
+                        "twin": twin,
+                        "caption": NATIVE_CARD_NOTE + " Used by the a2a-native channel.",
+                    }
+                )
+        return out
+
     @app.get("/api/scenarios")
     async def scenarios(request: Request):
         signed_in = _signed_in(request)
@@ -1387,9 +1656,8 @@ def create_console_app(registry: Registry | None = None):
                 {
                     "name": name,
                     **spec,
-                    "components": public_components(
-                        components_for(set(spec.get("tags") or [])), signed_in
-                    ),
+                    "agents": _scenario_agents(spec),
+                    "components": public_components(_scenario_components(spec), signed_in),
                     **({"rider": r} if (r := _scenario_rider(name)) else {}),
                 }
                 for name, spec in load_scenarios().items()
@@ -1701,12 +1969,12 @@ def create_console_app(registry: Registry | None = None):
 
     @app.post("/api/credentials/analyze")
     async def credentials_analyze(request: Request):
-        """Fire the credential analyst (a Claude Managed Agent) and return its
-        briefing.
+        """Fire the credential analyst (one plain ``messages.create``, not a
+        Managed Agent) and return its briefing.
 
-        Runs the COLLECTOR here rather than in the agent: gathering expiry dates
-        needs the operator's own AWS/az/gcloud sessions, which a hosted agent
-        does not have. The agent is handed measured numbers and asked for
+        Runs the COLLECTOR here rather than in the model call: expiry_report
+        re-collects under this process's own service identities (WS14), and the
+        model is handed measured numbers and asked for
         judgment — D22's split, applied to credentials.
         """
         if not _is_operator(request):
@@ -1821,6 +2089,255 @@ def create_console_app(registry: Registry | None = None):
             return False
         return bool(identity.load_users().get(sub, {}).get("reviewer"))
 
+    async def _customer_memory_snapshot(customer_key: str, trace_id: str):
+        from interop.memory import GENERATION_CATEGORY, MemoryClient, SAVED_CATEGORIES
+        from interop.memory_adapter import CASE_MEMORY_AGENT
+
+        owner = customer_memory_owner(customer_key)
+        mem = MemoryClient(source="console-memory-management")
+        try:
+            listings = {}
+            for category in dict.fromkeys((*SAVED_CATEGORIES, GENERATION_CATEGORY)):
+                listings[category] = await mem.list_memories(
+                    trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner, category=category
+                )
+            return owner, listings
+        finally:
+            await mem.aclose()
+
+    def _safe_memory_snapshot(customer_key: str, trace_id: str, listings: dict) -> dict:
+        from interop.memory import (
+            GENERATION_CATEGORY,
+            SAVED_CATEGORIES,
+            is_generation_entry,
+            select_generation,
+        )
+
+        marker, malformed = select_generation(listings[GENERATION_CATEGORY])
+        return {
+            "customer": customer_key,
+            "trace_id": trace_id,
+            "complete": all(item.complete for item in listings.values()),
+            "generation": marker,
+            "generation_invalid": malformed,
+            "profile_memory_suppressed": bool(marker),
+            "memories": [
+                {"category": category, "memory_id": entry.memory_id, "content": entry.content}
+                for category in SAVED_CATEGORIES
+                for entry in listings[category].entries
+                if not is_generation_entry(entry)
+            ],
+        }
+
+    @app.get("/api/memory/customer/{customer_key}")
+    async def list_customer_memory(customer_key: str, request: Request):
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="customer memory requires a named operator")
+        trace_id = new_trace_id()
+        try:
+            _, listings = await _customer_memory_snapshot(customer_key, trace_id)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"memory listing failed: {exc}") from None
+        return _safe_memory_snapshot(customer_key, trace_id, listings)
+
+    @app.post("/api/memory/customer/{customer_key}/purchase")
+    async def ring_up_customer_purchase(customer_key: str, request: Request):
+        """WS32: one in-store order for a demo customer → the Data 360 Ingestion API.
+
+        The row keys on the customer's CRM Contact id — the D117 memory owner and the
+        identity link's SourceRecordId — so the real-time graph attached to the shared
+        memory registration serves it in GetContext seconds later, with no identity
+        resolution run. The SKU must come from the configured catalog; the Contact id
+        never leaves the server."""
+        from interop import pos
+
+        if not _is_operator(request):
+            raise HTTPException(
+                status_code=403, detail="ringing up a purchase requires a named operator"
+            )
+        owner = customer_memory_owner(customer_key)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        sku = str((payload or {}).get("sku") or "") if isinstance(payload, dict) else ""
+        item = next((i for i in load_pos_catalog() if i["sku"] == sku), None)
+        if item is None:
+            raise HTTPException(status_code=400, detail="unknown catalog item")
+        trace_id = new_trace_id()
+        row = pos.new_order(owner, product_sku=item["sku"], product_name=item["name"],
+                            category=item["category"], quantity=1, amount=item["amount"])  # fmt: skip
+        client = pos.PosClient(source="console")
+        try:
+            ack = await client.send(trace_id, [row])
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502, detail={"message": f"ingest failed: {exc}", "trace_id": trace_id}
+            ) from None
+        finally:
+            await client.aclose()
+        return {
+            "customer": customer_key, "trace_id": trace_id, "order_id": row["order_id"],
+            "order_ts": row["order_ts"], "product_sku": item["sku"],
+            "product_name": item["name"], "category": item["category"],
+            "amount": item["amount"], "currency_code": row["currency_code"],
+            "store_name": row["store_name"], "accepted_s": ack["accepted_s"],
+        }  # fmt: skip
+
+    @app.post("/api/memory/customer/{customer_key}")
+    async def manage_customer_memory(customer_key: str, request: Request):
+        from interop.memory import (
+            GENERATION_CATEGORY,
+            MemoryCallError,
+            MemoryClient,
+            SAVED_CATEGORIES,
+            is_generation_entry,
+            new_generation_marker,
+        )
+        from interop.memory_adapter import CASE_MEMORY_AGENT
+
+        if not _is_operator(request):
+            raise HTTPException(status_code=403, detail="customer memory requires a named operator")
+        body = await request.json()
+        action = str(body.get("action") or "")
+        if action not in {"delete", "fresh"}:
+            raise HTTPException(status_code=400, detail="action must be delete or fresh")
+        trace_id = new_trace_id()
+        try:
+            owner, listings = await _customer_memory_snapshot(customer_key, trace_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={"message": f"memory listing failed: {exc}", "trace_id": trace_id},
+            ) from None
+        if not all(item.complete for item in listings.values()):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "memory listing is incomplete; reset refused",
+                    "trace_id": trace_id,
+                },
+            )
+        allowed = {
+            (category, entry.memory_id)
+            for category in SAVED_CATEGORIES
+            for entry in listings[category].entries
+            if not is_generation_entry(entry)
+        }
+        requested = {
+            (str(item.get("category") or ""), str(item.get("memory_id") or ""))
+            for item in body.get("memories", [])
+            if isinstance(item, dict)
+        }
+        if action == "delete" and (not requested or not requested <= allowed):
+            raise HTTPException(status_code=400, detail="selection is empty or no longer governed")
+
+        mem = MemoryClient(source="console-memory-management")
+        steps: list[dict] = []
+        errors: list[str] = []
+        marker: str | None = None
+        created = None
+        try:
+
+            async def delete_ids(category: str, ids: list[str]) -> None:
+                if not ids:
+                    return
+                try:
+                    await mem.delete_memories(
+                        trace_id,
+                        agent_id=CASE_MEMORY_AGENT,
+                        owner_id=owner,
+                        category=category,
+                        memory_ids=ids,
+                    )
+                except MemoryCallError as exc:
+                    if exc.status != 404:
+                        raise
+                    current = await mem.list_memories(
+                        trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner, category=category
+                    )
+                    remaining = [
+                        entry.memory_id for entry in current.entries if entry.memory_id in ids
+                    ]
+                    if remaining:
+                        await mem.delete_memories(
+                            trace_id,
+                            agent_id=CASE_MEMORY_AGENT,
+                            owner_id=owner,
+                            category=category,
+                            memory_ids=remaining,
+                        )
+                    ids = remaining
+                steps.append({"step": "delete", "category": category, "ids": ids, "ok": True})
+
+            if action == "fresh":
+                marker = new_generation_marker()
+                try:
+                    created = await mem.create_memories(
+                        trace_id,
+                        agent_id=CASE_MEMORY_AGENT,
+                        owner_id=owner,
+                        category=GENERATION_CATEGORY,
+                        contents=[marker],
+                    )
+                    steps.append({"step": "create_generation", "ok": True})
+                except MemoryCallError as exc:
+                    errors.append(str(exc))
+                    steps.append({"step": "create_generation", "ok": False, "error": str(exc)})
+                requested = allowed if created is not None else set()
+                old_marker_ids = (
+                    [
+                        entry.memory_id
+                        for entry in listings[GENERATION_CATEGORY].entries
+                        if is_generation_entry(entry)
+                    ]
+                    if created is not None
+                    else []
+                )
+            else:
+                old_marker_ids = []
+            for category in SAVED_CATEGORIES:
+                ids = [memory_id for cat, memory_id in requested if cat == category]
+                try:
+                    await delete_ids(category, ids)
+                except MemoryCallError as exc:
+                    errors.append(str(exc))
+                    steps.append({"step": "delete", "category": category, "ids": ids,
+                                  "ok": False, "error": str(exc)})  # fmt: skip
+            try:
+                await delete_ids(GENERATION_CATEGORY, old_marker_ids)
+            except MemoryCallError as exc:
+                errors.append(str(exc))
+                steps.append({"step": "delete", "category": GENERATION_CATEGORY,
+                              "ids": old_marker_ids, "ok": False, "error": str(exc)})  # fmt: skip
+        finally:
+            await mem.aclose()
+        try:
+            _, after = await _customer_memory_snapshot(customer_key, trace_id)
+            result = _safe_memory_snapshot(customer_key, trace_id, after)
+        except Exception as exc:
+            errors.append(f"verification listing failed: {exc}")
+            result = _safe_memory_snapshot(customer_key, trace_id, listings)
+            result["complete"] = False
+        result["action"] = action
+        result["steps"] = steps
+        result["errors"] = errors
+        remaining_ids = {(item["category"], item["memory_id"]) for item in result["memories"]}
+        result["ok"] = (
+            not errors
+            and result["complete"]
+            and (
+                (action == "delete" and not (requested & remaining_ids))
+                or (
+                    action == "fresh"
+                    and created is not None
+                    and result["generation"] == marker
+                    and not result["generation_invalid"]
+                )
+            )
+        )
+        return result
+
     @app.post("/api/insights/{insight_id}/review")
     async def review_insight(insight_id: str, request: Request):
         """Record the lab reviewer's decision on a published claim (approve
@@ -1887,6 +2404,11 @@ def create_console_app(registry: Registry | None = None):
         chips whose popover shows the decision's markdown."""
         return {"decisions": load_decisions()}
 
+    @app.get("/api/workstreams")
+    async def workstreams():
+        """The workstream plan parsed per WS id for reference-chip popovers."""
+        return {"workstreams": load_workstreams()}
+
     @app.get("/api/users")
     async def users():
         """The lab user directory (WS6 U1) — feeds the console's sign-in
@@ -1899,7 +2421,8 @@ def create_console_app(registry: Registry | None = None):
         fails closed for them) and authenticate only via client-credentials
         at /oauth/token. Listing one in the human sign-in picker would read
         as a login whose password is missing, which it is not — it is a
-        service caller, not a persona."""
+        service caller, not a persona. Users marked `listed: false` (test
+        principals such as the WS27 memory probe) are omitted too."""
         from interop import identity
 
         labels = identity.load_role_labels()
@@ -1915,7 +2438,7 @@ def create_console_app(registry: Registry | None = None):
                     "role_label": identity.role_label(e.get("role") or "viewer", labels),
                 }
                 for u, e in identity.load_users().items()
-                if (e.get("role") or "viewer") != "machine"
+                if (e.get("role") or "viewer") != "machine" and e.get("listed", True)
             ]
         }
 
@@ -2219,6 +2742,8 @@ def create_console_app(registry: Registry | None = None):
 
     @app.get("/api/config")
     async def config(request: Request):
+        from interop.memory import data_space
+
         reg = get_registry()
         # WS19/M10: the in-org "A2A Lab" Lightning app holds the live Tableau
         # Next dashboard over the Zero-Copy observability data. Everyone sees
@@ -2235,6 +2760,11 @@ def create_console_app(registry: Registry | None = None):
         # is never a literal. This is the "open in Salesforce" target; the inline
         # embed below renders the same dashboard in-page.
         tableau_app_url = f"{ld}/lightning/n/{TABLEAU_APP_TAB}" if ld else None
+        tableau_consumption_app_url = (
+            f"{ld}/lightning/n/{TABLEAU_CONSUMPTION_APP_TAB}"
+            if ld and TABLEAU_CONSUMPTION_APP_TAB
+            else None
+        )
         owner = _is_owner(request)
         # The inline embed: for the OWNER only, the console mints a frontdoor
         # URL server-side (see _mint_frontdoor_url) so the dashboard renders in
@@ -2253,6 +2783,14 @@ def create_console_app(registry: Registry | None = None):
                 "dashboard": TABLEAU_DASHBOARD_API_NAME,
                 "frontdoor_endpoint": "/api/tableau/frontdoor",
             }
+        consumption_embed = None
+        if owner and ld and TABLEAU_CONSUMPTION_DASHBOARD_API_NAME and _tableau_embed_configured():
+            consumption_embed = {
+                "sdk_url": TABLEAU_SDK_URL,
+                "org_url": ld,
+                "dashboard": TABLEAU_CONSUMPTION_DASHBOARD_API_NAME,
+                "frontdoor_endpoint": "/api/tableau/frontdoor",
+            }
         tableau_next = {
             "app_url": tableau_app_url if owner else None,
             "app_url_owner_only": bool(tableau_app_url),
@@ -2263,6 +2801,20 @@ def create_console_app(registry: Registry | None = None):
                 if (SHOTS_DIR / "tableau-next-traffic.png").exists()
                 else None
             ),
+            "consumption": {
+                "configured": bool(TABLEAU_CONSUMPTION_DASHBOARD_API_NAME),
+                "app_url": tableau_consumption_app_url if owner else None,
+                "app_url_owner_only": bool(tableau_consumption_app_url),
+                "embed": consumption_embed,
+                "embed_owner_only": bool(
+                    TABLEAU_CONSUMPTION_DASHBOARD_API_NAME and ld and _tableau_embed_configured()
+                ),
+                "shot": (
+                    "/static/components/tableau-next-consumption.png"
+                    if (SHOTS_DIR / "tableau-next-consumption.png").exists()
+                    else None
+                ),
+            },
         }
         return {
             "mode": reg.mode,
@@ -2276,6 +2828,12 @@ def create_console_app(registry: Registry | None = None):
             # tab's memory only (not persisted, not server-side) — the server
             # just sets the cap, like guide_history_limit above.
             "experiment_history_limit": int(os.environ.get("A2ALAB_EXPERIMENT_CHAT_HISTORY", "3")),
+            # Public-safe environment boundary for the customer-memory exhibit.
+            # Profile ids remain server-side; the data-space API name is shown
+            # so another Data 360 environment cannot be mistaken for this one.
+            "memory_data_space": data_space(),
+            "memory_customers": load_memory_customers(),
+            "pos_catalog": load_pos_catalog(),
             "remapped": {
                 name: reg.resolve_name(name)
                 for name in reg.targets
@@ -2315,10 +2873,16 @@ def create_console_app(registry: Registry | None = None):
                 ],
             },
             # D28 sibling exhibit: the per-run channel routing block the
-            # console injects when the operator picks a2a-shim.
+            # console injects when the operator picks an A2A channel (the
+            # shim, or Agentforce's own inbound A2A server — D106).
             "af_channel": {
                 "tools": af_channel.CHANNEL_TOOLS,
                 "routing_block": af_channel.routing_block("a2a-shim"),
+                "routing_blocks": {
+                    ch: af_channel.routing_block(ch)
+                    for ch in af_channel.CHANNEL_TOOLS
+                    if ch != "agent-api"
+                },
             },
             # Sibling exhibit for the reverse direction: the twin's outbound
             # route (bridge = traced, direct = platform-native, untraced).
@@ -2455,11 +3019,16 @@ def create_console_app(registry: Registry | None = None):
         return record
 
     @app.get("/api/agent-card/{target_name}")
-    async def agent_card(target_name: str):
+    async def agent_card(target_name: str, twin: str | None = None):
         """Fetch a target's live AgentCard, server-side. The browser can't
         reach the A2A servers cross-origin, and the cards are generated at
         runtime — there is no file to serve. The well-known path is
-        auth-exempt on our servers, so no token rides along."""
+        auth-exempt on our servers, so no token rides along.
+
+        `twin` (the native channel only, D106/D109): the calling platform whose
+        paired Agentforce twin's card to show (D25) — the native server
+        publishes one card PER AGENT, where the shim publishes one card that
+        fronts every twin."""
         try:
             reg = get_registry()
             # RESOLVE first (D55). Every other read path does — /api/targets,
@@ -2519,6 +3088,9 @@ def create_console_app(registry: Registry | None = None):
         # agentCard/v1.0, not the well-known path) — mirror the A2A client's
         # relative_card_path so the console fetches the SAME card the client does.
         card_path = (target.options.get("card_path") or ".well-known/agent-card.json").lstrip("/")
+        auth = target.auth or {}
+        if auth.get("scheme") == "salesforce-cc":
+            return await _native_agentforce_card(target, card_path, twin)
         url = target.endpoint.rstrip("/") + "/" + card_path
         # Send the target's OWN configured auth header. The well-known path is
         # in EXEMPT_PATHS, which held while each face was its own server on its
@@ -2532,7 +3104,6 @@ def create_console_app(registry: Registry | None = None):
         # an unauthenticated hole for the console's own convenience would be
         # the wrong thing to preserve.
         headers = {}
-        auth = target.auth or {}
         if auth.get("header_name") and auth.get("header_value"):
             headers[auth["header_name"]] = auth["header_value"]
         try:
@@ -2549,6 +3120,12 @@ def create_console_app(registry: Registry | None = None):
         body = await request.json()
         message = (body.get("message") or "").strip() or DEFAULT_QUESTION
         via_bridge = bool(body.get("via_bridge"))
+        # Resolve the verified human before any early-return scenario branch.
+        # The CMA fan-out returns before the ordinary AgentRequest path below,
+        # so doing this only there would leave D102 memory with no trust source.
+        lab_user = request.scope.get("state", {}).get("lab_user")
+        authz = request.headers.get("authorization", "")
+        user_token = authz[len("Bearer ") :] if authz.startswith("Bearer ") else None
         # D28: which Agentforce tool the entry agent should use, echoed back
         # so the UI can badge the turn. Only meaningful on toggle scenarios.
         chosen_channel: str | None = None
@@ -2621,9 +3198,47 @@ def create_console_app(registry: Registry | None = None):
                     if spec.get("gate_toggle") and variant == "tool" and body.get("gate") == "jev"
                     else "none"
                 )
+                from orchestration.memory import MemoryRun
+
+                memory_mode = str(body.get("memory_mode") or "off").lower()
+                memory_reader = str(body.get("memory_reader") or "coordinator").lower()
+                memory_case = str(body.get("memory_case") or "").strip()
+                if not spec.get("fanout_memory_toggle"):
+                    memory_mode = "off"
+                if memory_mode not in ("off", "seed", "recall"):
+                    raise HTTPException(status_code=400, detail="invalid memory_mode")
+                if memory_reader not in ("coordinator", "specialists", "both"):
+                    raise HTTPException(status_code=400, detail="invalid memory_reader")
+                if memory_mode != "off":
+                    if variant != "tool":
+                        raise HTTPException(
+                            status_code=409,
+                            detail="supplier memory is available on the host-side tool topology only",
+                        )
+                    if not lab_user or lab_user.get("role") == "machine" or not lab_user.get("sub"):
+                        raise HTTPException(
+                            status_code=401,
+                            detail="supplier memory requires a signed-in human lab user",
+                        )
+                    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,63}", memory_case):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="memory_case must be 1-64 letters, digits, spaces, '.', '_' or '-'",
+                        )
+                memory_run = MemoryRun(
+                    mode=memory_mode,
+                    reader=memory_reader,
+                    owner_id=(f"a2alab-{lab_user['sub']}" if memory_mode != "off" else None),
+                    case_key=(memory_case if memory_mode != "off" else None),
+                )
                 trace_id = body.get("trace_id") or new_trace_id()
                 try:
-                    orch = CmaOrchestrator(variant=variant, dispatch_mode=dispatch_mode, gate=gate)
+                    orch = CmaOrchestrator(
+                        variant=variant,
+                        dispatch_mode=dispatch_mode,
+                        gate=gate,
+                        memory_run=memory_run,
+                    )
                 except OrchestratorNotProvisioned as exc:
                     # Same class as the jira_sync gap: a console feature reaching
                     # for .a2alab/ state the hosted container doesn't carry. The
@@ -2672,6 +3287,20 @@ def create_console_app(registry: Registry | None = None):
                     "variant": variant,
                     "dispatch_mode": result.get("dispatch_mode", dispatch_mode),
                     "gate": gate,
+                    "memory": (
+                        {
+                            "mode": fan.memory.mode,
+                            "state": fan.memory.state,
+                            "reader": fan.memory.reader,
+                            "context_chars": len(fan.memory.context),
+                            "candidate_count": len(fan.memory.written),
+                            "nominated_count": fan.memory.expected_count,
+                            "error_count": len(fan.memory.errors),
+                            "errors": fan.memory.errors,
+                        }
+                        if fan is not None and fan.memory is not None
+                        else {"mode": memory_mode}
+                    ),
                 }
             if spec.get("mode") == "async":
                 # Fire-and-return: the research session runs for minutes in
@@ -2741,9 +3370,9 @@ def create_console_app(registry: Registry | None = None):
                 if chosen_channel not in af_channel.CHANNEL_TOOLS:
                     chosen_channel = "agent-api"
                 # The routing block rides AFTER the suffix; agent-api is the
-                # tools' default bias, so only a2a-shim ever injects.
-                if chosen_channel == "a2a-shim":
-                    message += af_channel.routing_block("a2a-shim")
+                # tools' default bias, so only the two A2A channels inject.
+                if chosen_channel != "agent-api":
+                    message += af_channel.routing_block(chosen_channel)
             if spec.get("af_route_toggle"):
                 chosen_route = body.get("af_route") or "bridge"
                 if chosen_route not in af_channel.ROUTE_TOOLS:
@@ -2763,6 +3392,12 @@ def create_console_app(registry: Registry | None = None):
                 message += af_channel.topology_block(chosen_topology)
             if spec.get("memory_toggle"):
                 chosen_memory = body.get("memory") is True
+                if spec.get("memory_customer_selector"):
+                    customer_key = str(
+                        body.get("memory_customer") or spec.get("default_memory_customer") or ""
+                    )
+                    if customer_key not in load_memory_customers():
+                        raise HTTPException(status_code=400, detail="invalid memory_customer")
             if spec.get("dispatch_mode_toggle"):
                 # WS11: how the fan-out dispatches each leg — sync (blocking) vs
                 # async (A2A fire-then-poll). The CMA fan-out consumes this in
@@ -2803,14 +3438,12 @@ def create_console_app(registry: Registry | None = None):
         # request on both channels — user_context (display/log, visible in
         # wire records) and user_token (the JWT, the verifiable channel the
         # seams forward; the F2 redactor keeps it out of the traces).
-        lab_user = request.scope.get("state", {}).get("lab_user")
         if lab_user:
             from interop import identity
 
             req.metadata["user_context"] = identity.user_context(lab_user)
-            authz = request.headers.get("authorization", "")
-            if authz.startswith("Bearer "):
-                req.metadata["user_token"] = authz[len("Bearer ") :]
+            if user_token:
+                req.metadata["user_token"] = user_token
         # WS11: the ADK orchestrator reads its per-run dispatch mode off the
         # inbound A2A task metadata (the Agentforce path already injected a
         # routing block into the message above instead, so skip it there).
@@ -2819,6 +3452,10 @@ def create_console_app(registry: Registry | None = None):
             req.metadata["dispatch_mode"] = chosen_dispatch
         if chosen_memory:
             req.metadata["memory"] = True
+            if scenario_name and spec.get("memory_customer_selector"):
+                req.metadata["memory_customer"] = customer_key
+                if isinstance(body.get("memory_generation"), str):
+                    req.metadata["memory_generation"] = body["memory_generation"]
         # WS11: the ADK orchestrator MUST be driven fire-then-poll, never with a
         # blocking ask(). A blocking message:send runs the whole
         # SequentialAgent[ParallelAgent→synthesiser] graph inline on Agent Engine
@@ -2933,6 +3570,7 @@ def create_console_app(registry: Registry | None = None):
                 "ok": False,
                 "trace_id": req.trace_id,
                 "error": f"{type(exc).__name__}: {exc}",
+                **({"error_code": code} if (code := _run_error_code(exc)) else {}),
             }
 
     @app.post("/api/run/poll")
@@ -4510,6 +5148,35 @@ and console never present a combined dollar total across tools (WS12/D44).
         results = await asyncio.get_event_loop().run_in_executor(None, run)
         return {"ok": all(r.get("status") != "error" for r in results), "results": results}
 
+    @app.get("/api/memory/backend")
+    async def memory_backend(refresh: bool = False):
+        """The Agentic Memory back end, read live from the org (D115): the
+        AgenticConnector_* streams and their lake objects, the memory DMOs with
+        row counts, and the HYBRID search indexes. Uses the obs client-credentials
+        identity and caches for 10 minutes, since one read is about 20 Data Cloud
+        queries. Honest states, never a 500."""
+
+        def _pull():
+            import os
+
+            import httpx
+
+            from observability.memory_backend import cached_snapshot
+
+            if not os.environ.get("SF_MY_DOMAIN") or not os.environ.get("SF_CLIENT_ID"):
+                return {"error": "SF_MY_DOMAIN / SF_CLIENT_ID not set — obs identity unavailable"}
+            try:
+                return cached_snapshot(refresh=refresh)
+            except httpx.HTTPStatusError as exc:
+                return {
+                    "error": f"Data 360 refused the read — HTTP {exc.response.status_code}: "
+                    f"{(exc.response.text or '')[:200]}"
+                }
+            except Exception as exc:  # noqa: BLE001 - report, don't 500
+                return {"error": f"{type(exc).__name__}: {exc}"[:300]}
+
+        return await asyncio.to_thread(_pull)
+
     @app.get("/api/infra-metrics")
     async def infra_metrics(hours: int | None = None):
         """The Track B cross-cloud infrastructure grid (Infrastructure Metrics).
@@ -4653,7 +5320,7 @@ and console never present a combined dollar total across tools (WS12/D44).
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     # ---- Cost sentinel (WS12): weekly build-cost brief --------------------
-    # Same shape as the obs analyst above — a paused weekly deployment reading
+    # Same shape as the obs analyst above — a daily scheduled deployment (shipped paused, resumed 2026-07-30, D44) reading
     # the store through the obs MCP server — and deliberately so. What differs
     # is the read: briefs share lab.obs_briefs and are separated by `kind`.
 
@@ -4681,7 +5348,7 @@ and console never present a combined dollar total across tools (WS12/D44).
 
     @app.get("/api/cost-brief")
     async def cost_brief():
-        """The newest weekly cost brief, plus enough state to render the panel
+        """The newest daily cost brief, plus enough state to render the panel
         before one exists. An un-provisioned sentinel is a normal state, not an
         error — the answer is the setup command."""
         state = _cost_sentinel_state()
@@ -4848,6 +5515,11 @@ and console never present a combined dollar total across tools (WS12/D44).
             # itself carries no data, so exempting it discloses nothing "/" does
             # not. All /api/guide calls it makes stay behind the JWT.
             "/guide",
+            # D98: the legacy Skyline preview alias is another rendering of
+            # the same data-free SPA shell. Browser navigation cannot attach
+            # the persona JWT stored by the shell, so it must load publicly;
+            # every API and live-data request remains behind the JWT.
+            "/design/axs",
             # WS13: the ALB health check has no credentials and never will —
             # a gated health path marks every task unhealthy and the service
             # never stabilises. It answers {"status":"healthy"} and nothing
@@ -4871,6 +5543,7 @@ and console never present a combined dollar total across tools (WS12/D44).
             "/api/scenarios",
             "/api/targets",
             "/api/decisions",
+            "/api/workstreams",
         ),
         # /static/: repo assets the public shell renders — component
         # screenshots and the vendored mermaid bundle. Not a policy softening

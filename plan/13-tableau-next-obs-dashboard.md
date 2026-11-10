@@ -523,3 +523,32 @@ adding relationships, not rewrites:
 
 Each is a new stream + DLO + DMO via the §1e calls; the semantic model gains
 relationships, which is the point of keeping the starter DMO clean and 1:1.
+
+---
+
+## 8. Digital Wallet sibling dashboard (D111 / WS30)
+
+Digital Wallet consumption does **not** join the Agent Interop Traffic semantic model directly.
+Its source is Salesforce-owned `TenantEnrichedUsageEvent`, its delivery is approximately daily,
+and its grain is a billing usage event rather than a lab wire hop. It therefore gets a second
+Tableau Next dashboard, **Agent & Data 360 Consumption**, surfaced beside this dashboard under
+Observability rather than mixed into it.
+
+The console scaffold is complete. It reuses this dashboard's owner-only JWT-bearer/frontdoor
+session and Embedding SDK; setting `TABLEAU_CONSUMPTION_DASHBOARD_API_NAME` selects the second
+asset, and optional `TABLEAU_CONSUMPTION_APP_TAB` enables its in-org link. Until configured, the
+tab says it is awaiting billable usage and never presents absence as measured zero.
+
+Build the consumption semantic model after the first wallet delivery, using these views:
+
+1. credits and units by usage type, card, and day;
+2. Agentforce root `BotDefinition` and `GenAiFunctionDefinition` action;
+3. Data 360 reportable resource type and API name;
+4. D110's six custom dimensions;
+5. an explicit unattributed Data 360 bucket; and
+6. `CorrelationIdentifier__c` for Data Query → Agentforce trace/session attribution.
+
+Agentic Memory remains a special interpretation rule: during Limited GA, ingestion, retrieval,
+and GetContext are free, while LLM memory generation is expected to consume Flex Credits only
+when usage-based pricing takes effect. The dashboard must keep execution evidence and billed zero
+as separate claims.

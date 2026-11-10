@@ -18,7 +18,7 @@ import asyncio
 import os
 import time
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -43,6 +43,9 @@ class AgentforceClient(RemoteAgentClient):
         api_base: str = API_BASE,
         timeout: float = DEFAULT_TIMEOUT,
         source_name: str = "agentforce-client",
+        session_variables: list[dict[str, Any]] | None = None,
+        token_provider: Callable[[], dict[str, Any]] | None = None,
+        bypass_user: bool = True,
     ):
         # The hop label for this client's Agent API calls — the hosted shim
         # passes its own name so the diagram shows the shim as a network
@@ -54,6 +57,16 @@ class AgentforceClient(RemoteAgentClient):
         self.client_id = client_id
         self.client_secret = client_secret
         self.agent_id = agent_id
+        # Agent API session variables ({name, type, value}), sent at session
+        # create: how a caller sets an agent's External variable, e.g. the memory
+        # concierge's memory_owner (plan/18). None sends no `variables` key.
+        self.session_variables = session_variables
+        # An Employee agent runs as the token's user and refuses bypassUser, so
+        # its caller passes a token for that user (a JWT-bearer grant returning
+        # the OAuth token response) and bypass_user=False (D95). None keeps the
+        # client-credentials grant, whose agent runs as its own agent user.
+        self.token_provider = token_provider
+        self.bypass_user = bypass_user
         self.api_base = api_base.rstrip("/")
         self._http = httpx.AsyncClient(timeout=timeout)
         self._token: str | None = None
@@ -96,6 +109,11 @@ class AgentforceClient(RemoteAgentClient):
     async def _get_token(self) -> str:
         if self._token and time.time() < self._token_expiry - 60:
             return self._token
+        if self.token_provider:
+            payload = await asyncio.to_thread(self.token_provider)
+            self._token = payload["access_token"]
+            self._token_expiry = time.time() + min(int(payload.get("expires_in", 1800)), 1800)
+            return self._token
         r = await self._http.post(
             f"{self.my_domain}/services/oauth2/token",
             data={
@@ -123,8 +141,10 @@ class AgentforceClient(RemoteAgentClient):
             "externalSessionKey": str(uuid.uuid4()),
             "instanceConfig": {"endpoint": self.my_domain},
             "streamingCapabilities": {"chunkTypes": ["Text"]},
-            "bypassUser": True,
+            "bypassUser": self.bypass_user,
         }
+        if self.session_variables:
+            body["variables"] = self.session_variables
         with Hop(
             trace_id,
             source=self.source_name,

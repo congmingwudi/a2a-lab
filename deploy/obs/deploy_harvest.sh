@@ -144,6 +144,13 @@ for key in (
     "LANGSMITH_API_KEY",
     "LANGCHAIN_PROJECT",
     "LANGSMITH_ENDPOINT",         # optional; source defaults to the SaaS URL
+    # WS9/WS14: the IAM user that owns the CloudWatch metrics API key. Without it
+    # expiry_report.aws_service_credentials(None) returns [] — no entry, not an
+    # error — so the hosted report never watched the one key the build-telemetry
+    # path depends on. It expired 2026-10-24 (90-day key) with the hosted report
+    # still reading "0 expired", and the cost sentinel went stale on it. The
+    # role already holds iam:ListServiceSpecificCredentials (a2alab-obs-expiry).
+    "A2ALAB_CW_METRICS_USER",
 ):
     if os.environ.get(key):
         env[key] = os.environ[key]

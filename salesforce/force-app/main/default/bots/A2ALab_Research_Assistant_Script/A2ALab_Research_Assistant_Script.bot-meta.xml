@@ -7,7 +7,7 @@
         <name>A2ALab_Research_Assistant_Script</name>
     </botMlDomain>
     <botSource>None</botSource>
-    <botUser>a2alab_research_assistant@00dkb000002u3fs2050886772.ext</botUser>
+    <botUser>{{env:SF_AF_A2A_RUNAS_USER}}</botUser>
     <contextVariables>
         <contextVariableMappings>
             <SObjectType>MessagingEndUser</SObjectType>

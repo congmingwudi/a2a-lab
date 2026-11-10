@@ -1,13 +1,14 @@
-"""The Agentforce-channel seam (D28): every self-hosted backend exposes two
-routes to Agentforce — ``ask_agentforce`` (the GA Agent API, the native
-cell) and ``ask_agentforce_a2a`` (the A2A protocol via the lab's
-AWS-hosted shim) — and the operator picks per-run with the console's
-channel radio, which injects a routing block into the prompt for the entry
-agent to honor. Same conversation, same agents, swap the intermediate
+"""The Agentforce-channel seam (D28): every self-hosted backend exposes three
+routes to Agentforce — ``ask_agentforce`` (the GA Agent API),
+``ask_agentforce_a2a`` (the A2A protocol via the lab's AWS-hosted shim) and
+``ask_agentforce_a2a_native`` (the A2A protocol straight at Agentforce's own
+inbound A2A server, the D106 pilot) — and the operator picks per-run with the
+console's channel radio, which injects a routing block into the prompt for the
+entry agent to honor. Same conversation, same agents, swap the intermediate
 protocol: the lab's thesis as a demo control.
 
-This module is the shared plumbing: the A2A client to the hosted shim and
-the standard routing block the console injects.
+This module is the shared plumbing: the A2A clients to the hosted shim and to
+the native endpoint, and the standard routing block the console injects.
 """
 
 from __future__ import annotations
@@ -30,7 +31,11 @@ _ROUTING_TEMPLATE = (
     + "[/A2A-LAB ROUTING]"
 )
 
-CHANNEL_TOOLS = {"agent-api": "ask_agentforce", "a2a-shim": "ask_agentforce_a2a"}
+CHANNEL_TOOLS = {
+    "agent-api": "ask_agentforce",
+    "a2a-shim": "ask_agentforce_a2a",
+    "a2a-native": "ask_agentforce_a2a_native",
+}
 
 # The reverse-direction sibling: for Agentforce->platform scenarios the
 # operator picks how the twin's Apex reaches the remote agent — through the
@@ -152,6 +157,22 @@ def strip_routing_blocks(message: str) -> str:
 
 
 _shim_client = None
+_native_clients: dict[str, object] = {}
+
+NATIVE_A2A_BASE = "https://api.salesforce.com/einstein/ai-agent/a2a/"
+
+# D25 on the native channel: each calling platform consults its OWN twin, the
+# same pairing the Agent API cell and the shim keep. The pilot's bot id is the
+# Agent API agent id, so the twin env vars are reused as is (unset → the
+# Claude twin, SF_AGENT_ID). Strands is listed here and not in the shim's map
+# (platforms/agentforce/proxy.py) because the shim predates the Strands twin.
+NATIVE_TWIN_ENV = {
+    "claude": "SF_AGENT_ID",
+    "openai": "SF_OPENAI_AGENT_ID",
+    "adk": "SF_ADK_AGENT_ID",
+    "strands": "SF_STRANDS_AGENT_ID",
+    "foundry": "SF_FOUNDRY_AGENT_ID",
+}
 
 
 def routing_block(channel: str) -> str:
@@ -201,3 +222,101 @@ async def ask_via_shim(
     except Exception:  # noqa: BLE001 - one retry, then the caller surfaces it
         resp = await _shim_client.ask(req)
     return resp.text
+
+
+def native_twin_id(platform: str) -> str | None:
+    env = NATIVE_TWIN_ENV.get(platform)
+    return (os.environ.get(env, "") if env else "") or os.environ.get("SF_AGENT_ID") or None
+
+
+async def ask_native(
+    message: str,
+    metadata: dict | None = None,
+    trace_id: str | None = None,
+    *,
+    platform: str,
+) -> str:
+    """Ask the platform's Agentforce twin over A2A at Agentforce's OWN inbound
+    server (the D106 pilot, WS29) — no lab shim in the path. Auth is a
+    client-credentials OrgJWT from the a2a_lab_af_a2a ECA; one token reaches
+    every twin. The pilot answers a short turn with a Message and a longer one
+    with a Task, which A2AClient.ask() polls. Raises RuntimeError on missing
+    settings so tool callers surface a model-visible failure string."""
+    twin_id = native_twin_id(platform)
+    missing = [
+        k
+        for k in ("SF_MY_DOMAIN", "SF_AF_A2A_CLIENT_ID", "SF_AF_A2A_CLIENT_SECRET")
+        if not os.environ.get(k)
+    ]
+    if not twin_id:
+        missing.append(NATIVE_TWIN_ENV.get(platform, "SF_AGENT_ID"))
+    if missing:
+        raise RuntimeError(
+            "native Agentforce A2A is not configured here — unset: " + ", ".join(missing)
+        )
+    client = _native_clients.get(twin_id)
+    if client is None:
+        from interop.clients.a2a import A2AClient
+
+        client = A2AClient(
+            NATIVE_A2A_BASE + twin_id,
+            auth={
+                "scheme": "salesforce-cc",
+                "my_domain": os.environ["SF_MY_DOMAIN"],
+                "client_id": os.environ["SF_AF_A2A_CLIENT_ID"],
+                "client_secret": os.environ["SF_AF_A2A_CLIENT_SECRET"],
+            },
+            target_name="agentforce-a2a-native",
+            card_path="/v1/card",
+            protocol_version="1.0",
+            # Inside the caller's own tool budget (the shim channel's is 34 s):
+            # the pilot holds a Task for up to 120 s, but the entry agent's
+            # turn cannot wait that long.
+            timeout=float(os.environ.get("AF_A2A_NATIVE_TIMEOUT_S", "60")),
+        )
+        _native_clients[twin_id] = client
+    req = AgentRequest(message=message, metadata=metadata or {}, trace_id=trace_id)
+    resp = await client.ask(req)
+    return resp.text
+
+
+async def consult_native(
+    question: str,
+    *,
+    caller: str,
+    platform: str,
+    inbound_depth: int,
+    trace_id: str | None,
+    user_context: dict | None = None,
+    user_token: str | None = None,
+) -> str:
+    """The body every backend's ``ask_agentforce_a2a_native`` tool shares: the
+    D27 depth guard, the delegation rider, the native ask, and a model-visible
+    failure string instead of an exception (a tool error must not end the
+    entry agent's turn)."""
+    from interop import delegation
+
+    tool_name = CHANNEL_TOOLS["a2a-native"]
+    if inbound_depth >= delegation.max_depth():
+        return delegation.refusal(tool_name)
+    message, meta = delegation.delegate(
+        question,
+        caller=caller,
+        platform=platform,
+        inbound_depth=inbound_depth,
+        trace_id=trace_id,
+        user_context=user_context,
+        user_token=user_token,
+    )
+    try:
+        return await ask_native(message, meta, trace_id=trace_id, platform=platform)
+    except Exception as exc:  # noqa: BLE001 - model-visible, not fatal
+        return f"Native Agentforce A2A call failed: {type(exc).__name__}: {exc}"
+
+
+NATIVE_TOOL_DESCRIPTION = (
+    "Ask the Salesforce Agentforce agent a question over the A2A protocol, "
+    "directly at Agentforce's own A2A endpoint (no lab shim). Use ONLY when the "
+    "request's [A2A-LAB ROUTING] block selects the a2a-native channel; otherwise "
+    "prefer ask_agentforce."
+)

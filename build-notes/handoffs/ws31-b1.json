@@ -1,0 +1,74 @@
+{
+  "batch": "ws31-b1",
+  "title": "Agent Memory presentation mode",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": "codex",
+  "station": "deploy",
+  "holder": "operator",
+  "round": 2,
+  "verdict": "pass",
+  "adr": "D116",
+  "files": {
+    "plan": "build-notes/codex/ws31-agent-memory-presentation-plan.md",
+    "notes": {
+      "codex": "build-notes/codex/reviews/ws31-b1.md"
+    },
+    "verdicts": {
+      "claude": "build-notes/claude/reviews/ws31-b1.md"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-11-06T06:10:30+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/ws31-agent-memory-presentation-plan.md"
+    },
+    {
+      "ts": "2026-11-06T06:16:14+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws31-b1.md",
+      "round": 0
+    },
+    {
+      "ts": "2026-11-06T14:57:45+00:00",
+      "agent": "operator",
+      "action": "settle",
+      "adr": "D116",
+      "implementer": "codex"
+    },
+    {
+      "ts": "2026-11-06T15:16:26+00:00",
+      "agent": "codex",
+      "action": "built",
+      "file": "build-notes/codex/reviews/ws31-b1.md",
+      "commit": "80df5b6"
+    },
+    {
+      "ts": "2026-11-06T15:25:42+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws31-b1.md",
+      "round": 1
+    },
+    {
+      "ts": "2026-11-06T15:36:21+00:00",
+      "agent": "codex",
+      "action": "respond",
+      "commit": "32bf95d",
+      "round": 2
+    },
+    {
+      "ts": "2026-11-06T15:41:26+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "pass",
+      "file": "build-notes/claude/reviews/ws31-b1.md",
+      "round": 2
+    }
+  ]
+}
