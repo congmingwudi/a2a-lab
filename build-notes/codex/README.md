@@ -25,3 +25,5 @@ Same convention as the Claude build notes:
 |---|---|
 | [01-plan-requirements-sweep.md](01-plan-requirements-sweep.md) | A repo-scoped Codex skill that turns the comprehensive plan-to-requirements review into an ad hoc, repeatable sweep, plus the optional path to a scheduled task |
 | [02-agents-md-instruction-scopes.md](02-agents-md-instruction-scopes.md) | Layering a personal Codex handoff default with a repository-specific definition of the next recommended step |
+| [03-project-settings-and-command-permissions.md](03-project-settings-and-command-permissions.md) | Project and user configuration, scoped command rules, MCP tool permissions, and validation using the WeeCycle Salesforce example |
+| [04-installing-and-loading-skills.md](04-installing-and-loading-skills.md) | Installing skills from a supplied source for Codex and Claude: scope, shared files, updates, new sessions, and discovery verification |
