@@ -110,7 +110,11 @@ def test_graph_hangs_pos_under_the_source_individual(monkeypatch):
     node = find(ind, pos.DMO)
     assert node["path"] == [{"fieldName": "contact_id__c", "parentFieldName": "ssot__Id__c"}]
     projected = {f["sourceFieldName"] for f in node["fields"]}
-    assert projected == {f"{n}__c" for n, _ in pos.FIELDS} | {"KQ_order_id__c", "KQ_contact_id__c"}
+    # Every order field the agent reads is projected; `unified_individual_id` is not —
+    # it only served the unified-root join variant, and this node joins on contact_id.
+    want = {f"{n}__c" for n, _ in pos.FIELDS if n != "unified_individual_id"}
+    assert projected == want | {"KQ_order_id__c", "KQ_contact_id__c"}
+    assert g["type"] == "REALTIME" and g["isRealTimeToggleEnabled"] is True
     join = next(f for f in node["fields"] if f["sourceFieldName"] == "contact_id__c")
     assert join["keyQualifierName"] == "KQ_contact_id__c"
     assert {r["valueType"] for r in node["recencyCriteria"]} == {"time", "record"}

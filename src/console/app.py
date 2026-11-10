@@ -127,8 +127,7 @@ def load_workstreams(path: str | Path = WORKSTREAMS_PATH) -> dict[str, dict]:
             return
         workstreams[current["id"]] = {
             **current,
-            "markdown": f"### {current['id']} — {current['title']}\n\n"
-            + "\n".join(body).strip(),
+            "markdown": f"### {current['id']} — {current['title']}\n\n" + "\n".join(body).strip(),
         }
 
     for line in p.read_text(encoding="utf-8").splitlines():
@@ -178,6 +177,18 @@ def load_memory_customers(path: str | Path = MEMORY_CUSTOMERS_PATH) -> dict[str,
         for key, item in customers.items()
         if isinstance(key, str) and isinstance(item, dict)
     }
+
+
+def load_pos_catalog(path: str | Path = MEMORY_CUSTOMERS_PATH) -> list[dict]:
+    """The fixed in-store catalog the customer-memory exhibit can ring up (WS32)."""
+    p = Path(path)
+    raw = (yaml.safe_load(p.read_text()) or {}) if p.exists() else {}
+    return [
+        {"sku": str(i["sku"]), "name": str(i["name"]), "category": str(i.get("category") or ""),
+         "amount": float(i["amount"])}
+        for i in raw.get("pos_catalog") or []
+        if isinstance(i, dict) and i.get("sku") and i.get("name") and "amount" in i
+    ]  # fmt: skip
 
 
 def load_agents(path: str | Path = AGENTS_PATH) -> dict[str, list[dict]]:
@@ -1623,7 +1634,9 @@ def create_console_app(registry: Registry | None = None):
             out.append(a)
             if a.get("target") in ("agentforce-a2a", "agentforce-a2a-shim"):
                 a["title"] = "Agentforce agent — shim-hosted card (lab-built, D28)"
-                a["caption"] = SHIM_CARD_NOTE + " Used by the a2a-shim channel; honest status via-shim."
+                a["caption"] = (
+                    SHIM_CARD_NOTE + " Used by the a2a-shim channel; honest status via-shim."
+                )
                 out.append(
                     {
                         "title": "Agentforce agent — native card (Salesforce-hosted, pilot D106)",
@@ -2127,6 +2140,50 @@ def create_console_app(registry: Registry | None = None):
             raise HTTPException(status_code=502, detail=f"memory listing failed: {exc}") from None
         return _safe_memory_snapshot(customer_key, trace_id, listings)
 
+    @app.post("/api/memory/customer/{customer_key}/purchase")
+    async def ring_up_customer_purchase(customer_key: str, request: Request):
+        """WS32: one in-store order for a demo customer → the Data 360 Ingestion API.
+
+        The row keys on the customer's CRM Contact id — the D117 memory owner and the
+        identity link's SourceRecordId — so the real-time graph attached to the shared
+        memory registration serves it in GetContext seconds later, with no identity
+        resolution run. The SKU must come from the configured catalog; the Contact id
+        never leaves the server."""
+        from interop import pos
+
+        if not _is_operator(request):
+            raise HTTPException(
+                status_code=403, detail="ringing up a purchase requires a named operator"
+            )
+        owner = customer_memory_owner(customer_key)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        sku = str((payload or {}).get("sku") or "") if isinstance(payload, dict) else ""
+        item = next((i for i in load_pos_catalog() if i["sku"] == sku), None)
+        if item is None:
+            raise HTTPException(status_code=400, detail="unknown catalog item")
+        trace_id = new_trace_id()
+        row = pos.new_order(owner, product_sku=item["sku"], product_name=item["name"],
+                            category=item["category"], quantity=1, amount=item["amount"])  # fmt: skip
+        client = pos.PosClient(source="console")
+        try:
+            ack = await client.send(trace_id, [row])
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502, detail={"message": f"ingest failed: {exc}", "trace_id": trace_id}
+            ) from None
+        finally:
+            await client.aclose()
+        return {
+            "customer": customer_key, "trace_id": trace_id, "order_id": row["order_id"],
+            "order_ts": row["order_ts"], "product_sku": item["sku"],
+            "product_name": item["name"], "category": item["category"],
+            "amount": item["amount"], "currency_code": row["currency_code"],
+            "store_name": row["store_name"], "accepted_s": ack["accepted_s"],
+        }  # fmt: skip
+
     @app.post("/api/memory/customer/{customer_key}")
     async def manage_customer_memory(customer_key: str, request: Request):
         from interop.memory import (
@@ -2169,7 +2226,8 @@ def create_console_app(registry: Registry | None = None):
         }
         requested = {
             (str(item.get("category") or ""), str(item.get("memory_id") or ""))
-            for item in body.get("memories", []) if isinstance(item, dict)
+            for item in body.get("memories", [])
+            if isinstance(item, dict)
         }
         if action == "delete" and (not requested or not requested <= allowed):
             raise HTTPException(status_code=400, detail="selection is empty or no longer governed")
@@ -2180,13 +2238,17 @@ def create_console_app(registry: Registry | None = None):
         marker: str | None = None
         created = None
         try:
+
             async def delete_ids(category: str, ids: list[str]) -> None:
                 if not ids:
                     return
                 try:
                     await mem.delete_memories(
-                        trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
-                        category=category, memory_ids=ids
+                        trace_id,
+                        agent_id=CASE_MEMORY_AGENT,
+                        owner_id=owner,
+                        category=category,
+                        memory_ids=ids,
                     )
                 except MemoryCallError as exc:
                     if exc.status != 404:
@@ -2199,8 +2261,11 @@ def create_console_app(registry: Registry | None = None):
                     ]
                     if remaining:
                         await mem.delete_memories(
-                            trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
-                            category=category, memory_ids=remaining
+                            trace_id,
+                            agent_id=CASE_MEMORY_AGENT,
+                            owner_id=owner,
+                            category=category,
+                            memory_ids=remaining,
                         )
                     ids = remaining
                 steps.append({"step": "delete", "category": category, "ids": ids, "ok": True})
@@ -2209,8 +2274,11 @@ def create_console_app(registry: Registry | None = None):
                 marker = new_generation_marker()
                 try:
                     created = await mem.create_memories(
-                        trace_id, agent_id=CASE_MEMORY_AGENT, owner_id=owner,
-                        category=GENERATION_CATEGORY, contents=[marker]
+                        trace_id,
+                        agent_id=CASE_MEMORY_AGENT,
+                        owner_id=owner,
+                        category=GENERATION_CATEGORY,
+                        contents=[marker],
                     )
                     steps.append({"step": "create_generation", "ok": True})
                 except MemoryCallError as exc:
@@ -2223,7 +2291,8 @@ def create_console_app(registry: Registry | None = None):
                         for entry in listings[GENERATION_CATEGORY].entries
                         if is_generation_entry(entry)
                     ]
-                    if created is not None else []
+                    if created is not None
+                    else []
                 )
             else:
                 old_marker_ids = []
@@ -2253,16 +2322,18 @@ def create_console_app(registry: Registry | None = None):
         result["action"] = action
         result["steps"] = steps
         result["errors"] = errors
-        remaining_ids = {
-            (item["category"], item["memory_id"]) for item in result["memories"]
-        }
-        result["ok"] = not errors and result["complete"] and (
-            (action == "delete" and not (requested & remaining_ids))
-            or (
-                action == "fresh"
-                and created is not None
-                and result["generation"] == marker
-                and not result["generation_invalid"]
+        remaining_ids = {(item["category"], item["memory_id"]) for item in result["memories"]}
+        result["ok"] = (
+            not errors
+            and result["complete"]
+            and (
+                (action == "delete" and not (requested & remaining_ids))
+                or (
+                    action == "fresh"
+                    and created is not None
+                    and result["generation"] == marker
+                    and not result["generation_invalid"]
+                )
             )
         )
         return result
@@ -2713,12 +2784,7 @@ def create_console_app(registry: Registry | None = None):
                 "frontdoor_endpoint": "/api/tableau/frontdoor",
             }
         consumption_embed = None
-        if (
-            owner
-            and ld
-            and TABLEAU_CONSUMPTION_DASHBOARD_API_NAME
-            and _tableau_embed_configured()
-        ):
+        if owner and ld and TABLEAU_CONSUMPTION_DASHBOARD_API_NAME and _tableau_embed_configured():
             consumption_embed = {
                 "sdk_url": TABLEAU_SDK_URL,
                 "org_url": ld,
@@ -2741,9 +2807,7 @@ def create_console_app(registry: Registry | None = None):
                 "app_url_owner_only": bool(tableau_consumption_app_url),
                 "embed": consumption_embed,
                 "embed_owner_only": bool(
-                    TABLEAU_CONSUMPTION_DASHBOARD_API_NAME
-                    and ld
-                    and _tableau_embed_configured()
+                    TABLEAU_CONSUMPTION_DASHBOARD_API_NAME and ld and _tableau_embed_configured()
                 ),
                 "shot": (
                     "/static/components/tableau-next-consumption.png"
@@ -2769,6 +2833,7 @@ def create_console_app(registry: Registry | None = None):
             # so another Data 360 environment cannot be mistaken for this one.
             "memory_data_space": data_space(),
             "memory_customers": load_memory_customers(),
+            "pos_catalog": load_pos_catalog(),
             "remapped": {
                 name: reg.resolve_name(name)
                 for name in reg.targets

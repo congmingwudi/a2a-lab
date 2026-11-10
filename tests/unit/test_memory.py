@@ -83,17 +83,29 @@ class FakeTenant:
                 return httpx.Response(500, json={"error": "Failed to load agent configuration"})
             if request.method == "POST":
                 values = json.loads(request.content)["memories"]
-                return httpx.Response(200, json={"statusCode": "created", "memories": [
-                    {"memoryId": f"m-{i}", "content": item["content"]}
-                    for i, item in enumerate(values)
-                ]})
+                return httpx.Response(
+                    200,
+                    json={
+                        "statusCode": "created",
+                        "memories": [
+                            {"memoryId": f"m-{i}", "content": item["content"]}
+                            for i, item in enumerate(values)
+                        ],
+                    },
+                )
             if request.method == "DELETE":
                 values = json.loads(request.content)["memories"]
                 return httpx.Response(200, json={"statusCode": "deleted", "memories": values})
             contents = self.memories.get(key, [])
-            return httpx.Response(200, json={"memories": [
-                {"memoryId": f"m-{i}", "content": c} for i, c in enumerate(contents)
-            ], "totalCount": self.memory_total_counts.get(key, len(contents))})
+            return httpx.Response(
+                200,
+                json={
+                    "memories": [
+                        {"memoryId": f"m-{i}", "content": c} for i, c in enumerate(contents)
+                    ],
+                    "totalCount": self.memory_total_counts.get(key, len(contents)),
+                },
+            )
         if path.endswith("/entries") and self.html_403_entries:
             self.html_403_entries -= 1
             return httpx.Response(403, text="<html><h1>403 Forbidden</h1></html>")
@@ -168,9 +180,7 @@ async def test_explicit_case_conversation_threads_every_runtime_call():
     mem = fake.client()
     cid = case_conversation("persona-ana", "supplier-disruption", "case-7")
     sid = await mem.start_conversation("t1", conversation_id=cid, **IDS)
-    await mem.ingest(
-        "t1", session_id=sid, conversation_id=cid, agent_response="candidate", **IDS
-    )
+    await mem.ingest("t1", session_id=sid, conversation_id=cid, agent_response="candidate", **IDS)
     await mem.get_context("t1", conversation_id=cid, **IDS)
     await mem.close_session("t1", session_id=sid, conversation_id=cid, **IDS)
     tenant = [r for r in fake.calls if r.url.host == "tenant.example"]
@@ -252,10 +262,13 @@ def test_redact_keeps_ordinary_facts():
 
 def test_generation_control_fact_is_validated_and_never_rendered_to_the_model():
     marker = new_generation_marker()
-    listing = MemoryListing((
-        memory_mod.MemoryEntry("fact", "Keeps bees."),
-        memory_mod.MemoryEntry("control", marker),
-    ), 2)
+    listing = MemoryListing(
+        (
+            memory_mod.MemoryEntry("fact", "Keeps bees."),
+            memory_mod.MemoryEntry("control", marker),
+        ),
+        2,
+    )
     assert GENERATION_CATEGORY == "sys_PROFILE_FACT"
     assert select_generation(listing) == (marker, False)
     assert marker not in render_context({"userContext": f"Keeps bees. {marker}"})
@@ -346,12 +359,8 @@ async def test_close_session_closes_the_chats_session_in_the_owners_conversation
 
 async def test_a_second_write_to_the_same_closed_session_is_still_accepted():
     fake = FakeTenant()
-    first = await write_turn(
-        fake.client(), "t1", session_id="c-1", user_message="first", **IDS
-    )
-    second = await write_turn(
-        fake.client(), "t2", session_id="c-1", user_message="second", **IDS
-    )
+    first = await write_turn(fake.client(), "t1", session_id="c-1", user_message="first", **IDS)
+    second = await write_turn(fake.client(), "t2", session_id="c-1", user_message="second", **IDS)
     assert first == second == ([], False)
     tenant_paths = [r.url.path for r in fake.calls if r.url.host == "tenant.example"]
     assert sum(path.endswith("/entries") for path in tenant_paths) == 2
@@ -364,7 +373,8 @@ async def test_list_memories_reads_one_shared_service_by_owner(isolated_traces):
     got = await fake.client().list_memories("t1", category="sys_PROFILE_FACT", **IDS)
     assert isinstance(got, MemoryListing)
     assert [(entry.memory_id, entry.content) for entry in got.entries] == [
-        ("m-0", "Keeps bees."), ("m-1", "")
+        ("m-0", "Keeps bees."),
+        ("m-1", ""),
     ]
     assert got.total_count == 2 and got.complete is True
     req = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/memory")
@@ -436,9 +446,7 @@ async def test_create_and_delete_memories_use_profile_scope():
 
 async def test_saved_memories_read_shared_service_categories_and_fail_open():
     fake = FakeTenant()
-    fake.memories[("A2ALab_Memory_Concierge", "sys_PROFILE_FACT")] = [
-        "Keeps bees.", "Has a dog."
-    ]
+    fake.memories[("A2ALab_Memory_Concierge", "sys_PROFILE_FACT")] = ["Keeps bees.", "Has a dog."]
     fake.memories[("A2ALab_Memory_Concierge", "sys_PROFILE_PREFERENCES")] = [
         "Answers in Portuguese."
     ]
@@ -569,9 +577,7 @@ def test_memory_turn_first_turn_starts_reads_then_ingests(bridge):
 
 def test_memory_turn_context_carries_saved_memories(bridge):
     client, fake = bridge
-    fake.saved[(IDS["agent_id"], "sys_PROFILE_FACT")] = [
-        "Training for Porto."
-    ]
+    fake.saved[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["Training for Porto."]
     data = client.post(
         "/memory/turn", json={**IDS, "conversation_id": "c-1", "user_message": "hi"}
     ).json()
@@ -641,7 +647,9 @@ def test_graph_record_is_told_apart_from_curated_profile_facts():
         {"entry": "SYS_PROFILE_FACT[1]{CREATED,VALUE}\n  2026-11-03Z,Fact", "sourceType": "Profile"}
     )
     assert not memory_mod.is_graph_record({"entry": GRAPH_ENTRY, "sourceType": "Conversation"})
-    assert not memory_mod.is_graph_record({"entry": "Prefers aisle seats.", "sourceType": "Profile"})
+    assert not memory_mod.is_graph_record(
+        {"entry": "Prefers aisle seats.", "sourceType": "Profile"}
+    )
 
 
 def test_graph_record_survives_the_generation_quarantine_and_renders_first():
@@ -675,3 +683,40 @@ def test_graph_record_has_its_own_budget():
 
     assert GRAPH_ENTRY.splitlines()[-1] in rendered  # the graph is whole
     assert len(rendered) <= 100 + 1000 + 1
+
+
+POS_ROW = (
+    "          SKU-LAMP-05,Denver,58.000000000000000000,in-store,Camping,003000000000001AAA,"
+    "A2A Lab Flagship,USD,2.000000000000000000,2026-11-07T20:04:25.000Z,pos-{n:012x},Camp lantern"
+)
+POS_ENTRY = GRAPH_ENTRY.replace(
+    "        TitleName: VP, Supply Chain\n",
+    "        TitleName: VP, Supply Chain\n"
+    "        A2ALab_POS_Order[10]{product_sku,store_city,amount,channel,category,contact_id,"
+    "store_name,currency_code,quantity,order_ts,order_id,product_name}:\n"
+    + "\n".join(POS_ROW.format(n=n) for n in range(10))
+    + "\n        ContactPointEmail[1]{Id,PartyId,EmailAddress}:\n"
+    "          003000000000001AAA,003000000000001AAA,maya.chen@a2alab.example.invalid\n",
+)
+
+
+def test_pos_bearing_graph_record_renders_whole_with_compact_decimals():
+    """WS32: the 10-order POS window plus the profile fits the default graph budget,
+    and the platform's 18-digit decimal padding never reaches the prompt."""
+    rendered = render_context({"userContext": [{"entry": POS_ENTRY, "sourceType": "Profile"}]})
+
+    assert "pos-000000000000" in rendered and "pos-000000000009" in rendered
+    assert "maya.chen@a2alab.example.invalid" in rendered  # tail of the record kept
+    assert rendered.rstrip().endswith("Id: 0123456789abcdef0123456789abcdef")
+    assert ",58,in-store," in rendered and ",USD,2,2026-11-07" in rendered
+    assert "000000000000000" not in rendered.replace("pos-0000000000", "")
+
+
+@pytest.mark.parametrize(
+    ("raw", "want"),
+    [("a,58.000000000000000000,b", "a,58,b"), ("x: 1.500000000000000000\n", "x: 1.5\n"),
+     ("t,2026-11-07T20:04:25.000Z,u", "t,2026-11-07T20:04:25.000Z,u"), ("v,10.25", "v,10.25"),
+     ("id,pos-000000000000,w", "id,pos-000000000000,w")],
+)  # fmt: skip
+def test_compact_graph_entry_trims_only_padded_decimals(raw, want):
+    assert memory_mod.compact_graph_entry(raw) == want

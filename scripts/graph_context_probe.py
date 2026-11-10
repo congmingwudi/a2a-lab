@@ -55,6 +55,8 @@ ARMS = {
     "E": "A2ALab_Memory_Case_Graph_Ind",
     "F": "A2ALab_Memory_Case_Graph_Plat",
     "G": "A2ALab_Memory_Case_Graph_RT",
+    # WS32: Customer360 + POS orders (A2ALab_Test_C360Copy).
+    "P": "A2ALab_Memory_Case_POS",
 }
 OUT = ROOT / "traces" / "graph-probe"
 

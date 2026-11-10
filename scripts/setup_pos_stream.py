@@ -10,8 +10,17 @@ operator's Data 360 retail demo; see plan/07 WS32):
   map     the stream's DLO → A2ALab_POS_Order__dlm
   rel     FieldSrcTrgtRelationship A2ALab_POS_Order.contact_id → ssot__Individual.ssot__Id
           (Metadata API — the REST relationship route is unreliable)
-  graph   REALTIME graph A2ALab_Memory_CustomerPOS = config/agentic_memory_customer_graph.json
-          (Customer360) + a POS node under the source Individual; then actions/refresh
+  graph   REALTIME graph A2ALab_Memory_CustPOS = config/agentic_memory_customer_pos_graph.json
+          (the Customer360 shape + a POS node under the source Individual). No refresh: the
+          create runs its own initial build. KNOWN BROKEN (2026-11-10): three creates from
+          this body (A2ALab_Memory_CustomerPOS twice, A2ALab_Memory_CustPOS once) reached
+          "ready" without a day-zero mapping and went ERROR at ~5 min with no message, while
+          copy_graph_lab.py copies of an existing graph built. Name length is NOT the cause
+          (21 characters failed too). The live registration carries A2ALab_Test_C360Copy
+          until a create from this file succeeds (D118, WS32 item 6).
+
+Graphs created 2026-11-07 got no real-time layer until 2026-11-10 (a platform-side fix);
+since then an order reaches GetContext ~2 s after ingest (plan/03-results.md, WS32).
 
 The order rows key on `contact_id` = the CRM Contact id, which is the memory owner (D117)
 and the AM01 identity link's SourceRecordId, so no identity-resolution run is needed for a
@@ -24,7 +33,6 @@ row to reach the customer's graph. Nothing mutates without --apply.
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import subprocess
 import sys
@@ -40,7 +48,7 @@ import interop.pos as pos  # noqa: E402
 V = "v66.0"  # REALTIME graphs must be POSTed at v66 (older versions reject the RT toggle)
 BASE = f"/services/data/{V}/ssot"
 INDIVIDUAL = "ssot__Individual__dlm"
-BASE_GRAPH = Path("config/agentic_memory_customer_graph.json")
+POS_GRAPH = Path("config/agentic_memory_customer_pos_graph.json")
 REL_DEV = "A2ALab_POS_Order_contact_id"
 
 
@@ -245,60 +253,17 @@ def phase_rel(apply: bool) -> None:
         log(f"[rel] deploy failed: {[f.get('problem') for f in fails] or p.stderr[:300]}")
 
 
-def _f(name: str, *, key: bool = False, kq: str | None = None, usage: str = "NONE") -> dict:
-    f = {"sourceFieldName": name, "isKeyColumn": key, "isProjected": True, "usageTag": usage}
-    if kq:
-        f["keyQualifierName"] = kq
-    return f
-
-
-def pos_node() -> dict:
-    """The POS node, nested under the source Individual (rows key on its Contact id)."""
-    names = [n for n, _ in pos.FIELDS if n not in ("order_id", "contact_id")]
-    return {
-        "name": pos.DMO,
-        "label": "A2A Lab POS Order",
-        # No `type`: the operator's working custom-DMO node (sf-builder-pandora) omits it.
-        "path": [{"fieldName": "contact_id__c", "parentFieldName": "ssot__Id__c"}],
-        # Both the key AND the join field carry their key qualifier, as the base graph's
-        # ContactPointEmail join (ssot__PartyId__c/KQ_PartyId__c) does; the relationship
-        # deploy adds KQ_contact_id__c to the DMO. The qualifier was NOT why the first
-        # three builds hit status=error (2026-11-06): an unmodified copy of Customer360
-        # errored the same way. OPEN: since 2026-11-06 every NEW real-time graph that
-        # contains the source Individual node errors after ~4.5 min with no message,
-        # whether built over REST or in the UI, with or without this node, with a free
-        # slot. Root-only and root+link graphs build ACTIVE. Cause unknown.
-        "fields": [_f("order_id__c", key=True, kq="KQ_order_id__c"),
-                   _f("KQ_order_id__c", usage="KEY_QUALIFIER"),
-                   _f("contact_id__c", kq="KQ_contact_id__c"),
-                   _f("KQ_contact_id__c", usage="KEY_QUALIFIER")]
-        + [_f(f"{n}__c") for n in names],
-        # An Engagement-sourced node needs recency; time + record is the shape that
-        # POSTs, and RT graphs cap the time window at 30 days.
-        "recencyCriteria": [
-            {"fieldName": f"{pos.EVENT_TIME}__c", "value": 30, "valueType": "time",
-             "valueUnit": "DAY"},
-            {"fieldName": f"{pos.EVENT_TIME}__c", "value": 100, "valueType": "record",
-             "valueUnit": "RECORD"},
-        ],
-        "relatedObjects": [],
-    }  # fmt: skip
-
-
 def build_graph() -> dict:
-    """Customer360 (tracked) + the POS node under its Individual, renamed."""
-    g = copy.deepcopy(json.loads(BASE_GRAPH.read_text()))
-    g["name"], g["label"] = pos.GRAPH, "A2A Lab Memory Customer + POS"
-    g["description"] = "Customer360 plus in-store POS orders for Agentic Memory (WS32)."
+    """The tracked graph definition (POS_GRAPH): Customer360 + POS under the source Individual.
 
-    def attach(node: dict) -> bool:
-        if node.get("name") == INDIVIDUAL:
-            node.setdefault("relatedObjects", []).append(pos_node())
-            return True
-        return any(attach(child) for child in node.get("relatedObjects") or [])
-
-    if not attach(g["sourceObject"]):
-        sys.exit(f"{BASE_GRAPH} has no {INDIVIDUAL} node to hang the POS orders on")
+    It is a GET of a graph that built ACTIVE with its POS node made in the Data Graph
+    builder UI (`A2ALab_Test_C360Copy`, 2026-11-07), renamed, not a generated node: every
+    graph built from the earlier generated POS node errored a few minutes after the POST
+    with no message, while the UI-shaped node built READY (plan/03-results.md, WS32).
+    """
+    g = json.loads(POS_GRAPH.read_text())
+    if g.get("name") != pos.GRAPH:
+        sys.exit(f"{POS_GRAPH} names {g.get('name')!r}, expected {pos.GRAPH!r}")
     return g
 
 
@@ -313,13 +278,13 @@ def phase_graph(apply: bool) -> None:
         return
     g = build_graph()
     if not apply:
-        log(f"[graph] would POST {pos.GRAPH}:\n{json.dumps(pos_node(), indent=1)}")
+        log(f"[graph] would POST {pos.GRAPH} from {POS_GRAPH} ({len(json.dumps(g))} bytes)")
         return
     st, d = api("POST", "/data-graphs?dataspace=default", g)
     log(f"[graph] POST -> {st}: {json.dumps(d)[:400]}")
-    if st == 200:
-        st, d = api("POST", f"/data-graphs/{pos.GRAPH}/actions/refresh?dataspace=default", {})
-        log(f"[graph] refresh -> {st}: {json.dumps(d)[:200]}")
+    # No refresh here. The create runs its own initial build, which writes the
+    # day-zero mapping + transform; the 2026-11-10 create that refreshed straight after
+    # the POST ended with neither and went ERROR at ~5 min (plan/03-results.md).
 
 
 PHASES = {"dmo": phase_dmo, "ingest": phase_ingest, "map": phase_map, "rel": phase_rel,

@@ -5333,3 +5333,52 @@ when identity resolution re-ran (plan/03-results.md, D115).
   in-store POS orders join the same graph, so every agent sees them on its next turn.
 - The shape-based classifier is a heuristic over an undocumented payload. A new graph whose root
   is not the unified individual needs its own test fixture before it is trusted.
+
+## 2026-11-10 — D118: in-store purchases reach Agent Memory through a POS-bearing real-time graph on the live registration, rung up from the console
+
+**Context.** D117 made GetContext serve the live `A2ALab_Memory_Case` registration's real-time
+Customer360 graph for the customer's Contact id. The engagement half of that demo was blocked on
+the platform: graphs created 2026-11-07 got no real-time layer, so an Ingestion API order showed
+up only on the 30-minute batch refresh. Re-tested 2026-11-10, the layer now serves them, and a
+test registration over a POS-bearing graph returned a new order in GetContext, and in the faces'
+rendered prompt, 1.8–2.0 s after ingest (plan/03-results.md). Showing that live needed three
+things the lab did not have: the graph on the live registration, room in the prompt for the
+orders, and a way to ring up a purchase during a demo.
+
+**Decision.**
+
+1. `A2ALab_Memory_Case` carries a POS-bearing real-time graph in place of
+   `A2ALab_Memory_Customer360`. It is applied by `setup_agentic_memory.py configure case-memory`,
+   the same full-configuration v67 PATCH as D117, which keeps memories. The graph is
+   `A2ALab_Test_C360Copy`, the 2026-11-07 copy the latency was measured on. The tracked
+   definition (`config/agentic_memory_customer_pos_graph.json`, built by `setup_pos_stream.py`)
+   failed to build three times on 2026-11-10 (plan/03-results.md). Re-attaching a properly named
+   graph is a one-line change to the `case-memory` arm, once a create succeeds (WS32 item 6).
+2. The graph record's prompt budget rises from 2000 to 4000 characters, and padded decimals are
+   compacted before rendering. Ten orders and the profile together render as ~2.2–2.9K, so the
+   newest order is never cut.
+3. The customer-memory experiments get an operator-only **In-store purchase** row. It calls
+   `POST /api/memory/customer/{key}/purchase`, which accepts only a SKU from
+   `config/memory_customers.yaml` `pos_catalog`. The server resolves the customer's Contact id
+   from `A2ALAB_MEMORY_CUSTOMER_MAP`, as the faces do (D104/D117), and the id never reaches the
+   browser. "Ask what was just bought" loads a recall prompt into the composer and never sends it.
+4. The console task ingests as the memory ECA, which carries `cdp_ingest_api`, through
+   `interop.pos`'s fallback. A dedicated POS caller identity (D37) is WS32 item 11.
+
+**Consequences.**
+
+- Any agent that reads `A2ALab_Memory_Case` for a customer sees their latest in-store orders on
+  its next turn. That is Claude and OpenAI today, and an Agentforce agent through the same
+  registration. The order reaches the agent through memory alone; in the hosted proof OpenAI
+  still tried an Agentforce CRM lookup, which cannot see POS orders (plan/03-results.md).
+- The Contact id stays out of the browser on the purchase route, but it is a field of the
+  graph record, and the hosted proof showed a model quoting it in an answer. Trimming it from
+  the rendered record is WS32 item 12.
+- Every purchase is a real, synthetic Data 360 row. It stays in the customer's 10-order, 7-day
+  window, and repeated demos push out older orders. There is no delete path: the Ingestion API
+  is append-only for this stream.
+- The ~2 s figure is a ceiling set by one GetContext round trip. The platform's true latency is
+  lower and unmeasured.
+- The live registration names a `Test_` graph until the tracked definition builds. That is
+  cosmetic, but it is visible in Agent Configuration, so the Details copy names the graph
+  generically ("real-time customer graph").

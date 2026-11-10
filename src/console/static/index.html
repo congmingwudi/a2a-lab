@@ -1945,6 +1945,7 @@ let dispatchModes = {};   // key -> "sync" | "async" (WS11 fire-then-poll radio)
 let memoryModes = {};     // key -> "off" | "on" (WS27/D91 per-run Agentic Memory radio)
 let selectedMemoryCustomer = "maya"; // shared across the teach → recall story
 let memoryManagers = {};   // customer -> {open, loading, memories, generation, selected:Set, error}
+let posPurchases = {};     // customer -> {sku, loading, result, error} (WS32 in-store purchase)
 let fanoutMemoryModes = {};   // key -> "off" | "seed" | "recall" (D102)
 let fanoutMemoryReaders = {}; // key -> "coordinator" | "specialists" | "both"
 let fanoutMemoryCases = {};   // key -> display label; server derives opaque id from JWT owner
@@ -5133,6 +5134,59 @@ function memoryCustomerRowHtml(exp) {
     ${memoryManagerHtml(selectedMemoryCustomer, c)}
   </div>`;
 }
+
+// WS32: ring up an in-store purchase for the selected customer. The order goes to
+// the Data 360 Ingestion API and the real-time customer graph attached to the shared
+// memory registration serves it in GetContext ~2 s later — so the very next turn,
+// on Claude or OpenAI, can see what was just bought. Catalog-only (config).
+const POS_RECALL_PROMPT = "I just bought something in your store. What was it, what did it cost, and when did I buy it?";
+function posPurchaseRowHtml(exp) {
+  if (!exp || !exp.memory_customer_selector) return "";
+  const catalog = (labConfig && labConfig.pos_catalog) || [];
+  if (!catalog.length) return "";
+  const key = selectedMemoryCustomer, c = memoryCustomer() || {};
+  const st = posPurchases[key] || (posPurchases[key] = {sku: catalog[0].sku, loading: false, result: null, error: ""});
+  const viewer = labUser && labUser.role === "viewer";
+  const money = (a, cur) => `${cur === "USD" || !cur ? "$" : cur + " "}${Number(a).toFixed(2)}`;
+  const r = st.result;
+  return `<div class="chan-row" aria-label="In-store purchase">
+    <span class="chan-label">In-store purchase</span>
+    <label>Item <select aria-label="Catalog item" onchange="setPosSku(this.value)" ${st.loading ? "disabled" : ""}>
+      ${catalog.map(i => `<option value="${esc(i.sku)}" ${i.sku === st.sku ? "selected" : ""}>${esc(i.name)} · ${esc(money(i.amount))}</option>`).join("")}
+    </select></label>
+    <button class="ghost" onclick="ringUpPurchase()" ${st.loading || viewer ? "disabled" : ""}
+      title="Posts one order for ${esc(c.name || key)} to the Data 360 Ingestion API (connector A2ALab_POS). The real-time customer graph serves it to Agent Memory in seconds.">${st.loading ? "Ringing up…" : `Ring up for ${esc(c.name || key)}`}</button>
+    ${r ? `<span class="badge agentforce" title="Ingestion API accepted the order (HTTP 202)">${esc(r.order_id)}</span>
+      <span>${esc(r.product_name)} · ${esc(money(r.amount, r.currency_code))} · accepted in ${esc(r.accepted_s)} s</span>
+      <button class="ghost" onclick="usePosRecallPrompt()" title="Load a recall prompt into the composer; send it to Claude or OpenAI">Ask what was just bought</button>
+      <span class="hint">trace ${esc(r.trace_id)}</span>` : ""}
+    ${st.error ? `<span class="error">${esc(st.error)}</span>` : ""}
+    <span class="chan-more">Ingestion API → A2ALab_POS_Order → real-time customer graph → GetContext (D118)</span>
+  </div>`;
+}
+window.setPosSku = sku => { (posPurchases[selectedMemoryCustomer] || {}).sku = sku; };
+window.ringUpPurchase = async () => {
+  const key = selectedMemoryCustomer, st = posPurchases[key];
+  if (!st || st.loading) return;
+  st.loading = true; st.error = ""; renderMain(true);
+  try {
+    const r = await fetch(apiUrl(`/api/memory/customer/${encodeURIComponent(key)}/purchase`), {
+      method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({sku: st.sku}),
+    });
+    const ctype = r.headers.get("content-type") || "";
+    const data = ctype.includes("json") ? await r.json() : {detail: await r.text()};
+    const detail = typeof data.detail === "object" ? data.detail.message : data.detail;
+    if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
+    st.result = data;
+  } catch (e) { st.error = String(e.message || e); }
+  st.loading = false; renderMain(true);
+};
+window.usePosRecallPrompt = () => {
+  if (!view || view.type !== "experiment") return;
+  drafts[expKey(view.kind, view.name)] = POS_RECALL_PROMPT;
+  const input = document.getElementById("chatInput");
+  if (input) { input.value = POS_RECALL_PROMPT; input.focus(); }
+};
 
 function memoryManagerState(key) {
   return memoryManagers[key] || (memoryManagers[key] = {
@@ -11913,6 +11967,7 @@ function renderMain(force) {
           </div>
           ${chatHistoryOpen[key] ? pastChatsHtml(key) : ""}
           ${view.kind === "scenario" && exp ? memoryCustomerRowHtml(exp) : ""}
+          ${view.kind === "scenario" && exp ? posPurchaseRowHtml(exp) : ""}
           ${view.kind === "scenario" && exp ? seedPromptsHtml(exp) : ""}
           ${view.kind === "scenario" && exp && exp.af_channel_toggle ? afChannelRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.af_route_toggle ? afRouteRowHtml(key) : ""}

@@ -68,7 +68,16 @@ scenarios:
       claim—is the effective Maya/Jordan isolation boundary measured by D115. Curated facts and
       preferences are registration × server-resolved customer owner × category; Claude and OpenAI
       remain execution/provenance participants. Cross-registration semantics remain open because
-      the measured result conflicts with current guidance. No custom Case graph is attached.
+      the measured result conflicts with current guidance. The registration also carries the
+      real-time customer data graph (Customer360 plus in-store POS orders), so every turn receives the selected
+      customer's live CRM profile alongside memory, labelled as system of record (D117/D118).
+
+      REAL-TIME PURCHASE. Operators can ring up an in-store order for the selected customer from
+      the catalog row. It is sent to the Data 360 Ingestion API (connector A2ALab_POS) and lands in
+      the customer's real-time graph; GetContext served such an order ~2 s after ingest when
+      measured (plan/03-results.md). "Ask what was just bought" loads a recall prompt: the next
+      turn on either platform can name the order without a CRM call. The order is a synthetic lab
+      row and stays in the customer's 10-order window (D118).
 
       CURATION. Operators can inspect and permanently delete this selected customer's curated
       facts/preferences. Start fresh also advances the demo to a tenant-backed conversation
@@ -141,7 +150,16 @@ scenarios:
       claim—is the effective Maya/Jordan isolation boundary measured by D115. Curated facts and
       preferences are registration × server-resolved customer owner × category; Claude and OpenAI
       remain execution/provenance participants. Cross-registration semantics remain open because
-      the measured result conflicts with current guidance. No custom Case graph is attached.
+      the measured result conflicts with current guidance. The registration also carries the
+      real-time customer data graph (Customer360 plus in-store POS orders), so every turn receives the selected
+      customer's live CRM profile alongside memory, labelled as system of record (D117/D118).
+
+      REAL-TIME PURCHASE. Operators can ring up an in-store order for the selected customer from
+      the catalog row. It is sent to the Data 360 Ingestion API (connector A2ALab_POS) and lands in
+      the customer's real-time graph; GetContext served such an order ~2 s after ingest when
+      measured (plan/03-results.md). "Ask what was just bought" loads a recall prompt: the next
+      turn on either platform can name the order without a CRM call. The order is a synthetic lab
+      row and stays in the customer's 10-order window (D118).
 
       CURATION. The same selected-customer management panel applies here. Permanent semantic-memory
       deletion and Start fresh affect the shared customer scope, while retained historical

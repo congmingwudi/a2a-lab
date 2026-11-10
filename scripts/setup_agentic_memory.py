@@ -115,6 +115,10 @@ AGENTS = {
     # defaulted to UnifiedIndividual__dlm. D117 attaches the AM01 profile DMO and
     # the real-time Customer360 graph with `configure` (a FULL-configuration v67
     # PATCH, which keeps its memories); never delete and recreate it.
+    # D118 swaps that graph for a POS-bearing one so in-store orders reach every
+    # turn in ~2 s. It is the 2026-11-07 copy A2ALab_Test_C360Copy, because the three
+    # graphs created from the tracked definition (setup_pos_stream.py) on 2026-11-10
+    # went ERROR ~5 min after create; swap the name in when one builds (WS32 item 6).
     "case-memory": Agent(
         name="A2ALab_Memory_Case",
         label="A2ALab Shared Case Memory",
@@ -123,7 +127,7 @@ AGENTS = {
             "Platform identity remains in execution traces, not memory storage partitions."
         ),
         profile_dmos=("UnifiedssotIndividualAm01__dlm",),
-        data_graphs=("A2ALab_Memory_Customer360",),
+        data_graphs=("A2ALab_Test_C360Copy",),
     ),
     # D105 follow-up: the graph-attached A/B twin of case-memory. Same profile
     # DMO, plus the real-time Customer360 graph as an additional context source,
@@ -175,15 +179,16 @@ AGENTS = {
         profile_dmos=("UnifiedssotIndividualAm01__dlm",),
         data_graphs=("RT_UnifiedIndividual",),
     ),
-    # WS32 freshness arm, read-only: Customer360 + in-store POS orders (the
-    # A2ALab_Memory_CustomerPOS graph, built by scripts/setup_pos_stream.py). It
-    # measures POST-to-GetContext latency before the live registration moves.
+    # WS32 freshness arm, read-only: Customer360 + in-store POS orders. It
+    # measures POS-ingest-to-GetContext latency before the live registration
+    # moves. A2ALab_Test_C360Copy = the Customer360 shape + POS under the source
+    # Individual (created 2026-11-07; its real-time layer arrived 2026-11-10).
     "case-pos": Agent(
         name="A2ALab_Memory_Case_POS",
         label="A2ALab Case Memory + Customer POS",
         description="A2A lab WS32 arm: Customer360 + POS orders real-time graph, AM01 DMO.",
         profile_dmos=("UnifiedssotIndividualAm01__dlm",),
-        data_graphs=("A2ALab_Memory_CustomerPOS",),
+        data_graphs=("A2ALab_Test_C360Copy",),
     ),
     # The fourth corner (graph, no profile DMO) cannot exist: registration 400s
     # INVALID_API_INPUT "The data graph must be rooted on User, Individual, or a

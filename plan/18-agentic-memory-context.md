@@ -20,6 +20,16 @@ the `Profile` entry. The service keys them on the memory pipeline's own Individu
 `owner_id`, not on the CRM profile (D115). A future Case real-time graph can now be built in
 this org.
 
+**D117/D118 addendum (2026-11-10): the live registration carries a real-time customer graph,
+and in-store purchases reach it in seconds.** D117 made the CRM Contact id the memory owner and
+attached the AM01 profile DMO and the Customer360 graph to `A2ALab_Memory_Case`, which GetContext
+then served. D118 replaces that graph with `A2ALab_Test_C360Copy`: Customer360 plus the
+`A2ALab_POS_Order__dlm` node, fed by the Ingestion API (WS32). The real-time layer that was
+missing for graphs created 2026-11-07 serves them as of 2026-11-10. A test registration over a
+POS-bearing graph returned a new order in GetContext, and in the faces' rendered prompt,
+1.8–2.0 s after ingest (`plan/03-results.md`). The console's customer-memory experiments ring up
+a catalog order for the selected customer, and the next turn on Claude or OpenAI can name it.
+
 The deployed demo now separates memory from action cleanly. **Teach Claude** stores the selected
 customer's facts/preferences without calling Agentforce. **OpenAI recalls** reads those memories
 through the shared registration, labels the recalled contribution, and—only when the
@@ -119,7 +129,7 @@ provenance and don't vendor their content.
 | The UI "Agent Config" exists but stayed hidden until setup | Tabs `standard-Agents` ("Agent Config") and `standard-DataAgenticContextAgent` ("Data Agentic Context Agents", the raw object tab) exist. "Agent Config" became usable once the `default` setup went ACTIVE (Phase 1) | App Launcher → **"Agent Config"** (Agentforce Studio → Agent Configuration). The object tab errors (Phase 1); registration needs neither |
 | One data space                                  | `DataSpace`: `default` only                                                                                                                | Every lab agent lands in `default`; no data-space choice to make                                                                                                |
 | Identity Resolution (updated D104/D105)         | Ruleset `AM01` succeeded over 146 Individual profiles and produced `UnifiedssotIndividualAm01__dlm`                                      | `xid` is this profile's unified key, never a synthetic lab user id. The live `A2ALab_Memory_Case` declares **no** profile DMO, so it defaults to `UnifiedIndividual__dlm`; `A2ALab_Memory_Case_Graph` declares AM01 (D115) |
-| Customer graph (deferred by D105)               | `A2ALab_Memory_Customer360` is a real-time graph (since 2026-11-04) rooted on the unified profile; its CRM input follows the ~10-min ingestion schedule | Keep it out of Agentic Memory configuration. The org now supports real-time graphs (D105 follow-up), so a future Case real-time graph can be built here; CRM-sourced fields stay within the ingestion window |
+| Customer graph (D105 → attached by D117/D118)   | `A2ALab_Test_C360Copy` (Customer360 plus POS orders; the tracked definition replaces it once it builds) is a real-time graph rooted on the unified profile, attached to `A2ALab_Memory_Case`; CRM input follows the ~10-min ingestion schedule, POS orders arrive in ~2 s | Attached so every turn carries the live CRM record and recent orders beside memory; the graph record renders first, on its own 4000-character budget (D117/D118). Root-key (unified id) lookups stay on the ~30-min batch refresh; the faces read through the Contact identity link, which is real-time |
 | Data 360 tenant region                          | eu-central-1 tenant (D70)                                                                                                                  | GetContext latency from us-east-1 agents includes a transatlantic hop. Record it, don't hide it                                                                 |
 
 

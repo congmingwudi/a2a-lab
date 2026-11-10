@@ -2,7 +2,7 @@
 
 A store system "rings up" an order for a known customer; the row lands in the
 `A2ALab_POS_Order__dlm` DMO, which the memory's real-time graph
-(`A2ALab_Memory_CustomerPOS`) hangs under the customer's Individual. The question
+(`A2ALab_Test_C360Copy` live; tracked definition `GRAPH`, D118) hangs under the customer's Individual. The question
 the lab measures is how soon every agent reading GetContext sees it.
 
 The row keys on `contact_id` = the CRM Contact id: the memory owner (D117) and the
@@ -36,7 +36,7 @@ CONNECTION = "A2ALab_POS"
 # mapped onto the same DMO carries it.
 OBJECT = "pos_purchase"
 LINK_DMO = "UnifiedLinkssotIndividualAm01__dlm"
-GRAPH = "A2ALab_Memory_CustomerPOS"
+GRAPH = "A2ALab_Memory_CustPOS"
 EVENT_TIME = "order_ts"
 TARGET = "datacloud-ingest"
 

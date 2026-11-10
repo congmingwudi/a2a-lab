@@ -2709,3 +2709,94 @@ object, so this tests a route, not a recommended design.
   registration points at it.
 
 Graph A remains in the org (`A2ALab_Probe_POSLink`); graph B was deleted.
+
+## 2026-11-10 — WS32 re-test: the real-time layer now serves the graphs created 2026-11-07
+
+Last week every real-time data graph created on 2026-11-07 was batch-only, in this org and in the
+Pandora demo org. The identity-link `SourceRecordId__c` key (the streaming fragment) returned an
+empty 51 B body. Ingestion API orders appeared only on a batch refresh, 934–2101 s after ingest
+(entries above). An RT on-call request was filed in `#cdp-realtime-service` on 11-07. It had no
+reply as of this re-test, so the change was made on the platform side without notice. Other orgs
+reportedly showed the same symptom, which fits a platform fix rather than anything in our
+metadata.
+
+- **Static check (read-only, both orgs).** The link key now returns the same body as the root
+  unified-id key on every 11-07 graph:
+
+  | Graph | Org | Created | Link key 11-07 | Link key 11-10 |
+  |---|---|---|---|---|
+  | `A2ALab_Test_C360Copy` | lab | 11-07 | 51 B (empty) | 6003 B (= root key) |
+  | `A2ALab_POS_RootLink` | lab | 11-07 | 51 B (empty) | 4804 B (= root key) |
+  | `A2ALab_Test_C360NoPOS` | lab | 11-07 | — | 1167 B (= root key) |
+  | `A2ALab_Test_AccountViewCopy` | Pandora | 11-07 | 51 B (empty) | 703 B (original: 695 B) |
+
+- **Ingest → visible, two orders for Maya** (`traces/ws32/scripts/measure4.py`, connector
+  `A2ALab_POS`, object `pos_purchase`):
+
+  | Order | Ingest (HTTP 202) | Graph | First visible on the link key |
+  |---|---|---|---|
+  | `pos-4de584924293` | 0.30 s | `A2ALab_POS_RootLink`, `A2ALab_Test_C360Copy` | 6.5 s, 6.6 s |
+  | `pos-52d6dd5e0a36` | 0.33 s | `A2ALab_Test_C360Copy` | 5.3 s |
+
+  Both orders showed up on the **first** lookup. Each `sf api request` round trip takes about
+  3–5 s, so these numbers are a ceiling set by the probe: "≤ ~6 s end to end", not a measured
+  sub-second latency. Pandora's original graph shows ~200 ms. The batch-routed root key still lags: the same
+  order `pos-4de584924293` first appeared on `A2ALab_POS_RootLink`'s root key at 1050.8 s
+  (17.5 min), and on `A2ALab_Test_C360Copy`'s root key at 1169.5 s (19.5 min). So the real-time fix covers the link key only, and an agent has to look up by
+  Contact id to get the fast path. A direct-HTTP poller would be
+  needed to resolve the true figure.
+- **Still open.** The live `A2ALab_Memory_Customer360` still serves its version-0 shape without
+  the POS node (the operator's 11-07 POS edit errored). For real-time POS orders to reach
+  GetContext, a POS-bearing graph has to be attached to an Agent Configuration: WS32 step 5,
+  a new `A2ALab_Memory_Case_POS` registration. That ingest → GetContext latency is not measured
+  yet.
+
+## 2026-11-10 — WS32: a POS order reaches Agent Memory's GetContext, and the agent's prompt, ~2 s after ingest (D118)
+
+`scripts/pos_context_probe.py` rings up one Ingestion API order for Maya (owner = her CRM Contact
+id, D117; conversation = her D94 owner conversation). It then polls GetContext and records when the
+order id first appears in the body (`in_context`) and when it first survives the faces'
+`render_context` budget (`in_prompt`, what Claude/OpenAI are actually shown).
+
+| Registration | Graph attached | Orders | Ingest (202) | `in_context` = `in_prompt` | Reads |
+|---|---|---|---|---|---|
+| `A2ALab_Memory_Case_POS` (test arm) | `A2ALab_Test_C360Copy` | 4 (`pos-7e7b8a8f189a` + three at 18:51Z) | 0.27–0.30 s | 1.8–2.0 s | 1 each |
+| `A2ALab_Memory_Case` (live, after the D118 PATCH) | `A2ALab_Test_C360Copy` | `pos-91accc32294d` | 0.30 s | 2.1 s | 1 |
+
+- **GetContext takes the real-time path.** Every order was present on the first read after
+  ingest, so ~2 s is a ceiling set by one GetContext round trip from this laptop (the tenant is
+  eu-central-1, D70), not a measured platform latency. The 30-minute batch refresh plays no part.
+- **The full-configuration PATCH applied at once.** The first read through the live registration,
+  seconds after `setup_agentic_memory.py configure case-memory --apply`, already served the POS
+  node. Memories were kept: the configuration re-sent `isMemoryGenerationEnabled` (D117).
+- **Budget.** With ten orders the rendered prompt was 2704–2910 characters. The graph record
+  renders whole on its 4000-character budget, with padded decimals (`29.000000000000000000`)
+  compacted to `29`.
+- **Window.** The POS node keeps the 10 most recent orders within 7 days, so each probe order
+  pushes out the oldest. Probe orders are synthetic and stay in Maya's record.
+- **Creating the tracked graph failed three times.** `A2ALab_Memory_CustomerPOS` (twice) and
+  `A2ALab_Memory_CustPOS` were created by `setup_pos_stream.py` from a body identical to
+  `A2ALab_Test_C360Copy`'s, apart from name, label, description and (on the second and third)
+  no refresh after the POST. Each reached `ready` with no `dayZeroMappingDevName` and went
+  `error` ~5 min after create, with no message on the `DataGraph` record or the API. A copy
+  made the same day through the GET → `clean_node` → POST path (`A2ALab_Test_C360Copy2`) had
+  its day-zero mapping as soon as it was ready and stayed READY. So the live registration
+  carries `A2ALab_Test_C360Copy`, the graph the latency was measured on.
+
+### Hosted proof (2026-11-10, after the full faces + console rebuild)
+
+The console's purchase route rang up `Day pack 22L` for Maya (`pos-d292868d63ed`,
+ingest accepted in 0.3 s), then the two customer-memory experiments were
+asked the recall prompt with memory on (`traces/ws32/live_proof.py`, gitignored).
+
+| Experiment | Turn | Purchase → answer | Named the item, price and time |
+|---|---|---|---|
+| `customer-memory-claude` | 10.6 s | 13.6 s | yes |
+| `customer-memory-openai` | 37.8 s | 51.3 s | yes |
+
+- Both answers come from the graph record in GetContext. OpenAI also called Agentforce for a CRM
+  lookup, which reported it cannot see POS orders. Memory was the only source of the order.
+- **Caveat:** OpenAI's answer quoted the customer's Contact id. That id is a field of the graph
+  record, and the purchase route keeping it out of the browser (D118) does not stop a model from
+  repeating it. Trimming the id from the rendered record is a follow-up.
+- Trace ids: purchase `9419a4b9cd6e4668ac53c419e573fbe3`, Claude `4e2170e142364aa49de261bb95e58fb8`, OpenAI `d8c8ff8121d44911b1d784a8263eb79f`.

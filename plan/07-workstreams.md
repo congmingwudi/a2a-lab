@@ -3810,3 +3810,24 @@ the shim and bridge as comparison arms. Inbound first, on `A2ALab_Research_Assis
    light/dark at desktop and narrow widths; retain pending until cross-review/deploy closes the batch.
 8. ⏳ Cross-review the implementation with Claude, then full-rebuild/deploy the console and smoke
    section entry, both handoffs, viewer behavior, and narrow layout. Deployment is operator-owned.
+
+## WS32 — Real-time engagement in Agent Memory: in-store POS orders through the real-time data graph (raised 2026-11-07, D117, D118)
+
+A purchase rung up in a store should reach the next agent turn on any platform within seconds.
+The order enters Data 360 through the Ingestion API, joins the customer's real-time data graph,
+and is served by Agentic Memory's GetContext through the shared `A2ALab_Memory_Case` registration
+(D117), so Claude and OpenAI both see it without a CRM call. Measurements:
+`plan/03-results.md` (2026-11-07 and 2026-11-10 WS32 entries); memory seam: `plan/18-agentic-memory-context.md`.
+
+1. ✅ POS ingestion path: Ingestion API connector `A2ALab_POS`, object `pos_purchase`, stream to the `A2ALab_POS_Order__dlm` DMO, and its relationship to Individual, built headlessly by `scripts/setup_pos_stream.py`.
+2. ✅ POS client `src/interop/pos.py`: JWT-bearer → a360 exchange with no agent binding, every ingest a REST trace hop, 202 in ~0.3 s. It runs as the memory ECA (which carries `cdp_ingest_api`) until its own identity exists.
+3. ✅ Real-time latency measured: on 2026-11-07 new graphs had no real-time layer; re-tested 2026-11-10, the identity-link key serves a new order in ≤ ~6 s while the unified root key stays on the ~30-min batch refresh.
+4. ✅ GetContext is real-time: a test registration over a POS-bearing graph served a new order in GetContext and in the faces' rendered prompt 1.8–2.0 s after ingest (`scripts/pos_context_probe.py`).
+5. ✅ Prompt budget for orders: the graph record's budget rises to 4000 characters and padded decimals are compacted, so ten orders survive `render_context` beside the profile.
+6. ⏳ Tracked graph from `config/agentic_memory_customer_pos_graph.json` builds and replaces `A2ALab_Test_C360Copy` on the live registration. Three creates failed on 2026-11-10 (ERROR ~5 min after create, no day-zero mapping; not name length); copies of an existing graph build.
+7. ✅ POS-bearing graph attached to the live `A2ALab_Memory_Case` with a full-configuration v67 PATCH (`setup_agentic_memory.py configure case-memory`, `A2ALab_Test_C360Copy`); a live-registration probe served a new order in GetContext and the rendered prompt 2.1 s after ingest.
+8. ✅ Console purchase route: operator-only `POST /api/memory/customer/{key}/purchase` rings up one allow-listed catalog item (`config/memory_customers.yaml` `pos_catalog`) for the server-resolved customer; the Contact id never reaches the browser.
+9. ✅ Console purchase row and recall prompt on both customer-memory experiments, with Details copy citing D118.
+10. ✅ Full-rebuild faces and console, then prove live: ring up a purchase, ask Claude and OpenAI what was just bought, and record the purchase-to-answer timing.
+11. ⏳ The POS caller's own identity (D37): a `a2a_lab_pos` ECA and integration user with the measured ingest-only bundle, so `SF_CLIENT_ID_POS` / `SF_POS_RUNAS_USER` replace the memory-ECA fallback.
+12. ⏳ Keep the customer's Contact id out of the rendered graph record: the hosted proof showed OpenAI quoting it in an answer.

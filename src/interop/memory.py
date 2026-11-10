@@ -196,7 +196,9 @@ def normalize_ingest_content(text: str) -> str:
         return " ".join(part for part in (match.group(1), path.replace("/", " ")) if part)
 
     text = URL_RE.sub(url, text)
-    return API_PATH_RE.sub(lambda m: f"API endpoint v{m.group(1)} {m.group(2).replace('/', ' ')}", text)
+    return API_PATH_RE.sub(
+        lambda m: f"API endpoint v{m.group(1)} {m.group(2).replace('/', ' ')}", text
+    )
 
 
 def entry_id(session_id: str, kind: str, text: str) -> str:
@@ -541,7 +543,8 @@ class MemoryClient:
         # filters their empty content separately.
         entries = tuple(
             MemoryEntry(str(m.get("memoryId") or ""), str(m.get("content") or "").strip())
-            for m in memories if str(m.get("memoryId") or "")
+            for m in memories
+            if str(m.get("memoryId") or "")
         )
         # The published Read Memories contract returns ``memories[]`` and does
         # not define pagination or ``totalCount``. The tenant did include that
@@ -561,13 +564,22 @@ class MemoryClient:
         return MemoryListing(entries, effective_total, reported)
 
     async def create_memories(
-        self, trace_id: str, *, agent_id: str, owner_id: str, category: str,
+        self,
+        trace_id: str,
+        *,
+        agent_id: str,
+        owner_id: str,
+        category: str,
         contents: list[str],
     ) -> MemoryListing:
         if not contents:
             return MemoryListing((), 0)
         _, body = await self._call(
-            trace_id, agent_id, "POST", "/api/v1/agentic/memory", owner_id=owner_id,
+            trace_id,
+            agent_id,
+            "POST",
+            "/api/v1/agentic/memory",
+            owner_id=owner_id,
             headers={"agent_id": agent_id},
             params={"profile_id": owner_id, "profile_type": OWNER_TYPE, "category": category},
             json_body={"memories": [{"content": value} for value in contents]},
@@ -578,13 +590,22 @@ class MemoryClient:
         return MemoryListing(entries, len(entries))
 
     async def delete_memories(
-        self, trace_id: str, *, agent_id: str, owner_id: str, category: str,
+        self,
+        trace_id: str,
+        *,
+        agent_id: str,
+        owner_id: str,
+        category: str,
         memory_ids: list[str],
     ) -> tuple[str, ...]:
         if not memory_ids:
             return ()
         _, body = await self._call(
-            trace_id, agent_id, "DELETE", "/api/v1/agentic/memory", owner_id=owner_id,
+            trace_id,
+            agent_id,
+            "DELETE",
+            "/api/v1/agentic/memory",
+            owner_id=owner_id,
             headers={"agent_id": agent_id},
             params={"profile_id": owner_id, "profile_type": OWNER_TYPE, "category": category},
             json_body={"memories": [{"memoryId": value} for value in memory_ids]},
@@ -719,7 +740,20 @@ ENVELOPE_KEYS = frozenset({"contextId", "sessionId", "createdAt"})
 # (`UnifiedLink…[n]:` / `Id: <unified id>`).
 _GRAPH_RECORD_RE = re.compile(r"(?m)^(?:UnifiedLink\w*\[\d+\]:|Id: [0-9a-fA-F]{32}\s*$)")
 _MEMORY_TABLE_RE = re.compile(r"(?m)^[A-Z][A-Z0-9_]*\[\d+\]\{")
-GRAPH_LIMIT = 2000
+# A record's TOON size is bounded by the graph's own node limits: the profile (~800
+# chars) plus WS32's POS node, recency-capped at 10 orders of ~140 chars each once the
+# decimals are compacted — about 2.2K. 4000 holds it whole with headroom for the
+# email/link lists; cutting it mid-record would drop the record's tail, not its oldest data.
+GRAPH_LIMIT = 4000
+# Data 360 serialises NUMBER fields with 18-digit scale ("58.000000000000000000"). Pure
+# noise to a model and ~20 chars per value; trimmed only where a field ends (comma,
+# whitespace, end of entry), so timestamps such as "25.000Z" are untouched.
+_PADDED_DECIMAL_RE = re.compile(r"(\d)(?:\.0+|(\.\d*?[1-9])0+)(?=[,\s]|$)")
+
+
+def compact_graph_entry(entry: str) -> str:
+    """A data-graph record with its padded decimals trimmed (58.000… → 58, 1.50… → 1.5)."""
+    return _PADDED_DECIMAL_RE.sub(lambda m: m.group(1) + (m.group(2) or ""), entry)
 
 
 def is_graph_record(item: Any) -> bool:
@@ -753,7 +787,11 @@ def render_context(
     ctx = {k: v for k, v in ctx.items() if k not in ENVELOPE_KEYS}
     graph: list[str] = []
     if isinstance(ctx.get("userContext"), list):
-        graph = [str(i["entry"]).strip() for i in ctx["userContext"] if is_graph_record(i)]
+        graph = [
+            compact_graph_entry(str(i["entry"]).strip())
+            for i in ctx["userContext"]
+            if is_graph_record(i)
+        ]
         ctx["userContext"] = [i for i in ctx["userContext"] if not is_graph_record(i)]
     if not include_profile and isinstance(ctx.get("userContext"), list):
         # A reset rotates the conversation, but Data 360 can immediately
@@ -765,8 +803,7 @@ def render_context(
             item
             for item in ctx["userContext"]
             if not (
-                isinstance(item, dict)
-                and str(item.get("sourceType") or "").casefold() == "profile"
+                isinstance(item, dict) and str(item.get("sourceType") or "").casefold() == "profile"
             )
         ]
 
