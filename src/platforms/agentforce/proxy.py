@@ -9,6 +9,7 @@ matrix records these cells as via-shim, never native.
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 from interop import delegation
 from interop.models import AgentRequest, AgentResponse
@@ -29,6 +30,38 @@ TWIN_ENV_BY_PLATFORM = {
     # Foundry-paired twin is published.
     "foundry": "SF_FOUNDRY_AGENT_ID",
 }
+
+
+# D119: the reuse key is an injective, presence-preserving encoding of
+# (platform, verified subject). The platform is caller-controlled (metadata
+# verbatim, or the rider-text match), so none of its characters may act as a
+# separator — b3 joined the two with "-", which let platform "foundry-alice"
+# collide with verified subject "alice" on platform "foundry".
+
+
+def _enc(value: str) -> str:
+    # safe="" percent-encodes everything outside [A-Za-z0-9_.~-]: ":" (the
+    # separator), "/", and "%" itself, so a literal "%3A" becomes "%253A" and
+    # cannot alias an encoded ":". surrogatepass keeps this TOTAL: JSON can
+    # carry a lone surrogate, which strict UTF-8 would raise on.
+    return quote(value, safe="", errors="surrogatepass")
+
+
+def _opt(value: str | None) -> str:
+    # Presence is part of the identity: None and every string are disjoint.
+    return "none" if value is None else f"value:{_enc(value)}"
+
+
+def _shim_session_key(platform: str | None, subject: str | None) -> str:
+    # Four shapes, told apart by the tag and the field count after split(":"):
+    # shim:shared:none | shim:shared:value:E(p) | shim:sub:E(s):none |
+    # shim:sub:E(s):value:E(p). Subject first partitions the verified namespace
+    # by identity before the untrusted field; sub/shared keeps a shared-token
+    # key from ever equalling a verified one. Process-local: AgentforceClient
+    # uses it only as a cache/lock key; Salesforce gets its own session UUID.
+    if subject is None:
+        return f"shim:shared:{_opt(platform)}"
+    return f"shim:sub:{_enc(subject)}:{_opt(platform)}"
 
 
 class AgentforceProxyAdapter:
@@ -69,10 +102,9 @@ class AgentforceProxyAdapter:
             # (A11/F02). Key by the VERIFIED subject the executor stamped so each
             # authenticated caller gets its own Agentforce session; fall back to
             # the platform-only key ONLY for the legacy shared service token
-            # (no verified subject).
+            # (no verified subject). The key encoding is D119's.
             subject = (req.metadata or {}).get("verified_subject")
-            base = f"shim-shared-{platform or 'direct'}"
-            req.session_id = f"{base}-{subject}" if subject else base
+            req.session_id = _shim_session_key(platform, subject)
         if twin_id and twin_id != self.client.agent_id:
             # Per-request twin override: the client caches sessions per
             # session_id, so distinct twins ride distinct session keys above.
