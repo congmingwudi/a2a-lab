@@ -680,12 +680,12 @@ async def open_and_read(
     except MemoryCallError as exc:
         errors.append(str(exc))
     context = ""
+    profile_ids: set[str] = set()
     if sid and read:
         try:
-            context = render_context(
-                await mem.get_context(trace_id, conversation_id=conversation_id, **ids),
-                include_profile=include_profile_context,
-            )
+            body = await mem.get_context(trace_id, conversation_id=conversation_id, **ids)
+            profile_ids = graph_profile_ids(body)
+            context = render_context(body, include_profile=include_profile_context)
         except MemoryCallError as exc:
             errors.append(str(exc))
     if read and include_saved_memories:
@@ -693,7 +693,8 @@ async def open_and_read(
         saved, saved_errors = await saved_memories(mem, trace_id, **ids)
         errors += saved_errors
         context = "\n".join(part for part in (context, saved) if part)
-    return sid, context, errors
+    # Last, over the combined text: a saved memory can quote the ids as well as the graph.
+    return sid, mask_profile_ids(mask_owner(context, owner_id), profile_ids), errors
 
 
 async def write_turn(
@@ -766,6 +767,56 @@ def is_graph_record(item: Any) -> bool:
         and bool(_GRAPH_RECORD_RE.search(entry))
         and not _MEMORY_TABLE_RE.search(entry)
     )
+
+
+# WS32 item 12: the owner is the customer's CRM Contact id (D117), and the graph record
+# repeats it (identity link, Individual, every POS row, ContactPointEmail, the
+# transcript's participant label). It identifies nothing a model needs: the record's
+# rows are already this customer's, and the console never sends the id to the browser
+# (D118). Shown it, a model quotes it (hosted proof, plan/03-results.md).
+OWNER_MASK = "[this customer]"
+_SF_ID_RE = re.compile(r"[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?")
+
+
+def mask_owner(text: str, owner_id: str) -> str:
+    """`text` with a Salesforce-record owner id (and its 15-character form)
+    replaced by `OWNER_MASK`. Whole tokens only, so another record's id that merely
+    shares characters is untouched. Other owners — the supplier fan-out's lab
+    persona (D102) — pass through: they are not a customer and carry no CRM id."""
+    if not text or not _SF_ID_RE.fullmatch(owner_id or ""):
+        return text
+    forms = sorted({owner_id, owner_id[:15]}, key=len, reverse=True)
+    pattern = r"(?<![A-Za-z0-9])(?:" + "|".join(map(re.escape, forms)) + r")(?![A-Za-z0-9])"
+    return re.sub(pattern, OWNER_MASK, text)
+
+
+# The record's unified-profile id — its root `Id:` and each link's `UnifiedRecordId` — is
+# the other identifier a model offers when asked for "my id" (plan/03-results.md,
+# 2026-11-10). Read off the graph record itself, so only ids the record names are masked
+# (a trace id is also 32 hex); the trace layer keeps the raw wire bytes either way.
+PROFILE_MASK = "[this customer's unified profile]"
+_PROFILE_ID_RE = re.compile(
+    r"(?m)(?:^Id: ([0-9a-fA-F]{32})\s*$|\bUnifiedRecordId: ([0-9A-Za-z]{16,64})\b)"
+)
+
+
+def graph_profile_ids(ctx: Any) -> set[str]:
+    """The unified-profile ids named by the data-graph records in a GetContext body."""
+    items = ctx.get("userContext") if isinstance(ctx, dict) else None
+    return {
+        a or b
+        for item in (items if isinstance(items, list) else [])
+        if is_graph_record(item)
+        for a, b in _PROFILE_ID_RE.findall(str(item["entry"]))
+    }
+
+
+def mask_profile_ids(text: str, ids: set[str]) -> str:
+    """`text` with each of `ids` (whole tokens) replaced by `PROFILE_MASK`."""
+    if not text or not ids:
+        return text
+    alt = "|".join(map(re.escape, sorted(ids, key=len, reverse=True)))
+    return re.sub(rf"(?<![A-Za-z0-9])(?:{alt})(?![A-Za-z0-9])", PROFILE_MASK, text)
 
 
 def render_context(

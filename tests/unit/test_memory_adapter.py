@@ -4,12 +4,14 @@ decorator over the inbound seam, against a fake memory client."""
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
 from interop import identity
 from interop import memory_adapter as ma
 from interop.memory import (
+    mask_owner,
     GENERATION_CATEGORY,
     MemoryCallError,
     MemoryEntry,
@@ -33,8 +35,9 @@ MAYA_XID = "unified-profile-maya"
 @pytest.fixture(autouse=True)
 def keypair_dir(tmp_path, monkeypatch):
     monkeypatch.setenv(identity.KEY_DIR_ENV, str(tmp_path / "keys"))
-    monkeypatch.setenv(ma.OWNER_MAP_ENV, '{"ana":"unified-profile-ana",'
-                                        '"vic":"unified-profile-vic"}')
+    monkeypatch.setenv(
+        ma.OWNER_MAP_ENV, '{"ana":"unified-profile-ana","vic":"unified-profile-vic"}'
+    )
     monkeypatch.setenv(ma.CUSTOMER_MAP_ENV, '{"maya":"unified-profile-maya"}')
 
 
@@ -204,7 +207,9 @@ async def test_customer_generation_changes_conversation_and_session_for_every_fa
     assert second.metadata["memory"]["conversation_id"] == generation_conversation(
         MAYA_XID, fake.generation
     )
-    assert second.metadata["memory"]["conversation_id"] != first.metadata["memory"]["conversation_id"]
+    assert (
+        second.metadata["memory"]["conversation_id"] != first.metadata["memory"]["conversation_id"]
+    )
     assert second.metadata["memory"]["session_id"] != first.metadata["memory"]["session_id"]
 
 
@@ -383,3 +388,23 @@ def test_wrapped_adapters_share_one_client(monkeypatch):
     monkeypatch.setattr(ma, "MemoryClient", lambda **_kw: shared)
     a, b = with_memory(Inner(), "claude"), with_memory(Inner(), "claude")
     assert a._client() is b._client() is shared
+
+
+async def test_a_crm_contact_owner_never_reaches_the_prompt_or_the_response(monkeypatch):
+    """WS32 item 12: with a Contact-id owner (D117) the graph record quotes the id; the
+    inner agent's prompt and the run metadata (which rides to the browser) get the
+    mask instead, while ingest still sends the real owner to the tenant."""
+    contact = "003000000000001AAA"
+    monkeypatch.setenv(ma.CUSTOMER_MAP_ENV, json.dumps({"maya": contact}))
+    fake = FakeMemory(context={"userContext": [{
+        "entry": f"UnifiedLinkx[1]:\n  - SourceRecordId: {contact}\n    FirstName: Maya",
+        "sourceType": "Profile"}]})  # fmt: skip
+    adapter, inner = _adapter(fake)
+    req = _req(session_id="s-1")
+    req.metadata["memory_customer"] = "maya"
+    resp = await adapter.handle(req)
+
+    assert contact not in inner.seen[0].message and "FirstName: Maya" in inner.seen[0].message
+    assert contact not in json.dumps(resp.metadata)
+    assert resp.metadata["memory"]["owner_id"] == mask_owner(contact, contact)
+    assert next(kw for c, kw in fake.calls if c == "ingest")["owner_id"] == contact

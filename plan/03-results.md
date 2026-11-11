@@ -2800,3 +2800,40 @@ asked the recall prompt with memory on (`traces/ws32/live_proof.py`, gitignored)
   record, and the purchase route keeping it out of the browser (D118) does not stop a model from
   repeating it. Trimming the id from the rendered record is a follow-up.
 - Trace ids: purchase `9419a4b9cd6e4668ac53c419e573fbe3`, Claude `4e2170e142364aa49de261bb95e58fb8`, OpenAI `d8c8ff8121d44911b1d784a8263eb79f`.
+
+### Contact-id masking (2026-11-10, WS32 item 12)
+
+`interop.memory.open_and_read` now replaces a Salesforce-record owner id (18- and 15-character
+forms, whole tokens) with `[this customer]` across the combined context, which covers the graph
+record, the transcript's participant label and any saved memory that quoted it. The face's
+response metadata reports the masked `owner_id` as well. Ingest still sends the real owner to the
+tenant, and a lab-persona owner (the supplier fan-out, D102) passes through unchanged. On Maya's
+real GetContext body, all 15 occurrences were masked and all 10 orders were kept.
+
+Hosted check after the full rebuild, asking each agent directly "What is my Contact ID, and what
+was my most recent in-store purchase?":
+
+| Experiment | Contact id in `/api/run` response | Purchase recalled | Trace |
+|---|---|---|---|
+| `customer-memory-claude` | 0 | yes | `d0d5751144e04f8e8343893d71eb12ca` |
+| `customer-memory-openai` | 0 | yes | `8e7d5a75cbc244e292582692325b4eb0` |
+
+- **Residual, then fixed (WS32 item 13):** both models answered with the 32-character Data 360
+  unified-profile id (`UnifiedRecordId`), labelled "Contact ID". `open_and_read` now reads the
+  unified ids the graph record names (its root `Id:` and each link's `UnifiedRecordId`) and masks
+  them as `[this customer's unified profile]` across the combined context, including saved
+  memories that had already stored one. Other 32-hex strings, such as trace ids, are kept.
+- **Not masked by design:** the trace layer keeps the raw GetContext wire bytes, which include
+  both ids, for signed-in readers of the console's trace view (the raw-wire requirement). The
+  masks apply only to what the agents are shown.
+
+Hosted re-check after item 13's rebuild (2026-11-11), asking "What is my Contact ID or customer
+id, and what was my most recent in-store purchase?":
+
+| Experiment | Contact id in response | Unified id in response | Trace view keeps both raw ids | Trace |
+|---|---|---|---|---|
+| `customer-memory-claude` | 0 | 0 | yes | `8a3102eaa2c6420d8225e7d76df66b3e` |
+| `customer-memory-openai` | 0 | 0 | yes | `0c9761a00d2548ecb2c742b5d9a3e10f` |
+
+Both agents still recalled the Day pack purchase. Both printed the mask label itself as their
+"Contact ID" (`[this customer]`), which is honest but reads oddly in a demo.

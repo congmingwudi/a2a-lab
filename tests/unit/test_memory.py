@@ -720,3 +720,75 @@ def test_pos_bearing_graph_record_renders_whole_with_compact_decimals():
 )  # fmt: skip
 def test_compact_graph_entry_trims_only_padded_decimals(raw, want):
     assert memory_mod.compact_graph_entry(raw) == want
+
+
+async def test_open_and_read_masks_the_owner_contact_id_everywhere():
+    """WS32 item 12: the owner is the customer's CRM Contact id (D117), and the graph
+    record carries it in five places (identity link, Individual, every POS row,
+    ContactPointEmail). A model shown it will quote it (hosted proof, plan/03), so
+    the read path masks it — 18- and 15-character forms, in the graph record, the
+    conversation transcript and saved memories alike — and keeps everything else."""
+    owner = "003000000000001AAA"
+    fake = FakeTenant(
+        context={
+            "userContext": [
+                {"entry": POS_ENTRY, "sourceType": "Profile"},
+                {"entry": f"2026-11-10,user_message,{owner}-participant,hi",
+                 "sourceType": "Conversation"},
+            ]
+        }
+    )  # fmt: skip
+    fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = [f"Maya's Contact Id is {owner[:15]}"]
+
+    _, context, errors = await memory_mod.open_and_read(
+        fake.client(), "t-mask", session_id="s-1", start=True,
+        agent_id=IDS["agent_id"], owner_id=owner,
+    )  # fmt: skip
+
+    assert errors == []
+    assert owner not in context and owner[:15] not in context
+    assert memory_mod.OWNER_MASK in context
+    assert "pos-000000000009" in context and "maya.chen@a2alab.example.invalid" in context
+
+
+def test_mask_owner_leaves_other_record_ids_alone():
+    text = "Id: 003000000000002BBB, PartyId: 003000000000001AAA"
+    assert memory_mod.mask_owner(text, "003000000000001AAA") == (
+        f"Id: 003000000000002BBB, PartyId: {memory_mod.OWNER_MASK}"
+    )
+    assert memory_mod.mask_owner(text, "") == text
+    persona = "Reader: persona-ana"
+    assert memory_mod.mask_owner(persona, "persona-ana") == persona  # not a CRM id (D102)
+
+
+async def test_open_and_read_masks_the_unified_profile_id_too():
+    """The record's unified-profile id (root `Id:` and the link's `UnifiedRecordId`) is
+    the other identifier a model hands out when asked for "my id" (plan/03, 2026-11-10).
+    It is read off the graph record itself and masked everywhere, including a saved
+    memory that already quotes it — but a 32-hex string the record does not name is kept."""
+    uid = "0123456789abcdef0123456789abcdef"
+    other = "fedcba9876543210fedcba9876543210"
+    fake = FakeTenant(context={"userContext": [{"entry": POS_ENTRY, "sourceType": "Profile"}]})
+    fake.memories[(IDS["agent_id"], "sys_PROFILE_FACT")] = [
+        f"Maya's Contact ID is {uid}; ticket {other}"
+    ]
+
+    _, context, errors = await memory_mod.open_and_read(
+        fake.client(), "t-uid", session_id="s-1", start=True,
+        agent_id=IDS["agent_id"], owner_id="003000000000001AAA",
+    )  # fmt: skip
+
+    assert errors == []
+    assert uid not in context and other in context
+    assert context.count(memory_mod.PROFILE_MASK) >= 2
+    assert "pos-000000000009" in context
+
+
+def test_graph_profile_ids_reads_only_graph_records():
+    uid = "0123456789abcdef0123456789abcdef"
+    ctx = {"userContext": [
+        {"entry": POS_ENTRY, "sourceType": "Profile"},
+        {"entry": "UnifiedRecordId: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "sourceType": "Conversation"},
+    ]}  # fmt: skip
+    assert memory_mod.graph_profile_ids(ctx) == {uid}
+    assert memory_mod.graph_profile_ids({}) == set()

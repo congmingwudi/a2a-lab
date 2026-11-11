@@ -56,6 +56,7 @@ from interop.memory import (
     StaleMemoryGeneration,
     data_space,
     generation_conversation,
+    mask_owner,
     open_and_read,
     owner_conversation,
     redact,
@@ -191,9 +192,12 @@ class MemoryAdapter:
             # a turn that recalled nothing.
             resp = await self.inner.handle(req)
             meta = dict(resp.metadata or {})
-            meta["memory"] = {"agent_id": self.agent_id, "owner_id": None, "ok": False,
-                              "error": ("no Data 360 customer profile is mapped to this "
-                                        "verified lab user")}
+            meta["memory"] = {
+                "agent_id": self.agent_id,
+                "owner_id": None,
+                "ok": False,
+                "error": ("no Data 360 customer profile is mapped to this verified lab user"),
+            }
             return dataclasses.replace(resp, metadata=meta)
         mem = self._client()
         trace_id = req.trace_id or ""
@@ -234,8 +238,11 @@ class MemoryAdapter:
             resp = await self.inner.handle(req)
             meta = dict(resp.metadata or {})
             meta["memory"] = {
-                "agent_id": self.agent_id, "owner_id": owner, "ok": False,
-                "error": generation_error, "customer_key": (req.metadata or {}).get("memory_customer"),
+                "agent_id": self.agent_id,
+                "owner_id": mask_owner(owner, owner),
+                "ok": False,
+                "error": generation_error,
+                "customer_key": (req.metadata or {}).get("memory_customer"),
             }
             return dataclasses.replace(resp, metadata=meta)
 
@@ -243,14 +250,22 @@ class MemoryAdapter:
         known = self._sessions.get(cache_key) if cache_key else None
         sid = known or (
             _derived_session(self.agent_id, owner, req.session_id, conversation_id)
-            if req.session_id else None
+            if req.session_id
+            else None
         )
         t0 = time.perf_counter()
         opened, read_errors = await self._bounded(
-            open_and_read(mem, trace_id, session_id=sid, start=not known,
-                          conversation_id=conversation_id,
-                          include_saved_memories=not bool(generation),
-                          include_profile_context=not bool(generation), **ids), "read"
+            open_and_read(
+                mem,
+                trace_id,
+                session_id=sid,
+                start=not known,
+                conversation_id=conversation_id,
+                include_saved_memories=not bool(generation),
+                include_profile_context=not bool(generation),
+                **ids,
+            ),
+            "read",
         )
         context = ""
         if opened is not None:
@@ -298,7 +313,9 @@ class MemoryAdapter:
         meta["memory"] = {
             "agent_id": self.agent_id,
             "data_space": data_space(),
-            "owner_id": owner,
+            # A CRM Contact owner is masked like the context (WS32 item 12): this
+            # metadata rides the run response to the browser, which D118 keeps it out of.
+            "owner_id": mask_owner(owner, owner),
             "conversation_id": conversation_id,
             "generation": generation,
             "profile_memory_suppressed": bool(generation),

@@ -3835,4 +3835,5 @@ and is served by Agentic Memory's GetContext through the shared `A2ALab_Memory_C
 9. ✅ Console purchase row and recall prompt on both customer-memory experiments, with Details copy citing D118.
 10. ✅ Full-rebuild faces and console, then prove live: ring up a purchase, ask Claude and OpenAI what was just bought, and record the purchase-to-answer timing.
 11. ⏳ The POS caller's own identity (D37): a `a2a_lab_pos` ECA and integration user with the measured ingest-only bundle, so `SF_CLIENT_ID_POS` / `SF_POS_RUNAS_USER` replace the memory-ECA fallback.
-12. ⏳ Keep the customer's Contact id out of the rendered graph record: the hosted proof showed OpenAI quoting it in an answer.
+12. ✅ Keep the customer's Contact id out of the rendered graph record: the hosted proof showed OpenAI quoting it in an answer.
+13. ✅ Mask the Data 360 unified-profile id the same way: asked for their id, both agents offered it as a "Contact ID". The trace views keep the raw ids.

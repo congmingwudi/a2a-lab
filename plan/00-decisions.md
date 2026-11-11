@@ -5372,8 +5372,11 @@ orders, and a way to ring up a purchase during a demo.
   registration. The order reaches the agent through memory alone; in the hosted proof OpenAI
   still tried an Agentforce CRM lookup, which cannot see POS orders (plan/03-results.md).
 - The Contact id stays out of the browser on the purchase route, but it is a field of the
-  graph record, and the hosted proof showed a model quoting it in an answer. Trimming it from
-  the rendered record is WS32 item 12.
+  graph record, and the hosted proof showed a model quoting it in an answer. WS32 item 12 masks
+  it on the read path (`interop.memory.mask_owner`, applied in `open_and_read` and the face's
+  response metadata). The Data 360 unified-profile id, which models offered as a "Contact ID"
+  when asked, is masked the same way (item 13). Both masks apply only to what agents are shown:
+  the trace views keep the raw wire bytes (plan/03-results.md).
 - Every purchase is a real, synthetic Data 360 row. It stays in the customer's 10-order, 7-day
   window, and repeated demos push out older orders. There is no delete path: the Ingestion API
   is append-only for this stream.
