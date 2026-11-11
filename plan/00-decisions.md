@@ -5382,3 +5382,49 @@ orders, and a way to ring up a purchase during a demo.
 - The live registration names a `Test_` graph until the tracked definition builds. That is
   cosmetic, but it is visible in Agent Configuration, so the Details copy names the graph
   generically ("real-time customer graph").
+
+## 2026-11-10 — D119: the hosted shim uses an injective, presence-preserving session key
+
+**Context.** D81 isolated reused Agentforce sessions by `(platform, verified subject)`, but the
+hosted shim flattened that tuple into `shim-shared-{platform}-{subject}`. The subject is stamped
+from the verified JWT by the A2A executor; the platform is caller-controlled metadata or rider
+text and can contain the `-` delimiter. A shared-token caller can therefore choose
+`platform="foundry-alice"` and collide with verified subject `alice` on platform `foundry`.
+Two verified callers can form the same collision across the platform/subject boundary. Codex's
+plan critique confirmed the defect and also showed that the first proposed correction still
+collapsed an absent platform with literal `"direct"`, while its tests did not require component
+encoding (`build-notes/codex/reviews/ws25-b4.md`). Claude's rev-2 plan answers all four findings
+in `build-notes/claude/ws25-b4-plan.md`.
+
+**Decision.** Settle handoff batch `ws25-b4` with Claude as implementer and Codex as
+cross-reviewer. In shim reuse mode, `src/platforms/agentforce/proxy.py` builds the cache key from
+four disjoint shapes: shared/verified × absent/present platform. `None` has an explicit `none`
+variant; every present platform has a `value:` variant; subject and platform components are
+percent-encoded with no caller-controlled separator left unescaped. The resulting mapping is
+total and injective over `(str | None)²`, including empty strings, literal `"direct"`, percent
+escapes, Unicode, and lone surrogates. The key remains readable and process-local: Salesforce
+continues to receive its separately generated external-session UUID.
+
+The implementation is local to the proxy key construction. It does not whitelist the platform
+contract and does not retire the shared-token path because Foundry's current A2A connection uses
+that credential. Shared-token callers therefore continue to share a session per exact platform
+value among themselves; they cannot enter a verified caller's namespace. Rotating the shared
+token only changes its holder set. Refusing that credential at the shim is the separate action
+that would remove this residual identity-less pool.
+
+Tests are written first. Helper tests pin encoding in both components, distinguish absent from
+literal platform values, reject literal-percent aliases, and decode every key back to its tuple
+over the hostile corpus in the settled plan. Executor/authentication tests reproduce the
+shared-token and verified-caller collisions through metadata and rider text. Before `built`, the
+implementer records the six planned mutants going red; the historical Codex session probe stays
+unchanged and any AST-slicing `NameError` from the new helpers is reported as a harness break,
+not as isolation evidence.
+
+**Consequences.** Every warm shim cache key changes once, so each in-flight shim conversation
+starts one fresh Agentforce session after deployment; the cache is Lambda-instance-local and
+nothing persists the old keys. Deployment is a full shim bundle rebuild followed by two-JWT and
+shared-token-forgery smoke tests recorded in the implementer's notes. WS25 item 17 remains ⏳
+until Codex passes the implementation and the operator deploys and records those smokes.
+
+**Status.** DECIDED 2026-11-10. Implementer: Claude Code. Cross-reviewer: Codex. Handoff batch:
+`ws25-b4`.
