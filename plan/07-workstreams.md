@@ -3562,7 +3562,7 @@ redeployed (full rebuild — every item touches `src/`).
 **A11 follow-up — handoff batch `ws25-b4` (D119).** This is the fourth D79 handoff
 batch, not the original roadmap's “Batch 4 — observability completeness” grouping above.
 
-17. ⏳ A11 follow-up — replace the hosted shim's delimiter-joined reuse key with an injective, presence-preserving encoding of `(platform, verified subject)`; add helper-level left-inverse/encoding tests and real executor/auth collision regressions; mutation-check the suite; cross-review; then full-build and deploy the shim Lambda with two-JWT and shared-token-forgery smoke evidence (D119).
+17. ✅ A11 follow-up — replace the hosted shim's delimiter-joined reuse key with an injective, presence-preserving encoding of `(platform, verified subject)`; add helper-level left-inverse/encoding tests and real executor/auth collision regressions; mutation-check the suite; cross-review; then full-build and deploy the shim Lambda with two-JWT and shared-token-forgery smoke evidence (D119).
 
 
 ## WS26 — Jev System One: a calibrated decision service in the lab (raised 2026-10-02, D82)

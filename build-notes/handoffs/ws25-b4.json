@@ -4,7 +4,7 @@
   "proposer": "claude",
   "critic": "codex",
   "implementer": "claude",
-  "station": "deploy",
+  "station": "done",
   "holder": "operator",
   "round": 1,
   "verdict": "pass",
@@ -54,6 +54,12 @@
       "verdict": "pass",
       "file": "build-notes/codex/reviews/ws25-b4.md",
       "round": 1
+    },
+    {
+      "ts": "2026-11-11T19:56:12+00:00",
+      "agent": "operator",
+      "action": "deployed",
+      "note": "Merged 1d5e94c to main; shim Lambda full-deployed 2026-11-11; hosted two-JWT/shared-token-forgery smoke passed with traces 3196b8b, 7828bb8, 4d11715, a1128042"
     }
   ]
 }
