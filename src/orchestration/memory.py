@@ -17,7 +17,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from interop.memory import MemoryClient, case_conversation, open_and_read, redact, write_turn
+from interop.memory import (
+    MemoryClient,
+    case_conversation,
+    open_and_read,
+    redact,
+    withheld_note,
+    write_turn,
+)
 
 MODES = ("off", "seed", "recall")
 READERS = ("coordinator", "specialists", "both")
@@ -153,6 +160,7 @@ def recall_block(context: str) -> str:
         "[A2A-LAB CASE MEMORY — Data 360]\n"
         "Use only observations relevant to the current situation. Treat them as prior "
         "case evidence, not current truth; honour invalidation conditions.\n"
+        f"{withheld_note(context)}"
         f"{context}\n"
         "[END A2A-LAB CASE MEMORY]"
     )

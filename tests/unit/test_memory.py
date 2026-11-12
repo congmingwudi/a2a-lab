@@ -792,3 +792,15 @@ def test_graph_profile_ids_reads_only_graph_records():
     ]}  # fmt: skip
     assert memory_mod.graph_profile_ids(ctx) == {uid}
     assert memory_mod.graph_profile_ids({}) == set()
+
+
+def test_withheld_note_rides_only_a_masked_context():
+    """A masked context gets the note that explains the mask (plan/03, 2026-11-11: shown
+    only the label, both agents answered "Contact ID: [this customer]"); an unmasked one
+    — the supplier persona owners (D102) — is prompted exactly as before."""
+    masked = memory_mod.mask_owner("PartyId: 003000000000001AAA", "003000000000001AAA")
+    assert memory_mod.withheld_note(masked) == memory_mod.IDS_WITHHELD_NOTE + "\n"
+    assert memory_mod.withheld_note("Reader: persona-ana") == ""
+    assert memory_mod.withheld_note("") == ""
+    # The labels read as prose, never as a value to recite in brackets.
+    assert "[" not in memory_mod.OWNER_MASK + memory_mod.PROFILE_MASK

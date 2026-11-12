@@ -2837,3 +2837,17 @@ id, and what was my most recent in-store purchase?":
 
 Both agents still recalled the Day pack purchase. Both printed the mask label itself as their
 "Contact ID" (`[this customer]`), which is honest but reads oddly in a demo.
+
+Item 14 re-check (2026-11-11, faces and console rebuilt): the masks now read "this customer" /
+"this customer's profile", and a masked context carries `interop.memory.IDS_WITHHELD_NOTE`. Same
+question:
+
+| Experiment | Contact id | Unified id | Bracketed label | Names Maya | Trace |
+|---|---|---|---|---|---|
+| `customer-memory-claude` | 0 | 0 | no | yes | `0f3429d1c9aa499b9b837a785c070df9` |
+| `customer-memory-openai` | 0 | 0 | no | yes | `4f3a7b7c28ea4f46b38a28f7b315fe2e` |
+
+Claude: "I don't have access to display your Contact ID as a specific identifier", then the Day
+pack 22L order. OpenAI: "I don't have access to your Contact ID; I must refer to you as Maya", then
+the same order. OpenAI's second clause echoes the instruction itself: honest, slightly stiff.
+

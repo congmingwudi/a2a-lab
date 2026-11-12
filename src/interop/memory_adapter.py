@@ -58,6 +58,7 @@ from interop.memory import (
     generation_conversation,
     mask_owner,
     open_and_read,
+    withheld_note,
     owner_conversation,
     redact,
     select_generation,
@@ -85,11 +86,11 @@ _shared: MemoryClient | None = None
 
 
 def owner_of(req: AgentRequest) -> str | None:
-    """Return the verified persona's Data 360 profile identifier.
+    """Return the verified persona's CRM Contact id — the memory owner (D117).
 
-    Agentic Memory's ``xid`` is the end customer represented by the profile
-    DMO, not a lab login name. The mapping is deployment configuration because
-    profile identifiers are org-specific. Missing, malformed, or incomplete
+    Agentic Memory's ``xid`` is the end customer, not a lab login name; Data 360
+    resolves the Contact id to the unified profile DMO inside GetContext. The
+    mapping is deployment configuration because the ids are org-specific. Missing, malformed, or incomplete
     configuration fails closed so two users can never collapse into one owner.
     """
     from interop import identity
@@ -128,6 +129,7 @@ def _with_context(message: str, context: str) -> str:
         "[a2a-lab memory] What you already know about this user from earlier "
         "conversations (Data 360 Agentic Memory). Use it where it is relevant; "
         "do not recite it.\n"
+        f"{withheld_note(context)}"
         f"{context}\n"
         "[end memory]\n\n"
         f"{message}"

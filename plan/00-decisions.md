@@ -5376,7 +5376,10 @@ orders, and a way to ring up a purchase during a demo.
   it on the read path (`interop.memory.mask_owner`, applied in `open_and_read` and the face's
   response metadata). The Data 360 unified-profile id, which models offered as a "Contact ID"
   when asked, is masked the same way (item 13). Both masks apply only to what agents are shown:
-  the trace views keep the raw wire bytes (plan/03-results.md).
+  the trace views keep the raw wire bytes (plan/03-results.md). Masking alone made both agents
+  answer "Contact ID: [this customer]", so item 14 words the masks as plain prose and adds a
+  prompt line (`interop.memory.IDS_WITHHELD_NOTE`) saying the ids are withheld: asked for an id,
+  an agent now declines and refers to the customer by first name.
 - Every purchase is a real, synthetic Data 360 row. It stays in the customer's 10-order, 7-day
   window, and repeated demos push out older orders. There is no delete path: the Ingestion API
   is append-only for this stream.

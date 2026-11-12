@@ -11,6 +11,7 @@ import pytest
 from interop import identity
 from interop import memory_adapter as ma
 from interop.memory import (
+    IDS_WITHHELD_NOTE,
     mask_owner,
     GENERATION_CATEGORY,
     MemoryCallError,
@@ -405,6 +406,8 @@ async def test_a_crm_contact_owner_never_reaches_the_prompt_or_the_response(monk
     resp = await adapter.handle(req)
 
     assert contact not in inner.seen[0].message and "FirstName: Maya" in inner.seen[0].message
+    # ...and the prompt says why, so the model names Maya instead of quoting the mask.
+    assert IDS_WITHHELD_NOTE in inner.seen[0].message
     assert contact not in json.dumps(resp.metadata)
     assert resp.metadata["memory"]["owner_id"] == mask_owner(contact, contact)
     assert next(kw for c, kw in fake.calls if c == "ingest")["owner_id"] == contact

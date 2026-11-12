@@ -774,7 +774,7 @@ def is_graph_record(item: Any) -> bool:
 # transcript's participant label). It identifies nothing a model needs: the record's
 # rows are already this customer's, and the console never sends the id to the browser
 # (D118). Shown it, a model quotes it (hosted proof, plan/03-results.md).
-OWNER_MASK = "[this customer]"
+OWNER_MASK = "this customer"
 _SF_ID_RE = re.compile(r"[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?")
 
 
@@ -794,7 +794,7 @@ def mask_owner(text: str, owner_id: str) -> str:
 # the other identifier a model offers when asked for "my id" (plan/03-results.md,
 # 2026-11-10). Read off the graph record itself, so only ids the record names are masked
 # (a trace id is also 32 hex); the trace layer keeps the raw wire bytes either way.
-PROFILE_MASK = "[this customer's unified profile]"
+PROFILE_MASK = "this customer's profile"
 _PROFILE_ID_RE = re.compile(
     r"(?m)(?:^Id: ([0-9a-fA-F]{32})\s*$|\bUnifiedRecordId: ([0-9A-Za-z]{16,64})\b)"
 )
@@ -817,6 +817,22 @@ def mask_profile_ids(text: str, ids: set[str]) -> str:
         return text
     alt = "|".join(map(re.escape, sorted(ids, key=len, reverse=True)))
     return re.sub(rf"(?<![A-Za-z0-9])(?:{alt})(?![A-Za-z0-9])", PROFILE_MASK, text)
+
+
+# Masking alone is not enough: asked "what is my id?", a model quotes the mask label back
+# as the id (hosted, 2026-11-11, plan/03-results.md). So the prompt that carries a masked
+# context also says why the ids are missing and how to refer to the customer instead.
+IDS_WITHHELD_NOTE = (
+    "The customer's record ids (CRM Contact id, unified profile id) are withheld from you "
+    'and appear as "this customer". Never present a placeholder as an id: if asked for '
+    "an id, say you don't have access to it, and refer to the customer by first name when "
+    'the context gives one, otherwise as "this customer".'
+)
+
+
+def withheld_note(context: str) -> str:
+    """`IDS_WITHHELD_NOTE` plus a newline when `context` carries a mask, else ""."""
+    return f"{IDS_WITHHELD_NOTE}\n" if context and OWNER_MASK in context else ""
 
 
 def render_context(
