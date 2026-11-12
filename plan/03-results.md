@@ -2851,3 +2851,258 @@ Claude: "I don't have access to display your Contact ID as a specific identifier
 pack 22L order. OpenAI: "I don't have access to your Contact ID; I must refer to you as Maya", then
 the same order. OpenAI's second clause echoes the instruction itself: honest, slightly stiff.
 
+## 2026-11-11 — Agentic Memory CRUD is query-visible in its DLO and DMO
+
+A controlled synthetic probe created one `sys_PROFILE_FACT` through
+`POST /api/v1/agentic/memory`, queried the exact marker through the Memory API and Data 360 SQL,
+deleted it through the Memory API, and verified its removal from every surface. The probe used
+owner `a2alab-gov-p-ef230911d7`, agent registration `A2ALab_Memory_Case`, memory id
+`01a1cb31-3d1e-72fb-b433-9d2da6340533`, and trace evidence in
+`traces/governance/governance-ef230911d7.json` (gitignored because it contains raw tenant wire).
+
+| Surface | While active | After API delete |
+|---|---|---|
+| Memory API, `sys_PROFILE_FACT` | returned the exact id and marker | absent on the first follow-up poll |
+| `AgenticConnector_AiParticipantI_1232197F__dll` | marker present; `createdDate__c=2026-11-11T15:19:24.192Z` | tombstone kept: same `eventId__c`, null payload, `Status__c=inactive` |
+| `AiParticipantInsight_std__dlm` | same marker and id; `CreatedDate__c=2026-11-11T15:19:24.193Z` | no matching row |
+
+The DMO row exposed the Memory API contract directly:
+
+| DMO field | Probe value |
+|---|---|
+| `Id__c` | the API's `memoryId` |
+| `InsightPayloadTxt__c` | the API's memory `content` |
+| `InsightType__c` | `sys_PROFILE_FACT` |
+| `IndividualId__c` | the API's `profile_id` |
+| `AgentIdentifier__c` | `A2ALab_Memory_Case` |
+| `Status__c` | `active` |
+
+The DLO carried the same payload, category, individual, agent and status. Its `eventId__c`
+matched the API `memoryId` and the DMO `Id__c`; `aiParticipantInsightId__c` was null. At
+observation time both objects counted 307 rows. This proves that curated Memory API records are
+visible in Data Explorer / Query Editor on this tenant and are not confined to an inaccessible
+product-only store. The DMO was present on its first query 89 seconds after create; the DLO was
+also present on its first query. Their source timestamps differ by 1 ms. Those observations are
+consistent with the real-time ingestion path, but do not prove whether the service writes the DLO
+first or dual-writes the DLO and DMO, nor do they establish a sub-89-second query-visibility
+latency.
+
+The provisioned data-stream record was hidden from the observability identity even though its DLO
+metadata and rows were queryable. The DLO is therefore the reliable headless discovery surface in
+this permission shape. The older 2026-11-06 observation that `AiParticipantInsight_std__dlm` was
+empty is stale; this run does not establish whether the difference came from later product
+enablement, extraction activity, or a service rollout.
+
+One separate behavior remains: the same fact was visible through its creating registration after
+16.8 s but not through `A2ALab_Memory_Case_Graph_Ind` after 300 s. Physical rows are exposed in a
+shared DMO, while Memory API retrieval remains registration-scoped on this tenant. An
+unregistered `aid` was still refused at token exchange. The delete was accepted at 15:24:38Z;
+the probe's immediate read was stale, but the record was absent from the API and DMO by the
+15:26Z verification. The DLO retained an ingestion tombstone at `15:24:38.636Z`: same event,
+profile, agent and category, with null content and `Status__c=inactive`. Querying a deletion by
+payload alone therefore misses the retained source event; query `eventId__c` to audit it.
+
+**Client-authenticated read without an agent id (16:00Z).** A second controlled run
+(`78fe4400f8`, synthetic owner `a2alab-gov-p-78fe4400f8`, memory id
+`01a1cb56-0336-7fc1-b298-e8cc6c929bcb`) exercised the public client path rather than inferring it
+from the wording. The a360 exchange sent `xid` and omitted `aid`; the resulting token carried
+`xid` and `dataspace=default` but no `aid`. `GET /api/v1/agentic/memory` then omitted the optional
+`agent_id` header and returned the exact synthetic fact (200). This matches the published
+[Memory APIs contract](https://developer.salesforce.com/docs/data/agentic-memory-context/references/agentic-memory-context-api-ref/agentic-memory-api-memory-apis.html):
+clients can call without `agent_id`, leaving no agent-level filter. The physical row still named
+the registration that created it; omitting the read-time agent is not the same as creating an
+agentless record.
+
+The run also reconfirmed the tenant-specific governance mismatch: a token bound to synthetic
+owner Q read owner P's fact when `profile_id=P`, while the second registered agent could not read
+it within 60 seconds. In this identity shape the request's explicit `profile_id` and the record's
+creating registration continued to govern observed retrieval more strongly than the documented
+`xid`/cross-agent model. The fact was deleted and absent from both API and DMO immediately after
+cleanup. Its DLO tombstone had not reached the query surface 43 seconds after deletion, then was
+present at 128 seconds with null payload and `Status__c=inactive`; the DMO still had no row. That
+repeats the earlier deletion lifecycle without establishing a tighter latency bound.
+
+## 2026-11-11 — Non-default Agentic Memory space: corrected full-profile comparison
+
+With explicit operator authorization, the lab created active data space `A2ALabMemoryProbe`
+(prefix `amp`), then created its Agentic setup and registration
+`A2ALab_Memory_Space_Probe`. Setup creation at 16:20:07Z exposed only `PROCESSING`; it became
+`ACTIVE` at 16:27:24Z (7m17s). The registration was `ACTIVE` immediately at 16:29:12Z.
+
+The first comparison was incomplete: the new registration had no Profile DMO, no identity
+resolution, no customer profile graph, and automatic extraction was disabled. Those initial
+runtime failures are not used as product-defect evidence. The test space was corrected to mirror
+the working default registration's configuration shape:
+
+- Mapped `Contact_Home__dll` to `amp_ContactPointEmail__dlm` with the same nine field mappings as
+  the default space. The setup had created `amp_Individual__dlm`, but not this email DMO mapping.
+- Created identity-resolution ruleset `AMP1` over `amp_Individual__dlm` with exact-normalized
+  email matching through `amp_ContactPointEmail__dlm`. It published successfully; its last job
+  completed SUCCESS at 17:18:11Z with 146 source, known, and total profiles.
+- Created Unified Individual `amp_UnifiedIndividualAmp1__dlm` and requested real-time graph
+  `A2ALab_MemoryProbe_Customer360`, rooted at that Unified Individual and traversing the identity
+  link to source Individual and Contact Point Email. The graph reached READY transiently, but
+  later changed to ERROR without activation artifacts (below).
+- Attached that Unified Individual as the registration Profile DMO, attached the customer graph,
+  and enabled automatic memory extraction. Final readback showed all three settings on the ACTIVE
+  registration. Employee Real-Time Data Graph remains unset, matching the working configuration.
+
+The agentic setup itself is also extensive and space-specific:
+
+- 17 ACTIVE data-space members: nine shared `AgenticConnector_*` DLOs filtered by their
+  `dataspace__c` (or object-specific dataspace field), four `amp_` chunk/index DLOs, and the
+  Contact, Lead, User, and static-currency sources.
+- Space-prefixed modeled objects for Conversation, Session, SessionParticipant, Interaction,
+  InteractionMessage, InteractionStep, MessageAttachment, ParticipantInsight, Individual, and
+  User.
+- Two READY custom indexes, `amp_Agentic_Interaction_Message` and
+  `amp_Agentic_Participant_Insight`, over the corresponding `amp_` DMOs.
+- Hidden generated `AgenticConversation` and `AgenticUser` real-time data graphs: ID/VALUE DMOs,
+  a data-graph state table, and 13 graph fragment/state DMOs. The custom-space DMO metadata query
+  returned 33 objects in total.
+
+The setup-list selector is defective: both `?dataSpaceName=A2ALabMemoryProbe` and lowercase
+`?dataspaceName=...` returned the `default` setup. `setup_agentic_memory.py` now lists globally
+and filters `dataspaceName` client-side.
+
+The API run separated client errors from product failures. Public docs define session
+`participants[].orgId` as an optional Salesforce organization id for cross-org handoffs, not a
+data-space selector, so the lab removed its historical `"default"`. Add Participants requires an
+agent participant id equal to the registered API name, so the lab also removed its historical
+`-participant` suffix and uses that same id on agent entries. Focused regressions cover both.
+
+After the request-shape corrections, corrected profile foundation, and configuration convergence,
+the final 17:23Z run produced:
+
+| Path | Result |
+| --- | --- |
+| Create conversation/session | 201 on first attempt |
+| Add agent participant | 202 on first attempt |
+| Add entries | 202 on first attempt |
+| Close session / conversation | 202 / 202 |
+| List conversations | 200 with an empty `conversations` list |
+| List sessions / get conversation graph | 404 `Conversation not found` for the just-accepted id |
+| Get Context | 500 `Failed to load agent configuration` after 10s and 20s; a separate real-CRM-owner graph probe returned the same 500 |
+| Create explicit Memory fact | 400 `[AgenticMemory] Failed to create agentic memory` at 17:24:11Z; no record created, so custom-space read/update/delete were not applicable |
+
+The first attached customer graph was not healthy. Direct readback showed `status: error`, with no
+`dayZeroMappingDevName` or `dayZeroTransformDevName`; a GET→clean→POST copy failed the same way.
+A field-level comparison then found the cause in the lab definition: default Contact Point Email
+maps `KQ_Id__c`/`KQ_PartyId__c`, while the custom DMO actually maps
+`KQ_Id1__c`/`KQ_PartyId1__c`. The graph referenced the unmapped fields. Corrected graph
+`A2ALab_MemoryProbe_C360V2` reached READY at 18:00:03Z, generated matching day-zero mapping and
+transform artifacts, remained READY beyond the previous failure window, and replaced the failed
+graph on the registration. AM-D360-001 is withdrawn; the lab error is AM-TEST-002.
+
+To keep that graph defect from contaminating the API conclusion, the registration was reversibly
+patched to retain the AMP1 Profile DMO and extraction while detaching all graphs. With that
+profile-only configuration, the real CRM owner still received Context 500 `Failed to load agent
+configuration`, and explicit Memory create still returned the same 400 at 17:40:52Z. The intended
+Profile DMO + graph + extraction configuration was then restored and verified by API readback.
+
+Earlier attempts during provisioning convergence, incomplete profile setup, and client-shape
+correction are retained as diagnostic history but do not establish the defect. The corrected run
+shows that Ingest accepts the full lifecycle but does not persist it, while an ACTIVE registration
+with a successful identity-resolution job, Unified Individual Profile DMO, and extraction enabled
+still cannot load Context or create explicit Memory in this non-default space even with the graph
+detached. The corrected test gaps are AM-TEST-001/002; the remaining runtime behavior is
+AM-API-012 in
+`build-notes/ws27/agentic-memory-product-api-defects.md`. The architecture and all 14 public
+operations are mapped in `build-notes/codex/agentic-memory-api-stack-readout.md`.
+
+## 2026-11-11 — Paired default versus non-default Memory/Conversation/Context control
+
+Before filing AM-API-012, the lab ran the same maintained probes against the working default
+registration and the corrected custom registration. The only intentional inputs that differed
+were data space, registration API name, and the controlled synthetic owner label. Both
+registrations were ACTIVE with extraction enabled, a ruleset-specific Unified Individual Profile
+DMO, and one READY real-time graph carrying day-zero mapping/transform artifacts. AM01 and AMP1
+were PUBLISHED/SUCCESS with 146 source and unified profiles each.
+
+| Test | Default (`A2ALab_Memory_Case`) | Non-default (`A2ALab_Memory_Space_Probe`) |
+| --- | --- | --- |
+| Saved fact create/read/delete | Created; same-registration read after 16.5 s; cleanup absent | Create 400; repeated after graph/config convergence at 18:05:32Z |
+| Saved preference create/read/delete | Created; same-registration read immediately; cleanup absent | Create 400 |
+| Conversation ingest through close session | 201/201/202/202/202 | 201/201/202/202/202 |
+| List conversations | 200; created id present | 200; empty list |
+| List sessions | 200 | 404 conversation not found |
+| Get conversation data graph | 200; closed session and entries present | 404 conversation not found |
+| Synthetic-conversation Context, two reads | 200; Conversation summary present | 500 `Failed to load agent configuration` twice |
+| Real Maya Context, two reads, no preliminary generation lookup | 200; Profile and Conversation sources present | 500 `Failed to load agent configuration` |
+
+Default fact probe `7a9a841483` and corrected preference probe `2517e87d14` both deleted their created
+memory ids. The default conversation was closed. Custom Memory create produced no id, and custom
+conversation close returned 202 even though Retrieval never found the accepted conversation.
+
+The remaining configuration differences are expected physical/model differences, not missing
+Agent Configuration fields: `Contact_Home__dll` maps 19 fields to default Individual and 21 to the
+generated custom Individual; both email mappings have nine fields, but the custom mapped
+qualifiers have the `1` suffix. The default graph also includes `A2ALab_POS_Order__dlm`, while the
+custom graph ends at Contact Point Email because POS is not provisioned in that space. The paired
+results make AM-API-012 suitable for product review; the graph-activation claim is not.
+
+## 2026-11-11 — AM-API-012 is not a data-space grant gap: granted, still fails
+
+Before AM-API-012 was filed, the lab checked whether its own configuration could explain the
+non-default failures.
+
+- **Governance policies match.** Neither space has a user-authored data-governance policy. The
+  Setup Audit Trail shows only system-generated object/field and record-level policy
+  regenerations, all ACTIVE before the 18:05Z paired run.
+- **Tokens match.** The CDP tokens for `A2ALab_Memory_Case` and `A2ALab_Memory_Space_Probe` carry
+  identical claim sets and scopes (`cdp_ingest_api cdp_profile_api cdp_query_api`), with no
+  data-space claim. The space is selected only by request header.
+- **Data-space access did not match.** The memory integration user reached `default` implicitly
+  through Data Cloud User and had never been granted `A2ALabMemoryProbe`. Every
+  `PermSetDataspaceScopeAdded` audit row was for `default`. As that user, core
+  `ssot/query-sql?dataspace=A2ALabMemoryProbe` returned 403 "end-user denied authorization".
+
+The grant went in headlessly at 20:04:49Z as a `<dataspaceScopes><dataspaceScope>` element
+(type `DataspaceScopeAccess`; an `<enabled>` child is rejected) on the
+`A2ALab_Memory_Integration` permission set (`salesforce/.../permissionsets`). Core SQL as the
+memory user then returned 146 rows from `amp_Individual__dlm`.
+
+Rerun with the grant in place (`A2ALAB_MEMORY_DATA_SPACE=A2ALabMemoryProbe`;
+`setup_agentic_memory.py probe space-probe --apply` with a synthetic owner, and
+`memory_governance_probe.py --agent A2ALab_Memory_Space_Probe`):
+
+| Call (20:07–20:08Z) | Result |
+|---|---|
+| Conversation / session create | 201 / 201 |
+| Add participant / entries / close session | 202 / 202 / 202 |
+| List conversations | 200 `[]` |
+| List sessions, get conversation | 404 `Conversation not found` |
+| Get Context (+10 s, +20 s) | 500 `Failed to load agent configuration` |
+| Explicit fact create | 400 `[AgenticMemory] Failed to create agentic memory` |
+
+Unchanged from before the grant, and unchanged again at 20:37–20:38Z (+32 min; Get Context 500 on all three reads), so this is not grant propagation lag. Two side observations:
+- The tenant-plane `/api/v2/query?dataspace=A2ALabMemoryProbe` still answers 404
+  "DataModelEntity … not found" for `amp_` DMOs that core SQL reads.
+- `amp_Conversation__dlm` holds 0 rows ever (`default`: 84).
+
+The grant stays, because it is required for the space either way. AM-API-012 remains a product
+question, filed 2026-11-11 in `#cdp-realtime-service` through its intake form, with full details
+in the thread (`build-notes/ws27/agentic-memory-nondefault-support-slack-draft.md`,
+`build-notes/support-requests.md`).
+
+### 2026-11-11 22:05–22:11Z — Get Context recovered on its own; `dataspace=` in the token exchange is not the fix
+
+After filing, a product engineer's documented `/services/a360/token` exchange (another lab's
+thread in `#cdp-realtime-service`, 2026-10-20) was seen to pass `dataspace=<space>`. Our clients
+never send it (`src/interop/memory.py`, `scripts/setup_jwt_eca.py exchange_cdp`), so it was tested
+with a throwaway wrapper that injects it (repo code unchanged), against a no-injection control
+run minutes later:
+
+| Call (`A2ALab_Memory_Space_Probe`) | `dataspace` injected | control (no param) |
+|---|---|---|
+| a360 exchange | 200 | 200 |
+| Ingest writes | 201/201/202/202/202 | 201/201/202/202/202 |
+| List conversations / get | 200 `[]` / 404 | 200 `[]` / 404 |
+| Get Context | 500 at +5 s, then 200 `{contextId, ontology:{}}` | 200 `{contextId, ontology:{}}` ×3 |
+| Explicit fact create | 400 | 400 |
+
+The parameter changes nothing. Get Context **did** change, in both arms: it was 500 "Failed to
+load agent configuration" on every read through 20:38Z and is 200 (empty context) from ~22:05Z,
+with no change on our side. That is consistent with a delayed agent-configuration load for the
+non-default registration (question 2 in the filed thread). Memory create and ingest persistence
+are still broken, so AM-API-012 stays open with a narrower signature.

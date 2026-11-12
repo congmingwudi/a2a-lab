@@ -1,0 +1,230 @@
+{
+  "name": "A2ALab_MemoryProbe_C360V2",
+  "label": "A2A Lab Memory Probe Customer 360 V2",
+  "type": "REALTIME",
+  "description": "Non-default-space twin of the working Agentic Memory customer profile graph.",
+  "dataspaceName": "A2ALabMemoryProbe",
+  "primaryObjectName": "amp_UnifiedIndividualAmp1__dlm",
+  "isRealTimeToggleEnabled": true,
+  "isRecordCachingDisabled": true,
+  "cacheDurationInDays": 0,
+  "maxRecordsCached": 0,
+  "sessionEnd": 30,
+  "sessionEndTimeUnit": "MINUTES",
+  "sourceObject": {
+    "name": "amp_UnifiedIndividualAmp1__dlm",
+    "label": "A2A Lab Probe Unified Individual",
+    "type": "derived",
+    "jsonPath": "$",
+    "path": [],
+    "fields": [
+      {
+        "sourceFieldName": "Id__c",
+        "isKeyColumn": true,
+        "isProjected": true,
+        "usageTag": "NONE"
+      },
+      {
+        "sourceFieldName": "FirstName__c",
+        "isKeyColumn": false,
+        "isProjected": true,
+        "usageTag": "NONE"
+      },
+      {
+        "sourceFieldName": "LastName__c",
+        "isKeyColumn": false,
+        "isProjected": true,
+        "usageTag": "NONE"
+      },
+      {
+        "sourceFieldName": "PersonName__c",
+        "isKeyColumn": false,
+        "isProjected": true,
+        "usageTag": "NONE"
+      },
+      {
+        "sourceFieldName": "TitleName__c",
+        "isKeyColumn": false,
+        "isProjected": true,
+        "usageTag": "NONE"
+      }
+    ],
+    "recencyCriteria": [],
+    "relatedObjects": [
+      {
+        "name": "amp_UnifiedLinkIndividualAmp1__dlm",
+        "label": "A2A Lab Probe Individual Identity Link",
+        "type": "bridge",
+        "path": [
+          {
+            "fieldName": "UnifiedRecordId__c",
+            "parentFieldName": "Id__c"
+          }
+        ],
+        "fields": [
+          {
+            "sourceFieldName": "SourceRecordId__c",
+            "isKeyColumn": true,
+            "isProjected": true,
+            "usageTag": "NONE",
+            "keyQualifierName": "KQ_SourceRecordId__c"
+          },
+          {
+            "sourceFieldName": "KQ_SourceRecordId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "KEY_QUALIFIER"
+          },
+          {
+            "sourceFieldName": "UnifiedRecordId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "NONE"
+          },
+          {
+            "sourceFieldName": "DataSourceId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "NONE"
+          },
+          {
+            "sourceFieldName": "DataSourceObjectId__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "NONE"
+          },
+          {
+            "sourceFieldName": "PriorityBucket__c",
+            "isKeyColumn": false,
+            "isProjected": true,
+            "usageTag": "NONE"
+          }
+        ],
+        "recencyCriteria": [],
+        "relatedObjects": [
+          {
+            "name": "amp_Individual__dlm",
+            "label": "Probe Source Individual",
+            "type": "standard",
+            "path": [
+              {
+                "fieldName": "Id__c",
+                "parentFieldName": "SourceRecordId__c"
+              }
+            ],
+            "fields": [
+              {
+                "sourceFieldName": "Id__c",
+                "isKeyColumn": true,
+                "isProjected": true,
+                "usageTag": "NONE",
+                "keyQualifierName": "KQ_Id__c"
+              },
+              {
+                "sourceFieldName": "KQ_Id__c",
+                "isKeyColumn": false,
+                "isProjected": true,
+                "usageTag": "KEY_QUALIFIER"
+              },
+              {
+                "sourceFieldName": "FirstName__c",
+                "isKeyColumn": false,
+                "isProjected": true,
+                "usageTag": "NONE"
+              },
+              {
+                "sourceFieldName": "LastName__c",
+                "isKeyColumn": false,
+                "isProjected": true,
+                "usageTag": "NONE"
+              },
+              {
+                "sourceFieldName": "TitleName__c",
+                "isKeyColumn": false,
+                "isProjected": true,
+                "usageTag": "NONE"
+              }
+            ],
+            "recencyCriteria": [],
+            "relatedObjects": [
+              {
+                "name": "amp_ContactPointEmail__dlm",
+                "label": "Probe Contact Point Email",
+                "type": "standard",
+                "path": [
+                  {
+                    "fieldName": "PartyId__c",
+                    "parentFieldName": "Id__c"
+                  }
+                ],
+                "fields": [
+                  {
+                    "sourceFieldName": "Id__c",
+                    "isKeyColumn": true,
+                    "isProjected": true,
+                    "usageTag": "NONE",
+                    "keyQualifierName": "KQ_Id1__c"
+                  },
+                  {
+                    "sourceFieldName": "KQ_Id1__c",
+                    "isKeyColumn": false,
+                    "isProjected": true,
+                    "usageTag": "KEY_QUALIFIER"
+                  },
+                  {
+                    "sourceFieldName": "PartyId__c",
+                    "isKeyColumn": false,
+                    "isProjected": true,
+                    "usageTag": "NONE",
+                    "keyQualifierName": "KQ_PartyId1__c"
+                  },
+                  {
+                    "sourceFieldName": "KQ_PartyId1__c",
+                    "isKeyColumn": false,
+                    "isProjected": true,
+                    "usageTag": "KEY_QUALIFIER"
+                  },
+                  {
+                    "sourceFieldName": "EmailAddress__c",
+                    "isKeyColumn": false,
+                    "isProjected": true,
+                    "usageTag": "NONE"
+                  }
+                ],
+                "recencyCriteria": [],
+                "topKFilterCriteria": {
+                  "limit": 10,
+                  "orderCriteria": [
+                    {
+                      "fieldApiName": "Id__c",
+                      "sortOrder": "DESC"
+                    }
+                  ]
+                },
+                "relatedObjects": []
+              }
+            ],
+            "topKFilterCriteria": {
+              "limit": 100,
+              "orderCriteria": [
+                {
+                  "fieldApiName": "Id__c",
+                  "sortOrder": "DESC"
+                }
+              ]
+            }
+          }
+        ],
+        "topKFilterCriteria": {
+          "limit": 100,
+          "orderCriteria": [
+            {
+              "fieldApiName": "PriorityBucket__c",
+              "sortOrder": "DESC"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

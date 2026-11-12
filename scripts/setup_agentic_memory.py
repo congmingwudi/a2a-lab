@@ -83,6 +83,19 @@ class Agent:
 
 
 AGENTS = {
+    "space-probe": Agent(
+        name="A2ALab_Memory_Space_Probe",
+        label="A2ALab Memory Space Probe",
+        description=(
+            "Disposable registration for controlled non-default data-space routing probes."
+        ),
+        # The custom space reproduces the working default registration's identity
+        # foundation with its own physical names: AMP1 is the exact-normalized-
+        # email twin of AM01, and the graph has the same unified-link → Individual
+        # → Contact Point Email shape as the default customer graph.
+        profile_dmos=("amp_UnifiedIndividualAmp1__dlm",),
+        data_graphs=("A2ALab_MemoryProbe_C360V2",),
+    ),
     "concierge": Agent(
         name="A2ALab_Memory_Concierge",
         label="A2ALab Memory Concierge",
@@ -262,10 +275,18 @@ def error_code(resp: object) -> str | None:
 
 
 def setups() -> list[dict]:
-    resp = api("GET", f"/setup?dataSpaceName={data_space()}")
+    # The unpublished list route ignores both dataSpaceName and dataspaceName
+    # query parameters (measured 2026-11-11 while provisioning a custom space).
+    # List globally, then enforce the requested space client-side; otherwise a
+    # default-space setup makes every custom space look provisioned.
+    resp = api("GET", "/setup")
     if error_code(resp):
         sys.exit(f"listing agentic setups failed: {resp}")
-    return resp.get("setupConfigs", [])
+    return [
+        item
+        for item in resp.get("setupConfigs", [])
+        if item.get("dataspaceName") == data_space()
+    ]
 
 
 def agents() -> list[dict]:
@@ -489,10 +510,11 @@ def show(label: str, r) -> None:
 
 
 def cmd_probe(args) -> None:
-    """Write one turn the way the agentic-context SDK does, then read it back.
+    """Exercise ingest, retrieval, and context paths for one controlled turn.
 
     Why: a read is only meaningful after a write, and GetContext 403s with an
-    empty body unless `ctx-agent-id` is sent (2026-10-13; the SDK omits it). Same five calls as AsyncSessionManager, ids prefixed `a2alab-probe-`.
+    empty body unless `ctx-agent-id` is sent (2026-10-13; the SDK omits it).
+    IDs are prefixed `a2alab-probe-` so the resulting records remain identifiable.
     """
     import uuid
     from datetime import datetime, timezone
@@ -501,7 +523,7 @@ def cmd_probe(args) -> None:
     owner_id = args.owner
     cid = f"a2alab-probe-{uuid.uuid4().hex[:8]}"  # the SDK uses one id for both
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    owner_p, agent_p = f"{owner_id}-participant", f"{a.name}-participant"
+    owner_p, agent_p = f"{owner_id}-participant", a.name
     turn = uuid.uuid4().hex
     writes = [
         ("create conversation", "/api/v1/agentic/conversations",
@@ -510,10 +532,9 @@ def cmd_probe(args) -> None:
         ("create session", f"/api/v1/agentic/conversations/{cid}/sessions",
          {"sessionId": cid, "conversationOwnerId": owner_id, "ownerType": "individual",
           "participants": [{"id": owner_p, "type": "individual", "role": "owner",
-                            "startTime": now, "orgId": "default"}]}),
-        ("add agent participant", f"/api/v1/agentic/conversations/{cid}/sessions/{cid}/participants",
-         {"participants": [{"id": agent_p, "type": "agent", "role": "participant",
                             "startTime": now}]}),
+        ("add agent participant", f"/api/v1/agentic/conversations/{cid}/sessions/{cid}/participants",
+         {"participants": [{"id": agent_p, "type": "agent", "role": "participant"}]}),
         ("add entries", f"/api/v1/agentic/conversations/{cid}/entries",
          {"sessionId": cid, "conversationOwnerId": owner_id, "entries": [
              {"id": f"u-{turn}", "participantId": owner_p, "type": "user_message",
@@ -527,16 +548,40 @@ def cmd_probe(args) -> None:
     if not args.apply:
         for label, path, body in writes:
             print(f"POST {path}  ({label})\n{json.dumps(body, indent=2)}")
+        print(f"POST /api/v1/agentic/conversations/{cid}/sessions/{cid}/close  (close session)")
+        print("GET /api/v1/agentic/conversations  (list conversations)")
+        print(f"GET /api/v1/agentic/conversations/{cid}/sessions  (list sessions)")
+        print(f"GET /api/v1/agentic/conversations/{cid}  (get conversation data graph)")
+        print("GET /api/v1/agentic/context  (get context)")
+        print(f"POST /api/v1/agentic/conversations/{cid}/close  (close conversation)")
         print("(dry run — re-run with --apply to write this probe turn to the production tenant)")
         return
     post_h = {"dataspace": data_space(), "owner_id": owner_id, "agent_id": a.name}
     with tenant_session(a, owner_id) as http:
         for label, path, body in writes:
-            r = http.post(path, json=body, headers=post_h)
-            show(label, r)
-            if r.status_code >= 400 and r.status_code != 409:  # 409 = exists (SDK: success)
+            for write_attempt in range(1, args.write_attempts + 1):
+                r = http.post(path, json=body, headers=post_h)
+                show(f"{label} (attempt {write_attempt})", r)
+                if r.status_code < 400 or r.status_code == 409:  # 409 = exists (SDK: success)
+                    break
+                if write_attempt < args.write_attempts:
+                    time.sleep(args.write_wait)
+            else:
                 sys.exit(f"{label} refused — stopping before the reads")
+        r = http.post(
+            f"/api/v1/agentic/conversations/{cid}/sessions/{cid}/close", headers=post_h
+        )
+        show("close session", r)
+        if r.status_code >= 400:
+            sys.exit("close session refused — stopping before the reads")
         read_q = {"owner_id": owner_id, "owner_type": "individual"}
+        read_h = {"x-sfdc-dataspace": data_space(), "agent_id": a.name}
+        r = http.get("/api/v1/agentic/conversations", params=read_q, headers=read_h)
+        show("list conversations", r)
+        r = http.get(
+            f"/api/v1/agentic/conversations/{cid}/sessions", params=read_q, headers=read_h
+        )
+        show("list sessions", r)
         for attempt in range(args.reads):
             time.sleep(args.wait)
             r = http.get("/api/v1/agentic/context",
@@ -544,9 +589,14 @@ def cmd_probe(args) -> None:
                          headers={"ctx-agent-id": a.name,
                                   "ctx-dataspace-ds_name": data_space()})  # fmt: skip
             show(f"GetContext (+{(attempt + 1) * args.wait}s)", r)
-        r = http.get(f"/api/v1/agentic/conversations/{cid}", params={**read_q, "scope": "all"},
-                     headers={"x-sfdc-dataspace": data_space(), "agent_id": a.name})  # fmt: skip
+        r = http.get(
+            f"/api/v1/agentic/conversations/{cid}",
+            params={**read_q, "scope": "all"},
+            headers=read_h,
+        )
         show("get conversation", r)
+        r = http.post(f"/api/v1/agentic/conversations/{cid}/close", headers=post_h)
+        show("close conversation", r)
 
 
 def cmd_context(args) -> None:
@@ -715,6 +765,8 @@ def main() -> None:
     sp.add_argument("--apply", action="store_true", help="write the turn (default: dry run)")
     sp.add_argument("--reads", type=int, default=3, help="GetContext attempts after the write")
     sp.add_argument("--wait", type=int, default=5, help="seconds between reads")
+    sp.add_argument("--write-attempts", type=int, default=3, help="bounded attempts per write")
+    sp.add_argument("--write-wait", type=int, default=5, help="seconds between write attempts")
     sp = sub.add_parser("context")
     sp.add_argument("agent", choices=sorted(AGENTS))
     sp.add_argument("--owner", required=True, help="real profile-DMO xid")

@@ -5434,3 +5434,27 @@ until Codex passes the implementation and the operator deploys and records those
 
 **Status.** DECIDED 2026-11-10. Implementer: Claude Code. Cross-reviewer: Codex. Handoff batch:
 `ws25-b4`.
+
+## 2026-11-11 — D120: non-default Agentic Memory tests reproduce the full profile foundation
+
+**Context.** The first `A2ALabMemoryProbe` runtime comparison used an ACTIVE Agentic setup and
+registration, but its Agent Configuration had Profile DMO = None, no customer real-time graph,
+and automatic extraction disabled. The setup had created an `amp_Individual__dlm`, but not the
+Contact Point Email mapping or identity-resolution outputs needed for a Unified Individual.
+Failures from that state could not establish a non-default-space product defect.
+
+**Decision.** A non-default Agentic Memory comparison is valid only after it reproduces the
+working registration's dependency shape inside that space: source-to-Individual and Contact Point
+Email mappings, a successful identity-resolution ruleset, its Unified Individual Profile DMO, a
+READY real-time customer graph rooted on that profile, the Profile DMO and graph attached through
+a full-configuration PATCH, and automatic extraction enabled. The lab retains the isolated
+`A2ALabMemoryProbe` stack with tracked `AMP1` identity-resolution and customer-graph definitions.
+The Employee graph remains unset because the working registration does not use one.
+
+**Consequences.** The incomplete run is recorded as test defect AM-TEST-001, not product evidence.
+A second test error copied the default DMO's qualifier names even though the custom mapping uses
+`KQ_Id1__c`/`KQ_PartyId1__c`; AM-TEST-002 corrects it and withdraws AM-D360-001. The corrected
+graph is READY with day-zero artifacts and attached. A paired default/custom run then showed that
+facts, preferences, Conversation Retrieval, and Context work in default but fail through the same
+request sequence in the custom space, establishing AM-API-012. Future reruns must verify each
+dependency's health, not only its attachment, and must not infer persistence from 201/202 responses.

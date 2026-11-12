@@ -7,9 +7,10 @@ can show them (the "Memory Back End" section):
 
 * the ``AgenticConnector_*`` Ingestion API **data streams**, one per memory object,
   with the lake object (DLO) each lands in;
-* the **DMOs** the memory objects are modelled as, with live row counts. The DLOs
-  hold almost nothing while the DMOs hold the history, because the real-time layer
-  writes the DMOs directly (measured 2026-11-06);
+* the **DMOs** the memory objects are modelled as, with live row counts. A controlled
+  Memory API fact was query-visible as an active row in both its source DLO and
+  ``AiParticipantInsight_std__dlm``; API deletion removed the DMO row and retained
+  an inactive DLO tombstone (measured 2026-11-11);
 * the two HYBRID **search indexes** over messages and participant insights, with
   their embedding settings and how many chunks they actually hold.
 
@@ -42,6 +43,7 @@ MEMORY_DMOS: dict[str, str | None] = {
     "AiAgentInteraction": "ssot__AiAgentInteraction__dlm",
     "AiAgentInteractionMessage": "ssot__AiAgentInteractionMessage__dlm",
     "AiAgentInteractionStep": "ssot__AiAgentInteractionStep__dlm",
+    "AiAgentMessageAttachment": "AiAgentMessageAttachment_std__dlm",
     "AiParticipantInsight": "AiParticipantInsight_std__dlm",
     "Individual": None,
 }

@@ -1,5 +1,10 @@
 # 18 — Data 360 Agentic Memory and Context: one memory, every platform
 
+Detailed 2026-11-11 product-stack/API readout (14 operations, Data Stream → DLO → DMO mapping,
+hidden generated graphs, and Mermaid/ASCII diagrams):
+`build-notes/codex/agentic-memory-api-stack-readout.md`. Product/API defects are maintained in
+`build-notes/ws27/agentic-memory-product-api-defects.md`.
+
 **Status: Phase 0 + Phase 1 DONE (2026-10-12): the memory ECA is deployed and verified; the `default` agentic setup is ACTIVE and `A2ALab_Memory_Concierge` is registered (ACTIVE). Phase 2 (D83) is DEPLOYED (2026-10-13): bridge task definition :13, `A2ALabMemoryTurn` (6/6 tests, 100% coverage) and concierge v1 active. The tenant smoke passed (2026-10-13), and **first recall across sessions passed (2026-10-14)**. The reply side was measured on 2026-10-15: replies never reach memory natively. D87's idempotent entry ids are live; its reply path is not: `last_reply` turned out to be voice barge-in state, so concierge v2 failed every turn and v1 is active again, and the reply moves out of band (D89). Phase 0b (D86, 2026-10-14) moves the memory ECA off the admin onto a dedicated API-only integration user: built, with the production steps pending. Agentforce also has NATIVE memory actions (`manageUserMemory` and friends), so Phase 2b (D84) runs both routes as an experiment, including a Data Cloud One companion-org arm.**
 **D104 addendum (2026-11-02): customer-profile continuity is now built in the existing A2A Lab org.**
 `Contact_Home` materializes Individual + Contact Point Email, identity ruleset `AM01` produces
@@ -29,6 +34,14 @@ missing for graphs created 2026-11-07 serves them as of 2026-11-10. A test regis
 POS-bearing graph returned a new order in GetContext, and in the faces' rendered prompt,
 1.8–2.0 s after ingest (`plan/03-results.md`). The console's customer-memory experiments ring up
 a catalog order for the selected customer, and the next turn on Claude or OpenAI can name it.
+
+**D120 addendum (2026-11-11): the non-default comparison now has a verified profile foundation
+and healthy graph.** `A2ALabMemoryProbe` has the replicated Contact Point Email mapping,
+successful `AMP1` identity resolution, `amp_UnifiedIndividualAmp1__dlm`, Profile DMO attachment
+and extraction enabled. The first graph definitions incorrectly used the default DMO's qualifier
+names; corrected `A2ALab_MemoryProbe_C360V2` is READY with day-zero artifacts and attached
+(AM-TEST-002; AM-D360-001 withdrawn). An identical default/custom probe still isolates the
+non-default runtime failure as AM-API-012.
 
 The deployed demo now separates memory from action cleanly. **Teach Claude** stores the selected
 customer's facts/preferences without calling Agentforce. **OpenAI recalls** reads those memories
@@ -128,7 +141,7 @@ provenance and don't vendor their content.
 | The feature is provisioned in the org           | Standard sObjects `DataAgenticContext` (key `1lc`) and `DataAgenticContextAgent` (key `1lW`) exist; both createable/deletable; 0 rows each | Nothing registered yet; first registration also creates the agentic setup                                                                                       |
 | The UI "Agent Config" exists but stayed hidden until setup | Tabs `standard-Agents` ("Agent Config") and `standard-DataAgenticContextAgent` ("Data Agentic Context Agents", the raw object tab) exist. "Agent Config" became usable once the `default` setup went ACTIVE (Phase 1) | App Launcher → **"Agent Config"** (Agentforce Studio → Agent Configuration). The object tab errors (Phase 1); registration needs neither |
 | One data space                                  | `DataSpace`: `default` only                                                                                                                | Every lab agent lands in `default`; no data-space choice to make                                                                                                |
-| Identity Resolution (updated D104/D105)         | Ruleset `AM01` succeeded over 146 Individual profiles and produced `UnifiedssotIndividualAm01__dlm`                                      | `xid` is this profile's unified key, never a synthetic lab user id. The live `A2ALab_Memory_Case` declares **no** profile DMO, so it defaults to `UnifiedIndividual__dlm`; `A2ALab_Memory_Case_Graph` declares AM01 (D115) |
+| Identity Resolution (updated D104/D117)         | Ruleset `AM01` succeeded over 146 Individual profiles and produced `UnifiedssotIndividualAm01__dlm`                                      | `xid` is this profile's unified key, never a synthetic lab user id. D117 attached this AM01 Unified Individual as the live `A2ALab_Memory_Case` Profile DMO; the earlier no-profile-DMO observation is historical |
 | Customer graph (D105 → attached by D117/D118)   | `A2ALab_Test_C360Copy` (Customer360 plus POS orders; the tracked definition replaces it once it builds) is a real-time graph rooted on the unified profile, attached to `A2ALab_Memory_Case`; CRM input follows the ~10-min ingestion schedule, POS orders arrive in ~2 s | Attached so every turn carries the live CRM record and recent orders beside memory; the graph record renders first, on its own 4000-character budget (D117/D118). Root-key (unified id) lookups stay on the ~30-min batch refresh; the faces read through the Contact identity link, which is real-time |
 | Data 360 tenant region                          | eu-central-1 tenant (D70)                                                                                                                  | GetContext latency from us-east-1 agents includes a transatlantic hop. Record it, don't hide it                                                                 |
 
@@ -324,7 +337,7 @@ Its **Edit Agent** dialog maps onto the API fields and the
 | Agent Name | `label` | `AgentLabel` | Editable |
 | Agent API Name | `name` | `AgentApiName` | Greyed out: immutable. It is the runtime `agent_id` header |
 | Data Space | `dataspaceName` | via `DataAgenticContextId` → setup | Greyed out: immutable |
-| Profile DMO (required) | `configuration.profileDmos[]` | `ProfileObjectList` | Greyed out at **None**: `default` has no identity-resolution ruleset, so there is nothing to pick |
+| Profile DMO (required) | `configuration.profileDmos[]` | `ProfileObjectList` | Historical Phase-1 capture showed **None** before identity resolution. Current default uses AM01; the non-default probe now uses its AMP1 Unified Individual twin. |
 | **Automatic Memory Extraction** | `configuration.isMemoryGenerationEnabled`, returned by `GET agent` at **v67.0** only (absent at v66, and not in the v66 spec) | `IsMemoryGenerationEnabled` | Off on registration. This is the LLM extraction of facts and preferences, the part that will consume flex credits after Limited GA. **Mapping confirmed 2026-10-12:** toggled on in the UI, the column read `true` with a matching `LastModifiedDate`. Scripted as `setup_agentic_memory.py extraction <agent> on\|off [--apply]`. The first version wrote the column directly; it now writes `configuration` over v67 (see below for why). **UI → column is proven both ways** (UI on read back `true`, UI off read back `false`). **Column → UI is NOT:** after `extraction concierge on --apply` (accepted, column `true`, modified 05:38:40Z), the Edit Agent dialog opened at 05:40Z still showed the toggle **off**. So the UI either caches or reads the setting from somewhere other than this column, and a direct column write may not reach the service that runs extraction. The Connect API agent item has only GET and DELETE, so the UI's Update calls an unpublished path. The captured Update body is an `AgentInputRepresentation` with `configuration`, so the script now writes the real field over v67. **Headless write proven 2026-10-13** (script on → UI shows on, below) |
 
 **Where the UI really writes (DevTools capture, 2026-10-12).** The Edit Agent

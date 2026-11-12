@@ -8377,9 +8377,10 @@ function memObjectsHtml() {
        ${memBackend.streams_hidden} streams but returned none. The lake objects below come from
        <code>/ssot/metadata</code> instead, so stream status and last refresh are not shown.</p>` : "";
   return `
-    <p class="hint" style="margin-top:12px">One Ingestion API stream per memory object. Compare the two
-    row counts: the real-time layer writes the DMO directly, so the lake object is not where memory
-    lives (D115, plan/03-results.md).</p>
+    <p class="hint" style="margin-top:12px">One Ingestion API stream per memory object. The counts are
+    two views of the memory pipeline, not competing stores: a controlled curated fact was visible as
+    active in both its source DLO and DMO; deletion removed the DMO row while the DLO retained an
+    inactive tombstone (D115, plan/03-results.md, 2026-11-11).</p>
     ${hidden}
     <div class="tbl-card"><div class="tbl-scroll">
     <table class="obs-table"><thead><tr><th>memory object</th><th>stream lake object (DLO)</th>
@@ -8426,6 +8427,10 @@ lists the org's data streams (\`/ssot/data-streams\`), keeps the \`AgenticConnec
 runs one \`SELECT COUNT(*)\` per lake object and per memory DMO through \`/ssot/query\`. Nothing is
 stored: the read is cached in the console process for 10 minutes, and **Refresh** forces a new one.
 
+The full API-to-product-stack map, including the hidden generated data graphs and non-default
+space probe, is in \`build-notes/codex/agentic-memory-api-stack-readout.md\`. Product/API defects
+are tracked in \`build-notes/ws27/agentic-memory-product-api-defects.md\`.
+
 ### Identity
 
 The observability client-credentials app (\`SF_CLIENT_ID_OBS\`), the same identity the OTel trace
@@ -8436,15 +8441,23 @@ so each is named by the full object prefix its fields carry.
 
 ### What the numbers say
 
-The memory API (plan/18-agentic-memory-context.md, D91) writes through a real-time layer
-straight into the DMOs. So the DMO counts measure memory, and the stream lake objects mostly
-stay empty. \`ssot__Conversation__dlm\` and \`AiParticipantInsight_std__dlm\` read 0 even though
-saved facts are returned by the API, so curated facts are not served from those DMOs on this
-tenant. Measured and explained in plan/03-results.md under D115.
+The row counts are snapshots of two layers, not a proof that one bypasses the other. A controlled
+\`sys_PROFILE_FACT\` created through the Memory API was query-visible with the same memory id and
+content in its \`AgenticConnector_AiParticipantI_*__dll\` source DLO and in
+\`AiParticipantInsight_std__dlm\`. After API deletion, the DMO row disappeared and the DLO kept
+an \`inactive\` tombstone with a null payload. This 2026-11-11 result supersedes the 2026-11-06
+empty-DMO observation and is recorded in plan/03-results.md under D115.
 
 ### Caveats
 
-- Counts are for the \`default\` dataspace, across every lab registration and owner.
+- These live counts describe the production experiments in \`default\`, across every lab
+  registration and owner. The isolated \`A2ALabMemoryProbe\` space was provisioned 2026-11-11;
+  D120/plan/18-agentic-memory-context.md records its verified comparison foundation: Contact
+  Point Email mapping, successful AMP1 identity resolution, Unified Individual Profile DMO,
+  extraction enabled, and READY graph with day-zero artifacts. The first graph used the wrong
+  qualifier fields (AM-TEST-002; AM-D360-001 withdrawn). Paired default/custom probes still
+  reproduce the custom-space Context and Memory failures (AM-API-012), so the space is documented
+  rather than merged into these counts.
 - \`ssot__Individual__dlm\` is shared with CRM, so it is listed but not counted.`)}</div>`;
 }
 

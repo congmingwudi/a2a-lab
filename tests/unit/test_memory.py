@@ -145,7 +145,7 @@ async def test_start_conversation_opens_a_session_in_the_owners_conversation():
     assert session["sessionId"] == sid != cid  # D94: a chat is a session, not a conversation
     assert session["participants"][0]["id"] == "persona-ana-participant"
     agent = fake.bodies("/participants")[0]["participants"][0]
-    assert agent == {**agent, "id": "A2ALab_Memory_Concierge-participant", "type": "agent"}
+    assert agent == {**agent, "id": "A2ALab_Memory_Concierge", "type": "agent"}
     post = next(r for r in fake.calls if r.url.path == "/api/v1/agentic/conversations")
     assert post.headers["dataspace"] == "test-memory-space"
     assert post.headers["agent_id"] == "A2ALab_Memory_Concierge"
@@ -238,7 +238,7 @@ async def test_ingest_ids_are_content_derived_and_the_reply_comes_first():
     reply, user = first["entries"]
     assert (reply["type"], user["type"]) == ("agent_response", "user_message")
     assert reply["timestamp"] < user["timestamp"]
-    assert reply["participantId"] == f"{IDS['agent_id']}-participant"
+    assert reply["participantId"] == IDS["agent_id"]
     assert entry_id("c-2", "user_message", "yes") != user["id"]  # same words, another chat
 
 
@@ -399,8 +399,10 @@ async def test_runtime_calls_use_configured_data_space(monkeypatch):
 
     tenant_calls = [r for r in fake.calls if r.url.host == "tenant.example"]
     post = next(r for r in tenant_calls if r.method == "POST")
+    session = fake.bodies("/sessions")[0]
     get = next(r for r in tenant_calls if r.url.path == "/api/v1/agentic/context")
     assert post.headers["dataspace"] == "second-environment-space"
+    assert "orgId" not in session["participants"][0]
     assert get.headers["ctx-dataspace-ds_name"] == "second-environment-space"
 
 

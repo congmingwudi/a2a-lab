@@ -57,6 +57,8 @@ ARMS = {
     "G": "A2ALab_Memory_Case_Graph_RT",
     # WS32: Customer360 + POS orders (A2ALab_Test_C360Copy).
     "P": "A2ALab_Memory_Case_POS",
+    # Non-default-space twin: AMP1 profile + corrected Customer360V2 graph.
+    "H": "A2ALab_Memory_Space_Probe",
 }
 OUT = ROOT / "traces" / "graph-probe"
 
@@ -65,10 +67,19 @@ def nbytes(v) -> int:
     return len(json.dumps(v, ensure_ascii=False)) if v not in (None, "", [], {}) else 0
 
 
-async def conversation_for(mem: MemoryClient, trace_id: str, owner: str) -> tuple[str, bool]:
+async def conversation_for(
+    mem: MemoryClient,
+    trace_id: str,
+    owner: str,
+    agent_id: str = ARMS["A"],
+    *,
+    read_generation: bool = True,
+) -> tuple[str, bool]:
     """The faces' derivation (memory_adapter.MemoryAdapter.handle)."""
+    if not read_generation:
+        return owner_conversation(owner), False
     listing = await mem.list_memories(
-        trace_id, agent_id=ARMS["A"], owner_id=owner, category=GENERATION_CATEGORY
+        trace_id, agent_id=agent_id, owner_id=owner, category=GENERATION_CATEGORY
     )
     if isinstance(listing, MemoryListing):
         generation, malformed = select_generation(listing)
@@ -77,11 +88,25 @@ async def conversation_for(mem: MemoryClient, trace_id: str, owner: str) -> tupl
     return owner_conversation(owner), False
 
 
-async def probe(customer: str, owner: str, reads: int, stamp: str, arms: list[str]) -> dict:
+async def probe(
+    customer: str,
+    owner: str,
+    reads: int,
+    stamp: str,
+    arms: list[str],
+    *,
+    read_generation: bool = True,
+) -> dict:
     mem = MemoryClient(source="graph-probe")
     trace_id = new_trace_id()
     try:
-        conv, has_gen = await conversation_for(mem, trace_id, owner)
+        conv, has_gen = await conversation_for(
+            mem,
+            trace_id,
+            owner,
+            ARMS[arms[0]],
+            read_generation=read_generation,
+        )
         out: dict = {"customer": customer, "generation": has_gen, "trace_id": trace_id}
         for arm in arms:
             agent = ARMS[arm]
@@ -123,13 +148,30 @@ async def main() -> int:
     ap.add_argument("--customers", nargs="+", default=["maya", "jordan"])
     ap.add_argument("--reads", type=int, default=3)
     ap.add_argument("--arms", nargs="+", default=["A", "B"], choices=sorted(ARMS))
+    ap.add_argument(
+        "--skip-generation",
+        action="store_true",
+        help="use the stable owner conversation without a preliminary Memory API read",
+    )
     args = ap.parse_args()
     load_dotenv(ROOT / ".env")
     cmap = json.loads(os.environ["A2ALAB_MEMORY_CUSTOMER_MAP"])
     OUT.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     for c in args.customers:
-        print(json.dumps(await probe(c, cmap[c], args.reads, stamp, args.arms), indent=1))
+        print(
+            json.dumps(
+                await probe(
+                    c,
+                    cmap[c],
+                    args.reads,
+                    stamp,
+                    args.arms,
+                    read_generation=not args.skip_generation,
+                ),
+                indent=1,
+            )
+        )
     print(f"raw bodies: {OUT.relative_to(ROOT)}/{stamp}-*.json")
     return 0
 

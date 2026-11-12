@@ -1,0 +1,40 @@
+{
+  "label": "A2A Lab Memory Probe Customer",
+  "description": "Non-default-space twin of AM01 for Agentic Memory API routing tests.",
+  "configurationType": "individual",
+  "dataSpaceName": "A2ALabMemoryProbe",
+  "doesRunAutomatically": true,
+  "isCaseSensitive": false,
+  "rulesetId": "AMP1",
+  "secondaryDmo": "amp_Individual__dlm",
+  "matchRules": [
+    {
+      "label": "Exact Normalized Email",
+      "criteria": [
+        {
+          "entityName": "amp_ContactPointEmail__dlm",
+          "fieldName": "EmailAddress__c",
+          "matchMethodType": "exactnormalized",
+          "caseSensitiveMatch": false,
+          "shouldMatchOnBlank": false
+        }
+      ]
+    }
+  ],
+  "reconciliationRules": [
+    {
+      "entityName": "amp_Individual__dlm",
+      "ruleType": "lastupdated",
+      "shouldIgnoreEmptyValue": true,
+      "sources": [],
+      "fields": []
+    },
+    {
+      "entityName": "amp_ContactPointEmail__dlm",
+      "ruleType": "lastupdated",
+      "shouldIgnoreEmptyValue": true,
+      "sources": [],
+      "fields": []
+    }
+  ]
+}

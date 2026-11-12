@@ -411,14 +411,14 @@ class MemoryClient:
                                     "ownerType": OWNER_TYPE,
                                     "participants": [{"id": f"{owner_id}-participant",
                                                       "type": OWNER_TYPE, "role": "owner",
-                                                      "startTime": now, "orgId": "default"}]})  # fmt: skip
+                                                      "startTime": now}]})  # fmt: skip
         await self._call(trace_id, agent_id, "POST",
                          f"{base}/{cid}/sessions/{sid}/participants", headers=h,
                          owner_id=owner_id,
                          ok=(200, 201, 202, 409),
-                         json_body={"participants": [{"id": f"{agent_id}-participant",
-                                                      "type": "agent", "role": "participant",
-                                                      "startTime": now}]})  # fmt: skip
+                         json_body={"participants": [{"id": agent_id,
+                                                      "type": "agent",
+                                                      "role": "participant"}]})  # fmt: skip
         return sid
 
     async def ingest(
@@ -443,7 +443,7 @@ class MemoryClient:
         turn = uuid.uuid4().hex
         entries = []
         for kind, pid, text, back_ms in (
-            ("agent_response", f"{agent_id}-participant", agent_response, 1),
+            ("agent_response", agent_id, agent_response, 1),
             ("user_message", f"{owner_id}-participant", user_message, 0),
         ):
             if text:
