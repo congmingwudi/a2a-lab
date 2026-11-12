@@ -7,6 +7,10 @@
     "mermaid_sha256": "ddad5924d1769c132a449d37a1068b1af6ee60b127c4109d507ba245748fad99",
     "svg_sha256": "ca6bc529baba935ee7ab1583790b28f1af91d82254ed18a3b7d23585b4038de8"
   },
+  "agent-context": {
+    "mermaid_sha256": "196712a58fde1c92cbe92ef91b56134080152eabc39f1e5a227ad3b5778254d0",
+    "svg_sha256": "f6fee0a1f30fa615e99fe4e432397e2a14a6d104c9c0365ec5410b5e25142a43"
+  },
   "behaviour": {
     "mermaid_sha256": "d59895ef03dfc78f1fe513effc77b8577030a4cc7a84697a8b042ce9120d889e",
     "svg_sha256": "5957f3340fe38a2bbdbc5d8a82f0a1fab60109a8a743e5e3c382f3d5c9c2b012"

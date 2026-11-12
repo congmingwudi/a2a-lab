@@ -974,6 +974,8 @@
                                          background: var(--card); padding: 18px; }
   .memory-system-map h3, .memory-narration h3 { margin: 0 0 13px; font: 600 12px var(--font-head); }
   .memory-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .memory-figure .arch-figure { min-height: 280px; }
+  .memory-figure .arch-figure svg { width: 100%; height: auto; max-height: 62vh; }
   .memory-flow-card { min-height: 106px; padding: 13px; border: 1px solid var(--border);
                       border-radius: 10px; background: var(--bg); }
   .memory-flow-card .seq { display: block; margin-bottom: 7px; color: var(--muted);
@@ -2987,7 +2989,6 @@ function statusHtml(key, cls) {
 function scenarioCardHtml(s) {
   const soon = s.status !== "live";
   const isOpen = view && view.type === "experiment" && view.kind === "scenario" && view.name === s.name;
-  const memoryPresentation = ["customer-memory-claude", "customer-memory-openai"].includes(s.name);
   return `
     <div class="card ${soon ? "soon" : ""} ${isOpen ? "open" : ""}" onclick="openExperiment('scenario', '${esc(s.name)}')">
       <div class="head">
@@ -2997,10 +2998,7 @@ function scenarioCardHtml(s) {
       <p>${esc(s.summary || s.description || "")}</p>
       <div class="foot">${tagChipsHtml(s.tags)}
         ${modeUnmet(s) ? `<span class="badge hosted" title="Needs A2ALAB_MODE=${esc(s.requires_mode)} — the top-right mode badge shows the active mode">needs ${esc(s.requires_mode)} mode</span>` : ""}
-        ${soon ? `<span class="badge soon">coming soon</span>` : ""}
-        ${memoryPresentation ? `<button class="ghost" id="memory-presentation-${esc(s.name)}"
-          onclick="event.stopPropagation();openMemoryPresentation(this.id)"
-          aria-label="Present Agent Memory from ${esc(s.title)}">Presentation mode</button>` : ""}</div>
+        ${soon ? `<span class="badge soon">coming soon</span>` : ""}</div>
     </div>`;
 }
 
@@ -3194,10 +3192,10 @@ function renderScenarios() {
       return `
       <div class="nav-group ${open ? "open" : ""}" onclick="toggleGroup('${esc(g.id)}')">
         <span class="gtitle">${withLogos(g.title)}</span>
-        <span class="gcount">${g.scenarios.length}</span>
         ${g.id === "agent-memory" ? `<button class="ghost group-action"
           id="memory-presentation-section" onclick="event.stopPropagation();openMemoryPresentation(this.id)"
           aria-label="Present Agent Memory">Present</button>` : ""}
+        <span class="gcount">${g.scenarios.length}</span>
       </div>
       ${open ? g.scenarios.map(scenarioCardHtml).join("") : ""}`;
     }).join("");
@@ -3317,10 +3315,42 @@ function backBtnHtml() {
 }
 
 // ---------------------------------------------------------------------------
-// WS31 — Agent Memory presentation mode. Eight evidence-only scenes are kept
+// WS31 — Agent Memory presentation mode. Nine evidence-only scenes are kept
 // declarative so a future section can reuse the controller without copying it.
 // ---------------------------------------------------------------------------
+// Scene 1's figure: the whole story on one page. Mermaid is the source; the
+// draw.io twin is docs/diagrams/agent-context.drawio (D114). Agentforce is
+// dashed because it is the NEXT build in this category, not a measured path.
+const AGENT_CONTEXT_DIAGRAM = `flowchart LR
+  C["Claude agent<br/>Anthropic · customer-memory face"]
+  O["OpenAI agent<br/>OpenAI · customer-memory face"]
+  AF["Agentforce agent<br/>next build in this category"]
+  subgraph D360["Salesforce Data 360 · one shared agent context"]
+    MEM[("Agentic Memory<br/>A2ALab_Memory_Case · facts, preferences, conversations")]
+    CTX["GetContext<br/>memory + live customer in one read"]
+    RTG[("Real-time data graph<br/>unified customer · CRM record + POS orders (D117/D118)")]
+  end
+  C -->|"write turns"| MEM
+  O -->|"write turns"| MEM
+  CTX -->|"read context"| C
+  CTX -->|"read context"| O
+  AF -.->|"same context · next build"| CTX
+  MEM --> CTX
+  RTG -->|"unified customer"| CTX`;
+
 const MEMORY_PRESENTATION_SCENES = [
+  {
+    title: "One agent context in Data 360",
+    lede: "Agents on different platforms write to and read from the same Agentic Memory, and every read carries the live unified customer from a real-time data graph.",
+    evidence: ["Measured", "Next build", "D105", "D117", "D118"],
+    figure: "AGENT_CONTEXT",
+    nodes: [],
+    points: [
+      "Measured: Claude taught a customer's details and OpenAI recalled them in a later session through the same registration.",
+      "The registration carries a real-time customer graph, so context arrives with the unified customer's CRM record and recent POS orders beside memory.",
+      "Agentforce reading the same context is the next build in this category; it is drawn dashed because it is not built yet.",
+    ],
+  },
   {
     title: "Why agents need shared memory",
     lede: "A customer should not have to repeat durable constraints when the agent platform or session changes.",
@@ -3487,6 +3517,9 @@ function memoryPresentationHtml() {
     <article class="memory-flow-card">
       <span class="seq">Step ${index + 1}</span><b>${esc(node[0])}</b><p>${esc(node[1])}</p>
     </article>`).join("");
+  const map = scene.figure
+    ? `<div class="memory-system-map memory-figure">${figureHtml("memoryPresentFig", "The architecture behind it")}</div>`
+    : `<div class="memory-system-map"><h3>How this part works</h3><div class="memory-flow">${flow}</div></div>`;
   const narration = scene.live ? memoryPresentationReadinessHtml() : `
     <ul>${scene.points.map(point => `<li>${esc(point)}</li>`).join("")}</ul>`;
   return `
@@ -3511,7 +3544,7 @@ function memoryPresentationHtml() {
           <h2 id="memory-present-title">${esc(scene.title)}</h2>
           <p class="memory-present-lede">${esc(scene.lede)}</p>
           <div class="memory-present-grid">
-            <div class="memory-system-map"><h3>How this part works</h3><div class="memory-flow">${flow}</div></div>
+            ${map}
             <aside class="memory-narration"><h3>What the evidence supports</h3>
               <div class="memory-present-evidence">${scene.evidence.map(item => `<span class="badge">${esc(item)}</span>`).join("")}</div>
               ${narration}
@@ -6602,6 +6635,7 @@ function figKeyForSource(src) {
       [COST_SENTINEL_DIAGRAM, "cost-sentinel"], [BEHAVIOUR_DIAGRAM, "behaviour"],
       [MON_DIAGRAM, "mon"], [CRED_AGENT_DIAGRAM, "cred-agent"],
       [CRED_SCHEDULED_DIAGRAM, "cred-scheduled"], [BRIEF_DELIVERY_DIAGRAM, "brief-delivery"],
+      [AGENT_CONTEXT_DIAGRAM, "agent-context"],
     ]);
   }
   return figKeyMap.get(src) || "";
@@ -11740,6 +11774,8 @@ function renderMain(force) {
     mainKey = key;
     el.innerHTML = memoryPresentationHtml();
     linkifyRepoFiles(el);
+    if (MEMORY_PRESENTATION_SCENES[scene].figure === "AGENT_CONTEXT")
+      renderMermaidInto("memoryPresentFig", AGENT_CONTEXT_DIAGRAM, "memorypresentfig-svg");
     return;
   }
 
@@ -11959,9 +11995,6 @@ function renderMain(force) {
         ${modeUnmet(exp) ? `<span class="badge hosted"
           title="Needs A2ALAB_MODE=${esc(exp.requires_mode)} — the top-right mode badge shows the active mode">needs ${esc(exp.requires_mode)} mode</span>` : ""}
         <div class="tabs">
-          ${view.kind === "scenario" && ["customer-memory-claude", "customer-memory-openai"].includes(view.name)
-            ? `<button class="tab" id="memory-presentation-tab-${esc(view.name)}"
-                onclick="openMemoryPresentation(this.id)">Presentation mode</button>` : ""}
           <button class="tab ${activeTab === "run" ? "on" : ""}" onclick="setTab('run')">Run</button>
           <button class="tab ${activeTab === "details" ? "on" : ""}" onclick="setTab('details')">Details</button>
         </div>

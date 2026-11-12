@@ -1054,20 +1054,25 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert "A2ALab_Memory_Case" in guide_source
 
 
-def test_agent_memory_presentation_mode_is_eight_scene_evidence_only_handoff():
+def test_agent_memory_presentation_mode_is_nine_scene_evidence_only_handoff():
     html = Path("src/console/static/index.html").read_text()
     start = html.index("const MEMORY_PRESENTATION_SCENES = [")
     end = html.index("function ensureMemoryPresentationCustomer()", start)
     scenes = html[start:end]
 
-    assert scenes.count("\n    title:") == 8
+    assert scenes.count("\n    title:") == 9
+    # The category header is the ONE launcher: the experiment cards and the
+    # experiment tab bar no longer carry their own Presentation buttons.
     assert 'g.id === "agent-memory"' in html
-    for launcher_id in (
-        "memory-presentation-section",
-        "memory-presentation-${esc(s.name)}",
-        "memory-presentation-tab-${esc(view.name)}",
-    ):
-        assert f'id="{launcher_id}"' in html
+    assert 'id="memory-presentation-section"' in html
+    assert 'id="memory-presentation-${esc(s.name)}"' not in html
+    assert 'id="memory-presentation-tab-${esc(view.name)}"' not in html
+    group = html[html.index('<span class="gtitle">${withLogos(g.title)}</span>\n        ${g.id'):]
+    assert group.index('id="memory-presentation-section"') < group.index('class="gcount"')
+    # Scene 1 is the architecture figure (D114 twin: docs/diagrams/agent-context.drawio).
+    assert scenes.index('figure: "AGENT_CONTEXT"') < scenes.index('title: "Why agents need shared memory"')
+    assert 'renderMermaidInto("memoryPresentFig", AGENT_CONTEXT_DIAGRAM' in html
+    assert '[AGENT_CONTEXT_DIAGRAM, "agent-context"]' in html
     assert '"customer-memory-claude", "customer-memory-openai"' in html
     assert html.count('view = { type: "memory-presentation"') == 1
     assert 'aria-current="step"' in html
