@@ -16,7 +16,7 @@ diagrams:
   - id: identity-and-secrets
     title: "Who authenticates as what"
     caption: >
-      Every hosted seam loads its credentials from its own Secrets Manager secret (F1/D39), so runtime configs carry only a secret ARN. The callers with a dedicated job present a per-caller External Client App (F6/D37): claude, openai, shim, obs, tab_embed, and the memory ECA via JWT-bearer (D83/D91). The bridge, faces, briefs and console still also hold the shared a2a_lab_app pair.
+      Every hosted seam loads its credentials from its own Secrets Manager secret (F1/D39), so runtime configs carry only a secret ARN. The callers with a dedicated job present a per-caller External Client App (F6/D37): claude, openai, shim, obs, tab_embed, af_a2a (client credentials, D106/D109), and the memory ECA via JWT-bearer (D83/D91), which also signs the console's POS ingest until a dedicated a2a_lab_pos exists (WS32 item 11, D118). The bridge still holds the memory ECA for its /memory/turn verb, which has had no caller since the Concierge registration was retired 2026-11-03 (D83). The bridge, faces, briefs and console still also hold the shared a2a_lab_app pair.
     insights: [least-privilege-is-identity, credential-locality]
     readme: true
     mermaid: |
@@ -52,9 +52,11 @@ diagrams:
           SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
           SCON -- "a2a_lab_obs<br/>api" --> DMO
           SB -- "a2a_lab_app (shared)" --> AAPI
-          SB -- "a2a_lab_memory<br/>JWT-bearer, run-as user (D83)" --> MEM["Data 360 Agentic Memory<br/>/memory/turn"]
+          SB -. "a2a_lab_memory<br/>JWT-bearer, run-as user (D83)<br/>POST /memory/turn: idle since 2026-11-03" .-> MEM["Data 360 Agentic Memory<br/>/api/v1/agentic/*"]
           SF -- "a2a_lab_memory<br/>aid + customer xid (D91/D104)" --> MEM
           SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEM
+          SCON -- "a2a_lab_memory (until a2a_lab_pos, WS32 item 11)<br/>Ingestion API A2ALab_POS · ring up a purchase (D118)" --> POS[("Data 360<br/>A2ALab_POS_Order")]
+          SCON -- "a2a_lab_af_a2a<br/>client credentials · extended /v1/card (D106/D109)" --> AFN["Agentforce native<br/>inbound A2A (pilot)"]
           SBR -- "a2a_lab_app (shared)<br/>writes A2ALab_Account_Brief__c" --> SFORG[("Salesforce org")]
   - id: console-two-mints
     title: "One signing key, two public mints"
@@ -329,7 +331,9 @@ diagrams:
   - id: customer-memory-continuity
     title: "Customer continuity: Claude teaches, OpenAI recalls"
     caption: >
-      A verified lab persona resolves to Maya's unified Data 360 Individual. Claude and
+      A verified lab persona maps (environment-only, D117) to Maya's CRM Contact id, the
+      Agentic Memory owner; Data 360 resolves it to her Unified Individual (AM01) inside
+      GetContext. Claude and
       OpenAI share one memory registration, A2ALab_Memory_Case, and the same governed xid
       (platform identity stays in the execution trace, not in memory partitions, D105); remembered customer
       context and each run's fresh Agentforce CRM contribution stay visibly distinct.
@@ -337,10 +341,11 @@ diagrams:
     readme: false
     mermaid: |
       flowchart LR
-          USER["Verified lab persona"] -->|"environment-only mapping"| PROFILE["Unified Individual AM01<br/>Maya Chen"]
+          USER["Verified lab persona"] -->|"environment-only mapping<br/>(A2ALAB_MEMORY_CUSTOMER_MAP)"| OWNER["CRM Contact id<br/>Maya Chen · memory owner (D117)"]
           USER --> C["Claude customer-memory run"]
-          C -->|"A2ALab_Memory_Case · xid=Maya<br/>write + close"| MEM[("Data 360 Agentic Memory")]
+          C -->|"A2ALab_Memory_Case · xid=Contact id<br/>write + close"| MEM[("Data 360 Agentic Memory")]
           USER --> O["OpenAI customer-memory run"]
-          MEM -->|"A2ALab_Memory_Case · same xid<br/>GetContext"| O
+          MEM -->|"A2ALab_Memory_Case · same xid<br/>GetContext + Customer360 graph"| O
+          MEM -.->|"identity link"| PROFILE["Unified Individual AM01<br/>profile DMO + real-time graph (D117/D118)"]
           C -->|"fresh CRM context"| AF["Agentforce"]
           O -->|"fresh CRM context"| AF

@@ -599,9 +599,12 @@ console's merged call path).
 
 ## Security model, hop by hop
 
-Two shared secrets protect everything we host, because the Cloudflare tunnel
-publishes these apps on the open internet and the tunnel edge itself does
-**no** auth — each app enforces its own:
+Two shared secrets protect everything we host, because every hosted app is on
+the open internet — the bridge, console and protocol faces sit behind the
+public ALB `a2alab-bridge` (Cloudflare-proxied `bridge-lab` / `console-lab` /
+`faces-lab`, plan/09-deployment-map.md L5.5), and for local development the
+`cloudflared` tunnel publishes the local stack (D20) — and neither the
+Cloudflare edge nor the ALB does **any** auth; each app enforces its own:
 
 | Secret | Protects | Sent as |
 |---|---|---|
@@ -609,8 +612,9 @@ publishes these apps on the open internet and the tunnel edge itself does
 | `A2ALAB_TOKEN` | protocol servers :8001–8003, shims :8021/:8023, console :8200 | `X-Lab-Token`, `Authorization: Bearer` |
 
 Either token **unset = auth skipped** — pass-through is for localhost dev
-only. Set both in `.env` before running `cloudflared`, or the endpoints (and
-the raw payloads in the console) are open to anyone. Those are **service**
+only. The hosted deploy scripts refuse to ship without both (D80); locally,
+set both in `.env` before running `cloudflared`, or the tunnelled endpoints
+(and the raw payloads in the local console) are open to anyone. Those are **service**
 credentials; the console's browser surface additionally requires a **user**
 sign-in (operator/viewer personas, D36) with server-side role gating, and
 credentials in query strings are rejected outright — the SSE live tail uses
@@ -656,9 +660,11 @@ flowchart LR
     SCON -- "a2a_lab_tab_embed<br/>web via JWT-bearer (frontdoor, WS19)" --> TAB["Tableau Next<br/>embed session"]
     SCON -- "a2a_lab_obs<br/>api" --> DMO
     SB -- "a2a_lab_app (shared)" --> AAPI
-    SB -- "a2a_lab_memory<br/>JWT-bearer, run-as user (D83)" --> MEM["Data 360 Agentic Memory<br/>/memory/turn"]
+    SB -. "a2a_lab_memory<br/>JWT-bearer, run-as user (D83)<br/>POST /memory/turn: idle since 2026-11-03" .-> MEM["Data 360 Agentic Memory<br/>/api/v1/agentic/*"]
     SF -- "a2a_lab_memory<br/>aid + customer xid (D91/D104)" --> MEM
     SCON -- "a2a_lab_memory<br/>case preflight + seed/recall (D102)" --> MEM
+    SCON -- "a2a_lab_memory (until a2a_lab_pos, WS32 item 11)<br/>Ingestion API A2ALab_POS · ring up a purchase (D118)" --> POS[("Data 360<br/>A2ALab_POS_Order")]
+    SCON -- "a2a_lab_af_a2a<br/>client credentials · extended /v1/card (D106/D109)" --> AFN["Agentforce native<br/>inbound A2A (pilot)"]
     SBR -- "a2a_lab_app (shared)<br/>writes A2ALab_Account_Brief__c" --> SFORG[("Salesforce org")]
 ```
 
@@ -694,9 +700,12 @@ scope-configuration costume.
 | `SF_CLIENT_ID` / `SF_CLIENT_SECRET` | `.env` — the shared `a2a_lab_app`, the **local-development** identity | Consumer key/secret of the org's External Client App | — |
 | `SF_CLIENT_ID_<SEAM>` / `SF_CLIENT_SECRET_<SEAM>` | `.env` — per-caller apps (`CLAUDE`, `OPENAI`, `SHIM`, `OBS`); the deploy scripts ship each pair into that seam's own secret, falling back to the shared app when unset | Four per-caller External Client Apps, each scoped to what that caller actually calls | — |
 
-The Named Credential points at the stable named tunnel
-`bridge-lab.agenticthings.com` (D20 — single-level hostname on the free
-Cloudflare plan), so tunnel restarts need no redeploy.
+The Named Credential points at `bridge-lab.agenticthings.com` (D20 —
+single-level hostname on the free Cloudflare plan), Cloudflare-proxied
+(Full strict) to the bridge's ALB `a2alab-bridge` since 2026-07-26 (WS7, see
+plan/09-deployment-map.md L5.5). The old tunnel to a laptop is no longer on
+Path A: a bridge redeploy reaches Salesforce as soon as the ECS service goes
+PRIMARY, with no Named Credential change.
 
 ### `.env` is a secret too — and the repo names no accounts
 
@@ -752,8 +761,12 @@ Two rules keep the repo itself safe to publish:
    `{!$Credential.A2ALab_Bridge.BridgeToken}` into the `X-Bridge-Token`
    header at callout time. The token value lives on a Named Principal of the
    custom External Credential — set once in Setup, never in Apex, metadata,
-   or git. TLS terminates at the Cloudflare edge; `cloudflared` connects
-   outbound from the lab host, so no inbound port is ever opened.
+   or git. TLS terminates at the Cloudflare edge, which re-encrypts (Full
+   strict) to the public ALB `a2alab-bridge` on :443 (`*.agenticthings.com`
+   origin cert). The ALB's security group is open on 80/443; the Fargate
+   bridge task accepts only the container port from the ALB's security group
+   (`deploy/bridge/deploy_bridge.sh`). `cloudflared` is no longer on Path A —
+   it fronts only the local-dev `claude-*-lab` hostnames.
 3. **Bridge → protocol servers** — each target's `auth:` block in
    `config/targets.yaml` (with `${A2ALAB_TOKEN}` expanded from the
    environment) tells the client what to send; the servers are wrapped in

@@ -494,7 +494,7 @@ sharing one agent's session history.
 
 ```mermaid
 flowchart TB
-  HUMAN(["The ONE runtime human login<br/>AWS SSO<br/>(provisioning also: az · gcloud · sf · heroku)"])
+  HUMAN(["The ONE runtime human login<br/>AWS SSO<br/>(provisioning also: gcloud · sf · heroku)"])
   HUMAN --> SM[("Secrets Manager<br/>a2alab/runtime/*<br/>a2alab/obs/harvest<br/>a2alab/obs/reader|writer (Aurora)")]
 
   subgraph AWSID["AWS workloads — role identity, no stored keys"]
@@ -598,10 +598,12 @@ and the shim token as Agent Engine env vars copied from `.env` by
 itself, the obs MCP Lambda (`a2alab-obs-mcp`, D23) still holds
 `A2ALAB_OBS_MCP_TOKEN` in its own function env (`interop.secret_env` already
 supports moving it into a runtime secret). Provisioning is the deliberate
-exception: standing up the Foundry agent (`deploy/foundry/provision_foundry.py`)
-and the AWS→GCP federation (`deploy/bridge/gcp_federation.sh`,
-`deploy/fanout/provision_gcp_federation.py`) require the operator's own
-`az login` and `gcloud auth application-default login`. Credential-expiry
+exception, on the Google side only: the AWS→GCP federation
+(`deploy/bridge/gcp_federation.sh`, `deploy/fanout/provision_gcp_federation.py`)
+drives the `gcloud` CLI under the operator's own Google login (`gcloud auth
+login`). Standing up the Foundry agent (`deploy/foundry/provision_foundry.py`)
+needs no `az login`: it runs as the lab's Entra service principal from `.env`,
+explicitly and with no interactive fallback (D39). Credential-expiry
 collection is no longer an exception: since WS14 it runs in the 6-hourly harvest
 Lambda under the same service identities, and only the credential analyst's
 `messages.create` interpretation stays operator-triggered (see "It is ad-hoc, not
@@ -1273,7 +1275,7 @@ flowchart LR
 | — | `deploy/fanout/provision_gcp_federation.py` | AWS→GCP: pool, provider, mapping, condition, impersonation | GCP |
 | — | `deploy/agentcore/gcp_federation.sh strands` | AWS→GCP: binds the Strands **AgentCore runtime's** execution role (read off the live runtime) into the existing `a2alab-aws` pool as one more `principalSet` member — the native-direct half of the Strands → Google ADK cell (WS5). No new pool: same trust-with-an-account, one more bound role, same as the bridge/console federation | GCP |
 | `src/platforms/foundry/core.py` | `deploy/foundry/provision_foundry.py`, `provision_leg_agent.py` | Foundry agents + RemoteA2A connection to the shim + inbound A2A | Azure |
-| `src/console/` + `src/platforms/guide/` | `deploy/console/deploy_console.sh` | ECR image + task def + ECS service `a2alab-console` on cluster `a2alab`, target group + **host-header rule on the bridge's existing ALB** (no second load balancer), roles `a2alab-console-task` / `-exec`, secret `a2alab/runtime/console`. D102 adds the memory ECA identity/key because the CMA host-side supplier-memory arm executes here. D107 also relocates the validated `A2ALAB_MEMORY_CUSTOMER_MAP` into this secret for operator-only profile-memory listing/deletion/reset; profile ids never reach the browser. D112 carries required `A2ALAB_MEMORY_DATA_SPACE` as plain deployment configuration and exposes only that safe name in the console. The deploy fails before rewriting the secret if the memory signing key is absent. Off mode makes no memory call. Deployed 2026-07-28; `console-lab` DNS cut over to the ALB the same day (see L5.5), the tunnel kept only for local dev | AWS → Salesforce Data 360 |
+| `src/console/` + `src/platforms/guide/` | `deploy/console/deploy_console.sh` | ECR image + task def + ECS service `a2alab-console` on cluster `a2alab`, target group + **host-header rule on the bridge's existing ALB** (no second load balancer), roles `a2alab-console-task` / `-exec`, secret `a2alab/runtime/console`. D102 adds the memory ECA identity/key because the CMA host-side supplier-memory arm executes here. D107 carries the validated `A2ALAB_MEMORY_CUSTOMER_MAP` (since D117, demo customer → CRM Contact id) in this secret, and the deploy's `SECRETS` set keeps it off the plain task definition, for operator-only profile-memory listing/deletion/reset; the ids never reach the browser or the agents (WS32 items 12-13). D112 carries required `A2ALAB_MEMORY_DATA_SPACE` as plain deployment configuration and exposes only that safe name in the console. The deploy fails before rewriting the secret if the memory signing key is absent. Off mode makes no memory call. Deployed 2026-07-28; `console-lab` DNS cut over to the ALB the same day (see L5.5), the tunnel kept only for local dev | AWS → Salesforce Data 360 |
 | `docs/architecture/*.drawio` → `src/console/static/arch/*.svg` + `manifest.json` | `uv run python scripts/arch_drawio.py build <level> && … stamp <level>` (then the console deploy) | D113 draw.io twins of this file's levels: the console's Architecture section opens each level on its drawing, with a Mermaid tab beside it. The stamp is the sha256 of the level's mermaid fence, so a level edited here since its stamp opens on Mermaid, flagged stale, until it is redrawn (`/architecture-sweep` Drawings phase). Static files in the console image; full rebuild | AWS (console image) |
 | `src/console/app.py` `/api/track` + `lab.usage_events` | (part of `deploy/console/deploy_console.sh`; table via `scripts/pg_migrate.py`) | WS18/D62 usage analytics: the console's own `POST /api/track` proxy writes anonymous rows to Aurora `lab.usage_events` (as `lab_writer`) and **forwards** each event to the external AWS logging service below. Ships in the console image; no separate deploy. Needs `A2ALAB_LOGGING_API_URL`/`_KEY` in the console secret | AWS |
 | `src/orchestration/gate.py` + `src/platforms/jev/` | (part of `deploy/console/deploy_console.sh`) | WS26/D82 Jev unit gate for `supplier-disruption-cma` (the *Unit gate* radio): the console calls TypeSafe's hosted `POST /v1/systemone` (`api.typesafe.ai`) once per gated run, before any leg dispatches — a new **outbound** dependency, not a new deployed component. Needs `TYPESAFE_API_KEY` in the console secret; without it the gate fails open, visibly. Not in the remote fan-out Lambda (`deploy/fanout/build_zip.sh` does not bundle `src/platforms`; the runner imports the gate lazily). Full rebuild — `src/` and `config/` are baked by `COPY` | AWS → TypeSafe |

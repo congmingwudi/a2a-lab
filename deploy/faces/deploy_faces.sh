@@ -272,7 +272,11 @@ SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            "SF_AF_A2A_CLIENT_ID", "SF_AF_A2A_CLIENT_SECRET",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN",
-           "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER"}
+           "SF_CLIENT_ID_MEMORY", "SF_MEMORY_RUNAS_USER",
+           # The memory maps ride the runtime secret only; their names are not
+           # secret-shaped, so the os.environ scan otherwise copied them onto
+           # the plain task definition too (sweep 2026-11-11: a2alab-faces:38).
+           "A2ALAB_MEMORY_OWNER_MAP", "A2ALAB_MEMORY_CUSTOMER_MAP"}
 
 
 def is_secret(name):

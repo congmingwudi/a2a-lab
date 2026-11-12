@@ -13,8 +13,9 @@ first done by hand on 2026-07-22 so the Azure state is reproducible:
 3. Incoming A2A enabled + the agent card set (PATCH — the portal and the
    Python SDK cannot set the card yet), then both version cards verified.
 
-Requires: az login (Entra ADC), AZURE_* and AF_SHIM_A2A_URL + A2ALAB_TOKEN
-in .env. Idempotent: connection PUT overwrites, agent versions append,
+Requires: the lab's Entra service principal (AZURE_CLIENT_ID /
+AZURE_CLIENT_SECRET / AZURE_TENANT_ID, D39 — no az login fallback), the other
+AZURE_* and AF_SHIM_A2A_URL + A2ALAB_TOKEN in .env. Idempotent: connection PUT overwrites, agent versions append,
 endpoint PATCH re-applies.
 """
 
@@ -69,9 +70,11 @@ def _require(name: str) -> str:
 
 
 def _entra_token(resource: str) -> str:
-    from azure.identity import DefaultAzureCredential
+    # Explicit service principal, never DefaultAzureCredential (D39): a
+    # missing principal must fail loudly, not drift onto an operator az login.
+    from observability.credentials import azure_credential
 
-    return DefaultAzureCredential().get_token(f"{resource}/.default").token
+    return azure_credential().get_token(f"{resource}/.default").token
 
 
 def ensure_connection() -> None:

@@ -44,8 +44,8 @@
     "svg_sha256": "3ffc296c7152bfefb9174aa05ed1c36a22383c43aeb1f95ea8d26c28cc1eb05f"
   },
   "customer-memory-continuity": {
-    "mermaid_sha256": "c84e6c611083a97132bd9e9a4e027f8d2d3f6f9a96c94dcf87d9c033f582fa37",
-    "svg_sha256": "defcdd8cabd9f5fd63008bdedd3d4ef3adddff637306d62f1745fd7f2b86daf2"
+    "mermaid_sha256": "986277c592dab4c3a57c7f811ff5ad084837e22b08f73bfc062257731699e3bc",
+    "svg_sha256": "abda976f26ceebdc202b6edd57dd7bc0b26c4228a8d1dbf7b603bdd4f9486b46"
   },
   "delegation-guard": {
     "mermaid_sha256": "cbbcde529a48f5e6e8d8aa134b3de5ac22a07a3f6567bb9df254b5519ece5471",
@@ -56,8 +56,8 @@
     "svg_sha256": "5a3ae878a5737d737e277ee32979f8fe23d4cf183885e43de164f4b43895b97f"
   },
   "identity-and-secrets": {
-    "mermaid_sha256": "0245e883ce91ce2e870cf412b790498f129733033e4e04f0233a4b7c2fd3727e",
-    "svg_sha256": "bb6ec71ca9e6a4c8cdb3dcb715cfabaf6c4efcadae75104bb06825f7ccd175b1"
+    "mermaid_sha256": "2b4aa987149a52e43d2849f267e3e5b81ec669a0e3a548e9e44677403177201f",
+    "svg_sha256": "909fd0b9928ad11dcfc9c5f87d2d3fb1d4883e3eda7a037bafe61bd1612cd9a3"
   },
   "infra": {
     "mermaid_sha256": "e4b657fcedfc6d4af5c2e6e4550c5034f0edb425f05ae74d0c7d1746e3a21d02",

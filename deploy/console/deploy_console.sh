@@ -330,6 +330,11 @@ SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
            # rides plain env so the code can read it.
            "SF_CLIENT_ID_TAB_EMBED", "SF_CLIENT_ID_MEMORY", "SF_CLIENT_ID_POS",
            "SF_AF_A2A_CLIENT_ID",
+           # D107: the customer map rides the runtime secret only. Its name is
+           # not secret-shaped, so without this entry the os.environ scan put
+           # it on the plain task definition as well (architecture sweep
+           # 2026-11-11: live on a2alab-console:160).
+           "A2ALAB_MEMORY_CUSTOMER_MAP",
            "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "A2ALAB_FANOUT_MCP_TOKEN"}
 
