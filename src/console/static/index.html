@@ -974,7 +974,15 @@
                                          background: var(--card); padding: 18px; }
   .memory-system-map h3, .memory-narration h3 { margin: 0 0 13px; font: 600 12px var(--font-head); }
   .memory-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .memory-figure .arch-figure { min-height: 280px; }
+  .memory-figure { margin-bottom: 18px; border: 1px solid var(--border); border-radius: 14px;
+                   background: var(--card); padding: 14px 18px; }
+  .memory-present-grid.solo { grid-template-columns: 1fr; }
+  .memory-figure .arch-figure { min-height: 240px; }
+  .memory-shots { margin-top: 18px; }
+  .memory-shot-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .memory-shot { margin: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }
+  .memory-shot img { display: block; width: 100%; height: auto; border-bottom: 1px solid var(--border); }
+  .memory-shot figcaption { padding: 9px 11px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
   .memory-figure .arch-figure svg { width: 100%; height: auto; max-height: 62vh; }
   .memory-flow-card { min-height: 106px; padding: 13px; border: 1px solid var(--border);
                       border-radius: 10px; background: var(--bg); }
@@ -3315,12 +3323,16 @@ function backBtnHtml() {
 }
 
 // ---------------------------------------------------------------------------
-// WS31 — Agent Memory presentation mode. Nine evidence-only scenes are kept
+// WS31 — Agent Memory presentation mode. Ten evidence-only scenes are kept
 // declarative so a future section can reuse the controller without copying it.
+// Every scene but the live handoff carries a figure: a *_DIAGRAM constant named
+// in MEMORY_PRESENTATION_FIGURES. Mermaid is the source; each one's draw.io twin
+// is docs/diagrams/<id>.drawio (D114). Screenshots under
+// static/memory-presentation/ are the org's own Data 360 setup pages, cropped so
+// no record id, user name or customer row is visible.
 // ---------------------------------------------------------------------------
-// Scene 1's figure: the whole story on one page. Mermaid is the source; the
-// draw.io twin is docs/diagrams/agent-context.drawio (D114). Agentforce is
-// dashed because it is the NEXT build in this category, not a measured path.
+// Scene 1: the whole story on one page. Agentforce is dashed because it is the
+// NEXT build in this category, not a measured path.
 const AGENT_CONTEXT_DIAGRAM = `flowchart LR
   C["Claude agent<br/>Anthropic · customer-memory face"]
   O["OpenAI agent<br/>OpenAI · customer-memory face"]
@@ -3338,12 +3350,157 @@ const AGENT_CONTEXT_DIAGRAM = `flowchart LR
   MEM --> CTX
   RTG -->|"unified customer"| CTX`;
 
+// Scene 2: one customer teaches one platform, a different platform recalls.
+const MEMORY_SHARED_DIAGRAM = `flowchart LR
+  M["Maya<br/>selected demo customer"]
+  CL["Claude face<br/>teaches · session 1"]
+  REG[("A2ALab_Memory_Case<br/>one shared registration")]
+  OA["OpenAI face<br/>recalls · a later session"]
+  J["Jordan<br/>isolation control"]
+  M -->|"durable constraint + preference"| CL
+  CL -->|"write the turn"| REG
+  REG -->|"Maya's facts + preferences"| OA
+  J -.->|"different owner · none of Maya's details"| REG`;
+
+// Scene 3: what the live registration is made of (D117/D118), and the one
+// setting a deployment chooses: the Data Space (AM-API-012 keeps it default).
+const MEMORY_CONFIG_DIAGRAM = `flowchart LR
+  ENV["Face deployment setting<br/>A2ALAB_MEMORY_DATA_SPACE = default"]
+  subgraph DS["Data Space · default"]
+    SETUP["Agentic setup<br/>default · ACTIVE"]
+    REG["A2ALab_Memory_Case<br/>Automatic Memory Extraction on"]
+    DMO[("Profile DMO<br/>Unified Individual AM01")]
+    RTG[("Real-time data graph<br/>AM01 → Individual → POS orders + email")]
+  end
+  ND["Non-default Data Space<br/>creates fail · AM-API-012"]
+  ENV -->|"selects"| SETUP
+  SETUP --> REG
+  REG -->|"profileDmos"| DMO
+  REG -->|"contextDataSources"| RTG
+  ENV -.->|"not until the fix is verified here"| ND`;
+
+// Scene 4: the write path, in the order the seam calls it (D87/D107).
+const MEMORY_INGEST_DIAGRAM = `flowchart LR
+  F["Agent face<br/>server-side memory seam"]
+  R["Redact<br/>secrets removed · payload bounded"]
+  subgraph API["Agentic Memory API · A2ALab_Memory_Case"]
+    CV["Conversation<br/>per customer and experiment"]
+    SE["Session<br/>one written turn"]
+    PA["Participants<br/>customer + agent"]
+    EN["Entries<br/>user and agent text, in order"]
+    CL["Close session<br/>requests extraction"]
+  end
+  F --> R
+  R -->|"open or reuse"| CV
+  CV --> SE
+  SE --> PA
+  PA --> EN
+  EN --> CL`;
+
+// Scene 5: what extraction produces, and what it does not.
+const MEMORY_EXTRACT_DIAGRAM = `flowchart LR
+  T["Closed session<br/>the complete user + agent exchange"]
+  X["LLM extraction<br/>asynchronous · inside Data 360"]
+  FA[("sys_PROFILE_FACT<br/>durable statements")]
+  PR[("sys_PROFILE_PREFERENCES<br/>durable choices")]
+  SU["Session summary<br/>a different output"]
+  T --> X
+  X --> FA
+  X --> PR
+  T -.->|"not a curated memory"| SU`;
+
+// Scene 6: the owner is chosen on the server, from a persona key (D104/D117).
+const MEMORY_ISOLATION_DIAGRAM = `flowchart LR
+  U["Verified lab user<br/>signed, non-machine identity"]
+  P["Allow-listed persona<br/>Maya or Jordan · no id in the browser"]
+  subgraph FACE["Agent face · server only"]
+    MAP["A2ALAB_MEMORY_CUSTOMER_MAP<br/>persona → CRM Contact id (D117)"]
+  end
+  subgraph REGB["A2ALab_Memory_Case"]
+    OM[("Maya's owner<br/>facts · preferences · conversations")]
+    OJ[("Jordan's owner<br/>facts · preferences · conversations")]
+  end
+  U --> P
+  P -->|"persona key only"| MAP
+  MAP -->|"owner_id"| OM
+  MAP -.->|"the other persona"| OJ`;
+
+// Scene 7: one read for memory and the live customer, then what the model sees.
+const MEMORY_RETRIEVAL_DIAGRAM = `flowchart LR
+  F["Agent face<br/>next turn, either platform"]
+  subgraph D360["Data 360"]
+    MEM[("Agentic Memory<br/>conversations · curated memory")]
+    RTG[("Real-time data graph<br/>CRM record + POS orders")]
+    GC["GetContext<br/>owner = Contact id"]
+    MA["Memory API<br/>facts and preferences reads"]
+  end
+  RC["render_context<br/>graph record first · 4000-char budget"]
+  MK["Mask ids<br/>Contact and unified ids withheld"]
+  LLM["Model prompt<br/>Claude or OpenAI"]
+  F --> GC
+  F --> MA
+  MEM --> GC
+  RTG --> GC
+  GC --> RC
+  MA --> RC
+  RC --> MK
+  MK --> LLM`;
+
+// Scene 8: an in-store purchase reaches the next turn through the graph (D118).
+const MEMORY_POS_DIAGRAM = `flowchart LR
+  OP["Operator<br/>In-store purchase row"]
+  CON["Console server<br/>POST /api/memory/customer/key/purchase"]
+  ING["Ingestion API<br/>POS order stream · SKU from pos_catalog"]
+  DMO[("A2A Lab POS Order<br/>data model object")]
+  RTG[("Real-time data graph<br/>newest 10 orders · 7 days")]
+  GC["GetContext<br/>next turn · about 2 s"]
+  AG["Claude or OpenAI<br/>knows what was just bought"]
+  OP --> CON
+  CON -->|"Contact id on the server"| ING
+  ING --> DMO
+  DMO --> RTG
+  RTG --> GC
+  GC --> AG`;
+
+// Scene 9: the evidence boundary, with the forget path drawn as measured.
+const MEMORY_LIMITS_DIAGRAM = `flowchart LR
+  subgraph CF["Configured"]
+    C1["Live registration<br/>Data Space default · extraction on · AM01 · real-time graph"]
+  end
+  subgraph MS["Measured"]
+    M1["Cross-agent recall<br/>Claude teaches · OpenAI recalls"]
+    M2["Live customer in context<br/>graph record + POS order in about 2 s"]
+  end
+  subgraph OPN["Open"]
+    O1["Non-default Data Spaces<br/>creates fail · AM-API-012"]
+    DEL["DELETE a memory<br/>200 at once"]
+    LIST["Memory API list<br/>drops it in 1 s"]
+    CTX["GetContext<br/>still serves it after 44 min · AM-API-013"]
+  end
+  DEL --> LIST
+  DEL -.->|"cached snapshot"| CTX`;
+
+const MEMORY_PRESENTATION_FIGURES = {
+  AGENT_CONTEXT: AGENT_CONTEXT_DIAGRAM,
+  MEMORY_SHARED: MEMORY_SHARED_DIAGRAM,
+  MEMORY_CONFIG: MEMORY_CONFIG_DIAGRAM,
+  MEMORY_INGEST: MEMORY_INGEST_DIAGRAM,
+  MEMORY_EXTRACT: MEMORY_EXTRACT_DIAGRAM,
+  MEMORY_ISOLATION: MEMORY_ISOLATION_DIAGRAM,
+  MEMORY_RETRIEVAL: MEMORY_RETRIEVAL_DIAGRAM,
+  MEMORY_POS: MEMORY_POS_DIAGRAM,
+  MEMORY_LIMITS: MEMORY_LIMITS_DIAGRAM,
+};
+
+const MEMORY_SHOT = "/static/memory-presentation/";
+
 const MEMORY_PRESENTATION_SCENES = [
   {
     title: "One agent context in Data 360",
     lede: "Agents on different platforms write to and read from the same Agentic Memory, and every read carries the live unified customer from a real-time data graph.",
     evidence: ["Measured", "Next build", "D105", "D117", "D118"],
     figure: "AGENT_CONTEXT",
+    figureLabel: "The architecture behind it",
     nodes: [],
     points: [
       "Measured: Claude taught a customer's details and OpenAI recalled them in a later session through the same registration.",
@@ -3355,11 +3512,12 @@ const MEMORY_PRESENTATION_SCENES = [
     title: "Why agents need shared memory",
     lede: "A customer should not have to repeat durable constraints when the agent platform or session changes.",
     evidence: ["Verified demo", "D104", "D105", "D115"],
+    figure: "MEMORY_SHARED",
     nodes: [
       ["Customer turn", "Maya teaches a durable constraint and preference."],
       ["Claude", "The teaching agent reads context, answers, and closes the written turn."],
-      ["Shared registration", "The current lab path stores curated facts and preferences under one registration."],
-      ["OpenAI", "A different platform can recall the same selected customer's eligible memory."],
+      ["Shared registration", "Curated facts and preferences are stored under one registration, A2ALab_Memory_Case."],
+      ["OpenAI", "A different platform recalls the same selected customer's eligible memory."],
     ],
     points: [
       "Measured: Claude taught three details and OpenAI recalled them in a later session.",
@@ -3369,24 +3527,33 @@ const MEMORY_PRESENTATION_SCENES = [
   },
   {
     title: "Configure the memory path",
-    lede: "The faces share one fixed registration and one deployment-configured data space; the browser chooses neither.",
-    evidence: ["Configured", "Measured", "D112", "D115"],
+    lede: "The faces share one fixed registration in one deployment-configured Data Space; the browser chooses neither.",
+    evidence: ["Configured", "Measured", "D112", "D117", "D118", "AM-API-012"],
+    figure: "MEMORY_CONFIG",
     nodes: [
       ["Agent face", "Claude and OpenAI use the same server-side memory seam."],
-      ["Data space", "A required deployment setting is displayed to the presenter, not selected here."],
-      ["A2ALab_Memory_Case", "The fixed live registration has extraction enabled."],
-      ["Current readback", "No graph or profile DMO is declared; the service defaults the profile DMO."],
+      ["Data Space", "'default' Data Space required until a fix is available for non-default Data Spaces (AM-API-012). This step is updated once the fix reaches this org and is verified."],
+      ["A2ALab_Memory_Case", "The fixed live registration, with Automatic Memory Extraction on."],
+      ["Profile DMO", "Unified Individual AM01, the CRM-backed unified profile (D117)."],
+      ["Real-time data graph", "A POS-bearing customer graph on the External User slot: profile, identity link, email and in-store orders (D118)."],
     ],
     points: [
-      "The measured default profile DMO is UnifiedIndividual__dlm, not the CRM-backed AM01 profile.",
-      "An earlier partial PATCH may explain the missing declaration, so its cause remains open.",
-      "The live demo registration remains unchanged for repeatability.",
+      "Readback 2026-11-13: Data Space default, extraction on, Profile DMO Unified Individual AM01, one real-time data graph attached.",
+      "Both were attached by a full-configuration v67 PATCH (setup_agentic_memory.py configure case-memory), which keeps the registration's memories; a partial PATCH replaces the whole configuration (D115).",
+      "Non-default Data Spaces: in the A2ALabMemoryProbe space, memory creates still return 400 and ingested turns do not persist on this org. Another tenant's non-default space healed on 2026-11-13, so the fix is rolling out by cell (build-notes/support-requests.md, SR-01).",
+      "The attached graph is the 2026-11-07 copy the latency was measured on; re-attaching the tracked definition is WS32 item 6.",
+    ],
+    shots: [
+      { src: "agent-config-edit.png", caption: "Agent Configuration · A2ALab_Memory_Case: Data Space, Profile DMO, extraction and the attached real-time graph (opened in Edit, closed without saving)." },
+      { src: "data-spaces.png", caption: "Data Spaces · default, plus the disposable A2ALabMemoryProbe space where the non-default write path still fails." },
+      { src: "agent-config-list.png", caption: "Agent Configuration · every registration on the org and the Data Space it lives in." },
     ],
   },
   {
     title: "Pass the conversation to memory",
     lede: "Each turn is written as a conversation, session, participant, and ordered set of user and agent entries.",
     evidence: ["Available", "Observed", "D87", "D107"],
+    figure: "MEMORY_INGEST",
     nodes: [
       ["Open conversation", "The face creates or reuses the selected customer's experiment conversation."],
       ["Write entries", "User and agent text are ingested in order with stable entry ids."],
@@ -3403,6 +3570,7 @@ const MEMORY_PRESENTATION_SCENES = [
     title: "Extract facts and preferences",
     lede: "The current registration generates two curated memory categories from the closed conversation.",
     evidence: ["Available", "Observed", "D105"],
+    figure: "MEMORY_EXTRACT",
     nodes: [
       ["Closed turn", "The complete user and agent exchange is eligible for extraction."],
       ["LLM extraction", "Data 360 performs asynchronous memory generation."],
@@ -3418,46 +3586,75 @@ const MEMORY_PRESENTATION_SCENES = [
   {
     title: "Store and isolate what was learned",
     lede: "For this lab caller, the face's server-side customer-to-owner mapping is the effective isolation boundary.",
-    evidence: ["Measured", "Open boundary", "D91", "D115"],
+    evidence: ["Measured", "Open boundary", "D91", "D115", "D117"],
+    figure: "MEMORY_ISOLATION",
     nodes: [
       ["Verified lab user", "A signed, non-machine lab identity selects an allow-listed demo customer."],
-      ["Server mapping", "The face resolves that customer to the owner it sends to memory."],
+      ["Server mapping", "The face resolves that customer to its CRM Contact id, the owner it sends to memory (D117)."],
       ["Registration", "Curated facts and preferences remain scoped to the registration in measured tests."],
       ["Categories", "Facts and preferences remain separate retrieval partitions."],
     ],
     points: [
-      "The internal caller did not enforce the token's customer id; the sent profile_id selected the owner.",
+      "The owner is the customer's CRM Contact id, the id the AM01 identity link resolves; the unified id moved when identity resolution re-ran, so it is not used (D117).",
+      "The internal caller did not enforce the token's customer id; the owner the server sends selects the memories.",
       "Maya/Jordan isolation passed because the server mapping chose different owners.",
       "A second registration starting empty is measured but conflicts with current guidance, so it remains an open product boundary.",
     ],
   },
   {
     title: "Retrieve context for the next agent",
-    lede: "GetContext and explicit facts/preferences reads are separate operations with different evidence in the trace.",
-    evidence: ["Measured", "D107", "D115"],
+    lede: "One GetContext read returns the customer's memory and the live graph record; the faces render it, mask the ids, and hand it to the model.",
+    evidence: ["Measured", "D107", "D117", "D118", "WS32"],
+    figure: "MEMORY_RETRIEVAL",
     nodes: [
-      ["GetContext", "Returns eligible conversation/profile context for the current owner and generation."],
-      ["Memory API", "Reads curated facts and preferences unless fresh-generation isolation suppresses the merge."],
-      ["Attached graph controls", "Platform-made graph controls returned their record, proving the path works."],
-      ["CRM graph control", "The operator-built real-time graph returned Customer360 when the owner was a Contact id."],
+      ["GetContext", "Called with the customer's Contact id as owner; returns eligible conversation and curated-memory context."],
+      ["Graph record", "The real-time graph's record (profile, email, recent POS orders) arrives in the same read (D117)."],
+      ["Render", "The graph record renders first on its own 4000-character budget, so history cannot crowd out the newest order (D118)."],
+      ["Mask ids", "The Contact and unified-profile ids are withheld from the model; a prompt line says why (WS32 items 12–14)."],
     ],
     points: [
-      "The faces currently send the memory pipeline's own Individual, not the customer's Contact id.",
-      "The live registration has no attached graph, so this demo makes no live CRM graph claim.",
-      "After Start fresh, profile rows are quarantined and saved facts/preferences reads are intentionally skipped.",
+      "Measured 2026-11-06: with the Contact id as owner, the real-time graph returned Customer360 into GetContext (D117).",
+      "The faces now send the customer's Contact id, so every turn carries the graph record beside memory.",
+      "Asked for an id, an agent declines and uses the customer's first name; the trace views keep the raw wire bytes.",
+      "After Start fresh, profile rows are quarantined and saved facts/preferences reads are intentionally skipped; the graph record is read live, so it survives the reset.",
+    ],
+    shots: [
+      { src: "data-graph.png", caption: "Data Graph · the real-time customer graph: Unified Individual AM01 → identity link → Individual → POS orders and email (schema only)." },
+    ],
+  },
+  {
+    title: "See an in-store purchase on the next turn",
+    lede: "A purchase rung up from the console reaches every agent that reads this registration, through the real-time graph alone.",
+    evidence: ["Measured", "Operator-only", "D118"],
+    figure: "MEMORY_POS",
+    nodes: [
+      ["In-store purchase", "An operator-only row on the customer-memory experiments accepts a SKU from the catalog."],
+      ["Ingest", "The console server resolves the customer's Contact id and ingests one POS order; the id never reaches the browser."],
+      ["Real-time graph", "The order joins the customer's graph record, newest 10 orders over 7 days."],
+      ["Next turn", "GetContext returned the new order about 2 s after ingest; a recall prompt is loaded, never sent."],
+    ],
+    points: [
+      "Measured 2026-11-10: a new order reached GetContext, and the faces' rendered prompt, 1.8–2.0 s after ingest. That is a ceiling set by one round trip, not the platform's true latency.",
+      "Every purchase is a real, synthetic Data 360 row with no delete path; repeated demos push out older orders.",
+      "The order reaches the agent through memory alone; a CRM lookup cannot see POS orders.",
+    ],
+    shots: [
+      { src: "data-graph-pos-order.png", caption: "Data Graph · the A2A Lab POS Order object inside the real-time graph, keyed to the customer's Contact id (schema only)." },
     ],
   },
   {
     title: "Read the evidence—and the limits",
     lede: "The tour separates configured behavior, measured results, and open questions so the demo never outruns its traces.",
-    evidence: ["Evidence boundary", "D107", "D112", "D115"],
+    evidence: ["Evidence boundary", "D107", "D115", "D117", "D118", "AM-API-013"],
+    figure: "MEMORY_LIMITS",
     nodes: [
-      ["Configured", "Registration, data space, extraction flag, and runtime budgets."],
-      ["Measured", "Cross-agent recall, customer isolation, registration scope, and graph controls."],
+      ["Configured", "Registration, Data Space, extraction flag, profile DMO, real-time graph, and runtime budgets."],
+      ["Measured", "Cross-agent recall, customer isolation, the graph record in context, and POS orders on the next turn."],
       ["Observable", "Tenant trace hops, Memory API reads, GetContext, ingest, and later recall."],
-      ["Open", "The live graph attachment, Contact-id identity contract, and Profile rendering budget."],
+      ["Open", "Non-default Data Spaces, GetContext serving deleted memories, and the tracked POS graph."],
     ],
     points: [
+      "Forget lag (AM-API-013): after a DELETE, the Memory API list dropped both memories in 1 s, but GetContext still served them 44 minutes later. A forget demo shows the Memory API list, not the next agent turn.",
       "Extraction is asynchronous; availability lag is demonstrated, never guaranteed.",
       "Memory is fail-open within the agent response budget, so an agent can answer when memory is unavailable.",
       "Limited-GA billing copy distinguishes measured execution from a dedicated wallet charge.",
@@ -3499,7 +3696,7 @@ function memoryPresentationReadinessHtml() {
     <div class="memory-readiness" role="group" aria-label="Live demo readiness">
       <div class="memory-ready-row"><span>Customer</span><b>${esc(customer.name || selectedMemoryCustomer)}</b></div>
       <div class="memory-ready-row"><span>Registration</span><b>A2ALab_Memory_Case</b></div>
-      <div class="memory-ready-row"><span>Data space</span><b>${dataSpace
+      <div class="memory-ready-row"><span>Data Space</span><b>${dataSpace
         ? `${esc(dataSpace)} <small class="hint">configured</small>` : "not configured"}</b></div>
       <div class="memory-ready-row"><span>Generation</span><b>${esc(generation)}</b></div>
       <div class="memory-ready-row"><span>Launch behavior</span><b>Memory on · prompt loaded · no automatic send</b></div>
@@ -3517,9 +3714,20 @@ function memoryPresentationHtml() {
     <article class="memory-flow-card">
       <span class="seq">Step ${index + 1}</span><b>${esc(node[0])}</b><p>${esc(node[1])}</p>
     </article>`).join("");
-  const map = scene.figure
-    ? `<div class="memory-system-map memory-figure">${figureHtml("memoryPresentFig", "The architecture behind it")}</div>`
-    : `<div class="memory-system-map"><h3>How this part works</h3><div class="memory-flow">${flow}</div></div>`;
+  // A scene shows its figure AND its step cards: the diagram is the shape, the
+  // cards say what each box does. The figure spans the stage (these drawings are
+  // wide, and a half-width column shrinks their text below legibility); cards,
+  // screenshots and narration share the two columns beneath it.
+  const figure = scene.figure
+    ? `<div class="memory-figure">${figureHtml("memoryPresentFig", scene.figureLabel || "How this part works")}</div>`
+    : "";
+  const steps = flow ? `<h3>${scene.figure ? "Step by step" : "How this part works"}</h3><div class="memory-flow">${flow}</div>` : "";
+  const shots = (scene.shots || []).length ? `
+    <div class="memory-shots"><h3>In the org's Data 360 setup</h3><div class="memory-shot-row">${scene.shots.map(shot => `
+      <figure class="memory-shot"><a href="${MEMORY_SHOT}${esc(shot.src)}" target="_blank" rel="noopener">
+        <img src="${MEMORY_SHOT}${esc(shot.src)}" alt="${esc(shot.caption)}" loading="lazy"></a>
+        <figcaption>${esc(shot.caption)}</figcaption></figure>`).join("")}</div></div>` : "";
+  const map = steps || shots ? `<div class="memory-system-map">${steps}${shots}</div>` : "";
   const narration = scene.live ? memoryPresentationReadinessHtml() : `
     <ul>${scene.points.map(point => `<li>${esc(point)}</li>`).join("")}</ul>`;
   return `
@@ -3543,7 +3751,8 @@ function memoryPresentationHtml() {
           <div class="memory-present-kicker">Agent Memory · scene ${sceneIndex + 1}</div>
           <h2 id="memory-present-title">${esc(scene.title)}</h2>
           <p class="memory-present-lede">${esc(scene.lede)}</p>
-          <div class="memory-present-grid">
+          ${figure}
+          <div class="memory-present-grid${map ? "" : " solo"}">
             ${map}
             <aside class="memory-narration"><h3>What the evidence supports</h3>
               <div class="memory-present-evidence">${scene.evidence.map(item => `<span class="badge">${esc(item)}</span>`).join("")}</div>
@@ -6635,7 +6844,11 @@ function figKeyForSource(src) {
       [COST_SENTINEL_DIAGRAM, "cost-sentinel"], [BEHAVIOUR_DIAGRAM, "behaviour"],
       [MON_DIAGRAM, "mon"], [CRED_AGENT_DIAGRAM, "cred-agent"],
       [CRED_SCHEDULED_DIAGRAM, "cred-scheduled"], [BRIEF_DELIVERY_DIAGRAM, "brief-delivery"],
-      [AGENT_CONTEXT_DIAGRAM, "agent-context"],
+      [AGENT_CONTEXT_DIAGRAM, "agent-context"], [MEMORY_SHARED_DIAGRAM, "memory-shared"],
+      [MEMORY_CONFIG_DIAGRAM, "memory-config"], [MEMORY_INGEST_DIAGRAM, "memory-ingest"],
+      [MEMORY_EXTRACT_DIAGRAM, "memory-extract"], [MEMORY_ISOLATION_DIAGRAM, "memory-isolation"],
+      [MEMORY_RETRIEVAL_DIAGRAM, "memory-retrieval"], [MEMORY_POS_DIAGRAM, "memory-pos"],
+      [MEMORY_LIMITS_DIAGRAM, "memory-limits"],
     ]);
   }
   return figKeyMap.get(src) || "";
@@ -11774,8 +11987,8 @@ function renderMain(force) {
     mainKey = key;
     el.innerHTML = memoryPresentationHtml();
     linkifyRepoFiles(el);
-    if (MEMORY_PRESENTATION_SCENES[scene].figure === "AGENT_CONTEXT")
-      renderMermaidInto("memoryPresentFig", AGENT_CONTEXT_DIAGRAM, "memorypresentfig-svg");
+    const figure = MEMORY_PRESENTATION_FIGURES[MEMORY_PRESENTATION_SCENES[scene].figure];
+    if (figure) renderMermaidInto("memoryPresentFig", figure, "memorypresentfig-svg");
     return;
   }
 

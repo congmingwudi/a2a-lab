@@ -1054,25 +1054,43 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert "A2ALab_Memory_Case" in guide_source
 
 
-def test_agent_memory_presentation_mode_is_nine_scene_evidence_only_handoff():
+def test_agent_memory_presentation_mode_is_ten_scene_evidence_only_handoff():
     html = Path("src/console/static/index.html").read_text()
     start = html.index("const MEMORY_PRESENTATION_SCENES = [")
     end = html.index("function ensureMemoryPresentationCustomer()", start)
     scenes = html[start:end]
 
-    assert scenes.count("\n    title:") == 9
+    assert scenes.count("\n    title:") == 10
     # The category header is the ONE launcher: the experiment cards and the
     # experiment tab bar no longer carry their own Presentation buttons.
     assert 'g.id === "agent-memory"' in html
     assert 'id="memory-presentation-section"' in html
     assert 'id="memory-presentation-${esc(s.name)}"' not in html
     assert 'id="memory-presentation-tab-${esc(view.name)}"' not in html
-    group = html[html.index('<span class="gtitle">${withLogos(g.title)}</span>\n        ${g.id'):]
+    group = html[html.index('<span class="gtitle">${withLogos(g.title)}</span>\n        ${g.id') :]
     assert group.index('id="memory-presentation-section"') < group.index('class="gcount"')
     # Scene 1 is the architecture figure (D114 twin: docs/diagrams/agent-context.drawio).
-    assert scenes.index('figure: "AGENT_CONTEXT"') < scenes.index('title: "Why agents need shared memory"')
-    assert 'renderMermaidInto("memoryPresentFig", AGENT_CONTEXT_DIAGRAM' in html
-    assert '[AGENT_CONTEXT_DIAGRAM, "agent-context"]' in html
+    assert scenes.index('figure: "AGENT_CONTEXT"') < scenes.index(
+        'title: "Why agents need shared memory"'
+    )
+    # Every scene but the live handoff carries a figure, every figure is a
+    # registered *_DIAGRAM with a draw.io twin (D114), and the render hook
+    # resolves through the registry rather than one hardcoded constant.
+    assert 'renderMermaidInto("memoryPresentFig", figure, "memorypresentfig-svg")' in html
+    figures = re.findall(r'figure: "([A-Z_]+)"', scenes)
+    assert len(figures) == 9 and len(set(figures)) == 9
+    registry = html[html.index("const MEMORY_PRESENTATION_FIGURES = {") : start]
+    for key in figures:
+        assert f"  {key}: {key}_DIAGRAM," in registry
+        fig_id = key.lower().replace("_", "-")
+        assert f'[{key}_DIAGRAM, "{fig_id}"]' in html
+        assert Path(f"docs/diagrams/{fig_id}.drawio").exists()
+        assert Path(f"src/console/static/diagrams/{fig_id}.svg").exists()
+    # Screenshots are the org's own setup pages and must ship in the image (src/).
+    shots = re.findall(r'src: "([a-z0-9-]+\.png)"', scenes)
+    assert {"agent-config-edit.png", "data-graph.png", "data-graph-pos-order.png"} <= set(shots)
+    for shot in shots:
+        assert Path(f"src/console/static/memory-presentation/{shot}").exists()
     assert '"customer-memory-claude", "customer-memory-openai"' in html
     assert html.count('view = { type: "memory-presentation"') == 1
     assert 'aria-current="step"' in html
@@ -1096,11 +1114,20 @@ def test_agent_memory_presentation_mode_is_nine_scene_evidence_only_handoff():
     assert "sendChat" not in launch
 
     assert "saved facts/preferences reads are intentionally skipped" in scenes
-    assert "Platform-made graph controls returned their record" in scenes
-    assert "real-time graph returned Customer360 when the owner was a Contact id" in scenes
-    assert "faces currently send the memory pipeline's own Individual" in scenes
-    assert "The live registration has no attached graph" in scenes
+    assert "the graph record is read live, so it survives the reset" in scenes
+    assert "The faces now send the customer's Contact id" in scenes
     assert "fixed number of seconds" in scenes
+    # Scene 3: Data Space is default-only until the non-default fix is verified
+    # here (AM-API-012), and the readback names the profile DMO and graph (D117/D118).
+    assert '["Data Space", "\'default\' Data Space required until a fix is available' in scenes
+    assert "Profile DMO Unified Individual AM01, one real-time data graph attached" in scenes
+    assert "<span>Data Space</span>" in html
+    # Retired claims must not come back.
+    assert "No graph or profile DMO is declared" not in scenes
+    assert "The live registration has no attached graph" not in scenes
+    assert "faces currently send the memory pipeline's own Individual" not in scenes
+    # The forget lag is told as measured: list drops, GetContext keeps serving.
+    assert "AM-API-013" in scenes and "the Memory API list dropped both memories in 1 s" in scenes
 
     presentation_end = html.index("function obsMsg(text, isErr)", start)
     presentation = html[start:presentation_end]

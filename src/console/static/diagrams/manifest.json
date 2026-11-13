@@ -63,6 +63,38 @@
     "mermaid_sha256": "e4b657fcedfc6d4af5c2e6e4550c5034f0edb425f05ae74d0c7d1746e3a21d02",
     "svg_sha256": "8bebfa589d388f3f2d47def53f1d0e58609a1f9ae6f525115950841451940eb4"
   },
+  "memory-config": {
+    "mermaid_sha256": "28e709ebbad6c32667dbc906490d839e9902ea81a28e264a666e9392abdceccc",
+    "svg_sha256": "6e3697af2f9c871b2e3a62f7794699aec08407e72ce760bed507f85f7aef01fe"
+  },
+  "memory-extract": {
+    "mermaid_sha256": "055cdcf2b93183e28c13e3d72edecfed4534e418740db6eebc7378c1b75e61b0",
+    "svg_sha256": "974e48ffcef07c3fb9961aef60cb727f7767c186ba710b16eeaf1d53668884dd"
+  },
+  "memory-ingest": {
+    "mermaid_sha256": "d2175ada0cb34f7fdd9b356dc2e071e4e43d8581841364f7e9ea1afd6f335c5b",
+    "svg_sha256": "7766886fd15f165998e53e371185e48ca21325d6beaac2960f4b3450968828af"
+  },
+  "memory-isolation": {
+    "mermaid_sha256": "73bc87632b5df3fa490450b0c14fd93cd83cebdcfd68d6a2097cccc4b5cf368b",
+    "svg_sha256": "916aea5e899f6ecbafa176604f6970683ff05e912f7a47661261c3d1727bc46b"
+  },
+  "memory-limits": {
+    "mermaid_sha256": "f8d33305a6337b9980063fac40abb0acbbc528917499a7eaf23ac3bca9c18717",
+    "svg_sha256": "dbbd3644e87b380fb9ce50922889e6fe3745de3943a26d8807d05bf253484750"
+  },
+  "memory-pos": {
+    "mermaid_sha256": "633734f0927875a0b8323585771ece991682576d299bdf89ee399998bd9bd726",
+    "svg_sha256": "d0f1580f4f90e04273456d8ab140416376d44ed59c9f50677ec02b3ff022f6d6"
+  },
+  "memory-retrieval": {
+    "mermaid_sha256": "6bd7512c12eeb9d8d1f7800d10b58eb532b7b97cb6865fb9516ba3a9b9fcfeb5",
+    "svg_sha256": "307c3249158090706b388fe1c191109c411f8c2d3997bf08402afa98cbec4e9e"
+  },
+  "memory-shared": {
+    "mermaid_sha256": "c457a943811231d4a49df851e11bb37079707b074f2158e454457d5c278856de",
+    "svg_sha256": "fee2250f99694cb73c104854e379aa4172f2bca598b9893a161c86d89d00b5b8"
+  },
   "mon": {
     "mermaid_sha256": "0bbf2430b6e63d04d1bf913a58fea44fc90e52bb100a8339bd8b1e885a99c858",
     "svg_sha256": "839d41824765b2285032a03dad55e2b9746289746af74e7359267b0a420595b3"
