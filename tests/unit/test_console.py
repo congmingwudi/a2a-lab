@@ -1127,7 +1127,17 @@ def test_agent_memory_presentation_mode_is_ten_scene_evidence_only_handoff():
     assert "The live registration has no attached graph" not in scenes
     assert "faces currently send the memory pipeline's own Individual" not in scenes
     # The forget lag is told as measured: list drops, GetContext keeps serving.
-    assert "AM-API-013" in scenes and "the Memory API list dropped both memories in 1 s" in scenes
+    assert "the Memory API list dropped both memories in 1 s" in scenes
+    # Audience-facing copy carries status chips, never internal references:
+    # no decision, workstream, ticket or support-request numbers, repo paths or
+    # env var names in the scenes or the figures (code comments may cite them).
+    shown = html[html.index("const AGENT_CONTEXT_DIAGRAM = `") : end]
+    shown = "\n".join(ln for ln in shown.splitlines() if not ln.lstrip().startswith("//"))
+    internal = r"\bD\d{2,3}\b(?!\[)|\bWS\d+\b|AM-API-\d+|\bSR-\d+|\.py\b|\.md\b|A2ALAB_|A2ALabMemoryProbe"
+    assert not re.findall(internal, shown)
+    for chip in ("Verified", "Unverified", "Waiting for fix"):
+        assert f'"{chip}"' in scenes and f'"{chip}": [' in html
+    assert "memoryStatusChip(item)" in html and "memoryStatusChip(node[2])" in html
 
     presentation_end = html.index("function obsMsg(text, isErr)", start)
     presentation = html[start:presentation_end]

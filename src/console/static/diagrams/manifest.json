@@ -8,8 +8,8 @@
     "svg_sha256": "ca6bc529baba935ee7ab1583790b28f1af91d82254ed18a3b7d23585b4038de8"
   },
   "agent-context": {
-    "mermaid_sha256": "196712a58fde1c92cbe92ef91b56134080152eabc39f1e5a227ad3b5778254d0",
-    "svg_sha256": "f6fee0a1f30fa615e99fe4e432397e2a14a6d104c9c0365ec5410b5e25142a43"
+    "mermaid_sha256": "be28425fdf75c30bb0f843cef248bf51e34d33e84939b3c6c2437acc6d09553c",
+    "svg_sha256": "436b80d66b1abb0c3330ea7cedcf0eae27e922a5af46f0a55102dac857dd5dbe"
   },
   "behaviour": {
     "mermaid_sha256": "d59895ef03dfc78f1fe513effc77b8577030a4cc7a84697a8b042ce9120d889e",
@@ -64,8 +64,8 @@
     "svg_sha256": "8bebfa589d388f3f2d47def53f1d0e58609a1f9ae6f525115950841451940eb4"
   },
   "memory-config": {
-    "mermaid_sha256": "28e709ebbad6c32667dbc906490d839e9902ea81a28e264a666e9392abdceccc",
-    "svg_sha256": "6e3697af2f9c871b2e3a62f7794699aec08407e72ce760bed507f85f7aef01fe"
+    "mermaid_sha256": "081be2b5088f9729f574128a659dab849e43fe1b1639df02a67a70dd4c251964",
+    "svg_sha256": "061502c4ab64c3ab41cbbfa04799dd4866d8471d6e6e37ec1023ef520e7e313e"
   },
   "memory-extract": {
     "mermaid_sha256": "055cdcf2b93183e28c13e3d72edecfed4534e418740db6eebc7378c1b75e61b0",
@@ -76,12 +76,12 @@
     "svg_sha256": "7766886fd15f165998e53e371185e48ca21325d6beaac2960f4b3450968828af"
   },
   "memory-isolation": {
-    "mermaid_sha256": "73bc87632b5df3fa490450b0c14fd93cd83cebdcfd68d6a2097cccc4b5cf368b",
-    "svg_sha256": "916aea5e899f6ecbafa176604f6970683ff05e912f7a47661261c3d1727bc46b"
+    "mermaid_sha256": "d855a18344bc0a3146aa9f36de084e60548950bb83b81df5b197cdbc2df0e392",
+    "svg_sha256": "fdb264af966a898429f9660012786e3281cbe27c53ef984ff500c3f78a69799d"
   },
   "memory-limits": {
-    "mermaid_sha256": "f8d33305a6337b9980063fac40abb0acbbc528917499a7eaf23ac3bca9c18717",
-    "svg_sha256": "dbbd3644e87b380fb9ce50922889e6fe3745de3943a26d8807d05bf253484750"
+    "mermaid_sha256": "84b64b4bd74bee1f8b742f266f61ca4e78efff76ef7e9eb88de5e35d59d36c83",
+    "svg_sha256": "eddacc92e006fb46bbc0957ab728d6761868895892011edd40ac3418e45624f9"
   },
   "memory-pos": {
     "mermaid_sha256": "633734f0927875a0b8323585771ece991682576d299bdf89ee399998bd9bd726",

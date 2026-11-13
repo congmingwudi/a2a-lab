@@ -53,6 +53,11 @@ customer row is visible, and the Agent Configuration was opened in Edit and clos
 - Forget is told as measured (AM-API-013): the Memory API list drops a deleted memory within
   a second, while GetContext kept serving it for at least 44 minutes, so a forget demo shows
   the list, not the next agent turn.
+- Audience-facing copy (scene text, step cards, figures, captions) carries no internal
+  references: no decision, workstream, ticket or support-request numbers, repo paths, env var
+  names or probe-space names. Claim strength is shown with status chips instead — Verified,
+  Unverified, Waiting for fix, Known limit, Next build — on the scene and on individual steps.
+  Code comments and this plan keep the references; `test_console.py` enforces the rule.
 - Unavailable or unpublished future capabilities have no scene, alternate route, served copy,
   deployable asset, source reference, or hidden markup. Publishing them later requires a separate
   decision and review.
