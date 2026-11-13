@@ -3118,6 +3118,7 @@ and the registration. Neither registration was changed in between.
 | Test | Default (`A2ALab_Memory_Case`) | Non-default (`A2ALab_Memory_Space_Probe`) | vs 2026-11-11 |
 | --- | --- | --- | --- |
 | Saved fact create (`memory_governance_probe.py`) | Created; same-registration read after 16.6 s; cleanup absent | 400 `[AgenticMemory] Failed to create agentic memory` | custom unchanged |
+| Saved preference create (same script, `--category sys_PROFILE_PREFERENCES`, 18:11Z) | Created; same-registration read after 17.1 s; cleanup absent | 400 `[AgenticMemory] Failed to create agentic memory` | custom unchanged |
 | Conversation ingest through close session (`setup_agentic_memory.py probe`) | 201/201/202/202/202 | 201/201/202/202/202 | unchanged |
 | List conversations | 200; created id present | 200 `[]` | custom unchanged |
 | List sessions / get conversation | 200 / 200 | 404 / 404 `Conversation not found` | custom unchanged |
@@ -3128,9 +3129,9 @@ So one thing changed. The non-default registration now loads its agent configura
 the real-time customer graph through Get Context, which is the first time that has worked. The
 storage path is still failing in exactly the same way: Memory create is refused, and an ingest
 that the API acknowledges never becomes a retrievable conversation. The custom Context therefore
-carries Profile only, with no memory or conversation source. The preference category was not
-re-tested, because the fact probe stops at its first refused write. Raw wire for this run:
-`traces/governance/governance-4a33434857.json` (default fact) and
+carries Profile only, with no memory or conversation source. Both saved categories fail the same way. Raw wire for this run:
+`traces/governance/governance-4a33434857.json` (default fact),
+`governance-f3aac41a1f.json` (default preference) and
 `traces/graph-probe/20261113T1658*Z-*.json` (both of these are gitignored).
 
 The default arm's T4 again returned the fact to a token bound to a different `xid`

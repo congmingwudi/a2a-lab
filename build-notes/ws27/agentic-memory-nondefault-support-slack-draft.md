@@ -145,3 +145,27 @@ setups globally and filter client-side. Maybe the same resolution gap, maybe a s
 5. The tenant query plane returns 404 "DataModelEntity not found" for `amp_` DMOs that core SQL
    reads fine. Is the tenant plane resolving every table against `default`, whatever
    `?dataspace=` says? That would be one root cause for all of the above.
+
+# Part 3 — Follow-up after the fix window (drafted 2026-11-13, NOT YET POSTED)
+
+<!-- Reply in the SR-01 thread, to the engineer's 2026-11-12 07:36Z message. Post only with the
+operator's OK. Evidence: plan/03-results.md "2026-11-13 — AM-API-012 rerun after the promised
+fix". -->
+
+Thanks for the update and the fix. We reran the same paired default vs `A2ALabMemoryProbe` test today (2026-11-13, ~33 h after your reply), without touching the registration so the auto-heal could take effect. It's **partly healed**:
+
+:white_check_mark: **Get Context works now.** For the real customer it returns 200 with the Profile entry from `A2ALab_MemoryProbe_C360V2`. On 11-11 it was 500 `Failed to load agent configuration`.
+
+:x: **Memory create still fails**, for both categories:
+• `sys_PROFILE_FACT` → 400 `[AgenticMemory] Failed to create agentic memory` (response timestamp `2026-11-13T16:54:09.830Z`)
+• `sys_PROFILE_PREFERENCES` → same 400 (`2026-11-13T18:11:10.271Z`)
+
+:x: **Conversation ingest is still accepted but not stored.** Create conversation/session → 201/201, then participants/entries/close → 202/202/202 (conversation `a2alab-probe-ad54ba58`, 16:54:09Z). After that, list conversations → 200 `[]`, and get conversation / list sessions → 404 `Conversation not found`. Because nothing is stored, Context in the custom space carries Profile only, with no memory or conversation entries.
+
+The `default` control (`A2ALab_Memory_Case`) passed every step in the same runs: both categories created, readable after ~17 s and deleted, and the conversation retrievable and summarized into Context.
+
+Two questions:
+1. Is the write/persistence path (Memory create plus ingest → retrieval) covered by the same fix and just not deployed yet, or is it a separate issue we should track separately?
+2. Was the setup-list selector issue from the first message (`GET /ssot/agentic/setup?dataSpaceName=…` returning the `default` setup) part of this regression? It still lists globally on our side.
+
+We're leaving `A2ALab_Memory_Space_Probe` as it is and can rerun whenever it's useful. Happy to share request ids if that helps with Splunk.
