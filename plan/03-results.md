@@ -3106,3 +3106,34 @@ load agent configuration" on every read through 20:38Z and is 200 (empty context
 with no change on our side. That is consistent with a delayed agent-configuration load for the
 non-default registration (question 2 in the filed thread). Memory create and ingest persistence
 are still broken, so AM-API-012 stays open with a narrower signature.
+
+## 2026-11-13 — AM-API-012 rerun after the promised fix: Context healed, writes still fail
+
+SR-01's engineer called the non-default-space failure a regression on 2026-11-12 07:36Z and
+promised an auto-healing fix in about 24 h. The paired probes ran again at 16:54–16:58Z on
+2026-11-13, ~33 h after that reply. They used the same three scripts and synthetic owners as on
+2026-11-11. The only difference between the two arms is the data space (`A2ALAB_MEMORY_DATA_SPACE`)
+and the registration. Neither registration was changed in between.
+
+| Test | Default (`A2ALab_Memory_Case`) | Non-default (`A2ALab_Memory_Space_Probe`) | vs 2026-11-11 |
+| --- | --- | --- | --- |
+| Saved fact create (`memory_governance_probe.py`) | Created; same-registration read after 16.6 s; cleanup absent | 400 `[AgenticMemory] Failed to create agentic memory` | custom unchanged |
+| Conversation ingest through close session (`setup_agentic_memory.py probe`) | 201/201/202/202/202 | 201/201/202/202/202 | unchanged |
+| List conversations | 200; created id present | 200 `[]` | custom unchanged |
+| List sessions / get conversation | 200 / 200 | 404 / 404 `Conversation not found` | custom unchanged |
+| Synthetic-conversation Context, three reads | 200; Conversation summary of the new turn | 200 `{contextId, ontology:{}}`, no `userContext` | custom: 500 → empty 200 (already so by 22:05Z 11-11) |
+| Real Maya Context, two reads, no generation lookup (`graph_context_probe.py`) | 200; Conversation + 2 Profile entries, 9,154 B | **200; one Profile entry (587 chars) from the AMP1 graph**, median 892 ms | **custom: 500 → 200 with graph Profile** |
+
+So one thing changed. The non-default registration now loads its agent configuration and serves
+the real-time customer graph through Get Context, which is the first time that has worked. The
+storage path is still failing in exactly the same way: Memory create is refused, and an ingest
+that the API acknowledges never becomes a retrievable conversation. The custom Context therefore
+carries Profile only, with no memory or conversation source. The preference category was not
+re-tested, because the fact probe stops at its first refused write. Raw wire for this run:
+`traces/governance/governance-4a33434857.json` (default fact) and
+`traces/graph-probe/20261113T1658*Z-*.json` (both of these are gitignored).
+
+The default arm's T4 again returned the fact to a token bound to a different `xid`
+(`leaked: true`). Every governance run since the first has shown this, so it is the known
+behaviour that `xid` is not enforced for internal callers, not something new. AM-API-012 stays
+open, now narrowed to Memory create and ingest persistence.
