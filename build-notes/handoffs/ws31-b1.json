@@ -4,7 +4,7 @@
   "proposer": "codex",
   "critic": "claude",
   "implementer": "codex",
-  "station": "deploy",
+  "station": "done",
   "holder": "operator",
   "round": 2,
   "verdict": "pass",
@@ -69,6 +69,12 @@
       "verdict": "pass",
       "file": "build-notes/claude/reviews/ws31-b1.md",
       "round": 2
+    },
+    {
+      "ts": "2026-11-13T19:49:39+00:00",
+      "agent": "operator",
+      "action": "deployed",
+      "note": "Full console rebuild from d3bb7d1 (incl. ws25-b4 merge + post-review scene-1/launcher); task def 162 COMPLETED, running digest = pushed digest; live index.html byte-identical to repo; /api/scenarios and /api/docs plan/20 + plan/03 200. Hosted browser scene walk not re-run."
     }
   ]
 }
