@@ -146,7 +146,7 @@ setups globally and filter client-side. Maybe the same resolution gap, maybe a s
    reads fine. Is the tenant plane resolving every table against `default`, whatever
    `?dataspace=` says? That would be one root cause for all of the above.
 
-# Part 3 — Follow-up after the fix window (drafted 2026-11-13, NOT YET POSTED)
+# Part 3 — Follow-up after the fix window (drafted 2026-11-13, POSTED 2026-11-13 as a thread reply: [message](https://salesforce-internal.slack.com/archives/C05CBEHHQJG/p1794596391736009?thread_ts=1794433736.347839&cid=C05CBEHHQJG))
 
 <!-- Reply in the SR-01 thread, to the engineer's 2026-11-12 07:36Z message. Post only with the
 operator's OK. Evidence: plan/03-results.md "2026-11-13 — AM-API-012 rerun after the promised
