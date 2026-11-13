@@ -169,3 +169,24 @@ Two questions:
 2. Was the setup-list selector issue from the first message (`GET /ssot/agentic/setup?dataSpaceName=…` returning the `default` setup) part of this regression? It still lists globally on our side.
 
 We're leaving `A2ALab_Memory_Space_Probe` as it is and can rerun whenever it's useful. Happy to share request ids if that helps with Splunk.
+
+# Part 4 — Cell-specific write path + Context outlives DELETE (drafted 2026-11-13 evening, NOT YET POSTED)
+
+Short update since our last message. Another team (a DC One home sandbox, on a different cell from ours)
+reran the same request contract at 19:09Z and their **non-default creates now return 200**. On our tenant
+they're still failing:
+
+• `A2ALab_Memory_Space_Probe` Memory create → 400 `[AgenticMemory] Failed to create agentic memory` for both
+  categories, at `20:09:01.784Z`, and with a **real CRM customer** as owner at `21:08:24.927Z` / `21:08:25.141Z`
+• `default` control, same owner, same run: both categories created and deleted fine
+
+We've ruled out owner type (synthetic vs real CRM), request shape, and session-id shape (shared vs distinct
+id: no change in either space). So it looks like the write-path part of the fix hasn't reached our cell yet.
+Can you check whether it's rolled out to EU55?
+
+One separate thing we hit while testing, in `default`: **Get Context keeps returning deleted memories.**
+`DELETE /api/v1/agentic/memory` returns 200, and the memories leave the Memory API list within 1 s, but Get
+Context still returned them on every read for 44 min after the delete (delete at `20:59:56Z`, still present
+at `21:44:03Z`). The other team sees the same on their cell (≥40 min). Is that expected snapshot caching? Is
+there a refresh/TTL we should know about? It matters for "forget me" requests. Happy to open this as a
+separate request if that's better.

@@ -522,6 +522,9 @@ def cmd_probe(args) -> None:
     a = AGENTS[args.agent]
     owner_id = args.owner
     cid = f"a2alab-probe-{uuid.uuid4().hex[:8]}"  # the SDK uses one id for both
+    # --distinct-session: a session id of its own, to test whether reusing the
+    # conversation id as the session id is what makes get-by-id work (2026-11-13).
+    sid = f"{cid}-s" if args.distinct_session else cid
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     owner_p, agent_p = f"{owner_id}-participant", a.name
     turn = uuid.uuid4().hex
@@ -530,13 +533,13 @@ def cmd_probe(args) -> None:
          {"conversationId": cid, "conversationOwnerId": owner_id, "ownerType": "individual",
           "name": cid, "channel": {"type": "web", "id": "agent-sdk"}}),
         ("create session", f"/api/v1/agentic/conversations/{cid}/sessions",
-         {"sessionId": cid, "conversationOwnerId": owner_id, "ownerType": "individual",
+         {"sessionId": sid, "conversationOwnerId": owner_id, "ownerType": "individual",
           "participants": [{"id": owner_p, "type": "individual", "role": "owner",
                             "startTime": now}]}),
-        ("add agent participant", f"/api/v1/agentic/conversations/{cid}/sessions/{cid}/participants",
+        ("add agent participant", f"/api/v1/agentic/conversations/{cid}/sessions/{sid}/participants",
          {"participants": [{"id": agent_p, "type": "agent", "role": "participant"}]}),
         ("add entries", f"/api/v1/agentic/conversations/{cid}/entries",
-         {"sessionId": cid, "conversationOwnerId": owner_id, "entries": [
+         {"sessionId": sid, "conversationOwnerId": owner_id, "entries": [
              {"id": f"u-{turn}", "participantId": owner_p, "type": "user_message",
               "timestamp": now, "category": "Message", "interactionId": turn,
               "content": "I prefer aisle seats and I'm flying to Lisbon in November."},
@@ -544,11 +547,11 @@ def cmd_probe(args) -> None:
               "timestamp": now, "category": "Message", "interactionId": turn,
               "content": "Noted: aisle seats, Lisbon in November."}]}),
     ]  # fmt: skip
-    print(f"conversation/session {cid}, governed individual, agent {a.name}")
+    print(f"conversation {cid}, session {sid}, governed individual, agent {a.name}")
     if not args.apply:
         for label, path, body in writes:
             print(f"POST {path}  ({label})\n{json.dumps(body, indent=2)}")
-        print(f"POST /api/v1/agentic/conversations/{cid}/sessions/{cid}/close  (close session)")
+        print(f"POST /api/v1/agentic/conversations/{cid}/sessions/{sid}/close  (close session)")
         print("GET /api/v1/agentic/conversations  (list conversations)")
         print(f"GET /api/v1/agentic/conversations/{cid}/sessions  (list sessions)")
         print(f"GET /api/v1/agentic/conversations/{cid}  (get conversation data graph)")
@@ -568,9 +571,7 @@ def cmd_probe(args) -> None:
                     time.sleep(args.write_wait)
             else:
                 sys.exit(f"{label} refused — stopping before the reads")
-        r = http.post(
-            f"/api/v1/agentic/conversations/{cid}/sessions/{cid}/close", headers=post_h
-        )
+        r = http.post(f"/api/v1/agentic/conversations/{cid}/sessions/{sid}/close", headers=post_h)
         show("close session", r)
         if r.status_code >= 400:
             sys.exit("close session refused — stopping before the reads")
@@ -764,6 +765,10 @@ def main() -> None:
     sp.add_argument("--owner", required=True, help="real profile-DMO xid (never a synthetic id)")
     sp.add_argument("--apply", action="store_true", help="write the turn (default: dry run)")
     sp.add_argument("--reads", type=int, default=3, help="GetContext attempts after the write")
+    sp.add_argument(
+        "--distinct-session", action="store_true",
+        help="give the session its own id instead of reusing the conversation id",
+    )
     sp.add_argument("--wait", type=int, default=5, help="seconds between reads")
     sp.add_argument("--write-attempts", type=int, default=3, help="bounded attempts per write")
     sp.add_argument("--write-wait", type=int, default=5, help="seconds between write attempts")

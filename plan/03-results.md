@@ -3158,3 +3158,47 @@ The default arm's T4 again returned the fact to a token bound to a different `xi
 (`leaked: true`). Every governance run since the first has shown this, so it is the known
 behaviour that `xid` is not enforced for internal callers, not something new. AM-API-012 stays
 open, now narrowed to Memory create and ingest persistence.
+
+## 2026-11-13 (evening) — AM-API-012 against a second tenant's report; Context outlives DELETE
+
+A separate estate on another cell (a DC One home sandbox, written up as a handoff to this lab)
+reported at 19:09–19:16Z that the SR-01 fix had healed non-default **writes** there, using the
+same request contract as `src/interop/memory.py`. It asked us to recheck four differences. All
+runs used the unchanged registrations `A2ALab_Memory_Space_Probe` (`A2ALabMemoryProbe`) and
+`A2ALab_Memory_Case` (`default`). Several runs needed DNS-only retries because the local resolver
+was flapping. No retry masked an API response.
+
+| Check | Custom space | Default control | Reading |
+| --- | --- | --- | --- |
+| Memory create, synthetic owner (`memory_governance_probe.py`, 20:09Z) | 400 `Failed to create agentic memory`, both categories | both created (20:17Z, 20:21Z) | not healed here |
+| Memory create, **real CRM owner** (Maya), same run (21:08Z) | 400, both categories (`21:08:24.927Z`, `21:08:25.141Z`) | both created, read at ~0 s, deleted, absent from list at ~0 s | owner identity ruled out |
+| Conversation probe, session id = conversation id (`setup_agentic_memory.py probe`) | not rerun | 201/201/202/202/202; list sessions 200; get 200 with the session and entries | — |
+| Same, **distinct session id** (`--distinct-session`, new flag) | list sessions 404, get 404 | identical to the shared-id run | session-id reuse ruled out |
+| Setup list with `dataSpaceName=` / `dataspaceName=` / none | — | every form returns both setups | AM-API-003 unchanged |
+
+The other estate saw get-by-id 404 even in `default` when it used a distinct session id. We do not
+reproduce that: in our default space both id shapes return the conversation. One immediate read is
+worth knowing about: list sessions right after the session close returned 200 with `sessions: []`,
+while get conversation about 15 s later carried the CLOSED session and its entries. That is a timing
+effect, not an id-shape effect.
+
+**Context outlives DELETE (new ledger entry AM-API-013).** `scripts/memory_forget_probe.py`, with a
+synthetic owner on `A2ALab_Memory_Case`, created one fact and one preference. Both were on the
+Memory API list and in Get Context within 1 s. It deleted both at 20:59:56Z (200), then polled every
+minute:
+
+| Surface | First poll without the deleted markers |
+| --- | --- |
+| Memory API list, `sys_PROFILE_FACT` | +1 s |
+| Memory API list, `sys_PROFILE_PREFERENCES` | +1 s |
+| Get Context, either category | **never**: still present at every one of 43 polls through +2,645 s (44 min) |
+
+The real-owner default run above showed the same: Maya's default Context still held both deleted
+markers at 21:45Z, about 37 min after delete. Get Context serves a cached snapshot that DELETE does
+not invalidate. The other estate reported at least 40 min on its cell. A "forget me" demo
+therefore has to show the Memory API list as the proof of erasure, and say that Context lags
+behind it.
+
+What is left of AM-API-012 here is the write path: owner type, request contract, session-id shape
+and space type are all ruled out. Another cell's non-default space accepts the same creates, so the
+remaining difference is tenant or cell (EU55). Trace JSON is under `traces/governance/` (gitignored).
