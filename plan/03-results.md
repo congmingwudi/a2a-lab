@@ -2851,6 +2851,26 @@ Claude: "I don't have access to display your Contact ID as a specific identifier
 pack 22L order. OpenAI: "I don't have access to your Contact ID; I must refer to you as Maya", then
 the same order. OpenAI's second clause echoes the instruction itself: honest, slightly stiff.
 
+## 2026-11-11 — Hosted shim session-key isolation (WS25 item 17)
+
+The reviewed D119 fix was merged to `main` as `1d5e94c`, passed the merged-tree gate
+(934 passed, 5 skipped, 6 deselected; Ruff and formatting clean), and was full-deployed to
+`a2alab-af-shim`. Lambda readback showed a successful 2026-11-11 update with code SHA-256
+`KYoLuU2pQ43Zcv9GgPBTWgFwFjBuBjj2ENylj0tPjqA=`; inspection of the downloaded live bundle
+confirmed the injective, presence-preserving key helper at the executor call site.
+
+The first arbitrary-code-word attempt was inconclusive because Agentforce refused the
+plant/recall request and is not counted. A second hosted smoke framed the value as a temporary
+customer account research reference. Caller A planted and recalled `kestrel-c621a2` on one
+Agentforce session (`3196b8b76ed54a02aa1f1dfd5a29ad90`,
+`7828bb802cf4494e9a83e6dc84db38c6`; session
+`01a1cc2b-99a4-79c3-9a5c-b7f95fb4ae63`). Caller B and a caller constructed to reproduce the
+old delimiter collision each returned `NONE` and created distinct sessions:
+`4d11715b74324f5bacbef5b02a7fe3e9` / `01a1cc2b-ba23-7ebb-ac33-e4156a717dc6`, and
+`a1128042620343d586d70c7272967d4d` / `01a1cc2b-c866-7c94-bc4b-482cf56f7a45`.
+This is hosted behavioral evidence that same-subject reuse still works while the second JWT
+subject and the former shared-token forgery no longer alias caller A's session.
+
 ## 2026-11-11 — Agentic Memory CRUD is query-visible in its DLO and DMO
 
 A controlled synthetic probe created one `sys_PROFILE_FACT` through

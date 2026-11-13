@@ -4,14 +4,16 @@
   "proposer": "claude",
   "critic": "codex",
   "implementer": "claude",
-  "station": "implement",
-  "holder": "claude",
-  "round": 0,
-  "verdict": "request-changes",
+  "station": "done",
+  "holder": "operator",
+  "round": 1,
+  "verdict": "pass",
   "adr": "D119",
   "files": {
     "plan": "build-notes/claude/ws25-b4-plan.md",
-    "notes": {},
+    "notes": {
+      "claude": "build-notes/claude/reviews/ws25-b4.md"
+    },
     "verdicts": {
       "codex": "build-notes/codex/reviews/ws25-b4.md"
     }
@@ -37,6 +39,27 @@
       "action": "settle",
       "adr": "D119",
       "implementer": "claude"
+    },
+    {
+      "ts": "2026-11-11T02:35:46+00:00",
+      "agent": "claude",
+      "action": "built",
+      "file": "build-notes/claude/reviews/ws25-b4.md",
+      "commit": "55509f1fdda300e6d8fbf50c3a4c3803fbbc7562"
+    },
+    {
+      "ts": "2026-11-11T14:51:07+00:00",
+      "agent": "codex",
+      "action": "review",
+      "verdict": "pass",
+      "file": "build-notes/codex/reviews/ws25-b4.md",
+      "round": 1
+    },
+    {
+      "ts": "2026-11-11T19:56:12+00:00",
+      "agent": "operator",
+      "action": "deployed",
+      "note": "Merged 1d5e94c to main; shim Lambda full-deployed 2026-11-11; hosted two-JWT/shared-token-forgery smoke passed with traces 3196b8b, 7828bb8, 4d11715, a1128042"
     }
   ]
 }

@@ -68,7 +68,7 @@ async def test_session_reuse_keys_by_platform(adapter):
         metadata={"delegation": {"caller": "adk-gemini-agent", "platform": "adk", "depth": 1}},
     )
     await adapter.handle(req)
-    assert req.session_id == "shim-shared-adk"
+    assert req.session_id == "shim:shared:value:adk"
     # The twin client is cached — a second ask must not mint another one.
     twins_before = len(StubAgentforceClient.instances)
     await adapter.handle(
