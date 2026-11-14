@@ -992,7 +992,7 @@ def test_customer_memory_experiments_are_a_three_platform_seeded_set(tmp_path, m
     assert "memory-evidence-line" in html
     assert '.split("\\n")' in html
     assert "memory: stored" in html and "memory: recalled" in html
-    assert "memory: traced hook" in html
+    assert "memory: correlated trace" in html
     for scenario in (claude, openai):
         assert "registration × server-resolved customer owner × category" in scenario["description"]
         assert "effective Maya/Jordan isolation boundary" in scenario["description"]
@@ -1096,6 +1096,43 @@ def test_agentforce_customer_memory_run_forwards_binding_without_generic_memory_
         },
     )
     assert rejected.status_code == 400
+
+
+def test_agentforce_customer_memory_first_turn_resolves_current_generation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    monkeypatch.setenv(
+        "A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"003000000000001AAA"}'
+    )
+    registry = FakeRegistry()
+    registry.targets["agentforce-memory-rest"] = Target(
+        name="agentforce-memory-rest", platform="agentforce", protocol="agentforce-api"
+    )
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    import console.app as console_app
+
+    async def current(owner, trace_id):
+        assert owner == "003000000000001AAA" and trace_id
+        return "v1:2026-11-13T00:00:00Z:0123456789abcdef01234567"
+
+    monkeypatch.setattr(console_app, "current_customer_generation", current)
+    response = TestClient(app).post(
+        "/api/run",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={
+            "scenario": "customer-memory-agentforce",
+            "message": "first turn after reset",
+            "memory_customer": "maya",
+            "session_id": "lab-memory",
+        },
+    )
+    assert response.status_code == 200 and response.json()["ok"] is True
+    metadata = registry.fake_client.requests[-1].metadata
+    assert metadata["memory_generation"].startswith("v1:2026-11-13")
+    html = Path("src/console/static/index.html").read_text()
+    assert 'body.memory || Object.prototype.hasOwnProperty.call(body, "memory_generation")' in html
+    assert "openCorrelatedMemoryTrace" in html
 
 
 def test_agent_memory_presentation_mode_is_ten_scene_evidence_only_handoff():

@@ -191,6 +191,26 @@ def load_pos_catalog(path: str | Path = MEMORY_CUSTOMERS_PATH) -> list[dict]:
     ]  # fmt: skip
 
 
+async def current_customer_generation(owner_id: str, trace_id: str) -> str:
+    """Resolve D107 generation before creating a target-managed agent session."""
+    from interop.memory import MemoryClient, resolve_customer_memory_scope
+    from interop.memory_adapter import CASE_MEMORY_AGENT
+
+    mem = MemoryClient(source="console-agentforce-memory-binding")
+    try:
+        scope = await resolve_customer_memory_scope(
+            mem,
+            trace_id,
+            agent_id=CASE_MEMORY_AGENT,
+            owner_id=owner_id,
+        )
+        if scope.error:
+            raise RuntimeError(scope.error)
+        return scope.generation or ""
+    finally:
+        await mem.aclose()
+
+
 def load_agents(path: str | Path = AGENTS_PATH) -> dict[str, list[dict]]:
     """The Agent Registry source of truth (config/agents.yaml): one entry per
     distinct DEPLOYED agent, as opposed to targets.yaml's protocol faces. Returns
@@ -3466,6 +3486,10 @@ def create_console_app(registry: Registry | None = None):
             if scenario_name and spec.get("memory_customer_selector"):
                 req.metadata["memory_customer"] = customer_key
                 generation = body.get("memory_generation")
+                if target_managed_memory and not generation:
+                    generation = await current_customer_generation(
+                        customer_memory_owner(customer_key), req.trace_id
+                    )
                 if isinstance(generation, str):
                     req.metadata["memory_generation"] = generation
                 elif target_managed_memory:

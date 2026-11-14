@@ -241,8 +241,9 @@ async def test_memory_target_refuses_unverified_or_unmapped_requests_before_agen
 
 async def test_memory_target_refuses_owner_switch_before_message(memory_client, fake_api):
     await memory_client.ask(_memory_request("maya"))
-    with pytest.raises(RuntimeError, match="different customer"):
+    with pytest.raises(RuntimeError, match="different customer") as exc:
         await memory_client.ask(_memory_request("jordan"))
+    assert exc.value.error_code == "memory_customer_changed"
     assert len(fake_api.messages) == 1
 
 
@@ -271,3 +272,14 @@ def test_from_target_rejects_empty_agent_id_and_enables_memory_binding():
     )
     with pytest.raises(RuntimeError, match="agent_id"):
         AgentforceClient.from_target(target)
+
+
+async def test_memory_oneshot_uses_one_trace_for_session_variable_and_metadata(
+    memory_client, fake_api
+):
+    req = _memory_request()
+    req.session_id = None
+    req.trace_id = None
+    resp = await memory_client.ask(req)
+    variables = {item["name"]: item["value"] for item in fake_api.session_bodies[0]["variables"]}
+    assert variables["memory_correlation"] == resp.metadata["memory"]["correlation_id"]

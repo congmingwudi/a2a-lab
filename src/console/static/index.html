@@ -11119,6 +11119,12 @@ window.openTrace = tid => {
   view = { type: "trace" }; selected = tid; renderSidebar(); renderMain();
 };
 
+window.openCorrelatedMemoryTrace = tid => {
+  if (!tid) return;
+  openTrace(tid);
+  ensureTrace(tid);
+};
+
 // Fetch ONE trace by id, windowless (/api/traces/{id}), for links from old
 // Observations whose trace predates the recent /api/traces window. Idempotent:
 // dedups in-flight fetches and records a confirmed miss so the "not found" state
@@ -11328,8 +11334,8 @@ function chatTurnsHtml(chat) {
 function memoryBadgeHtml(m) {
   if (!m) return `<span class="badge" title="Memory was asked for, but the target reported nothing back — it is not behind the memory seam (an older image, or a platform with no registered memory agent).">memory: no report</span>`;
   if (m.evidence_pending) {
-    const title = `Agentforce session ${m.agent_session_id || "unknown"} is joined to the Apex, bridge, and tenant hops by ${m.correlation_id || "the lab correlation"}. Agent API does not return action outputs, so this badge does not claim recall or storage; inspect the traced hook below.`;
-    return `<span class="badge agentforce" title="${esc(title)}">memory: traced hook</span>`;
+    const title = `Open the session-correlated Apex, bridge, and tenant hops (${m.correlation_id || "unknown"}). Agent API does not return action outputs, so this link does not claim recall or storage.`;
+    return `<a href="#" class="badge agentforce" title="${esc(title)}" onclick="openCorrelatedMemoryTrace('${esc(m.correlation_id || "")}');return false">memory: correlated trace</a>`;
   }
   if (m.mode === "seed") {
     const written = m.candidate_count || 0;
@@ -11563,7 +11569,7 @@ async function sendTurn(kind, name, message, overrides) {
   if (result.ok) {
     const turnMemory = (result.memory && typeof result.memory === "object")
       ? result.memory : (result.memory_result || null);
-    if (body.memory && turnMemory && Object.prototype.hasOwnProperty.call(turnMemory, "generation")) {
+    if ((body.memory || Object.prototype.hasOwnProperty.call(body, "memory_generation")) && turnMemory && Object.prototype.hasOwnProperty.call(turnMemory, "generation")) {
       chat.memory_generation = turnMemory.generation || "";
       userTurn.toggles.memory_generation = chat.memory_generation;
     }

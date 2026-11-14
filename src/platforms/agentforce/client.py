@@ -32,6 +32,13 @@ API_BASE = "https://api.salesforce.com/einstein/ai-agent/v1"
 DEFAULT_TIMEOUT = 110.0  # under Salesforce's 120s hard cap
 
 
+class MemoryCustomerChanged(RuntimeError):
+    """A lab chat attempted to reuse an Agentforce session for another owner."""
+
+    error_code = "memory_customer_changed"
+    http_status = 409
+
+
 class AgentforceClient(RemoteAgentClient):
     protocol = "agentforce-api"
 
@@ -206,7 +213,7 @@ class AgentforceClient(RemoteAgentClient):
                 old_owner, old_generation = existing.get("memory_binding", (None, None))
                 owner, generation = memory_binding
                 if old_owner != owner:
-                    raise RuntimeError(
+                    raise MemoryCustomerChanged(
                         "customer memory session is already bound to a different customer"
                     )
                 if old_generation != generation:
@@ -228,7 +235,7 @@ class AgentforceClient(RemoteAgentClient):
             return self._sessions[lab_session_id]
 
     def _memory_binding(
-        self, req: AgentRequest
+        self, req: AgentRequest, trace_id: str
     ) -> tuple[tuple[str, str], list[dict[str, Any]], str]:
         """Resolve a verified customer key to immutable Agent API variables."""
         from interop.memory_adapter import owner_of
@@ -246,7 +253,7 @@ class AgentforceClient(RemoteAgentClient):
             raise RuntimeError(
                 "customer memory binding requires a verified mapped customer and generation"
             )
-        correlation = req.session_id or req.trace_id or new_trace_id()
+        correlation = req.session_id or trace_id
         variables = [
             {"name": "memory_owner", "type": "Text", "value": owner},
             {"name": "memory_generation", "type": "Text", "value": generation},
@@ -261,7 +268,7 @@ class AgentforceClient(RemoteAgentClient):
         request_variables = None
         customer_key = None
         if self.memory_customer_binding:
-            memory_binding, request_variables, customer_key = self._memory_binding(req)
+            memory_binding, request_variables, customer_key = self._memory_binding(req, trace_id)
         # Session-less asks are one-shot: create -> message -> DELETE, so
         # each request leaves nothing running on the (production) org.
         oneshot = not req.session_id

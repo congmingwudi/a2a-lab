@@ -226,12 +226,22 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
             else set()
         )
         if agent_id != "A2ALab_Memory_Case" or owner_id not in allowed_owners:
-            return {
+            payload = {
                 "conversation_id": body.get("conversation_id") or None,
                 "context": "",
                 "ok": False,
                 "error": "memory binding refused",
             }
+            with Hop(
+                trace_id,
+                source="agentforce-apex" if TOKEN_HEADER in request.headers else "caller",
+                target="bridge",
+                protocol="rest",
+                transport_detail="POST /memory/turn (refused)",
+                request_payload=body,
+            ) as refused_hop:
+                refused_hop.response_payload = payload
+            return payload
         if "client" not in memory_state:
             memory_state["client"] = MemoryClient(source="bridge")
         mem = memory_state["client"]

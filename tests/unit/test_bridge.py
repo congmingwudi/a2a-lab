@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -118,7 +120,9 @@ def test_auth_enforced_when_token_set(bridge, monkeypatch):
     assert ok.status_code == 200
 
 
-def test_memory_turn_refuses_unknown_agent_or_owner_without_tenant_call(bridge, monkeypatch):
+def test_memory_turn_refuses_unknown_agent_or_owner_without_tenant_call(
+    bridge, monkeypatch, isolated_traces
+):
     monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
     monkeypatch.setenv(
         "A2ALAB_MEMORY_CUSTOMER_MAP",
@@ -129,11 +133,22 @@ def test_memory_turn_refuses_unknown_agent_or_owner_without_tenant_call(bridge, 
         {"agent_id": "Other_Agent", "owner_id": "003000000000001AAA"},
         {"agent_id": "A2ALab_Memory_Case", "owner_id": "003999999999999AAA"},
     ):
-        response = client.post("/memory/turn", json=body)
+        response = client.post(
+            "/memory/turn", json=body, headers={"x-trace-id": f"refused-{body['agent_id']}"}
+        )
         assert response.status_code == 200
         assert response.json()["ok"] is False
         assert response.json()["context"] == ""
         assert response.json()["error"] == "memory binding refused"
+    events = [
+        json.loads(line)
+        for path in isolated_traces.glob("*.jsonl")
+        for line in path.read_text().splitlines()
+    ]
+    assert len(events) == 2
+    assert all(
+        event["response_payload_raw"]["error"] == "memory binding refused" for event in events
+    )
 
 
 def test_memory_turn_rejects_malformed_customer_map_before_tenant_call(bridge, monkeypatch):
