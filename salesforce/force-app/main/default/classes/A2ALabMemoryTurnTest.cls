@@ -93,6 +93,31 @@ private class A2ALabMemoryTurnTest {
     }
 
     @IsTest
+    static void generationAndCorrelationReachTheBridge() {
+        BridgeMock mock = new BridgeMock(200,
+            '{"conversation_id": "a2alab-c1", "context": "", "ok": true}');
+        Test.setMock(HttpCalloutMock.class, mock);
+        A2ALabMemoryTurn.Request req = new A2ALabMemoryTurn.Request();
+        req.userMessage = 'What do you remember?';
+        req.ownerId = 'persona-ana';
+        req.agentApiName = 'A2ALab_Memory_Case';
+        req.generation = 'v1:2026-11-13T00:00:00Z:0123456789abcdef01234567';
+        req.correlationId = 'lab-memory-session';
+        Test.startTest();
+        A2ALabMemoryTurn.Response r =
+            A2ALabMemoryTurn.turn(new List<A2ALabMemoryTurn.Request>{ req })[0];
+        Test.stopTest();
+
+        Map<String, Object> sent =
+            (Map<String, Object>) JSON.deserializeUntyped(mock.lastRequest.getBody());
+        System.assertEquals('A2ALab_Memory_Case', sent.get('agent_id'));
+        System.assertEquals(req.generation, sent.get('generation'));
+        System.assertEquals(req.correlationId, sent.get('correlation_id'));
+        System.assertEquals(req.correlationId, r.traceId);
+        System.assertEquals(req.correlationId, mock.lastRequest.getHeader('X-Trace-Id'));
+    }
+
+    @IsTest
     static void bridgeFailOpenIsReported() {
         Test.setMock(HttpCalloutMock.class, new BridgeMock(200,
             '{"conversation_id": "a2alab-c1", "context": "", "ok": false, "error": "403"}'));

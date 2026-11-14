@@ -149,6 +149,63 @@ def generation_conversation(owner_id: str, marker: str) -> str:
     return case_conversation(owner_id, "customer-memory", marker)
 
 
+@dataclass(frozen=True)
+class CustomerMemoryScope:
+    """The D107 namespace shared by every customer-memory execution seam."""
+
+    conversation_id: str
+    generation: str | None
+    include_saved_memories: bool
+    include_profile_context: bool
+    error: str | None = None
+
+
+async def resolve_customer_memory_scope(
+    mem: Any,
+    trace_id: str,
+    *,
+    agent_id: str,
+    owner_id: str,
+    expected_generation: str | None = None,
+) -> CustomerMemoryScope:
+    """Read the current generation and derive its conversation/quarantine policy.
+
+    The generic adapter and Agentforce bridge must use this exact decision or
+    Start fresh would have different meanings by execution platform.
+    """
+    conversation_id = owner_conversation(owner_id)
+    try:
+        listing = await mem.list_memories(
+            trace_id,
+            agent_id=agent_id,
+            owner_id=owner_id,
+            category=GENERATION_CATEGORY,
+        )
+    except MemoryCallError as exc:
+        return CustomerMemoryScope(conversation_id, None, True, True, str(exc))
+    if not isinstance(listing, MemoryListing):
+        return CustomerMemoryScope(
+            conversation_id, None, True, True, "invalid customer-memory generation listing"
+        )
+    generation, malformed = select_generation(listing)
+    if malformed:
+        return CustomerMemoryScope(
+            conversation_id, None, True, True, "invalid customer-memory generation marker"
+        )
+    if expected_generation is not None and expected_generation != (generation or ""):
+        raise StaleMemoryGeneration(
+            "customer memory changed after this chat started; start a new chat"
+        )
+    if generation:
+        conversation_id = generation_conversation(owner_id, generation)
+    return CustomerMemoryScope(
+        conversation_id=conversation_id,
+        generation=generation,
+        include_saved_memories=not bool(generation),
+        include_profile_context=not bool(generation),
+    )
+
+
 def _conversation_id(owner_id: str, conversation_id: str | None) -> str:
     return conversation_id or owner_conversation(owner_id)
 

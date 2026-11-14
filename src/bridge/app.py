@@ -12,6 +12,7 @@ compare against BRIDGE_TOKEN (skipped when unset, for local dev).
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from contextlib import asynccontextmanager
@@ -197,7 +198,13 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
         empty context, so a memory outage degrades the agent to no-memory
         instead of failing the user's turn inside the Agentforce action budget.
         """
-        from interop.memory import MemoryClient, open_and_read, write_turn
+        from interop.memory import (
+            MemoryClient,
+            StaleMemoryGeneration,
+            open_and_read,
+            resolve_customer_memory_scope,
+            write_turn,
+        )
 
         check_auth(request)
         body = await request.json()
@@ -205,6 +212,26 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
         agent_id, owner_id = body.get("agent_id"), body.get("owner_id")
         if not (agent_id and owner_id):
             raise HTTPException(status_code=400, detail="agent_id and owner_id are required")
+        try:
+            customer_map = json.loads(os.environ.get("A2ALAB_MEMORY_CUSTOMER_MAP", "{}"))
+        except (TypeError, json.JSONDecodeError):
+            customer_map = {}
+        allowed_owners = (
+            {
+                value.strip()
+                for value in customer_map.values()
+                if isinstance(value, str) and value.strip()
+            }
+            if isinstance(customer_map, dict)
+            else set()
+        )
+        if agent_id != "A2ALab_Memory_Case" or owner_id not in allowed_owners:
+            return {
+                "conversation_id": body.get("conversation_id") or None,
+                "context": "",
+                "ok": False,
+                "error": "memory binding refused",
+            }
         if "client" not in memory_state:
             memory_state["client"] = MemoryClient(source="bridge")
         mem = memory_state["client"]
@@ -223,17 +250,91 @@ def create_bridge_app(registry: Registry | None = None) -> FastAPI:
             request_payload=body,
         ) as hop:
             ids = {"agent_id": agent_id, "owner_id": owner_id}
-            sid, payload["context"], errors = await open_and_read(
-                mem, trace_id, session_id=sid, read=bool(body.get("user_message")), **ids
+            phase_budget = float(os.environ.get("A2ALAB_MEMORY_BRIDGE_PHASE_BUDGET_S", "6"))
+            generation_start = time.perf_counter()
+            try:
+                expected_generation = body.get("generation")
+                scope = await asyncio.wait_for(
+                    resolve_customer_memory_scope(
+                        mem,
+                        trace_id,
+                        expected_generation=(
+                            expected_generation
+                            if isinstance(expected_generation, str)
+                            else None
+                        ),
+                        **ids,
+                    ),
+                    phase_budget,
+                )
+            except StaleMemoryGeneration as exc:
+                payload.update(
+                    ok=False,
+                    error=str(exc),
+                    error_code=exc.error_code,
+                    generation_ms=int((time.perf_counter() - generation_start) * 1000),
+                )
+                hop.response_payload = payload
+                return payload
+            except asyncio.TimeoutError:
+                payload.update(
+                    ok=False,
+                    error=f"memory generation read over its {phase_budget:g}s budget",
+                    generation_ms=int((time.perf_counter() - generation_start) * 1000),
+                )
+                hop.response_payload = payload
+                return payload
+            payload["generation_ms"] = int(
+                (time.perf_counter() - generation_start) * 1000
             )
+            payload["generation"] = scope.generation
+            payload["profile_memory_suppressed"] = bool(scope.generation)
+            if scope.error:
+                payload.update(ok=False, error=scope.error)
+                hop.response_payload = payload
+                return payload
+
+            read_start = time.perf_counter()
+            try:
+                sid, payload["context"], errors = await asyncio.wait_for(
+                    open_and_read(
+                        mem,
+                        trace_id,
+                        session_id=sid,
+                        read=bool(body.get("user_message")),
+                        conversation_id=scope.conversation_id,
+                        include_saved_memories=scope.include_saved_memories,
+                        include_profile_context=scope.include_profile_context,
+                        **ids,
+                    ),
+                    phase_budget,
+                )
+            except asyncio.TimeoutError:
+                sid, errors = None, [f"memory read over its {phase_budget:g}s budget"]
+            payload["read_ms"] = int((time.perf_counter() - read_start) * 1000)
             payload["conversation_id"] = sid
             if sid:
-                write_errors, normalized = await write_turn(
-                    mem, trace_id, session_id=sid, user_message=body.get("user_message"),
-                    agent_response=body.get("agent_response"), **ids
-                )
+                ingest_start = time.perf_counter()
+                try:
+                    write_errors, normalized = await asyncio.wait_for(
+                        write_turn(
+                            mem,
+                            trace_id,
+                            session_id=sid,
+                            user_message=body.get("user_message"),
+                            agent_response=body.get("agent_response"),
+                            conversation_id=scope.conversation_id,
+                            **ids,
+                        ),
+                        phase_budget,
+                    )
+                except asyncio.TimeoutError:
+                    write_errors, normalized = [
+                        f"memory ingest over its {phase_budget:g}s budget"
+                    ], False
                 errors += write_errors
                 payload["normalized"] = normalized
+                payload["ingest_ms"] = int((time.perf_counter() - ingest_start) * 1000)
             if errors:
                 payload.update(ok=False, error="; ".join(errors))
             payload["total_ms"] = int((time.perf_counter() - start) * 1000)

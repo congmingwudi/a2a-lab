@@ -2583,7 +2583,7 @@ function memoryScopeMapHtml(hops, personaLabel, participants) {
   if (!services.size) services.set("Shared case memory", new Set(["facts", "preferences"]));
   const persona = scopes[0]?.persona || personaLabel || "Server-resolved customer owner";
   return `<div class="memory-scope-map" role="img"
-    aria-label="Memory hierarchy: ${esc(persona)}, then shared case memory, then facts and preferences; Claude and OpenAI are execution participants">
+    aria-label="Memory hierarchy: ${esc(persona)}, then shared case memory, then facts and preferences; Claude, OpenAI, and Agentforce are execution participants">
     <div class="memory-scope-root"><b>${esc(persona)}</b><span>face-owned mapping · effective demo isolation boundary</span></div>
     <div class="memory-scope-arrow">→</div>
     <div class="memory-scope-branches">${[...services.entries()].map(([service, categories]) => `
@@ -2594,7 +2594,7 @@ function memoryScopeMapHtml(hops, personaLabel, participants) {
           `<span class="memory-scope-leaf">${esc(category)}</span>`).join("")}</div>
       </div>`).join("")}</div>
     <div class="memory-scope-participants"><b>Execution participants:</b>
-      ${(participants || ["Claude", "OpenAI"]).map(esc).join(" · ")} — provenance, not storage partitions</div>
+      ${(participants || ["Claude", "OpenAI", "Agentforce"]).map(esc).join(" · ")} — provenance, not storage partitions</div>
   </div>`;
 }
 
@@ -3344,7 +3344,7 @@ function backBtnHtml() {
 const AGENT_CONTEXT_DIAGRAM = `flowchart LR
   C["Claude agent<br/>Anthropic · customer-memory face"]
   O["OpenAI agent<br/>OpenAI · customer-memory face"]
-  AF["Agentforce agent<br/>next build in this category"]
+  AF["Agentforce agent<br/>explicit Apex → bridge hook"]
   subgraph D360["Salesforce Data 360 · one shared agent context"]
     MEM[("Agentic Memory<br/>A2ALab_Memory_Case · facts, preferences, conversations")]
     CTX["GetContext<br/>memory + live customer in one read"]
@@ -3354,7 +3354,7 @@ const AGENT_CONTEXT_DIAGRAM = `flowchart LR
   O -->|"write turns"| MEM
   CTX -->|"read context"| C
   CTX -->|"read context"| O
-  AF -.->|"same context · next build"| CTX
+  AF -->|"read + user-side write"| CTX
   MEM --> CTX
   RTG -->|"unified customer"| CTX`;
 
@@ -3513,7 +3513,7 @@ const MEMORY_PRESENTATION_SCENES = [
     points: [
       "Measured: Claude taught a customer's details and OpenAI recalled them in a later session through the same registration.",
       "The registration carries a real-time customer graph, so context arrives with the unified customer's CRM record and recent POS orders beside memory.",
-      "Agentforce reading the same context is the next build in this category; it is drawn dashed because it is not built yet.",
+      "Agentforce now reads the same context through a deterministic Apex-to-bridge hook; native Agentforce memory stays off so the provenance is explicit.",
     ],
   },
   {
@@ -3539,7 +3539,7 @@ const MEMORY_PRESENTATION_SCENES = [
     evidence: ["Verified", "Waiting for fix"],
     figure: "MEMORY_CONFIG",
     nodes: [
-      ["Agent face", "Claude and OpenAI use the same server-side memory seam."],
+      ["Agent face", "Claude and OpenAI use the generic seam; Agentforce uses Apex → bridge."],
       ["Data Space", "'default' Data Space required until a fix is available for non-default Data Spaces.", "Waiting for fix"],
       ["A2ALab_Memory_Case", "The fixed live registration, with Automatic Memory Extraction on.", "Verified"],
       ["Profile DMO", "Unified Individual AM01, the CRM-backed unified profile.", "Verified"],
@@ -3712,6 +3712,7 @@ function memoryPresentationReadinessHtml() {
     <div class="memory-launchers">
       <button class="primary" onclick="launchMemoryExperiment('customer-memory-claude')">${viewer ? "Open Claude details" : "Open Teach Claude"}</button>
       <button class="ghost" onclick="launchMemoryExperiment('customer-memory-openai')">${viewer ? "Open OpenAI details" : "Open OpenAI recall"}</button>
+      <button class="ghost" onclick="launchMemoryExperiment('customer-memory-agentforce')">${viewer ? "Open Agentforce details" : "Open Agentforce recall"}</button>
     </div>`;
 }
 
@@ -3824,14 +3825,14 @@ window.setMemoryPresentationScene = scene => {
 window.exitMemoryPresentation = () => { if (view && view.type === "memory-presentation") goBack(); };
 
 window.launchMemoryExperiment = name => {
-  if (!labUser || !["customer-memory-claude", "customer-memory-openai"].includes(name)) {
+  if (!labUser || !["customer-memory-claude", "customer-memory-openai", "customer-memory-agentforce"].includes(name)) {
     if (!labUser) requireSignIn();
     return;
   }
   ensureMemoryPresentationCustomer();
   const key = expKey("scenario", name);
   const spec = scenarios.find(scenario => scenario.name === name);
-  memoryModes[key] = "on";
+  if (spec && spec.memory_toggle) memoryModes[key] = "on";
   drafts[key] = expDefaultPrompt(spec);
   openExperiment("scenario", name);
 };
@@ -5359,6 +5360,17 @@ function memoryRowHtml(key, exp) {
   </div>`;
 }
 
+function targetManagedMemoryRowHtml() {
+  return `
+  <div class="chan-row">
+    <span class="chan-label">Memory</span>
+    <span class="badge hosted">Shared memory always on</span>
+    <span class="chan-more">Agentforce runs the deterministic Apex → bridge hook against
+      <code>A2ALab_Memory_Case</code>. Native Agentforce memory is off; this path stores the user
+      side only. <a onclick="setTab('details')">full explanation in Details</a>.</span>
+  </div>`;
+}
+
 function memoryCustomer() {
   const customers = (labConfig && labConfig.memory_customers) || {};
   return customers[selectedMemoryCustomer] || Object.values(customers)[0] || null;
@@ -5639,7 +5651,7 @@ function memoryDetailHtml(s) {
         (<code>src/interop/memory_adapter.py</code>, the "REST at the lab seam" mode in
         <code>plan/18-agentic-memory-context.md</code> Phase 3). Off, the wrapper is dormant and the run is
         byte-for-byte the experiment without it — the toggle is per run, never a lab-wide setting.</p>
-      ${memoryScopeMapHtml([], persona, ["Claude", "OpenAI"])}
+      ${memoryScopeMapHtml([], persona, ["Claude", "OpenAI", "Agentforce"])}
       <ul class="steps">
         <li><b>Data-space boundary.</b> This deployment reads and writes Agentic Memory in
           <code>${esc(dataSpace)}</code>. The value comes from <code>A2ALAB_MEMORY_DATA_SPACE</code>,
@@ -5652,7 +5664,7 @@ function memoryDetailHtml(s) {
           caller, so the face-owned mapping is the effective demo isolation boundary.</li>
         <li><b>Shared customer memory, platform provenance.</b> Both platforms use one registered memory-service
           identity, <code>A2ALab_Memory_Case</code>, so the measured semantic path is
-          <code>registration × server-resolved customer owner × category</code>. Claude and OpenAI stay visible as
+          <code>registration × server-resolved customer owner × category</code>. Claude, OpenAI, and Agentforce stay visible as
           execution participants in the ordinary trace; they are provenance, not storage partitions. A second
           registration started empty for the same customer, but that conflicts with current guidance, so the exact
           cross-registration boundary remains open rather than being presented as universal product law.</li>
@@ -11315,6 +11327,10 @@ function chatTurnsHtml(chat) {
 // WS27/D91: what memory did on one turn, as the wrapper reported it.
 function memoryBadgeHtml(m) {
   if (!m) return `<span class="badge" title="Memory was asked for, but the target reported nothing back — it is not behind the memory seam (an older image, or a platform with no registered memory agent).">memory: no report</span>`;
+  if (m.evidence_pending) {
+    const title = `Agentforce session ${m.agent_session_id || "unknown"} is joined to the Apex, bridge, and tenant hops by ${m.correlation_id || "the lab correlation"}. Agent API does not return action outputs, so this badge does not claim recall or storage; inspect the traced hook below.`;
+    return `<span class="badge agentforce" title="${esc(title)}">memory: traced hook</span>`;
+  }
   if (m.mode === "seed") {
     const written = m.candidate_count || 0;
     const nominated = m.nominated_count || 0;
@@ -11471,7 +11487,7 @@ async function sendTurn(kind, name, message, overrides) {
       body.gate = (overrides && overrides.gate) || fanoutGates[key] || "none";
       toggles.gate = body.gate;
     }
-    // WS27/D91: memory is per run. The two customer-memory demonstrations
+    // WS27/D91: generic memory is per run on the Claude/OpenAI demonstrations
     // default on from scenario config; an explicit user radio choice wins.
     // Run All passes an explicit off override to preserve its control arm.
     if (spec && spec.memory_toggle) {
@@ -11485,6 +11501,15 @@ async function sendTurn(kind, name, message, overrides) {
           toggles.memory_generation = chat.memory_generation;
         }
       }
+    }
+    // D121: Agentforce owns its hook, so no generic memory flag is sent. The
+    // trusted customer key and the chat's D107 generation still ride each run.
+    if (spec && spec.target_managed_memory) {
+      body.memory_customer = selectedMemoryCustomer || spec.default_memory_customer;
+      toggles.memory_customer = body.memory_customer;
+      body.memory_generation = Object.prototype.hasOwnProperty.call(chat, "memory_generation")
+        ? chat.memory_generation : "";
+      toggles.memory_generation = body.memory_generation;
     }
     if (spec && spec.fanout_memory_toggle) {
       toggles.memory_mode = (overrides && overrides.memory_mode) || fanoutMemoryModes[key] || "off";
@@ -12260,6 +12285,7 @@ function renderMain(force) {
           ${view.kind === "scenario" && exp && exp.gate_toggle
             ? fanoutGateRowHtml(key) : ""}
           ${view.kind === "scenario" && exp && exp.memory_toggle ? memoryRowHtml(key, exp) : ""}
+          ${view.kind === "scenario" && exp && exp.target_managed_memory ? targetManagedMemoryRowHtml() : ""}
           ${view.kind === "scenario" && exp && exp.fanout_memory_toggle ? fanoutMemoryRowHtml(key) : ""}
           ${view.kind === "cell" && exp ? bridgeRowHtml(key) : ""}
           <div class="turns" id="chatTurns"></div>

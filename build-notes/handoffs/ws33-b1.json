@@ -1,0 +1,42 @@
+{
+  "batch": "ws33-b1",
+  "title": "Agentforce as the third shared-memory participant",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": "codex",
+  "station": "implement",
+  "holder": "codex",
+  "round": 0,
+  "verdict": "request-changes",
+  "adr": "D121",
+  "files": {
+    "plan": "build-notes/codex/ws33-b1-plan.md",
+    "notes": {},
+    "verdicts": {
+      "claude": "build-notes/claude/reviews/ws33-b1.md"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-11-14T01:04:25+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/ws33-b1-plan.md"
+    },
+    {
+      "ts": "2026-11-14T01:17:34+00:00",
+      "agent": "claude",
+      "action": "review",
+      "verdict": "request-changes",
+      "file": "build-notes/claude/reviews/ws33-b1.md",
+      "round": 0
+    },
+    {
+      "ts": "2026-11-14T01:54:19+00:00",
+      "agent": "operator",
+      "action": "settle",
+      "adr": "D121",
+      "implementer": "codex"
+    }
+  ]
+}

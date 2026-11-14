@@ -122,6 +122,7 @@ class FakeTenant:
 
 
 IDS = {"agent_id": "A2ALab_Memory_Concierge", "owner_id": "persona-ana"}
+BRIDGE_IDS = {"agent_id": "A2ALab_Memory_Case", "owner_id": "persona-ana"}
 
 
 def test_data_space_is_required_configuration(monkeypatch):
@@ -534,6 +535,7 @@ class FakeMemory:
         self.calls: list[tuple] = []
         self.listed: list[dict] = []
         self.saved: dict[tuple[str, str], list[str]] = {}
+        self.generation: str | None = None
 
     async def start_conversation(self, trace_id, **kw):
         self.calls.append(("start", kw))
@@ -553,6 +555,15 @@ class FakeMemory:
 
     async def list_memories(self, trace_id, **kw):
         self.listed.append(kw)
+        if kw["category"] == GENERATION_CATEGORY:
+            values = list(self.saved.get((kw["agent_id"], kw["category"]), []))
+            if self.generation:
+                values.append(self.generation)
+            entries = tuple(
+                memory_mod.MemoryEntry(f"memory-{index}", value)
+                for index, value in enumerate(values)
+            )
+            return MemoryListing(entries, len(entries))
         return self.saved.get((kw["agent_id"], kw["category"]), [])
 
     async def aclose(self):
@@ -563,12 +574,15 @@ class FakeMemory:
 def bridge(monkeypatch):
     fake = FakeMemory()
     monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake)
+    monkeypatch.setenv(
+        "A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"persona-ana"}'
+    )
     return TestClient(create_bridge_app(Registry({}))), fake
 
 
 def test_memory_turn_first_turn_starts_reads_then_ingests(bridge):
     client, fake = bridge
-    r = client.post("/memory/turn", json={**IDS, "user_message": "hi"})
+    r = client.post("/memory/turn", json={**BRIDGE_IDS, "user_message": "hi"})
     assert r.status_code == 200
     data = r.json()
     assert data["ok"] is True and data["conversation_id"] == "c-new"
@@ -579,21 +593,24 @@ def test_memory_turn_first_turn_starts_reads_then_ingests(bridge):
 
 def test_memory_turn_context_carries_saved_memories(bridge):
     client, fake = bridge
-    fake.saved[(IDS["agent_id"], "sys_PROFILE_FACT")] = ["Training for Porto."]
+    fake.saved[(BRIDGE_IDS["agent_id"], "sys_PROFILE_FACT")] = ["Training for Porto."]
     data = client.post(
-        "/memory/turn", json={**IDS, "conversation_id": "c-1", "user_message": "hi"}
+        "/memory/turn", json={**BRIDGE_IDS, "conversation_id": "c-1", "user_message": "hi"}
     ).json()
     assert data["context"] == "- summary: likes aisle seats\n- saved fact: Training for Porto."
     # One shared memory service is asked once per semantic category.
     assert {(k["agent_id"], k["owner_id"]) for k in fake.listed} == {
-        ("A2ALab_Memory_Concierge", "persona-ana"),
+        ("A2ALab_Memory_Case", "persona-ana"),
     }  # fmt: skip
-    assert {k["category"] for k in fake.listed} == set(memory_mod.SAVED_CATEGORIES)
+    assert {k["category"] for k in fake.listed} == {
+        memory_mod.GENERATION_CATEGORY,
+        *memory_mod.SAVED_CATEGORIES,
+    }
 
 
 def test_memory_turn_reuses_the_conversation(bridge):
     client, fake = bridge
-    client.post("/memory/turn", json={**IDS, "conversation_id": "c-1", "user_message": "x"})
+    client.post("/memory/turn", json={**BRIDGE_IDS, "conversation_id": "c-1", "user_message": "x"})
     assert [c[0] for c in fake.calls] == ["context", "ingest", "close"]
 
 
@@ -601,7 +618,7 @@ def test_memory_turn_fails_open(bridge):
     client, fake = bridge
     fake.fail = True
     data = client.post(
-        "/memory/turn", json={**IDS, "conversation_id": "c-1", "user_message": "hi"}
+        "/memory/turn", json={**BRIDGE_IDS, "conversation_id": "c-1", "user_message": "hi"}
     ).json()
     assert data["ok"] is False and "403" in data["error"] and data["context"] == ""
     # a refused read must not cost the turn its ingest
@@ -611,11 +628,47 @@ def test_memory_turn_fails_open(bridge):
 def test_memory_turn_reply_only_ingests_without_reading(bridge):
     client, fake = bridge
     data = client.post(
-        "/memory/turn", json={**IDS, "conversation_id": "c-1", "agent_response": "Noted."}
+        "/memory/turn", json={**BRIDGE_IDS, "conversation_id": "c-1", "agent_response": "Noted."}
     ).json()
     assert data["ok"] is True and data["context"] == ""
     assert [c[0] for c in fake.calls] == ["ingest", "close"]
     assert fake.calls[0][1]["agent_response"] == "Noted."
+
+
+def test_memory_turn_uses_the_current_generation_and_quarantines_saved_profile(bridge):
+    client, fake = bridge
+    fake.generation = "v1:2026-11-13T00:00:00Z:0123456789abcdef01234567"
+    fake.saved[(BRIDGE_IDS["agent_id"], "sys_PROFILE_FACT")] = ["old profile fact"]
+    data = client.post(
+        "/memory/turn",
+        json={**BRIDGE_IDS, "user_message": "hi", "generation": fake.generation},
+    ).json()
+    expected_conversation = memory_mod.generation_conversation(
+        BRIDGE_IDS["owner_id"], fake.generation
+    )
+    assert data["ok"] is True
+    assert data["generation"] == fake.generation
+    assert data["profile_memory_suppressed"] is True
+    assert all(call[1].get("conversation_id") == expected_conversation for call in fake.calls)
+    # The generation marker shares sys_PROFILE_FACT, so one listing is required
+    # to select it; quarantine prevents the later saved-memory category sweep.
+    assert [item["category"] for item in fake.listed] == [GENERATION_CATEGORY]
+
+
+def test_memory_turn_refuses_stale_generation_before_opening_memory(bridge):
+    client, fake = bridge
+    fake.generation = "v1:2026-11-13T00:00:00Z:0123456789abcdef01234567"
+    data = client.post(
+        "/memory/turn",
+        json={
+            **BRIDGE_IDS,
+            "user_message": "hi",
+            "generation": "v1:2026-11-13T00:01:00Z:abcdef0123456789abcdef01",
+        },
+    ).json()
+    assert data["ok"] is False
+    assert data["error_code"] == "stale_memory_generation"
+    assert fake.calls == []
 
 
 def test_memory_turn_requires_ids(bridge):
@@ -626,7 +679,7 @@ def test_memory_turn_requires_ids(bridge):
 def test_memory_turn_checks_the_bridge_token(bridge, monkeypatch):
     client, _ = bridge
     monkeypatch.setenv("BRIDGE_TOKEN", "secret")
-    assert client.post("/memory/turn", json=IDS).status_code == 401
+    assert client.post("/memory/turn", json=BRIDGE_IDS).status_code == 401
 
 
 # ---------------------------------------------------------------- D117 data-graph record

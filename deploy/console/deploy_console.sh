@@ -77,6 +77,7 @@ keys = [
     "ANTHROPIC_API_KEY",     # the Lab Guide answers in-process
     "OPENAI_API_KEY",
     "SF_CLIENT_ID", "SF_CLIENT_SECRET",
+    "SF_MEMORY_AGENT_ID",  # D121 dedicated Agentforce memory BotDefinition
     # The _OBS connected app is a SECOND credential pair (D37/F6, per-caller
     # identity) and was missed on the first run: both landed in plaintext on
     # the task definition, which is exactly what this secret exists to prevent.
@@ -323,6 +324,7 @@ for path in pathlib.Path("src").rglob("*.py"):
         referenced.add(m.group(1))
 
 SECRETS = {"A2ALAB_TOKEN", "BRIDGE_TOKEN", "SF_CLIENT_ID", "SF_CLIENT_SECRET",
+           "SF_MEMORY_AGENT_ID",
            "SF_CLIENT_ID_OBS", "SF_CLIENT_SECRET_OBS",
            # The embed consumer key (JWT `iss`) is kept off the plain task def
            # like the other SF_CLIENT_ID*; the signing key (…JWT_KEY) is caught

@@ -961,18 +961,23 @@ def test_scenarios_include_nav_groups(tmp_path, monkeypatch):
         assert s["group"] in group_ids, s["name"]
 
 
-def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, monkeypatch):
+def test_customer_memory_experiments_are_a_three_platform_seeded_set(tmp_path, monkeypatch):
     app = make_app(tmp_path / "traces", monkeypatch, FakeRegistry())
     scenarios = {s["name"]: s for s in TestClient(app).get("/api/scenarios").json()["scenarios"]}
     claude = scenarios["customer-memory-claude"]
     openai = scenarios["customer-memory-openai"]
-    assert claude["group"] == openai["group"] == "agent-memory"
+    agentforce = scenarios["customer-memory-agentforce"]
+    assert claude["group"] == openai["group"] == agentforce["group"] == "agent-memory"
     assert claude["target"] == "claude-rest" and openai["target"] == "openai-rest"
     assert claude["memory_toggle"] is openai["memory_toggle"] is True
     assert claude["default_memory"] == openai["default_memory"] == "on"
     assert claude["memory_customer_selector"] is openai["memory_customer_selector"] is True
     assert claude["default_memory_customer"] == openai["default_memory_customer"] == "maya"
     assert claude["seed_prompts"] and openai["seed_prompts"]
+    assert agentforce["target"] == "agentforce-memory-rest"
+    assert agentforce["target_managed_memory"] is True
+    assert agentforce["memory_customer_selector"] is True
+    assert agentforce["seed_prompts"]
     assert "do not call Agentforce" in claude["question"]
     assert "create a CRM Case" in openai["question"]
     html = Path("src/console/static/index.html").read_text()
@@ -987,6 +992,7 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert "memory-evidence-line" in html
     assert '.split("\\n")' in html
     assert "memory: stored" in html and "memory: recalled" in html
+    assert "memory: traced hook" in html
     for scenario in (claude, openai):
         assert "registration × server-resolved customer owner × category" in scenario["description"]
         assert "effective Maya/Jordan isolation boundary" in scenario["description"]
@@ -999,7 +1005,7 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert "function memoryScopeMapHtml(hops, personaLabel, participants)" in html
     assert "memory-hop-path" in html
     assert "face-owned mapping · effective demo isolation boundary" in html
-    assert '["Claude", "OpenAI"]' in html
+    assert '["Claude", "OpenAI", "Agentforce"]' in html
     assert "Shared case memory" in html
     assert "real-time</i> data graphs" in html
     assert "function agenticMemoryBillingDetailHtml()" in html
@@ -1054,6 +1060,44 @@ def test_customer_memory_experiments_are_a_two_platform_seeded_pair(tmp_path, mo
     assert "A2ALab_Memory_Case" in guide_source
 
 
+def test_agentforce_customer_memory_run_forwards_binding_without_generic_memory_flag(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    registry = FakeRegistry()
+    registry.targets["agentforce-memory-rest"] = Target(
+        name="agentforce-memory-rest", platform="agentforce", protocol="agentforce-api"
+    )
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    response = TestClient(app).post(
+        "/api/run",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={
+            "scenario": "customer-memory-agentforce",
+            "message": "recall it",
+            "memory_customer": "jordan",
+            "memory_generation": "v1:current",
+            "session_id": "lab-memory",
+        },
+    )
+    assert response.status_code == 200 and response.json()["ok"] is True
+    metadata = registry.fake_client.requests[-1].metadata
+    assert metadata["memory_customer"] == "jordan"
+    assert metadata["memory_generation"] == "v1:current"
+    assert "memory" not in metadata
+
+    rejected = TestClient(app).post(
+        "/api/run",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={
+            "scenario": "customer-memory-agentforce",
+            "message": "recall it",
+            "memory_customer": "unknown",
+        },
+    )
+    assert rejected.status_code == 400
+
+
 def test_agent_memory_presentation_mode_is_ten_scene_evidence_only_handoff():
     html = Path("src/console/static/index.html").read_text()
     start = html.index("const MEMORY_PRESENTATION_SCENES = [")
@@ -1091,7 +1135,7 @@ def test_agent_memory_presentation_mode_is_ten_scene_evidence_only_handoff():
     assert {"agent-config-edit.png", "data-graph.png", "data-graph-pos-order.png"} <= set(shots)
     for shot in shots:
         assert Path(f"src/console/static/memory-presentation/{shot}").exists()
-    assert '"customer-memory-claude", "customer-memory-openai"' in html
+    assert '"customer-memory-claude", "customer-memory-openai", "customer-memory-agentforce"' in html
     assert html.count('view = { type: "memory-presentation"') == 1
     assert 'aria-current="step"' in html
     assert 'aria-live="polite"' in html

@@ -15,6 +15,7 @@ wasted on session churn — this is a real prod org).
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 import time
 import uuid
@@ -23,6 +24,7 @@ from typing import Any, Callable
 import httpx
 
 from interop.clients.base import RemoteAgentClient
+from interop.memory import StaleMemoryGeneration, mask_owner
 from interop.models import AgentRequest, AgentResponse, new_trace_id
 from interop.trace import Hop
 
@@ -46,6 +48,7 @@ class AgentforceClient(RemoteAgentClient):
         session_variables: list[dict[str, Any]] | None = None,
         token_provider: Callable[[], dict[str, Any]] | None = None,
         bypass_user: bool = True,
+        memory_customer_binding: bool = False,
     ):
         # The hop label for this client's Agent API calls — the hosted shim
         # passes its own name so the diagram shows the shim as a network
@@ -67,6 +70,7 @@ class AgentforceClient(RemoteAgentClient):
         # client-credentials grant, whose agent runs as its own agent user.
         self.token_provider = token_provider
         self.bypass_user = bypass_user
+        self.memory_customer_binding = memory_customer_binding
         self.api_base = api_base.rstrip("/")
         self._http = httpx.AsyncClient(timeout=timeout)
         self._token: str | None = None
@@ -98,11 +102,23 @@ class AgentforceClient(RemoteAgentClient):
     def from_target(cls, target) -> "AgentforceClient":
         auth = target.auth or {}
         if auth.get("my_domain"):
+            missing = [
+                key
+                for key in ("my_domain", "client_id", "client_secret", "agent_id")
+                if not str(auth.get(key) or "").strip()
+            ]
+            if missing:
+                raise RuntimeError(
+                    "Agentforce target is not configured: missing " + ", ".join(missing)
+                )
             return cls(
                 my_domain=auth["my_domain"],
                 client_id=auth["client_id"],
                 client_secret=auth["client_secret"],
                 agent_id=auth["agent_id"],
+                memory_customer_binding=bool(
+                    (target.options or {}).get("memory_customer_binding")
+                ),
             )
         return cls.from_env()
 
@@ -136,15 +152,18 @@ class AgentforceClient(RemoteAgentClient):
             "content-type": "application/json",
         }
 
-    async def start_session(self, trace_id: str) -> str:
+    async def start_session(
+        self, trace_id: str, session_variables: list[dict[str, Any]] | None = None
+    ) -> str:
         body = {
             "externalSessionKey": str(uuid.uuid4()),
             "instanceConfig": {"endpoint": self.my_domain},
             "streamingCapabilities": {"chunkTypes": ["Text"]},
             "bypassUser": self.bypass_user,
         }
-        if self.session_variables:
-            body["variables"] = self.session_variables
+        variables = session_variables if session_variables is not None else self.session_variables
+        if variables:
+            body["variables"] = variables
         with Hop(
             trace_id,
             source=self.source_name,
@@ -164,7 +183,14 @@ class AgentforceClient(RemoteAgentClient):
             hop.platform_ref = sf_session_id  # M11.1: join key to STDM session logs
             return sf_session_id
 
-    async def ensure_session(self, lab_session_id: str, trace_id: str) -> dict[str, Any]:
+    async def ensure_session(
+        self,
+        lab_session_id: str,
+        trace_id: str,
+        *,
+        session_variables: list[dict[str, Any]] | None = None,
+        memory_binding: tuple[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Get-or-create the cached Agentforce session for a lab session_id.
 
         Serialized per key (double-checked inside the lock): two concurrent asks
@@ -175,21 +201,82 @@ class AgentforceClient(RemoteAgentClient):
         (A11/F02)."""
         lock = self._session_locks.setdefault(lab_session_id, asyncio.Lock())
         async with lock:
-            if lab_session_id not in self._sessions:
-                sf_session_id = await self.start_session(trace_id)
-                self._sessions[lab_session_id] = {"id": sf_session_id, "seq": 0}
+            existing = self._sessions.get(lab_session_id)
+            if existing and memory_binding is not None:
+                old_owner, old_generation = existing.get("memory_binding", (None, None))
+                owner, generation = memory_binding
+                if old_owner != owner:
+                    raise RuntimeError(
+                        "customer memory session is already bound to a different customer"
+                    )
+                if old_generation != generation:
+                    self._sessions.pop(lab_session_id, None)
+                    await self._delete_session(existing["id"], trace_id)
+                    raise StaleMemoryGeneration(
+                        "customer memory changed after this chat started; start a new chat"
+                    )
+            if existing is None:
+                sf_session_id = (
+                    await self.start_session(trace_id, session_variables)
+                    if session_variables is not None
+                    else await self.start_session(trace_id)
+                )
+                existing = {"id": sf_session_id, "seq": 0}
+                if memory_binding is not None:
+                    existing["memory_binding"] = memory_binding
+                self._sessions[lab_session_id] = existing
             return self._sessions[lab_session_id]
+
+    def _memory_binding(
+        self, req: AgentRequest
+    ) -> tuple[tuple[str, str], list[dict[str, Any]], str]:
+        """Resolve a verified customer key to immutable Agent API variables."""
+        from interop.memory_adapter import owner_of
+
+        metadata = req.metadata or {}
+        customer_key = metadata.get("memory_customer")
+        generation = metadata.get("memory_generation", "")
+        owner = owner_of(req)
+        if (
+            owner is None
+            or not isinstance(customer_key, str)
+            or not customer_key
+            or not isinstance(generation, str)
+        ):
+            raise RuntimeError(
+                "customer memory binding requires a verified mapped customer and generation"
+            )
+        correlation = req.session_id or req.trace_id or new_trace_id()
+        variables = [
+            {"name": "memory_owner", "type": "Text", "value": owner},
+            {"name": "memory_generation", "type": "Text", "value": generation},
+            {"name": "memory_correlation", "type": "Text", "value": correlation},
+        ]
+        return (owner, generation), variables, customer_key
 
     async def ask(self, req: AgentRequest) -> AgentResponse:
         trace_id = req.trace_id or new_trace_id()
         start = time.perf_counter()
+        memory_binding = None
+        request_variables = None
+        customer_key = None
+        if self.memory_customer_binding:
+            memory_binding, request_variables, customer_key = self._memory_binding(req)
         # Session-less asks are one-shot: create -> message -> DELETE, so
         # each request leaves nothing running on the (production) org.
         oneshot = not req.session_id
         if oneshot:
-            session: dict[str, Any] = {"id": await self.start_session(trace_id), "seq": 0}
+            session: dict[str, Any] = {
+                "id": await self.start_session(trace_id, request_variables),
+                "seq": 0,
+            }
         else:
-            session = await self.ensure_session(req.session_id, trace_id)
+            session = await self.ensure_session(
+                req.session_id,
+                trace_id,
+                session_variables=request_variables,
+                memory_binding=memory_binding,
+            )
         try:
             session["seq"] += 1
             body = {
@@ -230,7 +317,7 @@ class AgentforceClient(RemoteAgentClient):
             for m in data.get("messages", [])
             if m.get("type") in ("Inform", "TextChunk") and m.get("message")
         ]
-        return AgentResponse(
+        response = AgentResponse(
             text="\n".join(texts).strip(),
             session_id=req.session_id,
             latency_ms=int((time.perf_counter() - start) * 1000),
@@ -243,6 +330,30 @@ class AgentforceClient(RemoteAgentClient):
             # which Salesforce never minted and the OTel endpoint 404s on.
             metadata={"agent_session_id": session["id"]},
         )
+        if memory_binding is not None:
+            owner, generation = memory_binding
+            response = dataclasses.replace(
+                response,
+                metadata={
+                    **(response.metadata or {}),
+                    "memory": {
+                        "agent_id": "A2ALab_Memory_Case",
+                        "owner_id": mask_owner(owner, owner),
+                        "customer_key": customer_key,
+                        "generation": generation or None,
+                        "profile_memory_suppressed": bool(generation),
+                        # Agent API returns the final answer, not the Apex
+                        # action outputs. A successful Agent API call is not
+                        # evidence that memory read/wrote; correlation joins
+                        # the authoritative bridge and tenant hops.
+                        "binding_ok": True,
+                        "evidence_pending": True,
+                        "correlation_id": req.session_id or trace_id,
+                        "agent_session_id": session["id"],
+                    },
+                },
+            )
+        return response
 
     async def _delete_session(self, sf_session_id: str, trace_id: str) -> None:
         with Hop(

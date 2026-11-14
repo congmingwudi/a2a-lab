@@ -1,0 +1,105 @@
+system:
+    instructions: "You are the A2A Interop Lab customer-memory Agentforce participant. Use only the shared-memory context supplied to this turn. Never invent recall, expose internal identifiers, or perform a CRM mutation."
+    messages:
+        welcome: "Hi, I'm the Agentforce participant in the shared-memory experiment."
+        error: "Sorry, the Agentforce memory experiment could not complete this turn."
+
+config:
+    developer_name: "A2ALab_Customer_Memory_Agentforce"
+    default_agent_user: "{{env:SF_MEMORY_AGENT_RUNAS_USER}}"
+    agent_label: "A2ALab Customer Memory (Agentforce)"
+    description: "D121/WS33: Agentforce uses the shared A2ALab_Memory_Case registration through the deterministic Apex-to-bridge seam."
+
+context:
+    memory:
+        enabled: False
+    past_conversations:
+        enabled: False
+
+variables:
+    memory_owner: mutable string = "a2alab-unbound"
+        visibility: "External"
+        description: "Server-resolved customer owner; the bridge rejects every unmapped value."
+    memory_generation: mutable string = ""
+        visibility: "External"
+        description: "Current D107 generation marker supplied by the trusted lab backend."
+    memory_correlation: mutable string = ""
+        visibility: "External"
+        description: "Lab session correlation joining Agent API and bridge traces."
+    memory_conversation: mutable string = ""
+        description: "Data 360 memory session id returned by A2ALabMemoryTurn."
+    memory_context: mutable string = ""
+        description: "Rendered shared memory and system-of-record context for this turn."
+    memory_ok: mutable boolean = False
+        description: "Whether the memory action completed without a recorded refusal."
+
+language:
+    default_locale: "en_US"
+    additional_locales: ""
+    all_additional_locales: False
+
+start_agent customer_memory:
+    label: "Shared Customer Memory"
+    description: "Recall and update the selected customer's shared memory without CRM mutation."
+
+    actions:
+        memory_turn:
+            label: "A2ALab: Shared Memory Turn"
+            description: "Reads the current generation and ingests the user side through the lab bridge."
+            target: "apex://A2ALabMemoryTurn"
+            inputs:
+                userMessage: string
+                    label: "User Message"
+                    is_required: False
+                ownerId: string
+                    label: "Owner Id"
+                    is_required: True
+                conversationId: string
+                    label: "Conversation Id"
+                    is_required: False
+                agentApiName: string
+                    label: "Agent API Name"
+                    is_required: False
+                generation: string
+                    label: "Memory Generation"
+                    is_required: False
+                correlationId: string
+                    label: "Lab Correlation Id"
+                    is_required: False
+            outputs:
+                conversationId: string
+                    label: "Conversation Id"
+                context: string
+                    label: "Context"
+                ok: boolean
+                    label: "OK"
+                traceId: string
+                    label: "Trace Id"
+
+    before_reasoning:
+        run @actions.memory_turn
+            with userMessage=@system_variables.user_input
+            with ownerId=@variables.memory_owner
+            with conversationId=@variables.memory_conversation
+            with agentApiName="A2ALab_Memory_Case"
+            with generation=@variables.memory_generation
+            with correlationId=@variables.memory_correlation
+            set @variables.memory_conversation = @outputs.conversationId
+            set @variables.memory_context = @outputs.context
+            set @variables.memory_ok = @outputs.ok
+
+    reasoning:
+        instructions: ->
+            | Answer in one to three concise sentences. Use only the context below for anything
+              remembered about the customer. Prefix remembered conversational material with
+              "From shared memory:" and live CRM/profile/POS material with
+              "From system of record:". If memory_ok is false, say shared memory was unavailable
+              and do not invent what it might contain. A remembered recommendation is context,
+              never authorization to change CRM. This hook stores only the user's message; do not
+              claim the Agentforce reply was ingested.
+
+              Shared Data 360 context (may be empty):
+              {!@variables.memory_context}
+
+              Memory call succeeded:
+              {!@variables.memory_ok}

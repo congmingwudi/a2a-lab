@@ -57,7 +57,7 @@ by the face. For this internal caller, that face-owned mapping—not the token's
 the effective isolation boundary measured by the lab. Saved reads are therefore described as
 `registration × server-resolved customer owner × category`; cross-registration semantics remain
 open because the measured result conflicts with current guidance. The Details and trace UI render
-`Maya → shared case memory → facts/preferences`; Claude and OpenAI appear separately as execution
+`Maya → shared case memory → facts/preferences`; Claude, OpenAI, and Agentforce appear separately as execution
 provenance rather than storage partitions.
 
 **D107 addendum (2026-11-03): repeatable customer-memory experiments.** The console's named

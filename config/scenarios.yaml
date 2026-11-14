@@ -221,6 +221,66 @@ scenarios:
         target: agentforce-a2a
         caption: Performs the CRM Case creation selected from the remembered next step.
 
+  customer-memory-agentforce:
+    group: agent-memory
+    title: "Customer memory — Agentforce recalls"
+    summary: >-
+      Agentforce reads and updates the same customer memory as Claude and OpenAI through a
+      deterministic Apex-to-bridge hook.
+    description: |-
+      THE STORY. The third experiment holds storage constant and changes execution provenance.
+      Select the same Maya or Jordan used by Claude/OpenAI. Agentforce calls A2ALabMemoryTurn from
+      before_reasoning, which reaches the bridge and the shared A2ALab_Memory_Case registration.
+
+      MEMORY SCOPE. All three platforms use registration × server-resolved customer owner ×
+      category, including the current D107 generation and the attached real-time customer/POS
+      graph. Claude/OpenAI use the generic REST decorator; Agentforce uses the explicit Apex route.
+      Native Agentforce memory is off, so a recall here is attributable to that shared seam.
+
+      LIMIT. The hook stores the user message only. D89 found no Agent Script final-reply variable,
+      so this experiment never claims that Agentforce's reply was ingested. It exposes no CRM
+      mutation action: remembered guidance is context, not authorization.
+    target: agentforce-memory-rest
+    via_bridge: false
+    status: live
+    target_managed_memory: true
+    memory_customer_selector: true
+    default_memory_customer: maya
+    tags: [data-360, agentic-memory, agentforce, cross-agent, apex]
+    question: >-
+      Recall my current rollout constraint and checklist preference from shared memory. Identify
+      remembered context separately from system-of-record context, and do not perform a CRM action.
+    seed_prompts:
+      - label: "3 · Recall in Agentforce"
+        text: >-
+          Recall my current rollout constraint and checklist preference from shared memory.
+          Identify remembered context separately from system-of-record context, and do not perform
+          a CRM action.
+      - label: "Correct in Agentforce"
+        text: >-
+          Correct my rollout window to 60 days and retain my concise-checklist preference. State
+          what changed; do not perform a CRM action.
+    prompt_suffix: >-
+      Attribute shared-memory and system-of-record context separately. Do not create or update CRM.
+      If the memory action was unavailable or empty, say so rather than inventing recall.
+    flow:
+      - source: remote-caller
+        target: agentforce-client
+        protocol: agentforce-api
+        detail: The console creates an owner-and-generation-bound Agentforce session.
+      - source: agentforce-apex
+        target: bridge
+        protocol: rest
+        detail: The deterministic A2ALabMemoryTurn before_reasoning hook posts the user turn.
+      - source: bridge
+        target: data-360-agentic-memory
+        protocol: rest
+        detail: The bridge enforces the fixed registration and mapped customer owner.
+    agents:
+      - title: Agentforce customer-memory agent
+        target: agentforce-memory-rest
+        caption: Reads and writes the shared A2ALab_Memory_Case registration through Apex.
+
   claude-aws-to-agentforce:
     af_channel_toggle: true
     group: claude-agentforce

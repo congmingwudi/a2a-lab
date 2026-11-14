@@ -49,19 +49,14 @@ from typing import Any
 
 from interop.adapter import AgentAdapter
 from interop.memory import (
-    GENERATION_CATEGORY,
-    MemoryCallError,
     MemoryClient,
-    MemoryListing,
-    StaleMemoryGeneration,
     data_space,
-    generation_conversation,
     mask_owner,
     open_and_read,
     withheld_note,
     owner_conversation,
     redact,
-    select_generation,
+    resolve_customer_memory_scope,
     write_turn,
 )
 from interop.models import AgentRequest, AgentResponse
@@ -208,34 +203,27 @@ class MemoryAdapter:
         conversation_id = owner_conversation(owner)
         generation = None
         generation_error = None
+        include_saved_memories = True
+        include_profile_context = True
         if isinstance((req.metadata or {}).get("memory_customer"), str):
-            try:
-                listing, generation_errors = await self._bounded(
-                    mem.list_memories(trace_id, category=GENERATION_CATEGORY, **ids),
-                    "generation read",
-                )
-                if generation_errors:
-                    generation_error = "; ".join(generation_errors)
-                if isinstance(listing, MemoryListing):
-                    generation, malformed = select_generation(listing)
-                    if malformed:
-                        generation_error = "invalid customer-memory generation marker"
-                    elif generation:
-                        conversation_id = generation_conversation(owner, generation)
-            except MemoryCallError as exc:
-                generation_error = str(exc)
-        expected_generation = (req.metadata or {}).get("memory_generation")
-        if (
-            not generation_error
-            and isinstance(expected_generation, str)
-            and expected_generation != (generation or "")
-        ):
-            # Refuse before invoking the inner agent: its platform session may
-            # still contain pre-reset teaching, which must not leak into the
-            # newly rotated namespace through a fresh reply.
-            raise StaleMemoryGeneration(
-                "customer memory changed after this chat started; start a new chat"
+            expected = (req.metadata or {}).get("memory_generation")
+            scope, generation_errors = await self._bounded(
+                resolve_customer_memory_scope(
+                    mem,
+                    trace_id,
+                    expected_generation=expected if isinstance(expected, str) else None,
+                    **ids,
+                ),
+                "generation read",
             )
+            if generation_errors:
+                generation_error = "; ".join(generation_errors)
+            elif scope is not None:
+                conversation_id = scope.conversation_id
+                generation = scope.generation
+                generation_error = scope.error
+                include_saved_memories = scope.include_saved_memories
+                include_profile_context = scope.include_profile_context
         if generation_error:
             resp = await self.inner.handle(req)
             meta = dict(resp.metadata or {})
@@ -263,8 +251,8 @@ class MemoryAdapter:
                 session_id=sid,
                 start=not known,
                 conversation_id=conversation_id,
-                include_saved_memories=not bool(generation),
-                include_profile_context=not bool(generation),
+                include_saved_memories=include_saved_memories,
+                include_profile_context=include_profile_context,
                 **ids,
             ),
             "read",

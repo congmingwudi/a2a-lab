@@ -62,6 +62,14 @@ IDENTITIES = [
         "required": False,
     },
     {
+        "app": "a2a_lab_app_memory_agent",
+        "id_env": "SF_CLIENT_ID",
+        "secret_env": "SF_CLIENT_SECRET",
+        "agent_env": "SF_MEMORY_AGENT_ID",
+        "used_by": "Agentforce customer-memory experiment (D121/WS33)",
+        "required": False,
+    },
+    {
         "app": "a2a_lab_openai",
         "id_env": "SF_CLIENT_ID_OPENAI",
         "secret_env": "SF_CLIENT_SECRET_OPENAI",

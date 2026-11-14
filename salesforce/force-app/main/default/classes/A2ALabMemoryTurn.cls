@@ -47,6 +47,14 @@ public with sharing class A2ALabMemoryTurn {
         @InvocableVariable(label='Agent API Name'
             description='The agent registered for memory; defaults to the concierge')
         public String agentApiName;
+
+        @InvocableVariable(label='Memory Generation'
+            description='Expected D107 customer-memory generation; empty before the first reset')
+        public String generation;
+
+        @InvocableVariable(label='Lab Correlation Id'
+            description='Stable lab session correlation joining Agent API and bridge traces')
+        public String correlationId;
     }
 
     public class Response {
@@ -78,7 +86,9 @@ public with sharing class A2ALabMemoryTurn {
 
     private static Response turnOne(Request req) {
         Response resp = new Response();
-        resp.traceId = EncodingUtil.convertToHex(Crypto.generateAesKey(128));
+        resp.traceId = String.isNotBlank(req.correlationId)
+            ? req.correlationId
+            : EncodingUtil.convertToHex(Crypto.generateAesKey(128));
         resp.conversationId = req.conversationId;
         resp.context = '';
         resp.ok = false;
@@ -93,6 +103,8 @@ public with sharing class A2ALabMemoryTurn {
             'agent_id' => String.isBlank(req.agentApiName) ? DEFAULT_AGENT : req.agentApiName,
             'owner_id' => req.ownerId,
             'conversation_id' => req.conversationId,
+            'generation' => req.generation,
+            'correlation_id' => req.correlationId,
             'user_message' => req.userMessage,
             'agent_response' => req.agentResponse
         }));

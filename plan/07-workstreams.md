@@ -3839,3 +3839,28 @@ and is served by Agentic Memory's GetContext through the shared `A2ALab_Memory_C
 12. ✅ Keep the customer's Contact id out of the rendered graph record: the hosted proof showed OpenAI quoting it in an answer.
 13. ✅ Mask the Data 360 unified-profile id the same way: asked for their id, both agents offered it as a "Contact ID". The trace views keep the raw ids.
 14. ✅ Tell the agents why the ids are missing: the masks read as plain words ("this customer"), and a masked context carries a prompt line saying the ids are withheld, so asked for an id an agent declines and names the customer instead of quoting the mask label.
+
+## WS33 — Agentforce joins the shared customer-memory experiment (raised 2026-11-13, D121)
+
+Add Agentforce as a third execution provenance under Agent Memory while keeping one registration,
+one server-resolved customer owner, and one generation boundary. The DC1 estate crossover is
+explicitly parked. Delivery is governed by handoff batch `ws33-b1`.
+
+1. ✅ Correct the settled architecture record and deployment map for the live Agentforce
+   Apex→bridge memory route, generation semantics, allowlist, and full-rebuild obligations.
+2. ✅ Write red tests for request-scoped Agentforce owner/generation binding, stale-generation
+   refusal, verified identity, concurrency, empty agent id, and unchanged static variables.
+3. ✅ Refactor generation resolution into `interop.memory` and make `/memory/turn` share D107
+   semantics, fail-closed agent/owner allowlisting, bounded phases, and correlation evidence.
+4. 🟡 Extend and test `A2ALabMemoryTurn` for generation and lab correlation; deploy the Apex pair
+   with at least 75% coverage at the explicit org-deployment checkpoint.
+5. 🟡 Generate (do not hand-create) and implement `A2ALab_Customer_Memory_Agentforce`, validate
+   it, preview with live actions, and publish only after explicit deployment approval.
+6. ✅ Add `agentforce-memory-rest`, `SF_MEMORY_AGENT_ID`, run-as/preflight contracts, and the
+   required console/bridge secret carriage without changing existing Agentforce targets.
+7. ✅ Add the third Agent Memory card with an always-on shared-memory treatment, customer controls,
+   generation carriage, joined Agent API/memory evidence, and no false reply-ingestion claim.
+8. ✅ Update diagrams, Details/presentation scenes, Dockerfile/runtime-copy coverage, and all
+   two-participant wording to distinguish the generic REST seam from Apex→bridge.
+9. ⏳ Run focused and full local verification, Claude cross-review, full console/bridge rebuilds,
+   hosted three-agent/negative-control/Start-fresh/POS smokes, and record measured evidence.

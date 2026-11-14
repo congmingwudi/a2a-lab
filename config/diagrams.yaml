@@ -329,12 +329,12 @@ diagrams:
           HOST --> RUN2
 
   - id: customer-memory-continuity
-    title: "Customer continuity: Claude teaches, OpenAI recalls"
+    title: "Customer continuity across Claude, OpenAI, and Agentforce"
     caption: >
       A verified lab persona maps (environment-only, D117) to Maya's CRM Contact id, the
       Agentic Memory owner; Data 360 resolves it to her Unified Individual (AM01) inside
-      GetContext. Claude and
-      OpenAI share one memory registration, A2ALab_Memory_Case, and the same governed xid
+      GetContext. Claude, OpenAI, and Agentforce share one memory registration,
+      A2ALab_Memory_Case, and the same governed xid
       (platform identity stays in the execution trace, not in memory partitions, D105); remembered customer
       context and each run's fresh Agentforce CRM contribution stay visibly distinct.
     insights: [credential-locality]
@@ -346,6 +346,9 @@ diagrams:
           C -->|"A2ALab_Memory_Case · xid=Contact id<br/>write + close"| MEM[("Data 360 Agentic Memory")]
           USER --> O["OpenAI customer-memory run"]
           MEM -->|"A2ALab_Memory_Case · same xid<br/>GetContext + Customer360 graph"| O
+          USER --> AFA["Agentforce customer-memory run"]
+          AFA -->|"before_reasoning · Apex → bridge<br/>user-side write"| MEM
+          MEM -->|"same xid + D107 generation<br/>GetContext"| AFA
           MEM -.->|"identity link"| PROFILE["Unified Individual AM01<br/>profile DMO + real-time graph (D117/D118)"]
           C -->|"fresh CRM context"| AF["Agentforce"]
           O -->|"fresh CRM context"| AF

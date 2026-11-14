@@ -118,6 +118,36 @@ def test_auth_enforced_when_token_set(bridge, monkeypatch):
     assert ok.status_code == 200
 
 
+def test_memory_turn_refuses_unknown_agent_or_owner_without_tenant_call(bridge, monkeypatch):
+    monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
+    monkeypatch.setenv(
+        "A2ALAB_MEMORY_CUSTOMER_MAP",
+        '{"maya":"003000000000001AAA","jordan":"003000000000002AAA"}',
+    )
+    client, _ = bridge
+    for body in (
+        {"agent_id": "Other_Agent", "owner_id": "003000000000001AAA"},
+        {"agent_id": "A2ALab_Memory_Case", "owner_id": "003999999999999AAA"},
+    ):
+        response = client.post("/memory/turn", json=body)
+        assert response.status_code == 200
+        assert response.json()["ok"] is False
+        assert response.json()["context"] == ""
+        assert response.json()["error"] == "memory binding refused"
+
+
+def test_memory_turn_rejects_malformed_customer_map_before_tenant_call(bridge, monkeypatch):
+    monkeypatch.delenv("BRIDGE_TOKEN", raising=False)
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", "not-json")
+    client, _ = bridge
+    response = client.post(
+        "/memory/turn",
+        json={"agent_id": "A2ALab_Memory_Case", "owner_id": "003000000000001AAA"},
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+
+
 class _FakeFanout:
     """Stand-in for orchestration.FanOutResult — the bridge only reads these."""
 

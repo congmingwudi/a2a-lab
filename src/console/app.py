@@ -3140,6 +3140,8 @@ def create_console_app(registry: Registry | None = None):
         # offers it (`memory_toggle`). Not a lab-wide switch: the target's
         # memory wrapper is dormant until a request carries metadata["memory"].
         chosen_memory: bool | None = None
+        target_managed_memory = False
+        customer_key = ""
 
         scenario_name = body.get("scenario")
         if scenario_name:
@@ -3398,6 +3400,14 @@ def create_console_app(registry: Registry | None = None):
                     )
                     if customer_key not in load_memory_customers():
                         raise HTTPException(status_code=400, detail="invalid memory_customer")
+            if spec.get("target_managed_memory"):
+                target_managed_memory = True
+                chosen_memory = True
+                customer_key = str(
+                    body.get("memory_customer") or spec.get("default_memory_customer") or ""
+                )
+                if customer_key not in load_memory_customers():
+                    raise HTTPException(status_code=400, detail="invalid memory_customer")
             if spec.get("dispatch_mode_toggle"):
                 # WS11: how the fan-out dispatches each leg — sync (blocking) vs
                 # async (A2A fire-then-poll). The CMA fan-out consumes this in
@@ -3451,11 +3461,15 @@ def create_console_app(registry: Registry | None = None):
         if chosen_dispatch and not spec.get("af_topology_toggle"):
             req.metadata["dispatch_mode"] = chosen_dispatch
         if chosen_memory:
-            req.metadata["memory"] = True
+            if not target_managed_memory:
+                req.metadata["memory"] = True
             if scenario_name and spec.get("memory_customer_selector"):
                 req.metadata["memory_customer"] = customer_key
-                if isinstance(body.get("memory_generation"), str):
-                    req.metadata["memory_generation"] = body["memory_generation"]
+                generation = body.get("memory_generation")
+                if isinstance(generation, str):
+                    req.metadata["memory_generation"] = generation
+                elif target_managed_memory:
+                    req.metadata["memory_generation"] = ""
         # WS11: the ADK orchestrator MUST be driven fire-then-poll, never with a
         # blocking ask(). A blocking message:send runs the whole
         # SequentialAgent[ParallelAgent→synthesiser] graph inline on Agent Engine

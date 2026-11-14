@@ -9,6 +9,11 @@ A2A Interop Lab: cross-platform agent-to-agent experiments across Salesforce Age
 The evidence-only guided-console contract is `plan/20-console-presentation-mode.md` (D116/WS31):
 presentation scenes hand off to the authoritative Run/Details experiments and never invent live evidence.
 
+**D121 correction (2026-11-13):** the historical `/memory/turn` sentence above now applies only
+to the retired concierge registration. WS33 makes that bridge verb live for
+`A2ALab_Customer_Memory_Agentforce`, fixed to the shared `A2ALab_Memory_Case` registration, the
+same allow-listed customer owner, and the same D107 generation as the Claude/OpenAI experiments.
+
 ## Commands
 
 ```sh

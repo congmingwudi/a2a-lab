@@ -5458,3 +5458,53 @@ graph is READY with day-zero artifacts and attached. A paired default/custom run
 facts, preferences, Conversation Retrieval, and Context work in default but fail through the same
 request sequence in the custom space, establishing AM-API-012. Future reruns must verify each
 dependency's health, not only its attachment, and must not infer persistence from 201/202 responses.
+
+## 2026-11-13 — D121: Agentforce is the third execution provenance on the shared customer-memory registration
+
+**Context.** The Agent Memory exhibit has two generic host-side participants: Claude and OpenAI
+are decorated at the lab REST seam and address `A2ALab_Memory_Case` for the same server-resolved
+customer owner. The next comparison needs a native Agentforce execution path without creating a
+second memory island. The existing deterministic `A2ALabMemoryTurn` Apex action supplies that
+path, but its bridge route predates D107 generation rotation, accepts arbitrary registration and
+owner values, and cannot yet join the Agent API session to the bridge/memory trace. A D79 review
+identified those gaps before implementation (`build-notes/claude/reviews/ws33-b1.md`).
+
+**Decision.** Settle `ws33-b1` with Codex as implementer and Claude Code as cross-reviewer.
+
+1. Add a dedicated Agentforce Service Agent and console experiment. It calls
+   `A2ALabMemoryTurn` deterministically from `before_reasoning`, with native Agentforce memory
+   disabled, and always addresses the existing `A2ALab_Memory_Case` registration. It reuses the
+   established research-assistant Einstein Agent User through the environment-rendered
+   `SF_MEMORY_AGENT_RUNAS_USER`; no username or BotDefinition id is committed.
+2. The console resolves the allow-listed customer key through `A2ALAB_MEMORY_CUSTOMER_MAP`, using
+   the same verified-user boundary as `memory_adapter.owner_of`. It supplies the raw Contact id
+   only as an immutable Agent API session variable. Empty agent ids, unsigned callers, machine
+   identities, unknown customers, raw owner input, and owner switches fail closed before an Agent
+   API message is sent.
+3. Agentforce session reuse is bound to `(owner, generation)`. The target-managed experiment
+   forwards both `memory_customer` and `memory_generation` even though it has no generic memory
+   toggle. A generation mismatch ends the cached Agentforce session and returns
+   `stale_memory_generation` before sending the message.
+4. Move generation selection into a shared `interop.memory` helper. The bridge uses the same
+   derived generation conversation, saved-memory suppression, and post-reset profile quarantine
+   as the generic adapter; Start fresh therefore has one semantic boundary across all three
+   platforms.
+5. `/memory/turn` accepts only `A2ALab_Memory_Case` and only owners present in the deployed
+   customer map. It performs no tenant call for a refused pair. Its phases are bounded under the
+   Apex callout budget and report measured phase latency and partial failures.
+6. Extend `A2ALabMemoryTurn` with optional generation and lab-correlation inputs. Apex carries the
+   correlation through the bridge request and trace header; the bridge records it on the hop, and
+   the console returns joined Agent API plus memory evidence. The Apex class and tests deploy
+   together with at least 75% production coverage.
+7. `SF_MEMORY_AGENT_ID`, `SF_MEMORY_AGENT_RUNAS_USER`, and the customer map are explicit console,
+   bridge, preflight, and deployment contracts. Because bridge Python and console/config assets
+   change, both services require full image rebuilds. The old deployment-map language that treated
+   `/memory/turn` as historical is replaced by this live route.
+
+**Consequences.** The three cards compare execution provenance, not three memory stores. Claude
+and OpenAI can ingest both sides of a turn; Agentforce can ingest only the user side because D89
+found no final-reply Agent Script variable. The console labels that limit and does not infer recall
+from a successful write. The DC1 home/companion-org crossover remains parked as a separate future
+scenario and contributes no dependency or credential to WS33.
+
+**Status.** DECIDED 2026-11-13. Handoff batch: `ws33-b1`.
