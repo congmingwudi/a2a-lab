@@ -3199,6 +3199,10 @@ not invalidate. The other estate reported at least 40 min on its cell. A "forget
 therefore has to show the Memory API list as the proof of erasure, and say that Context lags
 behind it.
 
+Recheck 2026-11-14 00:30:41Z, same owner: the list is still clean and Get Context still returns
+both deleted markers, 3 h 31 min after the delete. Filed to the RT on-call on its own (SR-08 in
+`build-notes/support-requests.md`), separate from the non-default Data Space thread.
+
 What is left of AM-API-012 here is the write path: owner type, request contract, session-id shape
 and space type are all ruled out. Another cell's non-default space accepts the same creates, so the
 remaining difference is tenant or cell (EU55). Trace JSON is under `traces/governance/` (gitignored).
