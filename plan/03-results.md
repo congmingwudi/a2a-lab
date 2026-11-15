@@ -3206,3 +3206,45 @@ both deleted markers, 3 h 31 min after the delete. Filed to the RT on-call on it
 What is left of AM-API-012 here is the write path: owner type, request contract, session-id shape
 and space type are all ruled out. Another cell's non-default space accepts the same creates, so the
 remaining difference is tenant or cell (EU55). Trace JSON is under `traces/governance/` (gitignored).
+
+## 2026-11-14 — WS33 Agentforce joined the shared customer-memory exhibit
+
+The reviewed D121/WS33 batch was deployed to the production lab after explicit approval. This is
+deployment evidence, not a synthetic replay.
+
+| Gate | Measured result |
+| --- | --- |
+| Apex | `A2ALabMemoryTurnTest` 7/7 passed; `A2ALabMemoryTurn` test-run coverage 100% |
+| Agent Script | validation 0 errors; live `memory_turn` preview 1.159 s; published version 1 activated; published preview passed |
+| Runtime rollout | bridge ECS revision 21 and console revision 164 both `COMPLETED`; public health checks 200 |
+| Identities | all eight configured preflight rows passed, including the new memory Agent API participant |
+| Core hosted run | 9.300 s, `ok:true`; 14 joined successful hops under trace `9863019d64dc4951b2f47541b28ce34f` |
+| Concurrency | two simultaneous turns on one lab session both 200/`ok:true`, with distinct traces |
+
+The 14-hop core trace contains the first-turn generation lookup, Agent API session create and
+message, deterministic Apex `POST /memory/turn`, Data 360 conversation/session/participant
+creation, GetContext, fact and preference listing, user-entry ingest, memory-session close, and
+Agent API session delete. That is joined evidence; it does not infer hook success from the final
+answer.
+
+The behavioral smokes held customer scope constant and changed execution provenance:
+
+- Claude taught Maya a **60-day** rollout window and **concise checklists**. Agentforce recalled
+  the checklist; in the same Agentforce chat a correction changed the window from 60 to 45 days.
+- Jordan, the negative control, recalled neither Maya fact.
+- A deliberately mismatched generation was refused with `stale_memory_generation` before another
+  Agent API message. A viewer was refused 403 by the D36 operator gate.
+- A synthetic Camp lantern POS order was accepted in **0.292 s**. Agentforce named the product,
+  SKU, price, store and date from system-of-record context in **7.712 s**.
+- Start fresh created a new generation with no errors and enabled profile-memory suppression.
+  The management list later showed re-materialized profile rows, but Agentforce correctly reported
+  no old rollout/checklist preference. Claude then seeded the fresh generation with a **30-day**
+  window and **numbered checklists**; Agentforce recalled both in **10.536 s**.
+
+One arm is not green. The fresh-generation OpenAI recall exceeded the hosted client's 180-second
+request window after an earlier connection drop and a DNS-only retry. OpenAI was unchanged by
+WS33, but the three-participant post-reset sweep is therefore partial and WS33 item 9 stays ⏳.
+No deliberate production memory-tenant outage was injected. The known pre-deploy hardening item
+also remains: the console's first-turn generation lookup has no explicit timeout and is outside
+the `/api/run` result-shaping `try`, so a real tenant outage may return a raw 500 while still
+failing closed.

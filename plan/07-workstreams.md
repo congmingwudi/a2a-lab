@@ -3852,9 +3852,9 @@ explicitly parked. Delivery is governed by handoff batch `ws33-b1`.
    refusal, verified identity, concurrency, empty agent id, and unchanged static variables.
 3. ✅ Refactor generation resolution into `interop.memory` and make `/memory/turn` share D107
    semantics, fail-closed agent/owner allowlisting, bounded phases, and correlation evidence.
-4. 🟡 Extend and test `A2ALabMemoryTurn` for generation and lab correlation; deploy the Apex pair
+4. ✅ Extend and test `A2ALabMemoryTurn` for generation and lab correlation; deploy the Apex pair
    with at least 75% coverage at the explicit org-deployment checkpoint.
-5. 🟡 Generate (do not hand-create) and implement `A2ALab_Customer_Memory_Agentforce`, validate
+5. ✅ Generate (do not hand-create) and implement `A2ALab_Customer_Memory_Agentforce`, validate
    it, preview with live actions, and publish only after explicit deployment approval.
 6. ✅ Add `agentforce-memory-rest`, `SF_MEMORY_AGENT_ID`, run-as/preflight contracts, and the
    required console/bridge secret carriage without changing existing Agentforce targets.
@@ -3863,4 +3863,7 @@ explicitly parked. Delivery is governed by handoff batch `ws33-b1`.
 8. ✅ Update diagrams, Details/presentation scenes, Dockerfile/runtime-copy coverage, and all
    two-participant wording to distinguish the generic REST seam from Apex→bridge.
 9. ⏳ Run focused and full local verification, Claude cross-review, full console/bridge rebuilds,
-   hosted three-agent/negative-control/Start-fresh/POS smokes, and record measured evidence.
+   hosted three-agent/negative-control/Start-fresh/POS smokes, and record measured evidence. The
+   Agentforce, Claude→Agentforce, isolation, reset, POS, authority and concurrency arms passed on
+   2026-11-14; the fresh-generation OpenAI recall timed out at 180 s and remains the one open
+   hosted validation arm (`plan/03-results.md`).
