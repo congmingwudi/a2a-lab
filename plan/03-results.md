@@ -3241,9 +3241,14 @@ The behavioral smokes held customer scope constant and changed execution provena
   no old rollout/checklist preference. Claude then seeded the fresh generation with a **30-day**
   window and **numbered checklists**; Agentforce recalled both in **10.536 s**.
 
-One arm is not green. The fresh-generation OpenAI recall exceeded the hosted client's 180-second
-request window after an earlier connection drop and a DNS-only retry. OpenAI was unchanged by
-WS33, but the three-participant post-reset sweep is therefore partial and WS33 item 9 stays ⏳.
+The first fresh-generation OpenAI recall exceeded the hosted client's 180-second request window
+after an earlier connection drop and a DNS-only retry. An isolated retry then passed in
+**21.502 s**, returning the same **30-day** and **numbered-checklist** values from shared memory.
+It also attempted an Agentforce Case despite the probe's explicit no-action instruction; the
+attempt failed because no exact Account matched the masked customer label, and no Case was
+created. That is a prompt-precedence finding in the existing OpenAI recall-to-action scenario,
+not a memory-continuity failure.
+
 No deliberate production memory-tenant outage was injected. The known pre-deploy hardening item
 also remains: the console's first-turn generation lookup has no explicit timeout and is outside
 the `/api/run` result-shaping `try`, so a real tenant outage may return a raw 500 while still

@@ -3862,8 +3862,8 @@ explicitly parked. Delivery is governed by handoff batch `ws33-b1`.
    generation carriage, joined Agent API/memory evidence, and no false reply-ingestion claim.
 8. ✅ Update diagrams, Details/presentation scenes, Dockerfile/runtime-copy coverage, and all
    two-participant wording to distinguish the generic REST seam from Apex→bridge.
-9. ⏳ Run focused and full local verification, Claude cross-review, full console/bridge rebuilds,
+9. ✅ Run focused and full local verification, Claude cross-review, full console/bridge rebuilds,
    hosted three-agent/negative-control/Start-fresh/POS smokes, and record measured evidence. The
-   Agentforce, Claude→Agentforce, isolation, reset, POS, authority and concurrency arms passed on
-   2026-11-14; the fresh-generation OpenAI recall timed out at 180 s and remains the one open
-   hosted validation arm (`plan/03-results.md`).
+   fresh-generation OpenAI retry recalled the shared values in 21.502 s; it also exposed a separate
+   prompt-precedence follow-up by attempting Agentforce despite an explicit no-action instruction
+   (`plan/03-results.md`).
