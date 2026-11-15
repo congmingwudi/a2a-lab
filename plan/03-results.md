@@ -3271,10 +3271,18 @@ operator-requested AWS rollout rebuilt both images from source; neither deploy u
 | Console health | Direct ALB host-header route 200; public `/healthz` 200 |
 | Served WS34 assets | Public console HTML contains `Start fresh generation for`, the full-context display-redaction label, `data-otel-span-id`, and `Exact raw span payload` |
 
-The three behavioral smokes remain deliberately open. Their first step, **Start fresh generation
-for Maya**, permanently deletes every profile-memory ID in her current governed listing before
-rotating the generation. The deployment request authorized the service rollout but did not
-separately authorize that destructive production-memory mutation, so the automation stopped
-before login or mutation. No Maya memory was deleted and no Claude/Agentforce smoke turn was run.
-WS34 therefore remains at the handoff deploy station until the operator explicitly approves that
-scope, the three smokes are recorded here, and the operator runs `handoff deployed`.
+The operator then explicitly approved the destructive Maya reset and the two hosted agent turns.
+All three behavioral smokes passed:
+
+| Smoke | Measured result |
+| --- | --- |
+| Start fresh generation | The complete pre-reset listing held 11 profile rows. The reset returned `ok:true`, a valid new generation, no errors, and verified evidence `targeted=11`, `confirmed_absent=0`, `post_reset_profile_rows=11`. The immediate Memory API relist therefore did **not** claim those IDs absent; all 11 current rows are visibly quarantined by the valid generation. Trace `d2cb1ab48346467cab7e0cf2eb425463`. |
+| Claude complete context | `ok:true`, memory read/store both succeeded. The supplied context block was 1,975 characters (1,959 after display redaction), exceeded the former 360-character preview, retained the `A2ALab_POS_Order` tail, and contained a redaction marker. Trace `b420925e936b4e2b8c0857544ef9b456`. |
+| Agentforce turn | `ok:true`, Salesforce session `01a1ddaf-18a5-72ae-8985-c3665b274e89`, correlated-memory evidence pending as designed. Trace `fc2a653de898460daeb02c392a1fb1ad`. |
+| Fresh OTel trace | The endpoint first exposed an empty ingestion envelope, then returned 9 parsed spans. It contained `memory_turn`, `pre_orchestration.guardrail`, `InstructionAdherence`, and an unnamed root, plus exact per-span raw and full-session raw. |
+| Hosted Explain interaction | A real browser click opened the fresh `memory_turn` chip. The dialog showed the lab interpretation and exact-raw section, focused its Close control, and restored focus to the originating chip. Screenshot: `build-notes/codex/screenshots/ws34/otel-memory-turn-explain.png`. |
+
+The reset result is the D122 behavior in concrete form: a successful governed reset need not
+produce an empty immediate listing. It reports the attempted IDs and verified absence separately
+from the current post-reset rows, while the new generation prevents those profile-wide rows from
+being supplied to Claude, OpenAI, or Agentforce.
