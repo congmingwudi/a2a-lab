@@ -1,0 +1,25 @@
+{
+  "batch": "ws34-b1",
+  "title": "Honest memory reset evidence and Agentforce trace drill-down",
+  "proposer": "codex",
+  "critic": "claude",
+  "implementer": null,
+  "station": "critique",
+  "holder": "claude",
+  "round": 0,
+  "verdict": null,
+  "adr": null,
+  "files": {
+    "plan": "build-notes/codex/ws34-b1-memory-evidence-trace-plan.md",
+    "notes": {},
+    "verdicts": {}
+  },
+  "history": [
+    {
+      "ts": "2026-11-15T02:54:05+00:00",
+      "agent": "codex",
+      "action": "propose",
+      "file": "build-notes/codex/ws34-b1-memory-evidence-trace-plan.md"
+    }
+  ]
+}
