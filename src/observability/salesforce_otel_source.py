@@ -80,7 +80,7 @@ def _attr_value(value: dict[str, Any]) -> Any:
     """Unwrap an OTLP AnyValue oneof to a plain Python value."""
     if not isinstance(value, dict):
         return value
-    for key in ("stringValue", "boolValue", "intValue", "doubleValue"):
+    for key in ("stringValue", "boolValue", "intValue", "doubleValue", "bytesValue"):
         if key in value:
             return value[key]
     if "arrayValue" in value:
@@ -122,6 +122,59 @@ def _span_summary(name: str, attrs: dict[str, Any], status: dict[str, Any]) -> s
     if msg:
         parts.append(f"status={msg}")
     return " · ".join(str(p) for p in parts)[:2000]
+
+
+def _duration_ms(start: Any, end: Any) -> int | None:
+    """Exact OTLP nanosecond duration rounded down to milliseconds."""
+    try:
+        delta = int(end) - int(start)
+    except (TypeError, ValueError):
+        return None
+    return max(0, delta // 1_000_000)
+
+
+def parse_spans(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten an OTLP ResourceSpans document without discarding drill-down evidence.
+
+    The console table and harvested events share this parser. Each row retains its
+    exact raw span while exposing the fields needed for sorting and explanation.
+    """
+    parsed: list[dict[str, Any]] = []
+    for rspan in doc.get("resourceSpans", []):
+        resource_attrs = _attrs((rspan.get("resource") or {}).get("attributes"))
+        for sspan in rspan.get("scopeSpans", []):
+            scope = sspan.get("scope") or {}
+            for span in sspan.get("spans", []):
+                attrs = _attrs(span.get("attributes"))
+                status = span.get("status") or {}
+                name = str(span.get("name") or "")
+                start_nano = span.get("startTimeUnixNano")
+                end_nano = span.get("endTimeUnixNano")
+                status_code = status.get("code")
+                status_message = status.get("message")
+                parsed.append(
+                    {
+                        "span_id": span.get("spanId") or span.get("span_id"),
+                        "parent_span_id": span.get("parentSpanId") or None,
+                        "name": name,
+                        "type": _span_type(name, attrs),
+                        "start": _nano_to_iso(start_nano),
+                        "end": _nano_to_iso(end_nano),
+                        "duration_ms": _duration_ms(start_nano, end_nano),
+                        "status": str(status_message or status_code or ""),
+                        "status_code": status_code,
+                        "status_message": status_message,
+                        "summary": _span_summary(name, attrs, status),
+                        "attributes": attrs,
+                        "resource_attributes": resource_attrs,
+                        "scope": scope,
+                        "events": span.get("events") or [],
+                        "links": span.get("links") or [],
+                        "raw": span,
+                    }
+                )
+    parsed.sort(key=lambda item: item.get("start") or "")
+    return parsed
 
 
 class SalesforceOtelSource(PlatformLogSource):
@@ -233,27 +286,21 @@ class SalesforceOtelSource(PlatformLogSource):
     def _ingest(self, store: ObsStore, session_id: str, doc: dict[str, Any]) -> int:
         """Map one OTLP ResourceSpans document → one session + N span events.
         Returns the span count."""
-        spans: list[tuple[dict[str, Any], dict[str, Any]]] = []  # (span, resource_attrs)
-        for rspan in doc.get("resourceSpans", []):
-            res_attrs = _attrs((rspan.get("resource") or {}).get("attributes"))
-            for sspan in rspan.get("scopeSpans", []):
-                for span in sspan.get("spans", []):
-                    spans.append((span, res_attrs))
-
-        starts = [s.get("startTimeUnixNano") for s, _ in spans]
-        ends = [s.get("endTimeUnixNano") for s, _ in spans]
+        spans = parse_spans(doc)
+        starts = [s["raw"].get("startTimeUnixNano") for s in spans]
+        ends = [s["raw"].get("endTimeUnixNano") for s in spans]
         created = min((_nano_to_iso(x) for x in starts if _nano_to_iso(x)), default=None)
         updated = max((_nano_to_iso(x) for x in ends if _nano_to_iso(x)), default=None)
 
         # Session title/status from resource attributes / the root span.
-        res0 = spans[0][1] if spans else {}
+        res0 = spans[0]["resource_attributes"] if spans else {}
         title = str(
             res0.get("service.name") or res0.get("gen_ai.agent.name") or "Agentforce session"
         )
         status = ""
-        for span, _ in spans:
-            if not span.get("parentSpanId"):
-                status = str((span.get("status") or {}).get("message") or "")
+        for span in spans:
+            if not span["parent_span_id"]:
+                status = str(span["status_message"] or span["status_code"] or "")
                 break
 
         store.upsert_session(
@@ -266,20 +313,18 @@ class SalesforceOtelSource(PlatformLogSource):
             raw=doc,
         )
 
-        for span, _ in spans:
-            span_id = span.get("spanId") or span.get("span_id")
+        for span in spans:
+            span_id = span["span_id"]
             if not span_id:
                 continue
-            attrs = _attrs(span.get("attributes"))
-            span_status = span.get("status") or {}
             store.upsert_event(
                 self.name,
                 session_id,
                 f"span:{span_id}",
-                event_type=_span_type(str(span.get("name") or ""), attrs),
-                processed_at=_nano_to_iso(span.get("startTimeUnixNano")),
-                summary=_span_summary(str(span.get("name") or ""), attrs, span_status) or None,
-                raw=span,
+                event_type=span["type"],
+                processed_at=span["start"],
+                summary=span["summary"] or None,
+                raw=span["raw"],
             )
         return len(spans)
 

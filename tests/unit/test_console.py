@@ -734,6 +734,94 @@ def test_customer_memory_reset_succeeds_when_profile_rows_are_rematerialized(tmp
             "content": "Retained history rebuilt this fact.",
         }
     ]
+    assert data["deletion_evidence"] == {
+        "targeted": 1,
+        "confirmed_absent": 0,
+        "verification": "verified",
+        "post_reset_profile_rows": 1,
+    }
+
+
+def test_customer_memory_reset_counts_are_unverified_when_relisting_fails(tmp_path, monkeypatch):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    class VerificationFails:
+        def __init__(self):
+            self.lists = 0
+
+        async def list_memories(self, trace_id, **kw):
+            self.lists += 1
+            # Fact/generation share one category, so two categories are listed
+            # before mutation; the next snapshot fails.
+            if self.lists > 2:
+                raise RuntimeError("verification unavailable")
+            entries = (
+                (MemoryEntry("fact-1", "Keeps bees."),)
+                if kw["category"] == "sys_PROFILE_FACT"
+                else ()
+            )
+            return MemoryListing(entries, len(entries))
+
+        async def create_memories(self, trace_id, **kw):
+            return MemoryListing((MemoryEntry("generation-new", kw["contents"][0]),), 1)
+
+        async def delete_memories(self, trace_id, **kw):
+            return tuple(kw["memory_ids"])
+
+        async def aclose(self):
+            pass
+
+    fake = VerificationFails()
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: fake)
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    response = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry())).post(
+        "/api/memory/customer/maya",
+        headers=_operator_headers(monkeypatch, tmp_path),
+        json={"action": "fresh"},
+    )
+
+    data = response.json()
+    assert response.status_code == 200 and data["ok"] is False
+    assert data["complete"] is False
+    assert data["deletion_evidence"] == {
+        "targeted": 1,
+        "confirmed_absent": None,
+        "verification": "unverified",
+        "post_reset_profile_rows": None,
+    }
+
+
+def test_customer_memory_snapshot_distinguishes_invalid_generation_from_quarantine(
+    tmp_path, monkeypatch
+):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    class InvalidGeneration:
+        async def list_memories(self, trace_id, **kw):
+            entries = (
+                (MemoryEntry("bad-generation", "v1:not-a-valid-generation"),)
+                if kw["category"] == "sys_PROFILE_FACT"
+                else ()
+            )
+            return MemoryListing(entries, len(entries))
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: InvalidGeneration())
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    response = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry())).get(
+        "/api/memory/customer/maya", headers=_operator_headers(monkeypatch, tmp_path)
+    )
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["generation"] is None and data["generation_invalid"] is True
+    assert data["profile_memory_suppressed"] is False
 
 
 def test_customer_memory_reset_refuses_incomplete_listing(tmp_path, monkeypatch):
@@ -765,12 +853,16 @@ def test_customer_memory_reset_refuses_incomplete_listing(tmp_path, monkeypatch)
 def test_customer_memory_panel_has_selection_reset_and_retention_copy():
     html = Path("src/console/static/index.html").read_text()
     assert "Manage memories" in html and "Delete selected" in html
-    assert "Start fresh for" in html
-    assert "Deletion is permanent" in html
+    assert "Start fresh generation for" in html
+    assert "Deletion of each listed profile-memory ID is permanent" in html
     assert "conversation history is not erased" in html
     assert "Automatic extraction is asynchronous" in html
     assert "Fresh-generation isolation is active" in html
     assert "profile-wide rows" in html
+    assert "Quarantined profile rows" in html
+    assert "memory is suppressed for all agents until a valid generation exists" in html
+    assert "listed profile-memory IDs" in html
+    assert "deletion_evidence" in html
     assert "profile_memory_suppressed" in html
     assert "data space: ${esc(dataSpace)}" in html
     assert "A2ALAB_MEMORY_DATA_SPACE" in html
@@ -782,7 +874,7 @@ def test_customer_memory_panel_has_selection_reset_and_retention_copy():
     assert "body.memory_generation = chat.memory_generation" in html
     assert "userTurn.toggles.memory_generation = chat.memory_generation" in html
     assert "delete ${memories.length} selected memories for" in html
-    assert "delete ${count} curated memories for" in html
+    assert "delete ${count} listed profile-memory IDs for" in html
     assert 'memory: "off"' in html
     assert "Regression sweeps are always the memory-off control" in html
 
@@ -983,7 +1075,8 @@ def test_customer_memory_experiments_are_a_three_platform_seeded_set(tmp_path, m
     html = Path("src/console/static/index.html").read_text()
     assert "seedPromptsHtml(exp)" in html and "useSeedPrompt" in html
     assert 'aria-label="Customer persona"' in html
-    assert "Data 360 memory supplied to this agent" in html
+    assert "Data 360 context supplied to this agent" in html
+    assert "contact details redacted for display" in html
     assert "function memoryModeFor(key, exp)" in html
     assert 'exp && exp.default_memory === "on" ? "on" : "off"' in html
     assert "memoryRowHtml(key, exp)" in html
@@ -998,6 +1091,11 @@ def test_customer_memory_experiments_are_a_three_platform_seeded_set(tmp_path, m
         assert "effective Maya/Jordan isolation boundary" in scenario["description"]
         assert "Cross-registration semantics remain open" in scenario["description"]
         assert "A2ALab_Memory_Case" in scenario["description"]
+    for scenario in (claude, openai, agentforce):
+        assert "Memory Management" in scenario["description"]
+        assert "DELETE" in scenario["description"]
+        assert "automatic extraction" in scenario["description"]
+        assert "retained conversation" in scenario["description"]
     assert "Shared customer memory, platform provenance" in html
     assert "registration × server-resolved customer owner × category" in html
     assert "provenance, not storage partitions" in html
@@ -3358,6 +3456,44 @@ def test_logger_headers_iam_no_creds_returns_none(monkeypatch):
 
 
 # ---- WS23: durable experiment->session map (Session Trace picker) ----------
+
+
+def test_otel_trace_route_uses_shared_complete_span_parser(tmp_path, monkeypatch):
+    from observability import salesforce_otel_source as otel_source
+
+    doc = json.loads(
+        Path("tests/fixtures/agentforce_otel_customer_memory_sanitized.json").read_text()
+    )
+    monkeypatch.setenv("SF_MY_DOMAIN", "https://example.my.salesforce.com")
+    monkeypatch.setenv("SF_CLIENT_ID", "cid")
+    monkeypatch.setattr(otel_source.SalesforceOtelSource, "__init__", lambda self: None)
+    monkeypatch.setattr(
+        otel_source.SalesforceOtelSource, "fetch_trace", lambda self, session_id: doc
+    )
+
+    data = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry())).get(
+        "/api/obs/otel-trace", params={"session_id": "session-1"}
+    ).json()
+
+    assert data["found"] is True and data["span_count"] == 8
+    memory = next(span for span in data["spans"] if span["name"] == "memory_turn")
+    assert memory["duration_ms"] == 2766
+    assert memory["attributes"]["step.type"] == "ACTION_STEP"
+    assert memory["raw"]["spanId"] == memory["span_id"]
+    assert data["raw"] == doc
+
+
+def test_otel_trace_table_has_explain_drilldown_and_honest_glossary():
+    html = Path("src/console/static/index.html").read_text()
+    assert "<th>inspect</th>" in html
+    assert "openOtelSpanExplanation" in html
+    assert "Explain" in html
+    assert 'role="dialog"' in html and 'aria-label="Agentforce span explanation"' in html
+    assert "Lab interpretation" in html
+    assert "no lab interpretation is registered" in html
+    assert "ACTION_STEP" in html and "TRUST_GUARDRAILS_STEP" in html
+    assert "Exact raw span payload" in html
+    assert "D121" in html and "plan/05-observability.md" in html
 
 
 def test_otel_session_picker_prefers_recorded_labels(tmp_path, monkeypatch):

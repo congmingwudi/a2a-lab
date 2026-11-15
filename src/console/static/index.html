@@ -4984,6 +4984,52 @@ function obsSessionDetailHtml() {
 // WS23/D73 Session Trace tab: a LIVE, single-session read of the Agentforce
 // Session Trace OTel API. Not the harvest store — it hits the beta endpoint on
 // each Fetch. The picker enumerates recent sessions; a pasted id always wins.
+// WS34/D122: names below were observed in sanitized hosted session
+// 01a1dd0e-6b78-7b4b-910b-762d81f41ddf. Descriptions are explicitly the lab's
+// interpretation of the observed name + step.type, never proof of an outcome.
+const OTEL_SPAN_GLOSSARY = {
+  "__state_update_action__|VARIABLE_UPDATE_STEP": "Agentforce updated planner/session variables. The attributes and raw payload show which update was represented; the name alone does not establish its value.",
+  "pre_orchestration.guardrail|CLASSIFIER_STEP": "A classifier step ran before orchestration. Inspect input.value and output.value for the platform's recorded classification; the span name alone does not establish pass or failure.",
+  "memory_turn|ACTION_STEP": "The deterministic Agent Script memory action ran through A2ALabMemoryTurn. Inspect output.value and the joined lab trace to determine whether memory was read or stored; this span name alone does not prove recall.",
+  "customer_memory|LLM_STEP": "The customer_memory Agentforce reasoning step ran after the memory action. Its payload records the platform step; it does not by itself prove that a particular memory influenced the answer.",
+  "InstructionAdherence|TRUST_GUARDRAILS_STEP": "Salesforce emitted a trust-guardrail step named InstructionAdherence. Inspect output.value for the recorded evaluation; this interpretation does not invent a score or verdict.",
+  "Atlas__GroundednessValidationPrompt|LLM_STEP": "Salesforce emitted an Atlas groundedness-validation LLM step. Inspect its output for the recorded result; the name alone does not establish groundedness."
+};
+
+function otelSpanInterpretation(span) {
+  const stepType = span?.attributes?.["step.type"] || "";
+  const explanation = OTEL_SPAN_GLOSSARY[`${span?.name || ""}|${stepType}`];
+  return explanation || "Salesforce emitted this span; no lab interpretation is registered. Use the structured fields and exact raw span payload as the evidence.";
+}
+
+window.openOtelSpanExplanation = spanId => {
+  const spans = obs.otel.result?.spans || [];
+  const span = spans.find(item => item.span_id === spanId);
+  if (!span) return;
+  const children = spans.filter(item => item.parent_span_id === spanId).map(item => item.span_id);
+  closeDiagram();
+  const mask = document.createElement("div");
+  mask.className = "dgmask";
+  mask.innerHTML = `<div class="dgmodal" role="dialog" aria-modal="true" aria-label="Agentforce span explanation">
+    <header><h3>${esc(span.name || "Unnamed/root span")}</h3>
+      <button type="button" class="dgclose" title="Close (Esc)" aria-label="Close">×</button></header>
+    <div class="dgbody">
+      <div class="desc"><b>Lab interpretation</b> — ${esc(otelSpanInterpretation(span))}</div>
+      <div class="frow"><span class="flabel">step type</span><span class="fval fmono">${esc(span.attributes?.["step.type"] || "not supplied")}</span></div>
+      <div class="frow"><span class="flabel">span id</span><span class="fval fmono">${esc(span.span_id || "")}</span></div>
+      <div class="frow"><span class="flabel">parent</span><span class="fval fmono">${esc(span.parent_span_id || "root / none")}</span></div>
+      <div class="frow"><span class="flabel">children</span><span class="fval fmono">${esc(children.length ? children.join(", ") : "none")}</span></div>
+      <div class="frow"><span class="flabel">timing</span><span class="fval fmono">${esc(span.start || "unknown")} → ${esc(span.end || "unknown")} · ${span.duration_ms == null ? "unknown" : `${span.duration_ms} ms`}</span></div>
+      <div class="frow"><span class="flabel">status</span><span class="fval fmono">${esc(span.status || "not supplied")}</span></div>
+      <details open><summary class="stat">Structured attributes</summary><pre>${esc(pretty(span.attributes || {}))}</pre></details>
+      <details><summary class="stat">Events and links</summary><pre>${esc(pretty({events: span.events || [], links: span.links || []}))}</pre></details>
+      <details><summary class="stat">Exact raw span payload</summary><pre>${esc(pretty(span.raw || {}))}</pre></details>
+    </div></div>`;
+  mask.addEventListener("click", event => { if (event.target === mask) closeDiagram(); });
+  mask.querySelector(".dgclose").addEventListener("click", closeDiagram);
+  document.body.appendChild(mask);
+};
+
 function obsSessionTraceHtml() {
   const o = obs.otel;
   const sessions = o.sessions || [];
@@ -5063,16 +5109,17 @@ function obsSessionTraceHtml() {
     </div>`;
   } else if (r && r.found) {
     const rows = (r.spans || []).map(s => `<tr>
-      <td>${esc((s.name || "").slice(0, 60))}</td>
+      <td>${esc((s.name || "(unnamed/root span)").slice(0, 60))}</td>
       <td><span class="badge">${esc((s.type || "").replace(/^otel\./, ""))}</span></td>
       <td class="fmono">${esc((s.start || "").replace("T", " ").slice(0, 19))}</td>
       <td>${esc(s.status || "")}</td>
       <td>${esc((s.summary || "").slice(0, 120))}</td>
+      <td><button class="badge ghost" onclick="openOtelSpanExplanation('${esc(s.span_id || "")}')">Explain</button></td>
     </tr>`).join("");
     result = `<div class="flow">
       <h3>Session ${esc(r.session_id)} <span class="stat" style="float:right">${r.span_count} span(s) · OTLP</span></h3>
       ${r.span_count ? `<table class="obs-tbl">
-        <thead><tr><th>span</th><th>type</th><th>start (UTC)</th><th>status</th><th>summary</th></tr></thead>
+        <thead><tr><th>span</th><th>type</th><th>start (UTC)</th><th>status</th><th>summary</th><th>inspect</th></tr></thead>
         <tbody>${rows}</tbody></table>`
         : `<div class="desc"><span class="stat">the document returned no spans</span></div>`}
       <details style="margin-top:12px">
@@ -5119,6 +5166,23 @@ cannot back the "harvested from all platforms" coverage sweep — so the **DMO b
 harvest** (\`salesforce\`), and this ships alongside it under its own name (\`salesforce-otel\`, WS23), not in
 the unqualified sweep. When the API leaves beta and grows a bulk read, promoting it to the live path is a
 one-line change in \`obs_harvest\`'s \`PLATFORM_SOURCES\` — building it now is what makes that a one-liner.
+
+### How to read one span (D121, D122)
+
+Each row is one timed OTLP span. Its **span id** identifies the step; **parent span id** places it under
+an Agentforce turn, and child ids show work nested beneath it. **Explain** opens only that span: timing,
+status, flattened attributes, events/links, and its exact raw payload. The full raw \`resourceSpans\`
+document remains below the table and is the authoritative session record.
+
+The plain-language text is explicitly a **lab interpretation**, grounded in the span name plus the
+observed \`step.type\` from sanitized Customer-memory session evidence. In that trace,
+\`memory_turn\`/\`ACTION_STEP\` is the deterministic Apex memory action settled in D121;
+\`customer_memory\`/\`LLM_STEP\` is the agent reasoning step; the pre-orchestration classifier,
+instruction-adherence trust guardrail, groundedness-validation LLM step, and variable update are
+platform interior work. A name proves only that Salesforce emitted a span. Whether memory was recalled,
+a guardrail passed, or grounding succeeded must come from the payload/status and joined evidence—not
+from this glossary. Unknown names deliberately say no interpretation is registered. See
+\`plan/05-observability.md\` for the source and retention boundary.
 
 ### Bounds and caveats
 
@@ -5467,7 +5531,8 @@ window.usePosRecallPrompt = () => {
 function memoryManagerState(key) {
   return memoryManagers[key] || (memoryManagers[key] = {
     open: false, loading: false, complete: true, memories: [], generation: undefined,
-    profile_memory_suppressed: false, selected: new Set(), error: "", trace_id: "",
+    generation_invalid: false, profile_memory_suppressed: false, selected: new Set(),
+    error: "", trace_id: "", deletion_evidence: null,
   });
 }
 
@@ -5479,21 +5544,32 @@ function memoryManagerHtml(key, customer) {
         onchange="toggleMemorySelection(${i}, this.checked)">
         <span><b>${esc(m.category.includes("PREFERENCES") ? "Preference" : "Fact")}</b> · ${esc(m.content || "(blank memory)")}</span></label>`).join("")
     : `<span class="hint">${state.loading ? "Loading…" : "No curated facts or preferences."}</span>`;
+  const validGeneration = state.profile_memory_suppressed && !state.generation_invalid;
+  const evidence = state.deletion_evidence;
+  const evidenceHtml = evidence ? `<div class="hint"><b>Reset evidence:</b> ${
+    evidence.verification === "verified"
+      ? `${evidence.confirmed_absent} of ${evidence.targeted} listed profile-memory IDs are absent after verification.${
+          evidence.post_reset_profile_rows == null ? "" : ` ${evidence.post_reset_profile_rows} post-reset profile row(s) are quarantined.`}`
+      : `${evidence.targeted} listed profile-memory ID(s) were targeted, but the verification listing failed; deletion and quarantine counts are unverified.`
+  }</div>` : "";
   return `<div class="memory-manager" aria-label="Manage memories for ${esc(customer.name || key)}">
     <div class="memory-manager-head"><b>Managing memories for ${esc(customer.name || key)}</b>
       <span class="spacer"></span><button class="ghost" onclick="loadMemoryManager()" ${state.loading ? "disabled" : ""}>Refresh</button></div>
     ${state.error ? `<div class="error">${esc(state.error)}</div>` : ""}
-    ${state.profile_memory_suppressed ? `<div class="hint">Fresh-generation isolation is active.
+    ${validGeneration ? `<div class="hint">Fresh-generation isolation is active.
       Data 360 can re-materialize profile facts from retained history, so those profile-wide rows
       remain visible here for curation but are not supplied to agents. Only conversation context
       produced inside the current generation is eligible for recall.</div>` : ""}
+    ${state.generation_invalid ? `<div class="error">The generation marker is invalid; memory is suppressed for all agents until a valid generation exists. These rows are governance evidence, not active recall context.</div>` : ""}
+    ${evidenceHtml}
+    ${validGeneration && state.memories.length ? `<div class="hint"><b>Quarantined profile rows</b> — visible for governance and deletion, never supplied to Claude, OpenAI, or Agentforce in this generation.</div>` : ""}
     <div class="memory-manager-list">${rows}</div>
     <div class="memory-manager-actions">
       <button class="ghost" onclick="deleteSelectedMemories()" ${state.loading || !state.selected.size ? "disabled" : ""}>Delete selected</button>
-      <button class="ghost" onclick="startFreshMemory()" ${state.loading || !state.complete ? "disabled" : ""}>Start fresh for ${esc(customer.name || key)}</button>
+      <button class="ghost" onclick="startFreshMemory()" ${state.loading || !state.complete ? "disabled" : ""}>Start fresh generation for ${esc(customer.name || key)}</button>
       ${state.trace_id ? `<span class="hint">trace ${esc(state.trace_id)}</span>` : ""}
     </div>
-    <div class="hint">Deletion is permanent. Start fresh deletes this complete management listing, not just the 20 entries capped into an agent prompt, and moves this demo to a new conversation. Automatic extraction is asynchronous, so a just-finished teaching turn may take several minutes to appear. Retained Data 360 conversation history is not erased.</div>
+    <div class="hint">Deletion of each listed profile-memory ID is permanent. This is the complete governed management listing, not just the 20 entries capped into an agent prompt. Start fresh generation deletes the currently listed IDs and moves the demo to a new governed conversation; it does not erase retained Data 360 conversation history. Automatic extraction is asynchronous and can run again to create new profile rows, which the active generation quarantines from every agent.</div>
   </div>`;
 }
 
@@ -5519,7 +5595,9 @@ window.loadMemoryManager = async () => {
     if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
     state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
     state.generation = data.generation || "";
+    state.generation_invalid = data.generation_invalid === true;
     state.profile_memory_suppressed = data.profile_memory_suppressed === true;
+    state.deletion_evidence = null;
     state.complete = data.complete !== false;
     if (!state.complete) state.error = "Data 360 returned an incomplete list; reset is disabled.";
   } catch (e) { state.error = String(e.message || e); }
@@ -5540,7 +5618,9 @@ async function mutateCustomerMemory(action, memories) {
     if (!r.ok) throw new Error(detail || `HTTP ${r.status}`);
     state.memories = data.memories || []; state.selected.clear(); state.trace_id = data.trace_id || "";
     state.generation = data.generation || "";
+    state.generation_invalid = data.generation_invalid === true;
     state.profile_memory_suppressed = data.profile_memory_suppressed === true;
+    state.deletion_evidence = data.deletion_evidence || null;
     state.complete = data.complete !== false;
     if (!data.ok) state.error = `The operation was partial; remaining memories are shown.${
       (data.errors || []).length ? ` ${data.errors.join("; ")}` : ""}`;
@@ -5563,7 +5643,7 @@ window.deleteSelectedMemories = async () => {
 window.startFreshMemory = async () => {
   const c = memoryCustomer();
   const count = memoryManagerState(selectedMemoryCustomer).memories.length;
-  if (!confirm(`Permanently delete ${count} curated memories for ${c?.name || selectedMemoryCustomer} and start a fresh experiment?`)) return;
+  if (!confirm(`Permanently delete ${count} listed profile-memory IDs for ${c?.name || selectedMemoryCustomer} and start a fresh generation? Retained conversation history is not erased, and automatic extraction may create new quarantined rows.`)) return;
   await mutateCustomerMemory("fresh", []);
 };
 
@@ -11363,18 +11443,22 @@ function memoryBadgeHtml(m) {
 }
 
 function memoryEvidenceHtml(m) {
-  if (!m || !m.context_preview) return "";
+  if (!m || !(m.context_text || m.context_preview)) return "";
+  const complete = !!m.context_text;
+  const displayContext = m.context_text || m.context_preview;
   // Data 360 returns each memory leaf as a compact path/value string. Preserve
   // its existing line boundaries, then separate category headers and ISO
   // timestamps from their values so the evidence reads as rows, not a blob.
-  const lines = String(m.context_preview)
+  const lines = String(displayContext)
     .replace(/\r\n?/g, "\n")
     .replace(/([^\n])(?=(?:CONVERSATION_SUMMARY|SYS_PROFILE_[A-Z_]+)\[\d+\]\{)/g, "$1\n")
     .replace(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z),/g, "$1\n")
     .split("\n")
     .map(line => line.trim())
     .filter(Boolean);
-  return `<div class="memory-evidence"><b>Data 360 memory supplied to this agent</b><div class="memory-evidence-lines">${lines
+  return `<div class="memory-evidence"><b>${complete
+    ? `Data 360 context supplied to this agent (${m.context_chars || 0} context characters; contact details redacted for display)`
+    : `Preview of Data 360 context supplied to this agent (display truncated; contact details redacted)`}</b><div class="memory-evidence-lines">${lines
     .map(line => `<div class="memory-evidence-line">${esc(line)}</div>`)
     .join("")}</div></div>`;
 }

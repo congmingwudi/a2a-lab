@@ -1,0 +1,127 @@
+{
+  "_provenance": {
+    "session_id": "01a1dd0e-6b78-7b4b-910b-762d81f41ddf",
+    "captured_utc": "2026-11-15T02:34:33Z",
+    "note": "Sanitized from the hosted Customer memory — Agentforce recalls session. Customer text, record ids, interaction ids, and action payload values were replaced; span names, parent shape, timestamps, attribute keys, and step.type values are preserved."
+  },
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "Agentforce"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "salesforce.agentforce.session-trace"},
+          "spans": [
+            {
+              "spanId": "root000000000001",
+              "name": "",
+              "startTimeUnixNano": "1794710073444000000",
+              "endTimeUnixNano": "1794710073444000000",
+              "attributes": [
+                {"key": "interaction.id", "value": {"stringValue": "[REDACTED_INTERACTION]"}},
+                {"key": "interaction.type", "value": {"stringValue": "AGENT"}}
+              ],
+              "status": {}
+            },
+            {
+              "spanId": "turn000000000001",
+              "name": "",
+              "startTimeUnixNano": "1794710074056000000",
+              "endTimeUnixNano": "1794710080694000000",
+              "attributes": [
+                {"key": "interaction.id", "value": {"stringValue": "[REDACTED_INTERACTION]"}},
+                {"key": "interaction.type", "value": {"stringValue": "TURN"}}
+              ],
+              "status": {}
+            },
+            {
+              "spanId": "state00000000001",
+              "parentSpanId": "turn000000000001",
+              "name": "__state_update_action__",
+              "startTimeUnixNano": "1794710074053000000",
+              "endTimeUnixNano": "1794710074053000000",
+              "attributes": [
+                {"key": "step.id", "value": {"stringValue": "[REDACTED_STEP]"}},
+                {"key": "step.type", "value": {"stringValue": "VARIABLE_UPDATE_STEP"}}
+              ],
+              "status": {}
+            },
+            {
+              "spanId": "guard00000000001",
+              "parentSpanId": "turn000000000001",
+              "name": "pre_orchestration.guardrail",
+              "startTimeUnixNano": "1794710074069000000",
+              "endTimeUnixNano": "1794710074245000000",
+              "attributes": [
+                {"key": "step.id", "value": {"stringValue": "[REDACTED_STEP]"}},
+                {"key": "step.type", "value": {"stringValue": "CLASSIFIER_STEP"}},
+                {"key": "input.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}},
+                {"key": "output.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}}
+              ],
+              "status": {}
+            },
+            {
+              "spanId": "memory0000000001",
+              "parentSpanId": "turn000000000001",
+              "name": "memory_turn",
+              "startTimeUnixNano": "1794710074259000000",
+              "endTimeUnixNano": "1794710077025000000",
+              "attributes": [
+                {"key": "step.id", "value": {"stringValue": "[REDACTED_STEP]"}},
+                {"key": "step.type", "value": {"stringValue": "ACTION_STEP"}},
+                {"key": "input.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}},
+                {"key": "output.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}}
+              ],
+              "status": {"code": "STATUS_CODE_OK"}
+            },
+            {
+              "spanId": "reason0000000001",
+              "parentSpanId": "turn000000000001",
+              "name": "customer_memory",
+              "startTimeUnixNano": "1794710077038000000",
+              "endTimeUnixNano": "1794710079077000000",
+              "attributes": [
+                {"key": "step.id", "value": {"stringValue": "[REDACTED_STEP]"}},
+                {"key": "step.type", "value": {"stringValue": "LLM_STEP"}},
+                {"key": "input.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}},
+                {"key": "output.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}}
+              ],
+              "status": {}
+            },
+            {
+              "spanId": "adhere0000000001",
+              "parentSpanId": "turn000000000001",
+              "name": "InstructionAdherence",
+              "startTimeUnixNano": "1794710079083000000",
+              "endTimeUnixNano": "1794710080397000000",
+              "attributes": [
+                {"key": "step.id", "value": {"stringValue": "[REDACTED_STEP]"}},
+                {"key": "step.type", "value": {"stringValue": "TRUST_GUARDRAILS_STEP"}},
+                {"key": "input.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}},
+                {"key": "output.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}}
+              ],
+              "status": {}
+            },
+            {
+              "spanId": "ground0000000001",
+              "parentSpanId": "turn000000000001",
+              "name": "Atlas__GroundednessValidationPrompt",
+              "startTimeUnixNano": "1794710079085000000",
+              "endTimeUnixNano": "1794710080681000000",
+              "attributes": [
+                {"key": "step.id", "value": {"stringValue": "[REDACTED_STEP]"}},
+                {"key": "step.type", "value": {"stringValue": "LLM_STEP"}},
+                {"key": "input.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}},
+                {"key": "output.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}}
+              ],
+              "status": {}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

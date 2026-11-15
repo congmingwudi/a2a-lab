@@ -85,7 +85,10 @@ scenarios:
       profile facts from retained history; after Start fresh those profile-wide rows remain visible
       for curation but are quarantined from agent prompts. Only conversation context produced inside
       the new generation is eligible for recall. It does not erase Data 360 conversation history;
-      normal governance and retention still apply (D107).
+      normal governance and retention still apply (D107). The Memory Management DELETE permanently
+      removes the listed profile-memory IDs, but profile API writes and automatic extraction share
+      a scope: the pipeline can run again from retained conversation history and create new IDs.
+      The panel therefore reports deleted IDs separately from post-reset quarantined rows (D122).
     target: claude-rest
     via_bridge: false
     status: live
@@ -165,7 +168,10 @@ scenarios:
       deletion and Start fresh affect the shared customer scope, while retained historical
       conversations remain governed in Data 360 and are not claimed erased. After Start fresh,
       re-materialized profile-wide rows are quarantined from prompts; OpenAI can recall only
-      conversation context produced inside the current generation (D107).
+      conversation context produced inside the current generation (D107). The Memory Management
+      DELETE permanently removes listed profile-memory IDs; it does not remove retained conversation
+      summaries from which automatic extraction can later create new IDs. D122 makes
+      those outcomes separate in the management evidence instead of calling the listing empty.
     target: openai-rest
     via_bridge: false
     status: live
@@ -240,6 +246,12 @@ scenarios:
       LIMIT. The hook stores the user message only. D89 found no Agent Script final-reply variable,
       so this experiment never claims that Agentforce's reply was ingested. It exposes no CRM
       mutation action: remembered guidance is context, not authorization.
+
+      CURATION. The shared management panel uses Memory Management DELETE to permanently remove
+      listed profile-memory IDs and Start fresh to rotate the D107 generation. It does not erase
+      retained conversation history. Data 360 automatic extraction can create new profile rows
+      later; those rows remain visible for governance but are quarantined from all three agents,
+      and D122 reports them separately from the IDs whose deletion was verified.
     target: agentforce-memory-rest
     via_bridge: false
     status: live

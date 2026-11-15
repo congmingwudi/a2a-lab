@@ -5508,3 +5508,55 @@ from a successful write. The DC1 home/companion-org crossover remains parked as 
 scenario and contributes no dependency or credential to WS33.
 
 **Status.** DECIDED 2026-11-13. Handoff batch: `ws33-b1`.
+
+## 2026-11-14 — D122: memory reset evidence separates deletion from extraction, and OTEL spans remain payload-first
+
+**Context.** D107 already made Start fresh a verified generation boundary: the console deletes
+the currently listed profile-memory IDs, rotates the conversation, and quarantines Profile rows
+that Data 360 later re-materializes from retained history. The management panel nevertheless put
+those new rows back into one unlabeled list and still promised that Start fresh deleted the whole
+listing. A second presentation shortcut labeled the first 360 redacted characters as all memory
+supplied to Claude/OpenAI, cutting Maya's Customer360 record at `A2ALab_POS_Order[` even though the
+model received the remaining context. The live Agentforce OTel table likewise reduced each span to
+five cryptic columns while its useful attributes and raw span were available only by searching the
+whole session JSON.
+
+**Decision.** Settle handoff batch `ws34-b1` with Codex as implementer and Claude Code as
+cross-reviewer.
+
+1. Start fresh keeps D107's success contract. A verified new marker plus successful delete calls
+   remains successful even when extraction produces new rows. The response adds evidence-only
+   counts: IDs targeted, original IDs confirmed absent, verification state, and current post-reset
+   rows. A failed/incomplete verification returns null counts and “unverified”; it never computes
+   from the pre-mutation fallback. A malformed marker is not quarantine: all memory is suppressed
+   until a valid marker exists and the UI says so.
+2. The manager labels valid-generation rows **Quarantined profile rows**, keeps them selectable for
+   governance, and renames the operation **Start fresh generation**. Details on all three customer
+   cards explain the Memory Management boundary: DELETE permanently removes listed profile-memory
+   IDs, while automatic extraction shares the scope and can create new IDs from retained
+   conversation history. This is a refinement of D107's existing contract, not a purge operation.
+3. Generic-face responses carry the complete `redact(context)` value for browser evidence in
+   addition to the legacy 360-character preview. `context_chars` counts the actual context block
+   supplied to the agent, excluding the wrapper and withheld-ID instruction. The agent still sees
+   owner/profile-masked context including system-of-record contact fields; the browser copy also
+   redacts contact details. Prompt construction bounds graph and general context to 4,000
+   characters each and adds at most 20 saved-memory lines; no new independent browser truncation is
+   introduced. Full-field tests exclude raw customer and unified-profile IDs.
+4. The Session Trace route and harvest share one OTLP span parser. It preserves exact raw spans and
+   exposes parent/child IDs, integer-nanosecond duration, status, flattened attributes (including
+   bytes/nested values), events and links. Each table row gains an **Explain** chip opening those
+   fields plus that exact raw span; the full session `resourceSpans` document remains authoritative.
+5. Span descriptions are lab interpretations, never outcome inference. Their allowlist is grounded
+   in a sanitized fixture from hosted Customer-memory Agentforce session
+   `01a1dd0e-6b78-7b4b-910b-762d81f41ddf`, preserving observed names and `step.type` values while
+   replacing customer/action content and identifiers. Unknown pairs explicitly have no registered
+   interpretation. A name alone never proves recall, a guardrail verdict, or groundedness.
+
+**Consequences.** This batch changes evidence and explanation, not storage topology or agent
+behavior. It does not repeatedly delete against extraction, erase retained conversations, delete
+the shared registration, or replace raw OTLP. Faces require a full rebuild for the complete
+display-redacted context; the console requires a full rebuild for Python, static, config and plan
+changes. Hosted acceptance must exercise deletion/quarantine, a context tail beyond 360 characters,
+and Explain on memory, guardrail/evaluation, and unregistered spans.
+
+**Status.** DECIDED 2026-11-14. Handoff batch: `ws34-b1`.

@@ -3871,3 +3871,21 @@ explicitly parked. Delivery is governed by handoff batch `ws33-b1`.
     honor an explicit no-Agentforce/no-CRM-action request ahead of its recall-to-action suffix.
     Add a regression proving recall can return the shared values with no Agentforce tool/session
     hop and no CRM mutation, then rerun that path hosted.
+
+## WS34 — Honest customer-memory evidence and Agentforce trace drill-down (raised 2026-11-14, D122)
+
+Refine D107/D118/D121 presentation without changing their storage or execution boundaries. Delivery
+is governed by handoff batch `ws34-b1`.
+
+1. ⏳ Separate verified profile-memory ID deletion from post-reset extraction/quarantine counts,
+   including unverified relists and malformed-generation suppression, and document the Memory
+   Management boundary in all three customer-memory Details panes.
+2. ⏳ Replace the silent 360-character evidence cutoff with the complete display-redacted context
+   supplied through the generic Claude/OpenAI seam, retaining the bounded preview only for backward
+   compatibility and pinning full-field customer/profile-id masking.
+3. ⏳ Centralize OTLP span parsing for the live route and harvest, preserving structured timing,
+   hierarchy, attributes, events/links and exact raw spans.
+4. ⏳ Add a keyboard-reachable Explain chip to every Agentforce Session Trace row, with fixture-
+   grounded lab interpretations, honest unknown fallback, and unchanged full-session raw payload.
+5. ⏳ Run focused/full tests and lint, Claude cross-review, full faces/console rebuilds, then hosted
+   reset, long-context, and multi-span drill-down smokes recorded in `plan/03-results.md`.

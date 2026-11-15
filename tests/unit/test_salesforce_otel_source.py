@@ -7,9 +7,12 @@ enumerator is not exercised here — the mapping is what these tests pin.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import httpx
 
-from observability.salesforce_otel_source import SalesforceOtelSource
+from observability.salesforce_otel_source import SalesforceOtelSource, _attr_value, parse_spans
 from observability.store import ObsStore
 
 # A minimal but structurally faithful OTLP/JSON ResourceSpans document: one
@@ -138,3 +141,42 @@ def test_fetch_trace_404_is_none(monkeypatch):
     # A 404 is an unknown / aged-out session, reported as None — the console
     # renders "no trace", never a 500.
     assert _source().fetch_trace("sess-404") is None
+
+
+def test_real_customer_memory_fixture_parses_complete_explainable_spans():
+    doc = json.loads(
+        Path("tests/fixtures/agentforce_otel_customer_memory_sanitized.json").read_text()
+    )
+
+    spans = parse_spans(doc)
+    memory = next(span for span in spans if span["name"] == "memory_turn")
+    guardrail = next(span for span in spans if span["name"] == "pre_orchestration.guardrail")
+
+    assert memory["parent_span_id"] == "turn000000000001"
+    assert memory["duration_ms"] == 2766
+    assert memory["attributes"]["step.type"] == "ACTION_STEP"
+    assert memory["status_code"] == "STATUS_CODE_OK"
+    assert memory["events"] == [] and memory["links"] == []
+    assert memory["raw"]["spanId"] == memory["span_id"]
+    assert guardrail["attributes"]["step.type"] == "CLASSIFIER_STEP"
+    assert spans == sorted(spans, key=lambda span: span["start"] or "")
+
+
+def test_otlp_attribute_decoder_keeps_bytes_and_nested_values():
+    assert _attr_value({"bytesValue": "YWJj"}) == "YWJj"
+    assert _attr_value(
+        {
+            "arrayValue": {
+                "values": [
+                    {"intValue": "7"},
+                    {
+                        "kvlistValue": {
+                            "values": [
+                                {"key": "ok", "value": {"boolValue": True}},
+                            ]
+                        }
+                    },
+                ]
+            }
+        }
+    ) == ["7", {"ok": True}]

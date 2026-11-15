@@ -311,6 +311,10 @@ class MemoryAdapter:
             "profile_memory_suppressed": bool(generation),
             "session_id": sid,
             "context_chars": len(context),
+            # The complete context block supplied to the inner agent, redacted
+            # for browser display. The model receives the masked but otherwise
+            # unredacted context; contact details never need to reach the UI.
+            "context_text": redact(context) if context else "",
             "context_preview": redact(context)[:360] if context else "",
             "recalled": bool(context),
             "read_ok": not read_errors,

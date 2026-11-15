@@ -98,7 +98,11 @@ no join and correlate to the LangSmith run id only).
   /services/data/v66.0/einstein/audit/otel/{session-id}`: whole session
   pre-joined as OTLP ResourceSpans JSON. One session per call, **72-hour
   lookback** → good for drill-down enrichment, unusable as the polling
-  source (DMOs are the polling source).
+  source (DMOs are the polling source). D122 keeps the full raw session and
+  adds a per-span Explain drill-down over the same shared parser used by the
+  harvest: hierarchy, exact duration, status, attributes, events/links and the
+  exact raw span. Plain-language labels are fixture-grounded lab
+  interpretations, never inferred outcome evidence.
 - Prereqs (org setup, one-time): Data Cloud provisioned; Einstein Trust
   Layer audit & feedback collection ON; Session Tracing enabled in Einstein
   Audit/Analytics/Monitoring Setup; connected app with `cdp_query_api`.

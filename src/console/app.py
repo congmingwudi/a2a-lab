@@ -2251,6 +2251,7 @@ def create_console_app(registry: Registry | None = None):
         }
         if action == "delete" and (not requested or not requested <= allowed):
             raise HTTPException(status_code=400, detail="selection is empty or no longer governed")
+        targeted_semantic = allowed if action == "fresh" else requested
 
         mem = MemoryClient(source="console-memory-management")
         steps: list[dict] = []
@@ -2332,9 +2333,11 @@ def create_console_app(registry: Registry | None = None):
                               "ids": old_marker_ids, "ok": False, "error": str(exc)})  # fmt: skip
         finally:
             await mem.aclose()
+        verification_relisted = False
         try:
             _, after = await _customer_memory_snapshot(customer_key, trace_id)
             result = _safe_memory_snapshot(customer_key, trace_id, after)
+            verification_relisted = result["complete"]
         except Exception as exc:
             errors.append(f"verification listing failed: {exc}")
             result = _safe_memory_snapshot(customer_key, trace_id, listings)
@@ -2343,6 +2346,19 @@ def create_console_app(registry: Registry | None = None):
         result["steps"] = steps
         result["errors"] = errors
         remaining_ids = {(item["category"], item["memory_id"]) for item in result["memories"]}
+        valid_generation = bool(result["generation"]) and not result["generation_invalid"]
+        result["deletion_evidence"] = {
+            "targeted": len(targeted_semantic),
+            "confirmed_absent": (
+                len(targeted_semantic - remaining_ids) if verification_relisted else None
+            ),
+            "verification": "verified" if verification_relisted else "unverified",
+            "post_reset_profile_rows": (
+                len(result["memories"])
+                if verification_relisted and action == "fresh" and valid_generation
+                else None
+            ),
+        }
         result["ok"] = (
             not errors
             and result["complete"]
@@ -4981,10 +4997,7 @@ and console never present a combined dollar total across tools (WS12/D44).
 
             from observability.salesforce_otel_source import (
                 SalesforceOtelSource,
-                _attrs,
-                _nano_to_iso,
-                _span_summary,
-                _span_type,
+                parse_spans,
             )
 
             if not os.environ.get("SF_MY_DOMAIN") or not os.environ.get("SF_CLIENT_ID"):
@@ -5019,26 +5032,7 @@ and console never present a combined dollar total across tools (WS12/D44).
                     "still being ingested (the OTel store lags the run by a few minutes; try "
                     "again shortly), or it has aged out of the 72h beta lookback window",
                 }
-            spans: list[dict] = []
-            for rspan in doc.get("resourceSpans", []):
-                for sspan in rspan.get("scopeSpans", []):
-                    for span in sspan.get("spans", []):
-                        attrs = _attrs(span.get("attributes"))
-                        st = span.get("status") or {}
-                        name = str(span.get("name") or "")
-                        spans.append(
-                            {
-                                "span_id": span.get("spanId") or span.get("span_id"),
-                                "parent_span_id": span.get("parentSpanId") or None,
-                                "name": name,
-                                "type": _span_type(name, attrs),
-                                "start": _nano_to_iso(span.get("startTimeUnixNano")),
-                                "end": _nano_to_iso(span.get("endTimeUnixNano")),
-                                "status": str(st.get("message") or st.get("code") or ""),
-                                "summary": _span_summary(name, attrs, st),
-                            }
-                        )
-            spans.sort(key=lambda s: s.get("start") or "")
+            spans = parse_spans(doc)
             return {
                 "found": True,
                 "enabled": True,

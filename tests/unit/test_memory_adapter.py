@@ -19,6 +19,7 @@ from interop.memory import (
     MemoryListing,
     generation_conversation,
     owner_conversation,
+    redact,
 )
 from interop.memory_adapter import MemoryAdapter, owner_of, with_memory
 from interop.models import AgentRequest, AgentResponse
@@ -174,6 +175,44 @@ async def test_a_turn_reads_before_and_ingests_both_sides_after():
     assert mem["context_chars"] > 0
     assert mem["recalled"] is True and mem["stored"] is True and mem["read_ok"] is True
     assert "prefers aisle seats" in mem["context_preview"]
+
+
+async def test_browser_evidence_contains_the_complete_display_redacted_context(monkeypatch):
+    contact = "003000000000001AAA"
+    profile = "0123456789abcdef0123456789abcdef"
+    email = "maya.chen@a2alab.example.invalid"
+    graph = (
+        "LastName: Chen\n"
+        "UnifiedLinkssotIndividualAm01[1]:\n"
+        f"  - SourceRecordId: {contact}\n"
+        f"    UnifiedRecordId: {profile}\n"
+        "Individual[1]:\n"
+        "  - FirstName: Maya\n"
+        "    A2ALab_POS_Order[1]{product_name,notes}:\n"
+        f"      Camp lantern,{'order detail ' * 55}\n"
+        "    ContactPointEmail[1]{EmailAddress}:\n"
+        f"      {email}\n"
+        f"Id: {profile}"
+    )
+    monkeypatch.setenv(ma.CUSTOMER_MAP_ENV, json.dumps({"maya": contact}))
+    fake = FakeMemory(context={"userContext": [{"entry": graph, "sourceType": "Profile"}]})
+    adapter, inner = _adapter(fake)
+    req = _req(session_id="s-1")
+    req.metadata["memory_customer"] = "maya"
+
+    response = await adapter.handle(req)
+
+    sent = inner.seen[0].message
+    supplied = sent[sent.index("- dataGraph:") : sent.index("\n[end memory]")]
+    memory = response.metadata["memory"]
+    assert len(supplied) > 360 and memory["context_chars"] == len(supplied)
+    assert email in supplied and "Camp lantern" in supplied
+    assert memory["context_text"] == redact(supplied)
+    assert "[REDACTED_EMAIL]" in memory["context_text"] and email not in memory["context_text"]
+    assert "Camp lantern" in memory["context_text"]
+    assert contact not in memory["context_text"] and profile not in memory["context_text"]
+    assert len(memory["context_preview"]) <= 360
+    assert len(memory["context_text"]) > len(memory["context_preview"])
 
 
 async def test_the_memory_session_follows_the_lab_session_and_is_started_once():
