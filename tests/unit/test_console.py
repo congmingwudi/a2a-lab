@@ -824,6 +824,42 @@ def test_customer_memory_snapshot_distinguishes_invalid_generation_from_quaranti
     assert data["profile_memory_suppressed"] is False
 
 
+def test_customer_memory_snapshot_mixed_valid_and_invalid_markers_suppresses_all(
+    tmp_path, monkeypatch
+):
+    from interop import memory as memory_mod
+    from interop.memory import MemoryEntry, MemoryListing
+
+    valid = "v1:2026-11-14T00:00:00Z:0123456789abcdef01234567"
+
+    class MixedGeneration:
+        async def list_memories(self, trace_id, **kw):
+            entries = (
+                (
+                    MemoryEntry("valid-generation", valid),
+                    MemoryEntry("bad-generation", "v1:not-a-valid-generation"),
+                )
+                if kw["category"] == "sys_PROFILE_FACT"
+                else ()
+            )
+            return MemoryListing(entries, len(entries))
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(memory_mod, "MemoryClient", lambda **_: MixedGeneration())
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"profile-maya"}')
+    monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
+    response = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry())).get(
+        "/api/memory/customer/maya", headers=_operator_headers(monkeypatch, tmp_path)
+    )
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["generation"] == valid and data["generation_invalid"] is True
+    assert data["profile_memory_suppressed"] is True
+
+
 def test_customer_memory_reset_refuses_incomplete_listing(tmp_path, monkeypatch):
     from interop import memory as memory_mod
     from interop.memory import MemoryEntry, MemoryListing
@@ -1196,13 +1232,9 @@ def test_agentforce_customer_memory_run_forwards_binding_without_generic_memory_
     assert rejected.status_code == 400
 
 
-def test_agentforce_customer_memory_first_turn_resolves_current_generation(
-    tmp_path, monkeypatch
-):
+def test_agentforce_customer_memory_first_turn_resolves_current_generation(tmp_path, monkeypatch):
     monkeypatch.setenv("A2ALAB_TOKEN", "sekrit")
-    monkeypatch.setenv(
-        "A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"003000000000001AAA"}'
-    )
+    monkeypatch.setenv("A2ALAB_MEMORY_CUSTOMER_MAP", '{"maya":"003000000000001AAA"}')
     registry = FakeRegistry()
     registry.targets["agentforce-memory-rest"] = Target(
         name="agentforce-memory-rest", platform="agentforce", protocol="agentforce-api"
@@ -1270,7 +1302,9 @@ def test_agent_memory_presentation_mode_is_ten_scene_evidence_only_handoff():
     assert {"agent-config-edit.png", "data-graph.png", "data-graph-pos-order.png"} <= set(shots)
     for shot in shots:
         assert Path(f"src/console/static/memory-presentation/{shot}").exists()
-    assert '"customer-memory-claude", "customer-memory-openai", "customer-memory-agentforce"' in html
+    assert (
+        '"customer-memory-claude", "customer-memory-openai", "customer-memory-agentforce"' in html
+    )
     assert html.count('view = { type: "memory-presentation"') == 1
     assert 'aria-current="step"' in html
     assert 'aria-live="polite"' in html
@@ -1312,7 +1346,9 @@ def test_agent_memory_presentation_mode_is_ten_scene_evidence_only_handoff():
     # env var names in the scenes or the figures (code comments may cite them).
     shown = html[html.index("const AGENT_CONTEXT_DIAGRAM = `") : end]
     shown = "\n".join(ln for ln in shown.splitlines() if not ln.lstrip().startswith("//"))
-    internal = r"\bD\d{2,3}\b(?!\[)|\bWS\d+\b|AM-API-\d+|\bSR-\d+|\.py\b|\.md\b|A2ALAB_|A2ALabMemoryProbe"
+    internal = (
+        r"\bD\d{2,3}\b(?!\[)|\bWS\d+\b|AM-API-\d+|\bSR-\d+|\.py\b|\.md\b|A2ALAB_|A2ALabMemoryProbe"
+    )
     assert not re.findall(internal, shown)
     for chip in ("Verified", "Unverified", "Waiting for fix"):
         assert f'"{chip}"' in scenes and f'"{chip}": [' in html
@@ -3471,9 +3507,11 @@ def test_otel_trace_route_uses_shared_complete_span_parser(tmp_path, monkeypatch
         otel_source.SalesforceOtelSource, "fetch_trace", lambda self, session_id: doc
     )
 
-    data = TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry())).get(
-        "/api/obs/otel-trace", params={"session_id": "session-1"}
-    ).json()
+    data = (
+        TestClient(make_app(tmp_path / "traces", monkeypatch, FakeRegistry()))
+        .get("/api/obs/otel-trace", params={"session_id": "session-1"})
+        .json()
+    )
 
     assert data["found"] is True and data["span_count"] == 8
     memory = next(span for span in data["spans"] if span["name"] == "memory_turn")
@@ -3487,12 +3525,14 @@ def test_otel_trace_table_has_explain_drilldown_and_honest_glossary():
     html = Path("src/console/static/index.html").read_text()
     assert "<th>inspect</th>" in html
     assert "openOtelSpanExplanation" in html
+    assert "data-otel-span-id" in html
     assert "Explain" in html
     assert 'role="dialog"' in html and 'aria-label="Agentforce span explanation"' in html
     assert "Lab interpretation" in html
     assert "no lab interpretation is registered" in html
     assert "ACTION_STEP" in html and "TRUST_GUARDRAILS_STEP" in html
     assert "Exact raw span payload" in html
+    assert "closeButton.focus()" in html and "opener.focus()" in html
     assert "D121" in html and "plan/05-observability.md" in html
 
 

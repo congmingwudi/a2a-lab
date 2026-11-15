@@ -5007,6 +5007,7 @@ window.openOtelSpanExplanation = spanId => {
   const span = spans.find(item => item.span_id === spanId);
   if (!span) return;
   const children = spans.filter(item => item.parent_span_id === spanId).map(item => item.span_id);
+  const opener = document.activeElement;
   closeDiagram();
   const mask = document.createElement("div");
   mask.className = "dgmask";
@@ -5025,10 +5026,28 @@ window.openOtelSpanExplanation = spanId => {
       <details><summary class="stat">Events and links</summary><pre>${esc(pretty({events: span.events || [], links: span.links || []}))}</pre></details>
       <details><summary class="stat">Exact raw span payload</summary><pre>${esc(pretty(span.raw || {}))}</pre></details>
     </div></div>`;
-  mask.addEventListener("click", event => { if (event.target === mask) closeDiagram(); });
-  mask.querySelector(".dgclose").addEventListener("click", closeDiagram);
+  const closeSpanModal = () => {
+    mask.remove();
+    if (opener && typeof opener.focus === "function") opener.focus();
+  };
+  mask.addEventListener("click", event => { if (event.target === mask) closeSpanModal(); });
+  mask.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    closeSpanModal();
+  });
+  const closeButton = mask.querySelector(".dgclose");
+  closeButton.addEventListener("click", closeSpanModal);
   document.body.appendChild(mask);
+  closeButton.focus();
 };
+
+document.addEventListener("click", event => {
+  const chip = event.target.closest?.("[data-otel-span-id]");
+  if (!chip) return;
+  event.preventDefault();
+  openOtelSpanExplanation(chip.dataset.otelSpanId || "");
+});
 
 function obsSessionTraceHtml() {
   const o = obs.otel;
@@ -5114,7 +5133,7 @@ function obsSessionTraceHtml() {
       <td class="fmono">${esc((s.start || "").replace("T", " ").slice(0, 19))}</td>
       <td>${esc(s.status || "")}</td>
       <td>${esc((s.summary || "").slice(0, 120))}</td>
-      <td><button class="badge ghost" onclick="openOtelSpanExplanation('${esc(s.span_id || "")}')">Explain</button></td>
+      <td><button class="badge ghost" data-otel-span-id="${esc(s.span_id || "")}">Explain</button></td>
     </tr>`).join("");
     result = `<div class="flow">
       <h3>Session ${esc(r.session_id)} <span class="stat" style="float:right">${r.span_count} span(s) · OTLP</span></h3>

@@ -2251,7 +2251,7 @@ def create_console_app(registry: Registry | None = None):
         }
         if action == "delete" and (not requested or not requested <= allowed):
             raise HTTPException(status_code=400, detail="selection is empty or no longer governed")
-        targeted_semantic = allowed if action == "fresh" else requested
+        targeted_semantic: set[tuple[str, str]] = set()
 
         mem = MemoryClient(source="console-memory-management")
         steps: list[dict] = []
@@ -2317,6 +2317,9 @@ def create_console_app(registry: Registry | None = None):
                 )
             else:
                 old_marker_ids = []
+            # Evidence describes delete calls that were actually eligible to run.
+            # If generation creation failed, fresh deliberately targets nothing.
+            targeted_semantic = set(requested)
             for category in SAVED_CATEGORIES:
                 ids = [memory_id for cat, memory_id in requested if cat == category]
                 try:

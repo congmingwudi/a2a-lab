@@ -155,7 +155,7 @@ def test_real_customer_memory_fixture_parses_complete_explainable_spans():
     assert memory["parent_span_id"] == "turn000000000001"
     assert memory["duration_ms"] == 2766
     assert memory["attributes"]["step.type"] == "ACTION_STEP"
-    assert memory["status_code"] == "STATUS_CODE_OK"
+    assert memory["status_code"] is None
     assert memory["events"] == [] and memory["links"] == []
     assert memory["raw"]["spanId"] == memory["span_id"]
     assert guardrail["attributes"]["step.type"] == "CLASSIFIER_STEP"
@@ -180,3 +180,29 @@ def test_otlp_attribute_decoder_keeps_bytes_and_nested_values():
             }
         }
     ) == ["7", {"ok": True}]
+
+
+def test_parse_spans_accepts_synthetic_string_status_code():
+    doc = {
+        "resourceSpans": [
+            {
+                "scopeSpans": [
+                    {
+                        "spans": [
+                            {
+                                "spanId": "synthetic",
+                                "name": "synthetic.status",
+                                "startTimeUnixNano": "1000000",
+                                "endTimeUnixNano": "2000000",
+                                "attributes": [],
+                                "status": {"code": "STATUS_CODE_OK"},
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    (span,) = parse_spans(doc)
+    assert span["status"] == span["status_code"] == "STATUS_CODE_OK"

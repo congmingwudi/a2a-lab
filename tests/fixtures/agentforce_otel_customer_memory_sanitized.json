@@ -2,7 +2,7 @@
   "_provenance": {
     "session_id": "01a1dd0e-6b78-7b4b-910b-762d81f41ddf",
     "captured_utc": "2026-11-15T02:34:33Z",
-    "note": "Sanitized from the hosted Customer memory — Agentforce recalls session. Customer text, record ids, interaction ids, and action payload values were replaced; span names, parent shape, timestamps, attribute keys, and step.type values are preserved."
+    "note": "Sanitized opening interaction plus first user turn (8 of 17 spans across a 3-turn hosted Customer memory — Agentforce recalls session). Customer text, record ids, interaction ids, and action payload values were replaced; span names, parent shape, timestamps, attribute keys, and step.type values are preserved."
   },
   "resourceSpans": [
     {
@@ -22,7 +22,10 @@
               "endTimeUnixNano": "1794710073444000000",
               "attributes": [
                 {"key": "interaction.id", "value": {"stringValue": "[REDACTED_INTERACTION]"}},
-                {"key": "interaction.type", "value": {"stringValue": "AGENT"}}
+                {"key": "interaction.type", "value": {"stringValue": "TURN"}},
+                {"key": "agent.messages.assistant.0.type", "value": {"stringValue": "[REDACTED]"}},
+                {"key": "agent.messages.assistant.0.content", "value": {"stringValue": "[REDACTED]"}},
+                {"key": "agent.messages.assistant.0.timestamp", "value": {"stringValue": "[REDACTED]"}}
               ],
               "status": {}
             },
@@ -33,7 +36,13 @@
               "endTimeUnixNano": "1794710080694000000",
               "attributes": [
                 {"key": "interaction.id", "value": {"stringValue": "[REDACTED_INTERACTION]"}},
-                {"key": "interaction.type", "value": {"stringValue": "TURN"}}
+                {"key": "interaction.type", "value": {"stringValue": "TURN"}},
+                {"key": "agent.messages.user.0.type", "value": {"stringValue": "[REDACTED]"}},
+                {"key": "agent.messages.user.0.content", "value": {"stringValue": "[REDACTED]"}},
+                {"key": "agent.messages.user.0.timestamp", "value": {"stringValue": "[REDACTED]"}},
+                {"key": "agent.messages.assistant.1.type", "value": {"stringValue": "[REDACTED]"}},
+                {"key": "agent.messages.assistant.1.content", "value": {"stringValue": "[REDACTED]"}},
+                {"key": "agent.messages.assistant.1.timestamp", "value": {"stringValue": "[REDACTED]"}}
               ],
               "status": {}
             },
@@ -75,7 +84,7 @@
                 {"key": "input.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}},
                 {"key": "output.value", "value": {"kvlistValue": {"values": [{"key": "value", "value": {"stringValue": "[REDACTED]"}}]}}}
               ],
-              "status": {"code": "STATUS_CODE_OK"}
+              "status": {}
             },
             {
               "spanId": "reason0000000001",
