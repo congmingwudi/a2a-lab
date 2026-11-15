@@ -3867,3 +3867,7 @@ explicitly parked. Delivery is governed by handoff batch `ws33-b1`.
    fresh-generation OpenAI retry recalled the shared values in 21.502 s; it also exposed a separate
    prompt-precedence follow-up by attempting Agentforce despite an explicit no-action instruction
    (`plan/03-results.md`).
+10. ⏳ Prompt-precedence follow-up (candidate `ws33-b2`): make the OpenAI customer-memory scenario
+    honor an explicit no-Agentforce/no-CRM-action request ahead of its recall-to-action suffix.
+    Add a regression proving recall can return the shared values with no Agentforce tool/session
+    hop and no CRM mutation, then rerun that path hosted.
