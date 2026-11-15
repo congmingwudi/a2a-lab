@@ -3253,3 +3253,28 @@ No deliberate production memory-tenant outage was injected. The known pre-deploy
 also remains: the console's first-turn generation lookup has no explicit timeout and is outside
 the `/api/run` result-shaping `try`, so a real tenant outage may return a raw 500 while still
 failing closed.
+
+## 2026-11-15 — WS34 full rebuild and rollout
+
+The D122/WS34 implementation passed Claude round-two cross-review at commit `7989486`. The
+operator-requested AWS rollout rebuilt both images from source; neither deploy used
+`--skip-build`.
+
+| Gate | Measured result |
+| --- | --- |
+| AWS preflight | Guarded account and `us-east-1` verified; Docker 29.9.3 and both required local signing keys present |
+| Faces image | ECR digest `sha256:3fbc1b5c5e0712d267f58ed2bcc583bba5547896560e154b030e01b7c0d948ce` |
+| Faces rollout | ECS task definition `a2alab-faces:40`; rollout `COMPLETED`, desired/running/pending `1/1/0` |
+| Faces health | Direct ALB host-header route 200; public `/healthz` 200 |
+| Console image | ECR digest `sha256:3129cbc469c15cebf311def0e247f84e44f608ca7f28272e58db2ca68ed7721f` |
+| Console rollout | ECS task definition `a2alab-console:165`; rollout `COMPLETED`, desired/running/pending `1/1/0` |
+| Console health | Direct ALB host-header route 200; public `/healthz` 200 |
+| Served WS34 assets | Public console HTML contains `Start fresh generation for`, the full-context display-redaction label, `data-otel-span-id`, and `Exact raw span payload` |
+
+The three behavioral smokes remain deliberately open. Their first step, **Start fresh generation
+for Maya**, permanently deletes every profile-memory ID in her current governed listing before
+rotating the generation. The deployment request authorized the service rollout but did not
+separately authorize that destructive production-memory mutation, so the automation stopped
+before login or mutation. No Maya memory was deleted and no Claude/Agentforce smoke turn was run.
+WS34 therefore remains at the handoff deploy station until the operator explicitly approves that
+scope, the three smokes are recorded here, and the operator runs `handoff deployed`.
