@@ -4,7 +4,7 @@
   "proposer": "codex",
   "critic": "claude",
   "implementer": "codex",
-  "station": "deploy",
+  "station": "done",
   "holder": "operator",
   "round": 2,
   "verdict": "pass",
@@ -69,6 +69,12 @@
       "verdict": "pass",
       "file": "build-notes/claude/reviews/ws34-b1.md",
       "round": 2
+    },
+    {
+      "ts": "2026-11-15T05:56:32+00:00",
+      "agent": "operator",
+      "action": "deployed",
+      "note": "Faces :40 and console :165 deployed; hosted reset, complete-context, Agentforce OTel, and Explain smokes passed."
     }
   ]
 }
