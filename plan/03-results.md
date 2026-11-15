@@ -3286,3 +3286,43 @@ The reset result is the D122 behavior in concrete form: a successful governed re
 produce an empty immediate listing. It reports the attempted IDs and verified absence separately
 from the current post-reset rows, while the new generation prevents those profile-wide rows from
 being supplied to Claude, OpenAI, or Agentforce.
+
+## 2026-11-15 — AM-API-012 after the hand-deployed `amp_AgenticIndividual` graph: lookup still missing
+
+SR-01's engineer (2026-11-15) pointed to the `AgenticDatakitIndividual` data kit. Its deployment
+history showed that the setup's own 11-11 deploy into `A2ALabMemoryProbe` had failed ("DataGraph
+deployment failed" on `sfm_AgenticIndividual`). That explains why the graph was missing (found
+2026-11-14). The operator redeployed the kit by hand into `A2ALabMemoryProbe`, and every item
+succeeded. SOQL on `DataGraph`: `amp_AgenticIndividual` READY / ACTIVE, created 16:40:35Z. It has
+the same four nodes as the `default` `AgenticIndividual` (`Individual` → `AiAgentSession`,
+`Conversation`, `AiParticipantInsight_std`, all `amp_`-prefixed). It is the only platform graph
+in either space whose creator is the operator's user rather than the setup's automation user.
+The registrations were not changed (configs compared read-only: symmetric).
+
+| Test (16:49–16:55Z) | Non-default (`A2ALab_Memory_Space_Probe`) | Default (`A2ALab_Memory_Case`) | vs 2026-11-13 |
+| --- | --- | --- | --- |
+| Conversation ingest through close (`setup_agentic_memory.py probe`) | 201/201/202/202/202 | 201/201/202/202/202 | unchanged |
+| List conversations / list sessions / get | 200 `[]` / 404 / 404 | 200 / 200 / 200 | custom unchanged |
+| Synthetic-owner Context, three reads | **500 `Failed to load agent configuration`** ×3 | 200 ×3 | **custom regressed (was 200)** |
+| Saved fact create (`memory_governance_probe.py`) | 400 `Failed to create agentic memory` | created, visible at 0.3 s, cleaned up | custom unchanged |
+| Memory list for real Maya (`graph_context_probe.py --arms H`) | **400 `DG lookup info missing for category: sys_PROFILE_FACT, partition keys: [IndividualId__c, AgentIdentifier__c]`** (rechecked 16:54Z) | — | new error string |
+
+The list error names the cause the earlier 400s hid. The memory service has no data-graph
+lookup for the memory category in this space, even though the graph it would point at now
+exists. The likely shape is that the setup flow writes that lookup as part of a successful kit
+deploy, and a later hand deploy does not backfill it. The Context 500 coming back after the
+graph appeared fits a configuration reload that now trips over the same missing entry. Side
+note: the `default` space's `AgenticConversation` graph is `ERROR / ACTIVE_LAST_RUN_FAIL` in
+SOQL, yet the default arm passed every test. AM-API-012 stays open. Next: hand the new error
+string to SR-01 and ask for the lookup to be regenerated.
+
+**Data-kit deployment history (same day, `DataKitDeploymentLog`, 3,069 Agentic rows).** In
+`A2ALabMemoryProbe`, the Conversation, User and UnifiedInd kits all deployed successfully on 11-11
+at 16:20–16:26Z. The Individual kit's graph failed at 16:28Z with support ID `1609613015-21966`,
+and today's manual redeploy succeeded. Every component the `default` space has is also present in
+the custom space; the only differences are names that changed between kit versions. So the
+missing lookup is not a missing kit component. Separately, the setup's automation user has
+redeployed the Conversation kit into `default` every 30 min since 2026-11-10 ~22:00Z. That is 230
+failures so far: 37 × `component is in error state: 'sfm_AgenticConversation'`, then 193 ×
+`That data graph name is already taken`, still running on 11-15. That loop is why
+`default/AgenticConversation` is in ERROR. Both findings were posted to SR-01 on 2026-11-15.
