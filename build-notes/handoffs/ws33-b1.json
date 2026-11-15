@@ -4,7 +4,7 @@
   "proposer": "codex",
   "critic": "claude",
   "implementer": "codex",
-  "station": "deploy",
+  "station": "done",
   "holder": "operator",
   "round": 2,
   "verdict": "pass",
@@ -69,6 +69,12 @@
       "verdict": "pass",
       "file": "build-notes/claude/reviews/ws33-b1.md",
       "round": 2
+    },
+    {
+      "ts": "2026-11-15T02:19:41+00:00",
+      "agent": "operator",
+      "action": "deployed",
+      "note": "Deployed and hosted validation complete; evidence in plan/03-results.md"
     }
   ]
 }
