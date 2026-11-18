@@ -272,3 +272,27 @@ interop.
     n=3 can't separate gateway overhead from turn variance. The shim's honest
     status stays `via-shim` for callers that cannot get an OrgJWT, such as
     Foundry's A2A tool and any caller without a Salesforce ECA.
+- **Agent Configuration data-graph requirements (Data 360 Agentic Memory & Context)**
+  (WS27/WS32, D115/D117/D118; compiled 2026-11-18). These are the rules for the graphs attached
+  under *Additional Context Data Sources* in Data 360 → Agent Configuration → Edit Agent. The
+  table is written to carry over to another org or project: nothing in it depends on this lab's
+  names. "Measured" rows come from registration and GetContext arms (`plan/03-results.md`,
+  2026-11-05 to 11-10). "Stated" rows come from Salesforce's Edit Agent FAQ copy and its Help
+  support agent (an AI answer, 2026-11-18, not documentation).
+
+  | # | Requirement | Rule | Evidence |
+  | --- | --- | --- | --- |
+  | 1 | Graph type | **Real-time data graphs only.** Standard (scheduled-refresh) graphs are not listed in the slot dropdowns. | Stated (FAQ: "Real-Time Data Graphs you attach per agent"; support agent). Consistent with every served graph being `REALTIME`; a standard graph was never tried. |
+  | 2 | Real-time processing toggle | **Not required.** The *type* must be real-time; `isRealTimeToggleEnabled` can be off. | Measured: platform-made `AgenticIndividual` / `AgenticUnifiedIndividual` have it off and are served (D115 arms E/F). |
+  | 3 | Number of graphs | **At most two:** one External User (customer) graph and one Employee graph. "External User" means the customer (`owner_type=individual`), not an Experience Cloud user. | Measured + stated. Both slots are stored as one `contextDataSources.dataGraphs` list (max 2), so the runtime cannot tell which slot a graph came from. |
+  | 4 | Allowed roots | **User** (Employee slot), **Individual** (`ssot__Individual__dlm`), or a **Unified Individual** DMO. | Measured: registration error `INVALID_API_INPUT` "The data graph must be rooted on User, Individual, or a Unified DMO declared in profileDmos (UnifiedIndividual__dlm)"; Individual root served (arm E). Stated by the support agent. |
+  | 5 | Unified root needs a matching Profile DMO | A Unified Individual root must be **the same DMO declared as the configuration's Profile DMO** (e.g. the ruleset-specific `Unified…Individual<ruleset>__dlm`). With none declared, it defaults to `UnifiedIndividual__dlm` and other unified roots are refused. | Measured (D115 arm D). Not mentioned in the UI or by the support agent. This is the one rule that blocks a save. |
+  | 6 | Owner id must resolve to the graph's root | GetContext looks the graph up by `owner_id` with id resolution on. The id the caller sends must resolve to a profile the graph holds, or the `Profile` entry comes back empty. The graph arrives as TOON in `userContext` `sourceType: Profile`, not in `ontology`. | Measured: CRM Contact id as owner + Unified-rooted graph returns the full CRM record (D117); the same graph read with the memory pipeline's own Individual id returned nothing (D115). |
+  | 7 | Individual vs Unified root in practice | Both are valid but serve different records. The platform's Individual-rooted graph returned the **memory pipeline's own Individual** (sessions, conversations), not the CRM customer. Individual-id lookups read the Lakehouse (batch); the identity-link `SourceRecordId__c` key reads the real-time layer. | Measured: POS order visible via an Individual-rooted graph only after a batch refresh (934 s); via a Unified-rooted graph read by Contact id, in GetContext 1.8–2.0 s after ingest (D118). **Untested:** an Individual-rooted graph over CRM Contact data, read with a Contact-id owner. |
+
+  Practical recipe that works: identity resolution published → its Unified Individual declared
+  as the Profile DMO → a READY real-time graph rooted on that Unified Individual (unified → link →
+  Individual → contact points, plus any streamed DMOs) on the External User slot → configuration
+  changed only by a full-configuration PATCH (a partial body replaces the whole configuration) →
+  callers send the CRM Contact id as `owner_id`. Verify through GetContext, not the REST graph
+  lookup (that lookup 404s graphs GetContext serves).

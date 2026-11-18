@@ -8,8 +8,8 @@
     "svg_sha256": "ca6bc529baba935ee7ab1583790b28f1af91d82254ed18a3b7d23585b4038de8"
   },
   "agent-context": {
-    "mermaid_sha256": "be28425fdf75c30bb0f843cef248bf51e34d33e84939b3c6c2437acc6d09553c",
-    "svg_sha256": "436b80d66b1abb0c3330ea7cedcf0eae27e922a5af46f0a55102dac857dd5dbe"
+    "mermaid_sha256": "0fbf5a0fe583e6a521ea5e385269e95b9ebb10e97939147668532800a97b8bd9",
+    "svg_sha256": "86deca74f0b6020810e7878616b4498e22ff0aed4bbe7d12cee56c5d034f46f8"
   },
   "behaviour": {
     "mermaid_sha256": "d59895ef03dfc78f1fe513effc77b8577030a4cc7a84697a8b042ce9120d889e",

@@ -1141,7 +1141,12 @@ def test_customer_memory_experiments_are_a_three_platform_seeded_set(tmp_path, m
     assert "face-owned mapping · effective demo isolation boundary" in html
     assert '["Claude", "OpenAI", "Agentforce"]' in html
     assert "Shared case memory" in html
-    assert "real-time</i> data graphs" in html
+    assert "function memoryGraphRequirementsHtml()" in html
+    assert "Real-time data graphs only." in html
+    assert "Unified root ⇒ matching Profile DMO" in html
+    assert "What a customer data graph must be to attach" in html
+    assert "scene.requirements" in html
+    assert 'fig.closest(".memory-present")' in html
     assert "function agenticMemoryBillingDetailHtml()" in html
     assert "free during Limited GA" in html
     assert "final pricing still unannounced" in html

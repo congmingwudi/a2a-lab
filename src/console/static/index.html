@@ -3551,6 +3551,18 @@ const MEMORY_PRESENTATION_SCENES = [
       "Non-default Data Spaces: in a test non-default space, memory creates still fail and ingested turns do not persist on this org. Another tenant's non-default space healed on 2026-11-13, so the fix is rolling out.",
       "The attached graph is the copy the latency was measured on; re-attaching the version-controlled definition is still to do.",
     ],
+    // The Edit Agent "Additional Context Data Sources" rules, in audience form.
+    // Same facts as MEMORY_GRAPH_REQUIREMENTS in the experiment Details.
+    requirementsTitle: "What a customer data graph must be to attach",
+    requirements: [
+      ["Graph type", "Real-time data graphs only: both Edit Agent slots are labelled Real-Time Data Graph, and every graph served here was real-time.", "Verified"],
+      ["Real-time processing toggle", "Not required: the graph type must be real-time, its streaming toggle can be off.", "Verified"],
+      ["How many", "At most two per agent: one customer (External User) graph and one Employee graph.", "Verified"],
+      ["Root", "User for the Employee slot; Individual or Unified Individual for the customer slot.", "Verified"],
+      ["Unified root", "Must be the same Unified Individual declared as the Profile DMO, or the save is refused.", "Verified"],
+      ["Owner", "The owner id the agent sends must resolve to a profile the graph holds; here, the CRM Contact id.", "Verified"],
+      ["Individual vs Unified in practice", "An Individual root returned the memory pipeline's own record, not the CRM customer; the Unified root serves the full customer and POS orders in seconds.", "Unverified"],
+    ],
     shots: [
       { src: "agent-config-edit.png", caption: "Agent Configuration · A2ALab_Memory_Case: Data Space, Profile DMO, extraction and the attached real-time graph (opened in Edit, closed without saving)." },
       { src: "data-spaces.png", caption: "Data Spaces · default, plus a disposable test space where the non-default write path still fails." },
@@ -3750,7 +3762,15 @@ function memoryPresentationHtml() {
       <figure class="memory-shot"><a href="${MEMORY_SHOT}${esc(shot.src)}" target="_blank" rel="noopener">
         <img src="${MEMORY_SHOT}${esc(shot.src)}" alt="${esc(shot.caption)}" loading="lazy"></a>
         <figcaption>${esc(shot.caption)}</figcaption></figure>`).join("")}</div></div>` : "";
-  const map = steps || shots ? `<div class="memory-system-map">${steps}${shots}</div>` : "";
+  const reqs = (scene.requirements || []).length ? `
+    <div class="memory-reqs"><h3>${esc(scene.requirementsTitle || "Requirements")}</h3>
+      <div class="tbl-card"><div class="tbl-scroll"><table class="obs-table">
+        <thead><tr><th>Requirement</th><th>Rule</th><th>Status</th></tr></thead>
+        <tbody>${scene.requirements.map(([req, rule, status]) => `
+          <tr><td>${esc(req)}</td><td style="white-space:normal">${esc(rule)}</td>
+              <td>${status ? memoryStatusChip(status) : ""}</td></tr>`).join("")}</tbody>
+      </table></div></div></div>` : "";
+  const map = steps || shots || reqs ? `<div class="memory-system-map">${steps}${reqs}${shots}</div>` : "";
   const narration = scene.live ? memoryPresentationReadinessHtml() : `
     <ul>${scene.points.map(point => `<li>${esc(point)}</li>`).join("")}</ul>`;
   return `
@@ -5773,9 +5793,10 @@ function memoryDetailHtml(s) {
           shared <code>A2ALab_Memory_Case</code> registration. GetContext returns the customer's relevant earlier
           context. The seam then makes two governed saved-memory reads—facts and preferences—through that same
           service identity and places the authorized results in front of the message.</li>
-        <li><b>Structured Case context is deferred.</b> No custom data graph is attached to this registration.
-          Salesforce documents additional GetContext sources as <i>real-time</i> data graphs; the future Case
-          enrichment waits for that org capability rather than substituting a standard graph.</li>
+        <li><b>Structured customer context.</b> The registration carries one real-time customer data graph
+          (Customer360 plus in-store POS orders) on the External User slot, rooted on the AM01 Unified Individual
+          declared as its Profile DMO. GetContext serves it as the <code>Profile</code> entry, keyed by the CRM Contact
+          id (D117/D118). The requirements for that graph setting are in the table below.</li>
         <li><b>After the answer.</b> Your message and the agent's reply are both ingested, with tokens, passwords
           and contact details redacted first (D94). The reply is the side no Agentforce hook can supply (D89). Then
           the session is closed, because the close is what makes Data 360 extract memory from the entries (D93).</li>
@@ -5790,6 +5811,55 @@ function memoryDetailHtml(s) {
         <li><b>Caveat.</b> The experiment's prompt suffix (the instruction to consult Agentforce) is part of the
           message, so it is ingested with your words.</li>
       </ul>
+    </div>
+    ${memoryGraphRequirementsHtml()}`;
+}
+
+// The Agent Configuration's "Additional Context Data Sources" (the two graph
+// slots in Edit Agent): what a graph must be to attach and be served. Each row
+// says where the rule comes from, because three sources back these and they
+// are not equal: the platform's own validation error, the lab's GetContext
+// arms, and Salesforce's UI/support-agent copy. Portable form of the same
+// table: plan/02-matrix.md findings ledger (2026-11-18 entry).
+const MEMORY_GRAPH_REQUIREMENTS = [
+  ["Graph type", "Real-time data graphs only. Standard (scheduled-refresh) graphs are not offered in the slot dropdowns.",
+    "Edit Agent FAQ copy; Salesforce Help support agent (2026-11-18). Every graph the lab attached and saw served was REALTIME.",
+    "Stated + consistent"],
+  ["Real-time processing toggle", "Not required. The type must be real-time; the graph's streaming toggle (isRealTimeToggleEnabled) can be off.",
+    "Platform-made AgenticIndividual / AgenticUnifiedIndividual have it off and were served (D115 arms E/F).",
+    "Measured"],
+  ["Number of graphs", "At most two: one External User (customer) graph and one Employee graph.",
+    "UI and support agent. Both slots are stored as one contextDataSources.dataGraphs list (max 2); the runtime cannot tell which slot a graph came from.",
+    "Measured"],
+  ["Allowed roots", "User (Employee slot), Individual (ssot__Individual__dlm), or a Unified Individual DMO.",
+    "Registration error INVALID_API_INPUT: 'must be rooted on User, Individual, or a Unified DMO declared in profileDmos'. Individual root served in arm E.",
+    "Measured"],
+  ["Unified root ⇒ matching Profile DMO", "A Unified Individual root must be the same DMO declared as the configuration's Profile DMO. With none declared it defaults to UnifiedIndividual__dlm and other unified roots are refused.",
+    "Same registration error (D115 arm D). Not mentioned by the UI or the support agent; the one rule that blocks a save.",
+    "Measured"],
+  ["Owner id must resolve to the graph's root", "GetContext looks the graph up by owner_id (resolveId=true). The id you send must resolve to a profile the graph holds, or the Profile entry comes back empty.",
+    "Contact id + AM01-rooted graph returns the full CRM record (D117). The same graph with the pipeline's own Individual id returned nothing (D115).",
+    "Measured"],
+  ["Individual root vs Unified root in practice", "Both are valid, but they serve different things: the Individual-rooted platform graph returned the memory pipeline's own Individual (sessions, conversations), not the CRM customer.",
+    "D115 arm E. Individual-id lookups read the Lakehouse (batch, ~15 min for a POS order); the identity-link key reads the real-time layer (~2 s, D118).",
+    "Measured; CRM-backed Individual root untested"],
+];
+
+function memoryGraphRequirementsHtml() {
+  const rows = MEMORY_GRAPH_REQUIREMENTS.map(([req, rule, source, tier]) => `
+        <tr><td>${esc(req)}</td><td style="white-space:normal">${esc(rule)}</td>
+            <td style="white-space:normal">${esc(source)}</td><td>${esc(tier)}</td></tr>`).join("");
+  return `<div class="flow">
+      <h6>Agent Configuration — requirements for the customer data graph</h6>
+      <p class="desc-note">What a data graph must be to attach under <b>Additional Context Data Sources</b> in
+        Data 360 → Agent Configuration → Edit Agent, and to be served by GetContext. Measured rows come from the
+        lab's registration arms (D115, D117, D118; plan/03-results.md). Stated rows come from Salesforce's own UI copy
+        and its Help support agent, an AI answer and not documentation. The same table in portable form is in the
+        plan/02-matrix.md findings ledger.</p>
+      <div class="tbl-card"><div class="tbl-scroll">
+        <table class="obs-table"><thead><tr><th>Requirement</th><th>Rule</th><th>Source</th><th>Evidence</th></tr></thead>
+          <tbody>${rows}</tbody></table>
+      </div></div>
     </div>`;
 }
 
@@ -7064,7 +7134,11 @@ async function paintFigure(elId) {
     try {
       const svg = await archDrawioSvg(drawing.url);
       if (fig.dataset.mermaidSrc !== src) return;   // re-rendered while in flight
-      fig.innerHTML = (drawing.stale
+      // The presentation is audience-facing (D116): no maintainer notes. A stale
+      // drawing there already opens on its mermaid; this only hides the banner
+      // when a viewer explicitly picks the draw.io tab.
+      const audience = !!fig.closest(".memory-present");
+      fig.innerHTML = (drawing.stale && !audience
         ? `<p class="hint arch-stale">This drawing predates the latest change to this figure's
              mermaid, so it may show an older shape — the Mermaid view is current. Redraw with
              <code>scripts/arch_drawio.py</code> (D114).</p>` : "") + svg;
