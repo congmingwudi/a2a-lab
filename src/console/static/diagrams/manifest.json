@@ -115,6 +115,10 @@
     "mermaid_sha256": "bd6948c5601067a1d9c69f88fe9bcd80715f430338c398fd12dfa1f044eb3072",
     "svg_sha256": "25f2a2c6f93d2ae845c41ccd9fad530b86eea34a96e47ef2c64d71a65ea7e95f"
   },
+  "supplier-disruption": {
+    "mermaid_sha256": "a3c0cf48e2b468fb8c6266546cdd7b48357b11008d78bb4cafac68a27652da94",
+    "svg_sha256": "20763e6a13d6b9419255b314fad4eb39366e8b1346aefea7fdbad61907744666"
+  },
   "supplier-disruption-case-memory": {
     "mermaid_sha256": "4b91b2957eb219fa5b2052dee1ede8da8084a15c83ba3cd86882d4f3313e4150",
     "svg_sha256": "533be88a65ac59cce3bc8aaff245a83da7a50d1660074b09fad38037d1c0f869"

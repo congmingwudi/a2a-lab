@@ -432,7 +432,12 @@ targets:
     # Capping under the ALB (like agentcore 110 / foundry 100) makes an overrun
     # fail as a clean JSON timeout instead. A warm orchestrator finishes well
     # inside this; a COLD one can exceed it, so warm it first (warmup: true).
-    options: {timeout: 110, transport: http_json, warmup: true, protocol_version: "1.0"}
+    # warmup_dispatch: submit — the Warm button must submit, never ask: a
+    # blocking ask runs the full fan-out inline and 400s at ~100s (seen
+    # 2026-11-18), the same reason console runs are submit_poll.
+    options:
+      {timeout: 110, transport: http_json, warmup: true, warmup_dispatch: submit,
+       protocol_version: "1.0"}
     auth: {scheme: google-adc}
 
   # ---- MuleSoft Agent Fabric broker (WS10 SP1). The broker's gateway A2A

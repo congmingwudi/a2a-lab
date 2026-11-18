@@ -3877,3 +3877,42 @@ def test_customer_purchase_reports_an_ingest_refusal_as_502(tmp_path, monkeypatc
                     json={"sku": sku})  # fmt: skip
     assert r.status_code == 502
     assert "HTTP 400" in r.json()["detail"]["message"] and r.json()["detail"]["trace_id"]
+
+
+class SubmitOnlyClient:
+    """A fan-out orchestrator: a blocking ask 400s, submit returns a task id."""
+
+    protocol = "a2a"
+
+    def __init__(self):
+        self.submits = 0
+
+    async def ask(self, req: AgentRequest) -> AgentResponse:
+        raise RuntimeError("HTTP Error 400: Reasoning Engine Execution failed")
+
+    async def submit(self, req: AgentRequest):
+        from types import SimpleNamespace
+
+        self.submits += 1
+        return SimpleNamespace(task_id="t-1", state="submitted")
+
+    async def aclose(self):
+        pass
+
+
+def test_warmup_submit_dispatch_never_asks(tmp_path, monkeypatch):
+    fake = SubmitOnlyClient()
+    registry = WarmupRegistry(fake)
+    registry.get("openai-agentcore").options["warmup_dispatch"] = "submit"
+    app = make_app(tmp_path / "traces", monkeypatch, registry)
+    rec = TestClient(app).post("/api/warmup/openai-agentcore").json()
+    assert rec["ok"] is True and "submit accepted" in rec["note"]
+    assert fake.submits == 1
+
+
+def test_adk_orchestrator_warms_by_submit():
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    targets = yaml.safe_load((root / "config" / "targets.yaml").read_text())["targets"]
+    assert targets["adk-orchestrator-a2a"]["options"]["warmup_dispatch"] == "submit"

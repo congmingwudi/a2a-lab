@@ -3036,11 +3036,20 @@ def create_console_app(registry: Registry | None = None):
                     platform=str(target.options["warmup_delegated_platform"]),
                     inbound_depth=0,
                 )
+            ping_req = AgentRequest(message=ping, metadata=ping_meta, trace_id=new_trace_id())
             try:
-                resp = await client.ask(
-                    AgentRequest(message=ping, metadata=ping_meta, trace_id=new_trace_id())
-                )
-                ok, note = True, (resp.text or "").strip()
+                if target.options.get("warmup_dispatch") == "submit":
+                    # A fan-out orchestrator (the ADK one on Agent Engine)
+                    # cannot take a blocking ask: it runs the whole graph
+                    # inline and 400s past ~105s, so the button reported
+                    # FAILED for a runtime that was in fact awake. Submit
+                    # is what a cold start gates — accepted task id = warm.
+                    handle = await client.submit(ping_req)
+                    ok = True
+                    note = f"submit accepted (task {handle.task_id}, {handle.state})"
+                else:
+                    resp = await client.ask(ping_req)
+                    ok, note = True, (resp.text or "").strip()
             finally:
                 await client.aclose()
         except Exception as exc:  # noqa: BLE001 - the failure is the result

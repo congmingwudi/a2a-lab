@@ -5882,6 +5882,27 @@ function dispatchModeRowHtml(key) {
 // runs at the BRIDGE, on the orchestrator's behalf, inside the single held-open
 // callout. This figure draws exactly that: where the loop lives and what the
 // orchestrator does / does not see. Full narration in plan/14-supplier-disruption-orchestrators.md.
+const SUPPLIER_DISRUPTION_DIAGRAM = `flowchart LR
+  EV["Port strike halts Rotterdam<br/>assess impact for EU manufacturing customers"]
+  subgraph ORCH["One orchestrator per experiment"]
+    CMA["Claude Managed Agents<br/>host-side tool or remote MCP tools"]
+    GADK["Google ADK on Agent Engine<br/>ParallelAgent declared in the graph"]
+    AFO["Agentforce Agent Script<br/>one Apex callout, lab bridge fans out"]
+  end
+  subgraph UNITS["Three business units, three clouds"]
+    L["Logistics: which orders are exposed<br/>Google ADK · GCP"]
+    C["Commercial / Legal: penalties, force majeure<br/>Microsoft Foundry · Azure"]
+    O["Customer operations: what to tell customers<br/>OpenAI on AgentCore · AWS"]
+  end
+  BRIEF["One brief<br/>exposure · contract position · customer message<br/>sources and coverage named"]
+  EV --> ORCH
+  ORCH -->|"A2A submit, poll tasks/get"| L
+  ORCH -->|"A2A submit, poll tasks/get"| C
+  ORCH -->|"AgentCore HTTP, blocking"| O
+  L -.->|"section"| BRIEF
+  C -.->|"section"| BRIEF
+  O -.->|"section"| BRIEF`;
+
 const AF_ASYNC_DIAGRAM = `flowchart TB
   subgraph SF["Salesforce — the orchestrator (serial, one turn)"]
     AGENT["A2ALab_Supply_Orchestrator (Agent Script)<br/>picks DELEGATED topology · dispatch rides<br/>the situation as [A2A-LAB ROUTING] fanout-dispatch: async"]
@@ -5911,6 +5932,26 @@ const AF_ASYNC_DIAGRAM = `flowchart TB
   LOOP -->|"assembled sections + dispatch summary"| FANOUT
   FANOUT -->|"single callout response<br/>(Agentforce never sees a task id)"| APEX
   APEX -->|"action result, one agent turn"| AGENT`;
+
+// The scenario + A2A solution at a glance, on all three supplier-disruption
+// experiments (one per orchestrator): the same three legs, the same brief.
+function supplierDisruptionOverviewHtml(s) {
+  if (!s || !(s.fanout_platforms || []).length) return "";
+  return `
+    <div class="flow">
+      <h3>The scenario and the A2A solution</h3>
+      ${figureHtml("supplierFig", "One disruption, three business units, three clouds")}
+      <p class="desc-note">A port strike raises three independent questions owned by three business
+        units that standardised on three different agent platforms. One orchestrator (the variable across
+        these three experiments: Claude Managed Agents, Google ADK, or Agentforce) consults all three in
+        parallel, so the run costs the slowest leg, not the sum. The two A2A legs use the protocol's
+        long-running-task lifecycle (submit, then poll <code>tasks/get</code>, WS11/D47); the customer
+        operations leg runs on AgentCore, which has no task lifecycle, so it is a blocking call and is
+        recorded <code>async→sync</code>. The D27 delegation guard stops any leg from delegating onward,
+        and a failed leg is named in the brief rather than hidden. See
+        <code>plan/14-supplier-disruption-orchestrators.md</code> and D41.</p>
+    </div>`;
+}
 
 // The full fan-out control prose, moved out of the Run tab into Details (D57).
 // Rendered only for scenarios that actually expose these radios, so a plain
@@ -7052,6 +7093,7 @@ function figKeyForSource(src) {
       [MEMORY_EXTRACT_DIAGRAM, "memory-extract"], [MEMORY_ISOLATION_DIAGRAM, "memory-isolation"],
       [MEMORY_RETRIEVAL_DIAGRAM, "memory-retrieval"], [MEMORY_POS_DIAGRAM, "memory-pos"],
       [MEMORY_LIMITS_DIAGRAM, "memory-limits"],
+      [SUPPLIER_DISRUPTION_DIAGRAM, "supplier-disruption"],
     ]);
   }
   return figKeyMap.get(src) || "";
@@ -12157,6 +12199,7 @@ function detailsTabHtml() {
   const flow = topologyFlow(routeFlow(channelFlow(s.flow || [], afChannels[sKey]), afRoutes[sKey]), afTopologies[sKey]) || [];
   const descHtml = sectionedDescHtml(s.description);
   return `
+    ${supplierDisruptionOverviewHtml(s)}
     <div class="flow">
       <h3>Planned call path</h3>
       ${descHtml}
@@ -12532,6 +12575,9 @@ function renderMain(force) {
     // WS11/D76: the Agentforce fan-out Details embeds a mermaid figure of the
     // by-proxy fire-then-poll flow. Deferred render, like every other diagram.
     const dExp = currentExperiment();
+    if (dExp && view.kind !== "cell" && (dExp.fanout_platforms || []).length) {
+      renderMermaidInto("supplierFig", SUPPLIER_DISRUPTION_DIAGRAM, "supplierfig-svg");
+    }
     if (dExp && dExp.dispatch_mode_toggle && dExp.af_topology_toggle) {
       renderMermaidInto("afAsyncFig", AF_ASYNC_DIAGRAM, "afasyncfig-svg");
     }
